@@ -1,0 +1,37 @@
+name: on-digest
+
+# Listens for the image factory's "image-published" dispatch and repins the chart
+# to the freshly built, scanned, and signed digest.
+on:
+  repository_dispatch:
+    types: [image-published]
+
+permissions:
+  contents: write
+
+jobs:
+  repin:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4   # pin to SHA before going public (renovate)
+
+      - name: Bump the chart digest
+        env:
+          APP: ${{ github.event.client_payload.app }}
+          DIGEST: ${{ github.event.client_payload.digest }}
+        run: |
+          VALUES="charts/quench/${APP}/values.yaml"
+          test -f "$VALUES" || { echo "no chart for ${APP}"; exit 1; }
+          sed -i "s|digest: \".*\"|digest: \"${DIGEST}\"|" "$VALUES"
+          git diff --quiet "$VALUES" && { echo "digest unchanged"; exit 0; }
+
+      - name: Commit the repin
+        env:
+          APP: ${{ github.event.client_payload.app }}
+        run: |
+          git config user.name  "quench-bot"
+          git config user.email "bot@quenchworks.mkabumattar.com"
+          git add "charts/quench/${APP}/values.yaml"
+          git commit -m "chore(${APP}): repin image to freshly scanned digest" \
+                     -m "Co-Authored-By: QuenchWorks <quenchworks@mkabumattar.com>"
+          git push

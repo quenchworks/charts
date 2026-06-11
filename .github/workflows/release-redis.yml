@@ -1,0 +1,46 @@
+name: release-redis
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "charts/quench/redis/**"
+      - "charts/quench-common/**"
+      - ".github/workflows/release-redis.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: charts/quench/redis
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # pin actions to SHAs before going public (renovate)
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: helm/kind-action@v1
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 5m
+          kubectl rollout status statefulset/rtest-redis --timeout=120s
+          kubectl exec rtest-redis-0 -- redis-cli ping | grep -q PONG
+
+      - name: Package and push (OCI)
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/redis-*.tgz "${OCI_REPO}"

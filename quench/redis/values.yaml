@@ -1,0 +1,42 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/redis.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/redis
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+replicaCount: 1
+
+# Authentication. On by default; a random password is generated if you do not set one.
+# Provide your own via auth.password, or point at an existing secret.
+auth:
+  enabled: true
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: "redis-password"
+
+service:
+  type: ClusterIP
+  port: 6379
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+persistence:
+  enabled: true
+  size: 8Gi
+
+# Restrict ingress to the redis port. Allowed sources default to the release namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
