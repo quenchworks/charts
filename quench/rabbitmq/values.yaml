@@ -1,0 +1,49 @@
+# The digest below is the contract with the image factory. CI rewrites it on the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/rabbitmq
+  digest: "sha256:3ccf7bb1b927fe534d2cf2d1d01629808a1bf0754fe3fea43d5bbc2ff855bae5"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Authentication. RabbitMQ seeds a default user on first boot from these env vars
+# (the stock guest account is dropped). A password and Erlang cookie are generated
+# into a Secret if you do not set them. The cookie pins the node identity so the
+# broker survives restarts and can later form a cluster.
+auth:
+  enabled: true
+  username: "user"
+  password: ""
+  erlangCookie: ""
+  existingSecret: ""
+  existingSecretPasswordKey: "rabbitmq-password"
+  existingSecretErlangCookieKey: "rabbitmq-erlang-cookie"
+
+primary:
+  persistence:
+    enabled: true
+    size: 8Gi
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 5672
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
