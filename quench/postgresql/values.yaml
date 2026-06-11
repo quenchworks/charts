@@ -1,0 +1,49 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/postgresql.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/postgresql
+  digest: "sha256:12f845ac2da5ea086cb3eec16bd59be8d3abcbeb1e5797d74064e23243d091a0"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Authentication. On by default; PostgreSQL requires a superuser password to initialize.
+# A random password is generated if you do not set one.
+auth:
+  enabled: true
+  username: postgres          # superuser created by initdb
+  password: ""
+  database: ""                # optional extra database; empty means just the default
+  existingSecret: ""
+  existingSecretPasswordKey: "postgres-password"
+
+primary:
+  persistence:
+    enabled: true
+    size: 8Gi
+  # /dev/shm is tiny in containers; back it with memory so parallel queries do not fail
+  shmVolume:
+    enabled: true
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 5432
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
