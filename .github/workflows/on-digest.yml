@@ -12,45 +12,24 @@ permissions:
 jobs:
   repin:
     runs-on: ubuntu-latest
+    env:
+      APP: ${{ github.event.client_payload.app }}
+      DIGEST: ${{ github.event.client_payload.digest }}
     steps:
       - uses: actions/checkout@v4   # pin to SHA before going public (renovate)
 
-      - name: Bump the chart digest
-        env:
-          APP: ${{ github.event.client_payload.app }}
-          DIGEST: ${{ github.event.client_payload.digest }}
-        run: |
-          case "$APP" in
-            redis-exporter)
-              # the exporter is a sidecar of the redis chart, not its own chart
-              VALUES="charts/quench/redis/values.yaml"
-              python3 - "$VALUES" "$DIGEST" <<'PY'
-          import sys, re
-          path, digest = sys.argv[1], sys.argv[2]
-          t = open(path).read()
-          # replace the digest under the metrics.image block only
-          t = re.sub(r'(metrics:.*?image:.*?digest: ")[^"]*(")', lambda m: m.group(1)+digest+m.group(2), t, count=1, flags=re.S)
-          open(path, "w").write(t)
-          PY
-              ;;
-            *)
-              VALUES="charts/quench/${APP}/values.yaml"
-              test -f "$VALUES" || { echo "no chart for ${APP}"; exit 1; }
-              # the first digest in the file is the app image
-              sed -i "0,/digest: \".*\"/s||digest: \"${DIGEST}\"|" "$VALUES"
-              ;;
-          esac
-          git diff --quiet "$VALUES" && { echo "digest unchanged"; exit 0; }
-          echo "VALUES=$VALUES" >> "$GITHUB_ENV"
+      - name: Repin the chart digest
+        run: python3 .github/scripts/repin-digest.py "$APP" "$DIGEST"
 
       - name: Commit the repin
-        if: env.VALUES != ''
-        env:
-          APP: ${{ github.event.client_payload.app }}
         run: |
+          if git diff --quiet; then
+            echo "digest unchanged, nothing to commit"
+            exit 0
+          fi
           git config user.name  "quench-bot"
           git config user.email "bot@quenchworks.mkabumattar.com"
-          git add "$VALUES"
+          git add -A
           git commit -m "chore(${APP}): repin image to freshly scanned digest" \
                      -m "Co-Authored-By: QuenchWorks <quenchworks@mkabumattar.com>"
           git push

@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""Repin a chart's image digest from an image-published dispatch.
+
+Usage: repin-digest.py <app> <sha256:...>
+
+For most apps the app image is the first `digest:` in quench/<app>/values.yaml.
+The redis-exporter is the metrics sidecar of the redis chart, so its digest lives
+under the metrics.image block of quench/redis/values.yaml.
+"""
+import re
+import sys
+from pathlib import Path
+
+app, digest = sys.argv[1], sys.argv[2]
+
+if app == "redis-exporter":
+    path = Path("quench/redis/values.yaml")
+    pattern = re.compile(r'(metrics:.*?image:.*?digest: ")[^"]*(")', re.S)
+else:
+    path = Path(f"quench/{app}/values.yaml")
+    pattern = re.compile(r'(digest: ")[^"]*(")')  # first match = the app image
+
+if not path.exists():
+    sys.exit(f"no chart for {app}")
+
+text = path.read_text()
+new = pattern.sub(lambda m: m.group(1) + digest + m.group(2), text, count=1)
+path.write_text(new)
+print("changed" if new != text else "unchanged")
