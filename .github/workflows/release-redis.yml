@@ -53,6 +53,8 @@ jobs:
         env:
           COSIGN_YES: "true"
         run: |
+          # cosign reads ~/.docker/config.json; helm registry login does not write there.
+          echo "${{ secrets.GITHUB_TOKEN }}" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
           cosign sign "ghcr.io/quenchworks/charts/redis@${{ steps.push.outputs.digest }}"
 
       - name: Set up oras
