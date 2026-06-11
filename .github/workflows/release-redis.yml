@@ -26,6 +26,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
       - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
 
       - name: Lint and template
         run: |
@@ -40,10 +41,19 @@ jobs:
           kubectl exec rtest-redis-0 -- redis-cli ping | grep -q PONG
 
       - name: Package and push (OCI)
+        id: push
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
           helm package "${CHART_DIR}" -d ./dist
-          helm push ./dist/redis-*.tgz "${OCI_REPO}"
+          helm push ./dist/redis-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/redis@${{ steps.push.outputs.digest }}"
 
       - name: Set up oras
         uses: oras-project/setup-oras@v1
