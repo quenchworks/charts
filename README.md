@@ -8,15 +8,15 @@ GHCR and listed on ArtifactHub.
 ## Layout
 
 ```
-quench-common/            shared library chart (labels, security contexts, digest resolver)
 quench/<app>/             one app chart per directory, e.g. quench/redis
-artifacthub-repo.yml      ArtifactHub publisher identity
 .github/workflows/        release (lint, install, package, push) and digest repin
 ```
 
-> `quench-common` is vendored here for now. It will move to its own `quenchworks/common` repo and
-> be consumed over OCI; app charts will then switch the dependency from `file://../../quench-common`
-> to `oci://ghcr.io/quenchworks/charts`.
+> The shared `quench-common` library chart lives in its own repo,
+> [quenchworks/common](https://github.com/quenchworks/common), and is published as an OCI artifact at
+> `oci://ghcr.io/quenchworks/charts/quench-common`. App charts depend on it via
+> `repository: oci://ghcr.io/quenchworks/charts` and pull it at build time, so it is no longer
+> vendored in this repo.
 
 ## Install a chart
 

@@ -58,6 +58,6 @@ availability with automatic failover, see [Sentinel in the roadmap](../../../.gi
 
 ## Notes
 
-The chart depends on the `quench-common` library chart, vendored in this repo for now. Every
+The chart depends on the `quench-common` library chart, pulled from `oci://ghcr.io/quenchworks/charts/quench-common`. Every
 container runs as nonroot on a read-only root filesystem with all capabilities dropped, and both
 the server and the metrics sidecar are pinned by digest.

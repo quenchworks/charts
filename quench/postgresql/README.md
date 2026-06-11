@@ -54,4 +54,4 @@ dropped. PGDATA, the socket dir, `/tmp`, and `/dev/shm` are the only writable mo
 
 Single primary for now. Streaming replication, a metrics exporter sidecar, and custom
 `postgresql.conf` tuning are tracked as follow-ups. The chart depends on the
-`quench-common` library chart, vendored in this repo for now.
+`quench-common` library chart, pulled from `oci://ghcr.io/quenchworks/charts/quench-common`.
