@@ -28,6 +28,16 @@ jobs:
       - uses: helm/kind-action@v1
       - uses: sigstore/cosign-installer@v3
 
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not), matching the
+      # images repo pattern that signs successfully.
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Lint and template
         run: |
           helm dependency build "${CHART_DIR}"
@@ -53,8 +63,6 @@ jobs:
         env:
           COSIGN_YES: "true"
         run: |
-          # cosign reads ~/.docker/config.json; helm registry login does not write there.
-          echo "${{ secrets.GITHUB_TOKEN }}" | cosign login ghcr.io -u "${{ github.actor }}" --password-stdin
           cosign sign "ghcr.io/quenchworks/charts/redis@${{ steps.push.outputs.digest }}"
 
       - name: Set up oras
