@@ -18,7 +18,7 @@ helm install my-redis oci://ghcr.io/quenchworks/charts/redis \
 ## Verify the image
 
 ```bash
-cosign verify ghcr.io/quenchworks/redis \
+cosign verify ghcr.io/quenchworks/images/redis \
   --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
@@ -27,7 +27,7 @@ cosign verify ghcr.io/quenchworks/redis \
 
 | Key | Default | Notes |
 |-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/redis` | |
+| `image.repository` | `ghcr.io/quenchworks/images/redis` | |
 | `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
 | `architecture` | `standalone` | `standalone` or `replication`. |
 | `auth.enabled` | `true` | Sets `--requirepass`. |
