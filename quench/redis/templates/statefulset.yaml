@@ -1,76 +1,34 @@
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ include "quench-common.fullname" . }}
+  name: {{ include "redis.primary.fullname" . }}
   labels:
     {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: primary
 spec:
-  serviceName: {{ include "quench-common.fullname" . }}
-  replicas: {{ .Values.replicaCount }}
+  serviceName: {{ printf "%s-headless" (include "redis.primary.fullname" .) }}
+  replicas: {{ .Values.primary.replicaCount }}
   selector:
     matchLabels:
       {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: primary
   template:
     metadata:
       labels:
         {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: primary
     spec:
+      serviceAccountName: {{ include "redis.serviceAccountName" . }}
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       containers:
-        - name: redis
-          image: {{ include "quench-common.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          securityContext:
-            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
-          {{- if .Values.auth.enabled }}
-          env:
-            - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "redis.secretName" . }}
-                  key: {{ include "redis.secretPasswordKey" . }}
-            - name: REDISCLI_AUTH
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "redis.secretName" . }}
-                  key: {{ include "redis.secretPasswordKey" . }}
-          {{- end }}
-          args:
-            - "--dir"
-            - "/data"
-            {{- if .Values.auth.enabled }}
-            - "--requirepass"
-            - "$(REDIS_PASSWORD)"
-            {{- end }}
-          ports:
-            - name: redis
-              containerPort: 6379
-          livenessProbe:
-            tcpSocket:
-              port: redis
-            initialDelaySeconds: 10
-            periodSeconds: 15
-          readinessProbe:
-            exec:
-              command: ["redis-cli", "ping"]
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-          volumeMounts:
-            - name: data
-              mountPath: /data
-            - name: tmp
-              mountPath: /tmp
-      volumes:
-        - name: tmp
-          emptyDir: {}
-        {{- if not .Values.persistence.enabled }}
-        - name: data
-          emptyDir: {}
+        {{- include "redis.serverContainer" (dict "root" . "replicaof" "" "resources" .Values.primary.resources) | nindent 8 }}
+        {{- if .Values.metrics.enabled }}
+        {{- include "redis.metricsContainer" (dict "root" .) | nindent 8 }}
         {{- end }}
-  {{- if .Values.persistence.enabled }}
+      volumes:
+        {{- include "redis.podVolumes" (dict "root" . "persistence" .Values.primary.persistence) | nindent 8 }}
+  {{- if .Values.primary.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -78,5 +36,5 @@ spec:
         accessModes: ["ReadWriteOnce"]
         resources:
           requests:
-            storage: {{ .Values.persistence.size }}
+            storage: {{ .Values.primary.persistence.size }}
   {{- end }}

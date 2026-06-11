@@ -29,14 +29,34 @@ cosign verify ghcr.io/quenchworks/redis \
 |-----|---------|-------|
 | `image.repository` | `ghcr.io/quenchworks/redis` | |
 | `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
+| `architecture` | `standalone` | `standalone` or `replication`. |
 | `auth.enabled` | `true` | Sets `--requirepass`. |
-| `auth.password` | `""` | Generated if empty. |
+| `auth.password` | `""` | Generated into a Secret if empty. |
 | `auth.existingSecret` | `""` | Use an existing Secret instead. |
-| `persistence.enabled` | `true` | 8Gi PVC by default. |
+| `config` | appendonly + save | Rendered into a ConfigMap as `redis.conf`. |
+| `existingConfigmap` | `""` | Use your own ConfigMap instead. |
+| `extraFlags` | `[]` | Extra server flags. |
+| `tls.enabled` | `false` | In-transit TLS from `tls.existingSecret`. |
+| `primary.replicaCount` | `1` | |
+| `primary.persistence.enabled` | `true` | 8Gi PVC by default. |
+| `replica.replicaCount` | `2` | Only when `architecture=replication`. |
+| `replica.autoscaling.enabled` | `false` | HPA on replica CPU. |
+| `metrics.enabled` | `false` | redis_exporter sidecar (our hardened image). |
+| `metrics.serviceMonitor.enabled` | `false` | Prometheus Operator ServiceMonitor. |
+| `metrics.prometheusRule.enabled` | `false` | Alerting rules. |
+| `serviceAccount.create` | `true` | Token automount is off. |
+| `rbac.create` | `false` | Minimal Role/RoleBinding. |
 | `networkPolicy.enabled` | `true` | Restricts ingress to the release namespace. |
 | `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
 
+## Architecture
+
+Standalone runs a single primary. Replication adds read replicas that follow the primary with
+`replicaof` over the headless service, sharing the same auth and TLS material. For high
+availability with automatic failover, see [Sentinel in the roadmap](../../../.github/ROADMAP.md).
+
 ## Notes
 
-The chart depends on the `quench-common` library chart, vendored in this repo for now. The image
-runs as nonroot on a read-only root filesystem with all capabilities dropped.
+The chart depends on the `quench-common` library chart, vendored in this repo for now. Every
+container runs as nonroot on a read-only root filesystem with all capabilities dropped, and both
+the server and the metrics sidecar are pinned by digest.

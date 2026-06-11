@@ -1,10 +1,11 @@
+{{- if eq .Values.architecture "replication" }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "quench-common.fullname" . }}
+  name: {{ include "redis.replica.fullname" . }}
   labels:
     {{- include "quench-common.labels" . | nindent 4 }}
-    app.kubernetes.io/component: primary
+    app.kubernetes.io/component: replica
 spec:
   type: {{ .Values.service.type }}
   ports:
@@ -13,15 +14,15 @@ spec:
       name: redis
   selector:
     {{- include "quench-common.selectorLabels" . | nindent 4 }}
-    app.kubernetes.io/component: primary
+    app.kubernetes.io/component: replica
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ printf "%s-headless" (include "redis.primary.fullname" .) }}
+  name: {{ printf "%s-headless" (include "redis.replica.fullname" .) }}
   labels:
     {{- include "quench-common.labels" . | nindent 4 }}
-    app.kubernetes.io/component: primary
+    app.kubernetes.io/component: replica
 spec:
   type: ClusterIP
   clusterIP: None
@@ -32,4 +33,5 @@ spec:
       name: redis
   selector:
     {{- include "quench-common.selectorLabels" . | nindent 4 }}
-    app.kubernetes.io/component: primary
+    app.kubernetes.io/component: replica
+{{- end }}

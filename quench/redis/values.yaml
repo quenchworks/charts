@@ -6,33 +6,89 @@ image:
   pullPolicy: IfNotPresent
 
 nameOverride: ""
-replicaCount: 1
 
-# Authentication. On by default; a random password is generated if you do not set one.
-# Provide your own via auth.password, or point at an existing secret.
+# standalone: one server. replication: one primary plus N read replicas (replicaof).
+architecture: standalone
+
+# Authentication. On by default. A random password is generated if you do not set one.
 auth:
   enabled: true
   password: ""
   existingSecret: ""
   existingSecretPasswordKey: "redis-password"
 
+# Extra redis.conf lines and flags. config is rendered into a ConfigMap; existingConfigmap
+# takes precedence when set. extraFlags are appended to the server command.
+config: |
+  appendonly yes
+  save 900 1
+  save 300 10
+existingConfigmap: ""
+extraFlags: []
+
+# In-transit TLS. Provide a secret with tls.crt, tls.key, and ca.crt.
+tls:
+  enabled: false
+  existingSecret: ""
+  certFilename: tls.crt
+  keyFilename: tls.key
+  caFilename: ca.crt
+  authClients: true
+
+primary:
+  replicaCount: 1
+  persistence:
+    enabled: true
+    size: 8Gi
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+replica:
+  replicaCount: 2
+  persistence:
+    enabled: true
+    size: 8Gi
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+
 service:
   type: ClusterIP
   port: 6379
 
-resources:
-  requests:
-    cpu: 100m
-    memory: 128Mi
-  limits:
-    cpu: 500m
-    memory: 256Mi
+# Prometheus metrics via a hardened redis_exporter sidecar, built by our own factory.
+metrics:
+  enabled: false
+  image:
+    repository: ghcr.io/quenchworks/redis-exporter
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    pullPolicy: IfNotPresent
+  port: 9121
+  resources:
+    requests: { cpu: 50m, memory: 32Mi }
+    limits: { cpu: 100m, memory: 64Mi }
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+  prometheusRule:
+    enabled: false
+    labels: {}
 
-persistence:
-  enabled: true
-  size: 8Gi
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
 
-# Restrict ingress to the redis port. Allowed sources default to the release namespace.
+rbac:
+  create: false
+
 networkPolicy:
   enabled: true
   allowExternal: false

@@ -1,0 +1,45 @@
+{{- if eq .Values.architecture "replication" }}
+{{- $primaryHost := printf "%s-headless" (include "redis.primary.fullname" .) }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "redis.replica.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: replica
+spec:
+  serviceName: {{ printf "%s-headless" (include "redis.replica.fullname" .) }}
+  {{- if not .Values.replica.autoscaling.enabled }}
+  replicas: {{ .Values.replica.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: replica
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: replica
+    spec:
+      serviceAccountName: {{ include "redis.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      containers:
+        {{- include "redis.serverContainer" (dict "root" . "replicaof" (printf "%s 6379" $primaryHost) "resources" .Values.replica.resources) | nindent 8 }}
+        {{- if .Values.metrics.enabled }}
+        {{- include "redis.metricsContainer" (dict "root" .) | nindent 8 }}
+        {{- end }}
+      volumes:
+        {{- include "redis.podVolumes" (dict "root" . "persistence" .Values.replica.persistence) | nindent 8 }}
+  {{- if .Values.replica.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.replica.persistence.size }}
+  {{- end }}
+{{- end }}
