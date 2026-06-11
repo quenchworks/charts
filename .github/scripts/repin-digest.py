@@ -27,7 +27,9 @@ else:
     pattern = re.compile(r'(digest: ")[^"]*(")')  # first match = the app image
 
 if not path.exists():
-    sys.exit(f"no chart for {app}")
+    # the image was published but no chart references it yet; nothing to repin
+    print(f"no chart for {app}, skipping")
+    sys.exit(0)
 
 text = path.read_text()
 new = pattern.sub(lambda m: m.group(1) + digest + m.group(2), text, count=1)

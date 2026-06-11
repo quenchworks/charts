@@ -6,6 +6,12 @@ on:
   repository_dispatch:
     types: [image-published]
 
+# Serialize repins: many images can publish at once, and parallel pushes to main
+# would race. Queue them instead of running concurrently (do not cancel in progress).
+concurrency:
+  group: repin-charts
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
@@ -17,11 +23,13 @@ jobs:
       DIGEST: ${{ github.event.client_payload.digest }}
     steps:
       - uses: actions/checkout@v4   # pin to SHA before going public (renovate)
+        with:
+          fetch-depth: 0            # full history so rebase-before-push is clean
 
       - name: Repin the chart digest
         run: python3 .github/scripts/repin-digest.py "$APP" "$DIGEST"
 
-      - name: Commit the repin
+      - name: Commit and push the repin
         run: |
           if git diff --quiet; then
             echo "digest unchanged, nothing to commit"
@@ -32,4 +40,14 @@ jobs:
           git add -A
           git commit -m "chore(${APP}): repin image to freshly scanned digest" \
                      -m "Co-Authored-By: QuenchWorks <quenchworks@mkabumattar.com>"
-          git push
+          # rebase-and-retry in case another repin landed between checkout and push
+          for attempt in 1 2 3 4 5; do
+            if git pull --rebase --autostash origin main && git push; then
+              echo "pushed on attempt ${attempt}"
+              exit 0
+            fi
+            echo "push race on attempt ${attempt}, retrying..."
+            sleep $(( (RANDOM % 4) + 2 ))
+          done
+          echo "failed to push after retries" >&2
+          exit 1
