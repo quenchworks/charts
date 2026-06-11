@@ -12,32 +12,52 @@ spec:
   {{- if not .Values.replica.autoscaling.enabled }}
   replicas: {{ .Values.replica.replicaCount }}
   {{- end }}
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "quench-common.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: replica
   template:
     metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
       labels:
         {{- include "quench-common.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: replica
+        {{- include "quench-common.podLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "redis.serviceAccountName" . }}
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
       containers:
         {{- include "redis.serverContainer" (dict "root" . "replicaof" (printf "%s 6379" $primaryHost) "resources" .Values.replica.resources) | nindent 8 }}
         {{- if .Values.metrics.enabled }}
         {{- include "redis.metricsContainer" (dict "root" .) | nindent 8 }}
         {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         {{- include "redis.podVolumes" (dict "root" . "persistence" .Values.replica.persistence) | nindent 8 }}
-  {{- if .Values.replica.persistence.enabled }}
+  {{- if and .Values.replica.persistence.enabled (not .Values.replica.persistence.existingClaim) }}
   volumeClaimTemplates:
     - metadata:
         name: data
+        {{- with .Values.replica.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
       spec:
-        accessModes: ["ReadWriteOnce"]
+        accessModes: {{ .Values.replica.persistence.accessModes }}
+        {{- with .Values.replica.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        {{- with .Values.replica.persistence.selector }}
+        selector:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         resources:
           requests:
             storage: {{ .Values.replica.persistence.size }}

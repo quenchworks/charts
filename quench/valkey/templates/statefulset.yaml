@@ -8,32 +8,52 @@ metadata:
 spec:
   serviceName: {{ printf "%s-headless" (include "valkey.primary.fullname" .) }}
   replicas: {{ .Values.primary.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "quench-common.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: primary
   template:
     metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
       labels:
         {{- include "quench-common.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: primary
+        {{- include "quench-common.podLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "valkey.serviceAccountName" . }}
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
       containers:
         {{- include "valkey.serverContainer" (dict "root" . "replicaof" "" "resources" .Values.primary.resources) | nindent 8 }}
         {{- if .Values.metrics.enabled }}
         {{- include "valkey.metricsContainer" (dict "root" .) | nindent 8 }}
         {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         {{- include "valkey.podVolumes" (dict "root" . "persistence" .Values.primary.persistence) | nindent 8 }}
-  {{- if .Values.primary.persistence.enabled }}
+  {{- if and .Values.primary.persistence.enabled (not .Values.primary.persistence.existingClaim) }}
   volumeClaimTemplates:
     - metadata:
         name: data
+        {{- with .Values.primary.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
       spec:
-        accessModes: ["ReadWriteOnce"]
+        accessModes: {{ .Values.primary.persistence.accessModes }}
+        {{- with .Values.primary.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        {{- with .Values.primary.persistence.selector }}
+        selector:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         resources:
           requests:
             storage: {{ .Values.primary.persistence.size }}

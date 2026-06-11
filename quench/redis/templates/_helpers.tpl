@@ -34,13 +34,19 @@ Shared server container. Call with a dict:
 */}}
 {{- define "redis.serverContainer" -}}
 {{- $ := .root -}}
+{{- $liveness := dict "tcpSocket" (dict "port" "redis") "initialDelaySeconds" 10 "periodSeconds" 15 -}}
+{{- $readiness := dict "exec" (dict "command" (list "redis-cli" "ping")) "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+{{- if $.Values.tls.enabled -}}
+{{- $readiness = dict "tcpSocket" (dict "port" "redis") "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+{{- end -}}
 - name: redis
   image: {{ include "quench-common.image" $ }}
   imagePullPolicy: {{ $.Values.image.pullPolicy }}
   securityContext:
     {{- include "quench-common.containerSecurityContext" $ | nindent 4 }}
-  {{- if $.Values.auth.enabled }}
+  {{- if or $.Values.auth.enabled $.Values.extraEnvVars }}
   env:
+    {{- if $.Values.auth.enabled }}
     - name: REDIS_PASSWORD
       valueFrom:
         secretKeyRef:
@@ -51,7 +57,10 @@ Shared server container. Call with a dict:
         secretKeyRef:
           name: {{ include "redis.secretName" $ }}
           key: {{ include "redis.secretPasswordKey" $ }}
+    {{- end }}
+    {{- include "quench-common.extraEnvVars" $ | nindent 4 }}
   {{- end }}
+  {{- include "quench-common.envFrom" $ | nindent 2 }}
   args:
     - /etc/redis/redis.conf
     - "--dir"
@@ -88,21 +97,13 @@ Shared server container. Call with a dict:
   ports:
     - name: redis
       containerPort: 6379
-  livenessProbe:
-    tcpSocket:
-      port: redis
-    initialDelaySeconds: 10
-    periodSeconds: 15
-  readinessProbe:
-    {{- if $.Values.tls.enabled }}
-    tcpSocket:
-      port: redis
-    {{- else }}
-    exec:
-      command: ["redis-cli", "ping"]
-    {{- end }}
-    initialDelaySeconds: 5
-    periodSeconds: 10
+  {{- include "quench-common.probe" (dict "ctx" $ "name" "liveness" "default" $liveness) | nindent 2 }}
+  {{- include "quench-common.probe" (dict "ctx" $ "name" "readiness" "default" $readiness) | nindent 2 }}
+  {{- with $.Values.customStartupProbe }}
+  startupProbe:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- include "quench-common.lifecycleHooks" $ | nindent 2 }}
   resources:
     {{- toYaml .resources | nindent 4 }}
   volumeMounts:
@@ -118,6 +119,7 @@ Shared server container. Call with a dict:
       mountPath: /etc/redis/tls
       readOnly: true
     {{- end }}
+    {{- include "quench-common.extraVolumeMounts" $ | nindent 4 }}
 {{- end -}}
 
 {{/* redis_exporter metrics sidecar */}}
@@ -162,8 +164,13 @@ Shared server container. Call with a dict:
   secret:
     secretName: {{ include "redis.tls.secretName" $ }}
 {{- end }}
-{{- if not .persistence.enabled }}
+{{- if and .persistence.enabled .persistence.existingClaim }}
+- name: data
+  persistentVolumeClaim:
+    claimName: {{ .persistence.existingClaim }}
+{{- else if not .persistence.enabled }}
 - name: data
   emptyDir: {}
 {{- end }}
+{{- include "quench-common.extraVolumes" $ | nindent 0 }}
 {{- end -}}

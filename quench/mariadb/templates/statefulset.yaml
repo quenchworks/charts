@@ -1,3 +1,5 @@
+{{- $liveness := dict "tcpSocket" (dict "port" "mariadb") "initialDelaySeconds" 30 "periodSeconds" 15 -}}
+{{- $readiness := dict "exec" (dict "command" (list "mariadb-admin" "--socket=/run/mysqld/mysqld.sock" "ping")) "initialDelaySeconds" 15 "periodSeconds" 10 -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -8,25 +10,35 @@ metadata:
 spec:
   serviceName: {{ include "mariadb.headlessName" . }}
   replicas: 1
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "quench-common.selectorLabels" . | nindent 6 }}
       app.kubernetes.io/component: primary
   template:
     metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
       labels:
         {{- include "quench-common.selectorLabels" . | nindent 8 }}
         app.kubernetes.io/component: primary
+        {{- include "quench-common.podLabels" . | nindent 8 }}
     spec:
       serviceAccountName: {{ include "mariadb.serviceAccountName" . }}
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
       containers:
         - name: mariadb
           image: {{ include "quench-common.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- include "quench-common.args" . | nindent 10 }}
           env:
             - name: MARIADB_ROOT_PASSWORD
               valueFrom:
@@ -46,19 +58,18 @@ spec:
                   name: {{ include "mariadb.secretName" . }}
                   key: {{ include "mariadb.passwordKey" . }}
             {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
             - name: mariadb
               containerPort: 3306
-          livenessProbe:
-            tcpSocket:
-              port: mariadb
-            initialDelaySeconds: 30
-            periodSeconds: 15
-          readinessProbe:
-            exec:
-              command: ["mariadb-admin", "--socket=/run/mysqld/mysqld.sock", "ping"]
-            initialDelaySeconds: 15
-            periodSeconds: 10
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
           resources:
             {{- toYaml .Values.primary.resources | nindent 12 }}
           volumeMounts:
@@ -68,21 +79,39 @@ spec:
               mountPath: /run/mysqld
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         - name: run
           emptyDir: {}
         - name: tmp
           emptyDir: {}
-        {{- if not .Values.primary.persistence.enabled }}
+        {{- if and .Values.primary.persistence.enabled .Values.primary.persistence.existingClaim }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.primary.persistence.existingClaim }}
+        {{- else if not .Values.primary.persistence.enabled }}
         - name: data
           emptyDir: {}
         {{- end }}
-  {{- if .Values.primary.persistence.enabled }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
+  {{- if and .Values.primary.persistence.enabled (not .Values.primary.persistence.existingClaim) }}
   volumeClaimTemplates:
     - metadata:
         name: data
+        {{- with .Values.primary.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
       spec:
-        accessModes: ["ReadWriteOnce"]
+        accessModes: {{ .Values.primary.persistence.accessModes }}
+        {{- with .Values.primary.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        {{- with .Values.primary.persistence.selector }}
+        selector:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         resources:
           requests:
             storage: {{ .Values.primary.persistence.size }}

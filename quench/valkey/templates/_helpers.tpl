@@ -34,13 +34,19 @@ Shared server container. Call with a dict:
 */}}
 {{- define "valkey.serverContainer" -}}
 {{- $ := .root -}}
+{{- $liveness := dict "tcpSocket" (dict "port" "valkey") "initialDelaySeconds" 10 "periodSeconds" 15 -}}
+{{- $readiness := dict "exec" (dict "command" (list "valkey-cli" "ping")) "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+{{- if $.Values.tls.enabled -}}
+{{- $readiness = dict "tcpSocket" (dict "port" "valkey") "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+{{- end -}}
 - name: valkey
   image: {{ include "quench-common.image" $ }}
   imagePullPolicy: {{ $.Values.image.pullPolicy }}
   securityContext:
     {{- include "quench-common.containerSecurityContext" $ | nindent 4 }}
-  {{- if $.Values.auth.enabled }}
+  {{- if or $.Values.auth.enabled $.Values.extraEnvVars }}
   env:
+    {{- if $.Values.auth.enabled }}
     - name: VALKEY_PASSWORD
       valueFrom:
         secretKeyRef:
@@ -53,7 +59,10 @@ Shared server container. Call with a dict:
         secretKeyRef:
           name: {{ include "valkey.secretName" $ }}
           key: {{ include "valkey.secretPasswordKey" $ }}
+    {{- end }}
+    {{- include "quench-common.extraEnvVars" $ | nindent 4 }}
   {{- end }}
+  {{- include "quench-common.envFrom" $ | nindent 2 }}
   args:
     - /etc/valkey/valkey.conf
     - "--dir"
@@ -90,21 +99,13 @@ Shared server container. Call with a dict:
   ports:
     - name: valkey
       containerPort: 6379
-  livenessProbe:
-    tcpSocket:
-      port: valkey
-    initialDelaySeconds: 10
-    periodSeconds: 15
-  readinessProbe:
-    {{- if $.Values.tls.enabled }}
-    tcpSocket:
-      port: valkey
-    {{- else }}
-    exec:
-      command: ["valkey-cli", "ping"]
-    {{- end }}
-    initialDelaySeconds: 5
-    periodSeconds: 10
+  {{- include "quench-common.probe" (dict "ctx" $ "name" "liveness" "default" $liveness) | nindent 2 }}
+  {{- include "quench-common.probe" (dict "ctx" $ "name" "readiness" "default" $readiness) | nindent 2 }}
+  {{- with $.Values.customStartupProbe }}
+  startupProbe:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- include "quench-common.lifecycleHooks" $ | nindent 2 }}
   resources:
     {{- toYaml .resources | nindent 4 }}
   volumeMounts:
@@ -120,6 +121,7 @@ Shared server container. Call with a dict:
       mountPath: /etc/valkey/tls
       readOnly: true
     {{- end }}
+    {{- include "quench-common.extraVolumeMounts" $ | nindent 4 }}
 {{- end -}}
 
 {{/* redis_exporter metrics sidecar */}}
@@ -164,8 +166,13 @@ Shared server container. Call with a dict:
   secret:
     secretName: {{ include "valkey.tls.secretName" $ }}
 {{- end }}
-{{- if not .persistence.enabled }}
+{{- if and .persistence.enabled .persistence.existingClaim }}
+- name: data
+  persistentVolumeClaim:
+    claimName: {{ .persistence.existingClaim }}
+{{- else if not .persistence.enabled }}
 - name: data
   emptyDir: {}
 {{- end }}
+{{- include "quench-common.extraVolumes" $ | nindent 0 }}
 {{- end -}}
