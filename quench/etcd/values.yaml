@@ -1,0 +1,49 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/etcd.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/etcd
+  digest: "sha256:fb4c4eb03045ce685bc1bee2fbe665c1b623adc73da7a252aab2d0248026261f"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single-node coordination store for now. A multi-node clustered topology is a
+# later addition (it needs static peer discovery over the headless service).
+replicaCount: 1
+
+persistence:
+  enabled: true
+  size: 8Gi
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  clientPort: 2379
+  peerPort: 2380
+
+# etcd exposes Prometheus metrics natively on the client port at /metrics,
+# so no exporter sidecar is needed; this just wires a ServiceMonitor.
+metrics:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

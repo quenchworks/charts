@@ -1,0 +1,19 @@
+Quenchworks etcd is installed as {{ include "quench-common.fullname" . }}.
+
+Connect from inside the cluster:
+
+  Endpoint: http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.clientPort }}
+
+Try it from a client pod (etcdctl is in the image):
+
+  kubectl exec -it {{ include "quench-common.fullname" . }}-0 -- \
+    etcdctl --endpoints=http://127.0.0.1:{{ .Values.service.clientPort }} put hello quench
+
+  kubectl exec -it {{ include "quench-common.fullname" . }}-0 -- \
+    etcdctl --endpoints=http://127.0.0.1:{{ .Values.service.clientPort }} get hello
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
