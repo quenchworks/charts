@@ -1,0 +1,27 @@
+Quenchworks Redis is installed as {{ include "quench-common.fullname" . }}.
+
+Connect from inside the cluster:
+
+  Host: {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  Port: {{ .Values.service.port }}
+
+{{- if .Values.auth.enabled }}
+
+Get the password:
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "valkey.secretName" . }} \
+    -o jsonpath="{.data.{{ include "valkey.secretPasswordKey" . }}}" | base64 -d
+
+Then:
+
+  valkey-cli -h {{ include "quench-common.fullname" . }} -a "<password>" ping
+{{- else }}
+
+WARNING: auth is disabled. Anyone with network access to the service can use this instance.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

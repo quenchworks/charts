@@ -1,0 +1,63 @@
+# Quenchworks Valkey
+
+Hardened Valkey on a minimal, nonroot, 0-CVE image pinned by digest. Valkey is the BSD-licensed
+cache that Quenchworks leads with in place of Redis.
+
+## Install
+
+```bash
+helm install my-valkey oci://ghcr.io/quenchworks/charts/valkey
+```
+
+By default auth is on and a password is generated into a Secret. To set your own:
+
+```bash
+helm install my-valkey oci://ghcr.io/quenchworks/charts/valkey \
+  --set auth.password='change-me'
+```
+
+## Verify the image
+
+```bash
+cosign verify ghcr.io/quenchworks/images/valkey \
+  --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+## Values
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `image.repository` | `ghcr.io/quenchworks/images/valkey` | |
+| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
+| `architecture` | `standalone` | `standalone` or `replication`. |
+| `auth.enabled` | `true` | Sets `--requirepass`. |
+| `auth.password` | `""` | Generated into a Secret if empty. |
+| `auth.existingSecret` | `""` | Use an existing Secret instead. |
+| `config` | appendonly + save | Rendered into a ConfigMap as `valkey.conf`. |
+| `existingConfigmap` | `""` | Use your own ConfigMap instead. |
+| `extraFlags` | `[]` | Extra server flags. |
+| `tls.enabled` | `false` | In-transit TLS from `tls.existingSecret`. |
+| `primary.replicaCount` | `1` | |
+| `primary.persistence.enabled` | `true` | 8Gi PVC by default. |
+| `replica.replicaCount` | `2` | Only when `architecture=replication`. |
+| `replica.autoscaling.enabled` | `false` | HPA on replica CPU. |
+| `metrics.enabled` | `false` | redis_exporter sidecar (our hardened image); it scrapes Valkey over the same protocol. |
+| `metrics.serviceMonitor.enabled` | `false` | Prometheus Operator ServiceMonitor. |
+| `metrics.prometheusRule.enabled` | `false` | Alerting rules. |
+| `serviceAccount.create` | `true` | Token automount is off. |
+| `rbac.create` | `false` | Minimal Role/RoleBinding. |
+| `networkPolicy.enabled` | `true` | Restricts ingress to the release namespace. |
+| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+
+## Architecture
+
+Standalone runs a single primary. Replication adds read replicas that follow the primary with
+`replicaof` over the headless service, sharing the same auth and TLS material. For high
+availability with automatic failover, see [Sentinel in the roadmap](../../../.github/ROADMAP.md).
+
+## Notes
+
+The chart depends on the `quench-common` library chart, vendored in this repo for now. Every
+container runs as nonroot on a read-only root filesystem with all capabilities dropped, and both
+the server and the metrics sidecar are pinned by digest.

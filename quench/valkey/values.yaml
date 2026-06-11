@@ -1,0 +1,99 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/valkey.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/valkey
+  digest: "sha256:f82b7ecea12677db6dc0a8118739b4341ac234f706b0c61cb6b348cdc6806f53"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# standalone: one server. replication: one primary plus N read replicas (replicaof).
+architecture: standalone
+
+# Authentication. On by default. A random password is generated if you do not set one.
+auth:
+  enabled: true
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: "redis-password"
+
+# Extra redis.conf lines and flags. config is rendered into a ConfigMap; existingConfigmap
+# takes precedence when set. extraFlags are appended to the server command.
+config: |
+  appendonly yes
+  save 900 1
+  save 300 10
+existingConfigmap: ""
+extraFlags: []
+
+# In-transit TLS. Provide a secret with tls.crt, tls.key, and ca.crt.
+tls:
+  enabled: false
+  existingSecret: ""
+  certFilename: tls.crt
+  keyFilename: tls.key
+  caFilename: ca.crt
+  authClients: true
+
+primary:
+  replicaCount: 1
+  persistence:
+    enabled: true
+    size: 8Gi
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+replica:
+  replicaCount: 2
+  persistence:
+    enabled: true
+    size: 8Gi
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+
+service:
+  type: ClusterIP
+  port: 6379
+
+# Prometheus metrics via a hardened redis_exporter sidecar, built by our own factory.
+# redis_exporter speaks the same RESP protocol, so it scrapes Valkey unchanged.
+metrics:
+  enabled: false
+  image:
+    repository: ghcr.io/quenchworks/images/redis-exporter
+    digest: "sha256:ba7faf99228e200d30d50257b5642ca1f4fcb6211df9e2ac0b81bfad8fd7f72f"
+    pullPolicy: IfNotPresent
+  port: 9121
+  resources:
+    requests: { cpu: 50m, memory: 32Mi }
+    limits: { cpu: 100m, memory: 64Mi }
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+  prometheusRule:
+    enabled: false
+    labels: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

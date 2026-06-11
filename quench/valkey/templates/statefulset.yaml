@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "valkey.primary.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: primary
+spec:
+  serviceName: {{ printf "%s-headless" (include "valkey.primary.fullname" .) }}
+  replicas: {{ .Values.primary.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: primary
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: primary
+    spec:
+      serviceAccountName: {{ include "valkey.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      containers:
+        {{- include "valkey.serverContainer" (dict "root" . "replicaof" "" "resources" .Values.primary.resources) | nindent 8 }}
+        {{- if .Values.metrics.enabled }}
+        {{- include "valkey.metricsContainer" (dict "root" .) | nindent 8 }}
+        {{- end }}
+      volumes:
+        {{- include "valkey.podVolumes" (dict "root" . "persistence" .Values.primary.persistence) | nindent 8 }}
+  {{- if .Values.primary.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.primary.persistence.size }}
+  {{- end }}
