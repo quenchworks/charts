@@ -1,0 +1,49 @@
+Quenchworks CouchDB is installed as {{ include "quench-common.fullname" . }}.
+
+The HTTP API is served on port {{ .Values.service.port }} from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+{{- if .Values.systemDatabases.create }}
+
+The system databases (_users, _replicator, _global_changes) are created by a
+post-install hook Job ({{ include "quench-common.fullname" . }}-init). Check it:
+
+  kubectl get job --namespace {{ .Release.Namespace }} {{ include "quench-common.fullname" . }}-init
+{{- end }}
+
+Admin user: {{ .Values.auth.username }}
+
+Get the admin password:
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "couchdb.secretName" . }} \
+    -o jsonpath="{.data.{{ include "couchdb.secretPasswordKey" . }}}" | base64 -d
+
+From a client pod (admin creds in $USER/$PASS, HOST below):
+
+  HOST=http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}
+
+  # Welcome (unauthenticated)
+  curl -fsS "$HOST/"
+
+  # Create a database
+  curl -fsS -u "$USER:$PASS" -X PUT "$HOST/demo"
+
+  # Put a document
+  curl -fsS -u "$USER:$PASS" -X PUT "$HOST/demo/doc1" \
+    -H 'Content-Type: application/json' \
+    -d '{"name":"quench","n":7}'
+
+  # Create a JavaScript map view (runs on the bundled QuickJS view server)
+  curl -fsS -u "$USER:$PASS" -X PUT "$HOST/demo/_design/d" \
+    -H 'Content-Type: application/json' \
+    -d '{"views":{"by_name":{"map":"function(doc){ if(doc.name){ emit(doc.name, doc.n); } }"}}}'
+
+  # Query the view; the row emitted by the JS function comes back
+  curl -fsS -u "$USER:$PASS" "$HOST/demo/_design/d/_view/by_name"
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

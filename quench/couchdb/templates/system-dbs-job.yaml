@@ -1,0 +1,83 @@
+{{- if .Values.systemDatabases.create }}
+{{/*
+Post-install/upgrade hook Job that creates the CouchDB system databases
+(_users, _replicator, _global_changes). The image entrypoint does NOT create them,
+and a single-node CouchDB is not functional without them. Idempotent: a 201 (created)
+or 412 (already exists) both count as success. Uses a stock curl image because the
+runtime image ships no HTTP client. Authenticates with the admin creds from the Secret.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "quench-common.fullname" . }}-init
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "couchdb.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: init
+          image: "{{ .Values.systemDatabases.image.repository }}:{{ .Values.systemDatabases.image.tag }}"
+          imagePullPolicy: {{ .Values.systemDatabases.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: COUCHDB_USER
+              value: {{ .Values.auth.username | quote }}
+            - name: COUCHDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "couchdb.secretName" . }}
+                  key: {{ include "couchdb.secretPasswordKey" . }}
+            - name: COUCHDB_HOST
+              value: "http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}"
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              HOST="$COUCHDB_HOST"
+              AUTH="$COUCHDB_USER:$COUCHDB_PASSWORD"
+
+              # Wait for the HTTP API: GET / returns the unauthenticated welcome.
+              echo "Waiting for CouchDB API at $HOST ..."
+              i=0
+              until curl -fsS "$HOST/" >/dev/null 2>&1; do
+                i=$((i+1))
+                if [ "$i" -ge 60 ]; then
+                  echo "ERROR: CouchDB API did not become ready in time" >&2
+                  exit 1
+                fi
+                sleep 5
+              done
+              echo "CouchDB API is up."
+
+              # Create each system DB. PUT returns 201 (created) or 412 (exists);
+              # treat both as success. Any other code is a hard failure.
+              for db in _users _replicator _global_changes; do
+                code=$(curl -s -o /dev/null -w '%{http_code}' -u "$AUTH" -X PUT "$HOST/$db")
+                case "$code" in
+                  201|202|412)
+                    echo "system db $db: ok ($code)" ;;
+                  *)
+                    echo "ERROR: creating $db failed with HTTP $code" >&2
+                    curl -s -u "$AUTH" -X PUT "$HOST/$db" >&2 || true
+                    exit 1 ;;
+                esac
+              done
+              echo "All system databases present."
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+{{- end }}

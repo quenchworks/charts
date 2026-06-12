@@ -1,0 +1,105 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/couchdb.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/couchdb
+  digest: "sha256:efeded7f98c35581466143367301b9904a0fe1bd891a4c7d8ffaf7a197e9a324"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single node. The default node is couchdb@127.0.0.1 with no extra ports.
+# Multi-node clustering (epmd/dist ports, shared cookie) is out of scope here.
+replicaCount: 1
+
+# Admin bootstrap. CouchDB 3.x refuses to start in admin-party mode, so the image
+# requires COUCHDB_USER/COUCHDB_PASSWORD. The password, Erlang cookie and (optional)
+# proxy/cookie-auth secret live in a Kubernetes Secret. Randoms are generated for any
+# unset value and preserved across upgrades via a helm lookup of the existing Secret.
+auth:
+  username: admin
+  password: ""                 # generated (24 chars) if empty
+  erlangCookie: ""             # generated (32 chars) if empty; shared cluster cookie
+  secret: ""                   # generated (32 chars) if empty; [chttpd_auth] secret
+  existingSecret: ""           # use this Secret instead of the managed one
+  existingSecretPasswordKey: "adminPassword"
+  existingSecretCookieKey: "cookieAuthSecret"
+  existingSecretErlangCookieKey: "erlangCookie"
+
+# Post-install/upgrade hook Job that creates the system DBs (_users, _replicator,
+# _global_changes). The image entrypoint does NOT create them, and a single-node
+# CouchDB is not functional without them. The Job is idempotent (treats 412/exists
+# as success) and uses a stock curl image because the runtime image has no HTTP client.
+systemDatabases:
+  create: true
+  image:
+    repository: curlimages/curl
+    tag: "8.11.1"
+    pullPolicy: IfNotPresent
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""           # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""            # bind an existing PVC instead of provisioning one
+
+# CouchDB runs on the Erlang/OTP BEAM, which commits a substantial heap at startup
+# (well over 1Gi). Undersized memory limits get the container OOM-killed within a
+# second of launch, before it logs anything. Keep the limit generous.
+resources:
+  requests: { cpu: 250m, memory: 1Gi }
+  limits: { cpu: "2", memory: 4Gi }
+
+service:
+  type: ClusterIP
+  port: 5984
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
