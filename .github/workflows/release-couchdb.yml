@@ -45,10 +45,11 @@ jobs:
       - name: Install gate (kind)
         run: |
           set -o pipefail
+          # --wait blocks until the post-install hook Job (system DBs) completes; the
+          # hook-succeeded delete policy then removes that Job, so we do NOT kubectl wait
+          # on it here (it is already gone). The system DBs are asserted via the API below.
           helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
           kubectl rollout status statefulset/rtest-couchdb --timeout=420s
-          # the post-install hook Job creates the system DBs; wait for it to complete
-          kubectl wait --for=condition=complete job/rtest-couchdb-init --timeout=300s
 
           # probe the HTTP API over a port-forward (the runtime image has no HTTP client)
           kubectl port-forward rtest-couchdb-0 5984:5984 >/tmp/pf.log 2>&1 &
