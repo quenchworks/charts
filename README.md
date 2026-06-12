@@ -5,6 +5,26 @@ pins its image by `sha256` digest to a signed, 0-CVE image from the
 [images](https://github.com/quenchworks/images) factory, and is published as an OCI artifact to
 GHCR and listed on ArtifactHub.
 
+> **Per-chart docs:** GitHub shows this one repo README on every chart's package page; it can't
+> show a per-chart README for OCI artifacts. Each chart's own README (values, examples, security
+> notes) renders on **ArtifactHub** and ships inside the chart — run `helm show readme oci://ghcr.io/quenchworks/charts/<chart>`.
+
+## Charts
+
+| Chart | Upstream | Install |
+|-------|----------|---------|
+| redis | Redis | `helm install r oci://ghcr.io/quenchworks/charts/redis` |
+| valkey | Valkey | `helm install v oci://ghcr.io/quenchworks/charts/valkey` |
+| postgresql | PostgreSQL | `helm install p oci://ghcr.io/quenchworks/charts/postgresql` |
+| mariadb | MariaDB | `helm install m oci://ghcr.io/quenchworks/charts/mariadb` |
+| mysql | MySQL | `helm install m oci://ghcr.io/quenchworks/charts/mysql` |
+| etcd | etcd | `helm install e oci://ghcr.io/quenchworks/charts/etcd` |
+| rabbitmq | RabbitMQ | `helm install rq oci://ghcr.io/quenchworks/charts/rabbitmq` |
+| kafka | Apache Kafka (KRaft) | `helm install k oci://ghcr.io/quenchworks/charts/kafka` |
+
+Every chart pins its image by digest, runs nonroot on a read-only root filesystem, and shares the
+`quench-common` knob surface (scheduling, probes, extra env/volumes, sidecars, security context).
+
 ## Layout
 
 ```
