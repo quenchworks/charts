@@ -1,0 +1,37 @@
+Quenchworks Apache Solr is installed as {{ include "quench-common.fullname" . }}
+(single-node standalone). The HTTP API is on port {{ .Values.service.httpPort }}.
+
+Service DNS (inside the cluster):
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}
+
+Check health:
+
+  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.httpPort }}/solr/admin/info/health
+
+{{- if .Values.config.core }}
+
+A core named "{{ .Values.config.core }}" is precreated on first boot (from the
+_default configset).
+{{- else }}
+
+Create a core, index a doc, and query it:
+
+  # create a core from the _default configset
+  curl 'http://{{ include "quench-common.fullname" . }}:{{ .Values.service.httpPort }}/solr/admin/cores?action=CREATE&name=mycore&configSet=_default'
+  # index a document
+  curl -XPOST 'http://{{ include "quench-common.fullname" . }}:{{ .Values.service.httpPort }}/solr/mycore/update?commit=true' \
+    -H 'Content-Type: application/json' -d '[{"id":"1","title_s":"quench"}]'
+  # query it
+  curl 'http://{{ include "quench-common.fullname" . }}:{{ .Values.service.httpPort }}/solr/mycore/select?q=id:1'
+{{- end }}
+
+SECURITY: Solr ships no authentication. This deployment relies on the NetworkPolicy
+(networkPolicy.enabled=true, allowExternal=false) as its trust boundary -- ingress is
+restricted to in-cluster pods. Do not expose it externally without an auth proxy.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

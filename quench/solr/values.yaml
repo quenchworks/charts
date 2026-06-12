@@ -1,0 +1,89 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/solr.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/solr
+  digest: "sha256:0c02ab560cfb3455c8d8768e13b72c4e3cd876620151d3332ec8de3f87790436"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single-node standalone for now. SolrCloud (set config.zkHost to a ZooKeeper connect
+# string) is a later addition.
+replicaCount: 1
+
+# Solr config knobs (the entrypoint reads these as SOLR_* env).
+config:
+  # JVM heap; maps to SOLR_HEAP (-Xms/-Xmx). 512m keeps the footprint modest.
+  heapSize: 512m
+  # Optional: precreate a core on first boot from the _default configset. Empty = none.
+  core: ""
+  # Optional: opt into SolrCloud by pointing at a ZooKeeper connect string
+  # (e.g. "zk-headless:2181"). Empty = single-node standalone.
+  zkHost: ""
+  # Extra JVM opts appended to SOLR_OPTS (SOLR_OPTS_EXTRA passthrough).
+  optsExtra: ""
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 250m, memory: 768Mi }
+  limits: { cpu: "2", memory: 1536Mi }
+
+service:
+  type: ClusterIP
+  httpPort: 8983
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
