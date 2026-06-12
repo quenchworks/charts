@@ -1,0 +1,42 @@
+============================================================================
+ LICENSE — CockroachDB is BSL-1.1 (Business Source License 1.1).
+ This is NOT OSI-approved open source. Each version converts to Apache-2.0
+ three years after its release. Do not represent CockroachDB as open source.
+ SECURITY — this release runs SINGLE-NODE, INSECURE (no TLS, no auth). There
+ are NO credentials. The NetworkPolicy is the only access boundary. Secure
+ mode (TLS) and multi-node are documented follow-ups.
+============================================================================
+
+Quenchworks CockroachDB is installed as {{ include "quench-common.fullname" . }}.
+
+SQL (Postgres wire) is served on port {{ .Values.service.sqlPort }} and the HTTP
+admin UI / health endpoint on port {{ .Values.service.httpPort }} inside the cluster:
+
+  SQL:      {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.sqlPort }}
+  Admin UI: http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}
+
+Connect with the in-image SQL shell (insecure, no password):
+
+  kubectl exec -it {{ include "quench-common.fullname" . }}-0 -- \
+    cockroach sql --insecure --host=localhost:{{ .Values.service.sqlPort }}
+
+Create a table, insert, and read it back:
+
+  kubectl exec {{ include "quench-common.fullname" . }}-0 -- \
+    cockroach sql --insecure --host=localhost:{{ .Values.service.sqlPort }} -e \
+    "CREATE DATABASE IF NOT EXISTS demo; CREATE TABLE demo.t(id INT PRIMARY KEY, v STRING); INSERT INTO demo.t VALUES (1,'quench'); SELECT v FROM demo.t WHERE id=1;"
+
+Connect with any Postgres client (insecure / sslmode=disable, user "root", no password):
+
+  psql "postgresql://root@{{ include "quench-common.fullname" . }}:{{ .Values.service.sqlPort }}/defaultdb?sslmode=disable"
+
+Health-check the readiness endpoint over a port-forward:
+
+  kubectl port-forward {{ include "quench-common.fullname" . }}-0 {{ .Values.service.httpPort }}:{{ .Values.service.httpPort }} &
+  curl -fsS "http://127.0.0.1:{{ .Values.service.httpPort }}/health?ready=1"   # -> 200
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

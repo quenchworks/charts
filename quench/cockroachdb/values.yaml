@@ -1,0 +1,93 @@
+# ============================================================================
+# LICENSE — READ THIS FIRST
+# CockroachDB is licensed under the BSL-1.1 (Business Source License 1.1). This is
+# NOT an OSI-approved open-source license. Each released version automatically
+# converts to Apache-2.0 three years after its release date. Do NOT represent
+# CockroachDB as open source. SPDX: BUSL-1.1. This chart is CAUTION-TIER.
+#
+# SECURITY POSTURE — INSECURE BY DEFAULT
+# This chart runs a single-node CockroachDB in INSECURE mode (no TLS, no auth).
+# There are NO credentials. The NetworkPolicy is the only access boundary. Secure
+# mode (TLS/certs) and multi-node clustering are documented follow-ups.
+# ============================================================================
+
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/cockroachdb.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/cockroachdb
+  digest: "sha256:e731769514de401c0e15fb1b98057895a3da8f14f730e07187b2eb0def2d2e47"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single node. The default deployment is a single-node insecure cluster and needs
+# no coordination. Multi-node clustering is opt-in via extraEnvVars
+# (COCKROACH_JOIN + a one-time `cockroach init`) and is a documented follow-up.
+replicaCount: 1
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""           # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""            # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 500m, memory: 1Gi }
+  limits: { cpu: "2", memory: 4Gi }
+
+service:
+  type: ClusterIP
+  # SQL / Postgres wire protocol (client port) and the HTTP admin UI / health port.
+  sqlPort: 26257
+  httpPort: 8080
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

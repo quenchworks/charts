@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.sqlPort }}
+      targetPort: sql
+      name: sql
+    - port: {{ .Values.service.httpPort }}
+      targetPort: http
+      name: http
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+---
+# Headless service: stable per-pod DNS for advertise-addr (and future multi-node peers).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cockroachdb.headlessName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - port: {{ .Values.service.sqlPort }}
+      targetPort: sql
+      name: sql
+    - port: {{ .Values.service.httpPort }}
+      targetPort: http
+      name: http
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

@@ -1,0 +1,118 @@
+{{/* httpGet /health?ready=1 on the HTTP admin port returns 200 ~3s after the node is
+     ready to serve SQL. Unauthenticated in insecure mode, so the kubelet can probe it
+     directly. Generous timing for first-boot store init. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/health?ready=1" "port" "http") "initialDelaySeconds" 30 "periodSeconds" 20 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/health?ready=1" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "cockroachdb.headlessName" . }}
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "cockroachdb.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: cockroachdb
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- include "quench-common.args" . | nindent 10 }}
+          env:
+            # Store/data dir on the writable PVC (read-only rootfs). The store must
+            # allow exec; the volume is a normal PVC mount, not a noexec tmpfs.
+            - name: COCKROACH_DATA_DIR
+              value: "/cockroach/cockroach-data"
+            # SQL (Postgres wire) and HTTP admin/health ports, from values.
+            - name: COCKROACH_SQL_PORT
+              value: {{ .Values.service.sqlPort | quote }}
+            - name: COCKROACH_HTTP_PORT
+              value: {{ .Values.service.httpPort | quote }}
+            # Advertise a routable, stable address. A single node advertises its
+            # pod DNS name via the headless service so peers (future multi-node) and
+            # the node itself resolve it consistently; cockroach refuses 0.0.0.0.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: COCKROACH_ADVERTISE_ADDR
+              value: "$(POD_NAME).{{ include "cockroachdb.headlessName" . }}.{{ .Release.Namespace }}.svc.cluster.local"
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: sql
+              containerPort: {{ .Values.service.sqlPort }}
+            - name: http
+              containerPort: {{ .Values.service.httpPort }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # store/data tree (read-only rootfs: this PVC mount must be writable
+            # and allow exec). COCKROACH_DATA_DIR points here.
+            - name: data
+              mountPath: /cockroach/cockroach-data
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim }}
+        {{- else if not .Values.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
+  {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        {{- with .Values.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes: {{ .Values.persistence.accessModes }}
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        {{- with .Values.persistence.selector }}
+        selector:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}
+  {{- end }}
