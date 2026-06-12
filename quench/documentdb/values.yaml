@@ -1,0 +1,88 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/documentdb.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/documentdb
+  digest: "sha256:58fd6f04ceea4fab66a8e6b867a7a9bff5cefc41a634c7be1d06dc83f85c1652"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Authentication. On by default; the gateway creates a Mongo admin user on first
+# boot and clients authenticate with SCRAM-SHA-256. A random password is generated
+# into a Secret if you do not set one.
+auth:
+  enabled: true
+  username: default_user      # Mongo admin user created on first boot (DOCUMENTDB_USER)
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: "documentdb-password"
+
+primary:
+  persistence:
+    enabled: true
+    size: 8Gi
+    # storageClass: ""        # default class if unset
+    accessModes: ["ReadWriteOnce"]
+    annotations: {}
+    selector: {}
+    existingClaim: ""         # bind an existing PVC instead of provisioning one
+  # /dev/shm is tiny in containers; back it with memory so parallel queries do not fail
+  shmVolume:
+    enabled: true
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  # MongoDB wire-protocol port. This is what mongo clients connect to; the
+  # internal PostgreSQL (9712) is never exposed.
+  port: 10260
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
