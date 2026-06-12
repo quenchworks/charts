@@ -1,0 +1,108 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/cassandra.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/cassandra
+  digest: "sha256:f81c06f8c90c2ea80aa24b5df5a4dda3e32b22563bcf90c0c52d343607bbcbe4"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single node for now. A multi-node ring forms automatically when replicaCount > 1:
+# the first `seedCount` pods over the headless service are wired as CASSANDRA_SEEDS.
+replicaCount: 1
+
+# Cassandra config knobs (the image's entrypoint writes cassandra.yaml from these).
+config:
+  clusterName: "Quench Cluster"
+  # Number of stable seed pods (pod-0 .. pod-(seedCount-1)) advertised over the
+  # headless service. Cassandra recommends ~3 seeds per DC; clamped to replicaCount.
+  seedCount: 1
+  numTokens: 16
+  # SimpleSnitch for single-DC. Use GossipingPropertyFileSnitch for multi-DC and set
+  # dc/rack below (written to cassandra-rackdc.properties only when non-empty).
+  endpointSnitch: SimpleSnitch
+  dc: ""
+  rack: ""
+  # JVM heap. Leave headroom under resources.limits.memory for off-heap + JVM overhead.
+  maxHeapSize: 512M
+  heapNewSize: 128M
+  # Raw cassandra.yaml escape hatch appended verbatim by the entrypoint.
+  yamlExtra: ""
+
+# Authentication. Off by default (internal deployment, NetworkPolicy is the trust
+# boundary). When enabled Cassandra bootstraps the default cassandra/cassandra
+# superuser (PasswordAuthenticator + CassandraRoleManager) — rotate it and raise the
+# system_auth keyspace replication factor for real clusters.
+auth:
+  enabled: false
+  authenticator: PasswordAuthenticator
+  authorizer: CassandraRoleManager
+
+persistence:
+  enabled: true
+  size: 16Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 500m, memory: 1Gi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  cqlPort: 9042
+  internodePort: 7000
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 120
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+# Cassandra exposes metrics via JMX; a Prometheus exporter sidecar is a tracked
+# follow-up. JMX (7199) is bound to localhost in the image and never exposed.
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
