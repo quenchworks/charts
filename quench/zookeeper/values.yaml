@@ -1,0 +1,90 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/zookeeper.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/zookeeper
+  digest: "sha256:672e7377f3302a4125efe97e7ba41d7351d8aad8b8feb474deb2c715e9599481"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Standalone server for now. A multi-node ensemble (ZOO_SERVERS + per-pod myid over
+# the headless service) is a later addition.
+replicaCount: 1
+
+# ZooKeeper config knobs (the image writes zoo.cfg from these).
+config:
+  tickTime: 2000
+  initLimit: 10
+  syncLimit: 5
+  maxClientCnxns: 60
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: 500m, memory: 1Gi }
+
+service:
+  type: ClusterIP
+  clientPort: 2181
+  peerPort: 2888
+  electionPort: 3888
+  adminPort: 8080
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+# ZooKeeper has no native Prometheus endpoint by default (it ships an optional
+# metrics provider); wiring it is a tracked follow-up.
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
