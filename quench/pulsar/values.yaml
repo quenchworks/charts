@@ -1,0 +1,99 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/pulsar.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/pulsar
+  digest: "sha256:79b7eee27b5c561a896004ccdd49a3e8d29d8f31f6ceeb7b03a4eb612920865b"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single-node standalone for now: broker + in-process BookKeeper bookie + embedded
+# RocksDB metadata store in ONE JVM. A multi-node cluster is a later addition.
+replicaCount: 1
+
+# Pulsar config knobs (the entrypoint reads these as PULSAR_* env).
+config:
+  # JVM memory opts; maps to PULSAR_MEM. Pulsar standalone is memory-hungry --
+  # this covers heap (-Xms/-Xmx) AND off-heap direct memory.
+  mem: "-Xms512m -Xmx512m -XX:MaxDirectMemorySize=512m"
+  # Address the broker advertises to clients. Empty = the broker advertises its own
+  # hostname (the pod). Set to the pod/service DNS if external clients need to reach it.
+  advertisedAddress: ""
+  # Re-enable the functions worker (off by default to keep single-node lean).
+  functionsWorker: false
+  # Re-enable BookKeeper stream storage (off by default).
+  streamStorage: false
+  # Extra JVM opts appended via PULSAR_EXTRA_OPTS.
+  extraOpts: ""
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+# Pulsar standalone is memory-hungry; these defaults give it room to actually boot.
+resources:
+  requests: { cpu: 500m, memory: 1Gi }
+  limits: { cpu: "2", memory: 3Gi }
+
+service:
+  type: ClusterIP
+  # binary (pulsar://) protocol for clients
+  pulsarPort: 6650
+  # HTTP admin / REST API
+  httpPort: 8080
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+# NOTE: do NOT add a securityContext that blocks exec on the /pulsar mount -- RocksDB
+# and the bookie extract a native .so to the JVM tmpdir (under /pulsar/tmp) and mmap
+# it; a noexec mount fails with "failed to map segment". Standard PVC/emptyDir is fine.
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
