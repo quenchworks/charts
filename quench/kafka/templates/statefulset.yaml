@@ -1,0 +1,125 @@
+{{- $liveness := dict "tcpSocket" (dict "port" "kafka") "initialDelaySeconds" 40 "periodSeconds" 20 "timeoutSeconds" 10 -}}
+{{- /* readiness is a cheap TCP check on the client listener (the broker binds it near
+       the end of KRaft startup). A JVM-based api-versions probe is too heavy to run
+       every interval; the release gate verifies real serving explicitly instead. */ -}}
+{{- $readiness := dict "tcpSocket" (dict "port" "kafka") "initialDelaySeconds" 20 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 18 -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: primary
+spec:
+  serviceName: {{ include "kafka.headlessName" . }}
+  replicas: 1
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: primary
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: primary
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "kafka.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: kafka
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- include "quench-common.args" . | nindent 10 }}
+          env:
+            - name: KAFKA_HEAP_OPTS
+              value: {{ .Values.kraft.heapOpts | quote }}
+            - name: KAFKA_NODE_ID
+              value: {{ .Values.kraft.nodeId | quote }}
+            # advertise the in-cluster service address so clients can reach the broker
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: "PLAINTEXT://{{ include "kafka.advertisedHost" . }}:{{ .Values.service.port }}"
+            - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
+              value: {{ .Values.kraft.autoCreateTopics | quote }}
+            - name: KAFKA_NUM_PARTITIONS
+              value: {{ .Values.kraft.numPartitions | quote }}
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: {{ .Values.kraft.offsetsTopicReplicationFactor | quote }}
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: {{ .Values.kraft.transactionStateLogReplicationFactor | quote }}
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: {{ .Values.kraft.transactionStateLogMinIsr | quote }}
+            {{- with .Values.kraft.clusterId }}
+            - name: KAFKA_CLUSTER_ID
+              value: {{ . | quote }}
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: kafka
+              containerPort: 9092
+            - name: controller
+              containerPort: 9093
+          # liveness is a cheap TCP check; readiness asks the broker for API versions,
+          # which only answers once it is actually serving (the JVM probe is heavier,
+          # hence the longer period).
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.primary.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/kafka
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if and .Values.primary.persistence.enabled .Values.primary.persistence.existingClaim }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.primary.persistence.existingClaim }}
+        {{- else if not .Values.primary.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
+  {{- if and .Values.primary.persistence.enabled (not .Values.primary.persistence.existingClaim) }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        {{- with .Values.primary.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes: {{ .Values.primary.persistence.accessModes }}
+        {{- with .Values.primary.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        {{- with .Values.primary.persistence.selector }}
+        selector:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.primary.persistence.size }}
+  {{- end }}

@@ -1,0 +1,21 @@
+Quenchworks Kafka (KRaft, single node) is installed as {{ include "quench-common.fullname" . }}.
+
+Connect from inside the cluster (PLAINTEXT, namespace-internal):
+
+  bootstrap.servers = {{ include "kafka.advertisedHost" . }}:{{ .Values.service.port }}
+
+Quick check from a client pod in this namespace:
+
+  kubectl run kafka-client --rm -it --restart=Never \
+    --image {{ .Values.image.repository }}@{{ .Values.image.digest }} -- \
+    /opt/kafka/bin/kafka-topics.sh --bootstrap-server {{ include "quench-common.fullname" . }}:{{ .Values.service.port }} --list
+
+The listener is PLAINTEXT and reachable only inside the cluster (the NetworkPolicy
+restricts ingress to this namespace). SASL/TLS auth and multi-node clustering are
+tracked follow-ups.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
