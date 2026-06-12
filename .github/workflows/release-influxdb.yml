@@ -1,0 +1,100 @@
+name: release-influxdb
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/influxdb/**"
+      - ".github/workflows/release-influxdb.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/influxdb
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # pin actions to SHAs before going public (renovate)
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-influxdb --timeout=420s
+          # probe the HTTP API over a port-forward (the runtime image has no HTTP client)
+          kubectl port-forward rtest-influxdb-0 8086:8086 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          # /health reports pass when influxd is ready
+          curl -fsS http://127.0.0.1:8086/health | grep -q '"status":"pass"'
+          # exercise the API with the admin token from the Secret
+          TOKEN="$(kubectl get secret rtest-influxdb -o jsonpath='{.data.admin-token}' | base64 -d)"
+          test -n "$TOKEN"
+          # write a point
+          curl -fsS -XPOST 'http://127.0.0.1:8086/api/v2/write?org=quench&bucket=default&precision=s' \
+            -H "Authorization: Token $TOKEN" \
+            --data-binary 'gate,host=ci value=42' >/dev/null
+          # query it back via Flux and confirm the value
+          curl -fsS -XPOST 'http://127.0.0.1:8086/api/v2/query?org=quench' \
+            -H "Authorization: Token $TOKEN" \
+            -H 'Content-Type: application/vnd.flux' \
+            -H 'Accept: application/csv' \
+            --data-binary 'from(bucket:"default") |> range(start:-1h) |> filter(fn:(r) => r._measurement == "gate")' \
+            | tee /tmp/q.csv
+          grep -q ',42' /tmp/q.csv
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/influxdb-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"   # fail loudly rather than handing cosign an empty ref
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/influxdb@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push. Register the ArtifactHub repo and set the ID."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/influxdb:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

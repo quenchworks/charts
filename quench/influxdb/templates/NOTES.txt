@@ -1,0 +1,41 @@
+Quenchworks InfluxDB is installed as {{ include "quench-common.fullname" . }}.
+
+The HTTP API (and web UI) is served on port {{ .Values.service.port }} from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+{{- if .Values.auth.setup }}
+
+Org:    {{ .Values.auth.org }}
+Bucket: {{ .Values.auth.bucket }}
+User:   {{ .Values.auth.username }}
+
+Get the admin token:
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "influxdb.secretName" . }} \
+    -o jsonpath="{.data.{{ include "influxdb.secretTokenKey" . }}}" | base64 -d
+
+Get the admin password:
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "influxdb.secretName" . }} \
+    -o jsonpath="{.data.{{ include "influxdb.secretPasswordKey" . }}}" | base64 -d
+
+Write a point, then query it back (from a client pod with the token in $TOKEN):
+
+  HOST=http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}
+
+  curl -fsS -XPOST "$HOST/api/v2/write?org={{ .Values.auth.org }}&bucket={{ .Values.auth.bucket }}&precision=s" \
+    -H "Authorization: Token $TOKEN" \
+    --data-binary 'cpu,host=a usage=0.64'
+
+  curl -fsS -XPOST "$HOST/api/v2/query?org={{ .Values.auth.org }}" \
+    -H "Authorization: Token $TOKEN" \
+    -H 'Content-Type: application/vnd.flux' \
+    --data-binary 'from(bucket:"{{ .Values.auth.bucket }}") |> range(start:-1h) |> filter(fn:(r) => r._measurement == "cpu")'
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

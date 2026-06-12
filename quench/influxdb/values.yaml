@@ -1,0 +1,92 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/influxdb.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/influxdb
+  digest: "sha256:e078ebc612344016ac015cbc2369881af1977c7c8b1dd966b1cc49a6b210e3ec"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single node. InfluxDB 2.x OSS is single-node; clustering is an Enterprise feature.
+replicaCount: 1
+
+# First-run setup. On first boot with an empty data dir the entrypoint runs
+# `influx setup`, creating the admin user, org, bucket, and an admin token.
+# The password and admin token live in a Secret (generated if not provided).
+auth:
+  # setup mode runs `influx setup` on first boot (DOCKER_INFLUXDB_INIT_MODE=setup)
+  setup: true
+  username: admin
+  password: ""                 # generated (24 chars) if empty
+  org: quench
+  bucket: default
+  adminToken: ""               # generated (48 chars) if empty
+  retention: ""                # e.g. 30d; empty means infinite
+  existingSecret: ""           # use this Secret instead of the managed one
+  existingSecretPasswordKey: "admin-password"
+  existingSecretTokenKey: "admin-token"
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""           # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""            # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  port: 8086
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
