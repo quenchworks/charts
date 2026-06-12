@@ -1,0 +1,18 @@
+Quenchworks OpenSearch is installed as {{ include "quench-common.fullname" . }}.
+
+Query the HTTP API from inside the cluster:
+
+  curl http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}/
+  curl http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}/_cluster/health
+
+{{- if .Values.config.securityDisabled }}
+
+NOTE: the security plugin is disabled (no TLS/auth). This is for internal use behind
+the NetworkPolicy. Set config.securityDisabled=false and configure TLS to expose it.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
