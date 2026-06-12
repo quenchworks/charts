@@ -1,0 +1,86 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/victoriametrics.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/victoriametrics
+  digest: "sha256:6cc39dbf93a4778091458a90c7e2324d6523063648770981af588d14c318c91a"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single node for now. The clustered topology (vminsert / vmselect / vmstorage)
+# is a tracked follow-up; this chart ships the self-contained single-node server.
+replicaCount: 1
+
+# VictoriaMetrics configuration. The image is flag-driven: the entrypoint pins
+# -storageDataPath to VM_STORAGE (/storage, mounted as the PVC) and -httpListenAddr
+# to VM_HTTP_LISTEN (:8428). Everything else passes through as container args.
+config:
+  # Retention for stored samples, rendered as -retentionPeriod=<value>.
+  # Accepts VictoriaMetrics duration shorthand: 1 (month), 12, 1d, 1w, 1y, etc.
+  retentionPeriod: "1"
+  # Extra raw flags appended verbatim to the server, e.g. ["-dedup.minScrapeInterval=30s"].
+  extraArgs: []
+
+persistence:
+  enabled: true
+  size: 16Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 8428
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

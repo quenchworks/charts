@@ -1,0 +1,29 @@
+Quenchworks VictoriaMetrics is installed as {{ include "quench-common.fullname" . }}.
+
+The Prometheus-compatible HTTP API is reachable inside the cluster at:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Health:
+
+  curl http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/health    # -> OK
+
+Ingest (Prometheus remote_write):
+
+  remote_write:
+    - url: http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/api/v1/write
+
+Import a sample in Prometheus text exposition format, then query it back:
+
+  curl -d 'quench_metric 123' 'http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/api/v1/import/prometheus'
+  curl 'http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/api/v1/query?query=quench_metric'
+  curl 'http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/api/v1/query_range?query=quench_metric&start=-5m&step=30s'
+
+NOTE: VictoriaMetrics ships with no authentication. This is for internal use behind
+the NetworkPolicy, which is the trust boundary. There is no Secret to manage.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
