@@ -1,0 +1,90 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/opensearch.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/opensearch
+  digest: "sha256:9d87bb23f475840dacf4dc5257fcaade0752490eb91b7bd9a1ddbb4eef0abf80"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single node for now. A multi-node cluster (seed hosts + cluster.initial_master_nodes
+# over the headless service) is a later addition.
+replicaCount: 1
+
+# OpenSearch config knobs (the image writes opensearch.yml from these).
+config:
+  clusterName: quench-opensearch
+  discoveryType: single-node
+  # security plugin off by default: this is an internal deployment and the
+  # NetworkPolicy is the trust boundary. Enable + configure TLS for exposed clusters.
+  securityDisabled: true
+  heapSize: 512m
+
+persistence:
+  enabled: true
+  size: 16Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 500m, memory: 1Gi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  httpPort: 9200
+  transportPort: 9300
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+# ZooKeeper has no native Prometheus endpoint by default (it ships an optional
+# metrics provider); wiring it is a tracked follow-up.
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
