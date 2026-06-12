@@ -1,0 +1,114 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/scylladb.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/scylladb
+  digest: "sha256:4f6471bfcc2c4e62a8527408a0bc30092a5e5eacade576a2301b9d1d0c45aeb8"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single node by default. ScyllaDB is Cassandra-compatible; a multi-node ring via
+# SCYLLA_SEEDS (the headless pod-0 DNS) is a tracked follow-up — keep this at 1.
+replicaCount: 1
+
+# ScyllaDB config knobs (the image entrypoint seeds scylla.yaml from these on boot).
+config:
+  clusterName: "Quench Cluster"
+  # CPU shares Scylla pins to. Keep at 1 for the single-node container default.
+  smp: 1
+  # HARD memory cap (SCYLLA_MEMORY -> --memory). Scylla grabs the whole host
+  # otherwise, so this MUST be set. Seastar's available-memory probe is conservative
+  # in a cgroup, so keep this WELL under resources.requests.memory (it needs real
+  # headroom — e.g. 512M under a 1Gi request / 2Gi limit). Raise both together for
+  # production sizing; if you bump this, bump the request/limit with extra headroom.
+  memory: 512M
+  # Developer/container mode relaxes AIO/fs/clocksource checks so Scylla runs in an
+  # unprivileged, read-only-rootfs, nonroot container. Keep on for k8s.
+  developerMode: true
+  # Reactor backend: epoll avoids io_uring/AIO when the kernel/seccomp blocks it.
+  reactorBackend: epoll
+  # Overprovisioned mode (bare --overprovisioned flag): yields CPU in shared envs.
+  overprovisioned: true
+  # Stable seed pods advertised over the headless service for multi-node. With
+  # replicaCount=1 the entrypoint resolves seeds=self, so this stays empty.
+  seedCount: 1
+  # Raw scylla.yaml escape hatch appended verbatim by the entrypoint (SCYLLA_YAML_EXTRA).
+  yamlExtra: ""
+
+# Authentication. Off by default (internal deployment, NetworkPolicy is the trust
+# boundary). When enabled Scylla bootstraps the default cassandra/cassandra
+# superuser (PasswordAuthenticator + CassandraAuthorizer) — rotate it immediately.
+auth:
+  enabled: false
+  authenticator: PasswordAuthenticator
+  authorizer: CassandraAuthorizer
+
+persistence:
+  enabled: true
+  size: 16Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 500m, memory: 1Gi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  cqlPort: 9042
+  apiPort: 10000        # REST API (health/admin), exposed on ClusterIP for in-cluster probes only
+  internodePort: 7000
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 120
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+# ScyllaDB exposes Prometheus metrics on 9180 and the Alternator (DynamoDB API) on
+# 8000 — neither is exposed by default. A metrics exporter wiring is a follow-up.
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
