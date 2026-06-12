@@ -56,10 +56,12 @@ jobs:
       - name: Package and push (OCI)
         id: push
         run: |
+          set -o pipefail
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
           helm package "${CHART_DIR}" -d ./dist
-          helm push ./dist/etcd-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          helm push ./dist/zookeeper-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
           digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"   # fail loudly rather than handing cosign an empty ref
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
 
       - name: Sign chart (cosign keyless)
