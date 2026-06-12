@@ -1,0 +1,111 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/neo4j.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/neo4j
+  digest: "sha256:f420bbe92794482f5ab2db6d539ea0c455ef92318670e606196bc16c1e631446"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single node. Neo4j Community Edition is single-instance; causal clustering is an
+# Enterprise-only feature and is therefore out of scope (follow-up).
+replicaCount: 1
+
+# Authentication. Neo4j refuses the default neo4j/neo4j credentials, so NEO4J_AUTH is
+# REQUIRED. The image entrypoint runs `neo4j-admin dbms set-initial-password` on the
+# first ever boot (guarded by a .quench_auth_done marker in /data). We store the full
+# `neo4j/<password>` string in a Secret and map it wholesale into NEO4J_AUTH, so the
+# password never appears in the pod spec. The default DB user is `neo4j`.
+auth:
+  # If true, set the initial password from the Secret (NEO4J_AUTH=neo4j/<pw>).
+  # If false, auth is disabled entirely (NEO4J_AUTH=none) -- do NOT use in production.
+  enabled: true
+  username: neo4j               # Community fixes the admin user to `neo4j`
+  password: ""                  # generated (24 chars) if empty; preserved across upgrades
+  existingSecret: ""            # use this Secret instead of the managed one
+  # Key in existingSecret holding the full `neo4j/<password>` string consumed by NEO4J_AUTH.
+  existingSecretAuthKey: "neo4j-auth"
+
+# JVM heap + page cache. Mapped to NEO4J_HEAP_INITIAL/NEO4J_HEAP_MAX/NEO4J_PAGECACHE,
+# which the entrypoint writes into neo4j.conf (server.memory.*).
+heap:
+  initial: 512m
+  max: 512m
+  pagecache: 256m
+
+# Arbitrary neo4j.conf settings via the image's NEO4J_<setting> env mapping
+# (single `_` -> `.`, double `__` -> `_`). e.g.
+#   extraConfig:
+#     server.bolt.thread_pool_max_size: "400"
+extraConfig: {}
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""           # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""            # bind an existing PVC instead of provisioning one
+  # CRITICAL: /data MUST allow exec. JNA unpacks libjnidispatch.so under java.io.tmpdir
+  # (routed to /data/tmp) and mmaps it executable; a noexec data volume crashes boot
+  # with "failed to map segment". k8s PVC/emptyDir are exec by default -- do NOT mount
+  # /data noexec. If a noexec PVC is ever forced, set
+  # extraEnvVars: [{name: NEO4J_TMP_DIR, value: /run-tmp}] and mount an exec emptyDir there.
+
+resources:
+  requests: { cpu: 500m, memory: 1Gi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  httpPort: 7474               # HTTP API + Neo4j Browser
+  boltPort: 7687               # Bolt protocol (drivers / cypher-shell)
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

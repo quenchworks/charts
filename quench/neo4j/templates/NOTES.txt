@@ -1,0 +1,41 @@
+Quenchworks Neo4j (Community Edition, GPLv3) is installed as {{ include "quench-common.fullname" . }}.
+
+This is Neo4j COMMUNITY EDITION (GPLv3). Enterprise features (causal clustering,
+role-based access control, online backup) are NOT included, and the GDS/GenAI and
+APOC plugins are intentionally dropped to keep the image GPLv3-clean. Single node.
+
+From inside the cluster:
+
+  HTTP API + Browser:  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}
+  Bolt (drivers):      bolt://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.boltPort }}
+
+{{- if .Values.auth.enabled }}
+
+User: {{ .Values.auth.username }}
+
+Get the password:
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "neo4j.secretName" . }} \
+    -o jsonpath="{.data.neo4j-password}" | base64 -d
+
+Run a Cypher write + read roundtrip with the bundled cypher-shell:
+
+  PW="$(kubectl get secret --namespace {{ .Release.Namespace }} {{ include "neo4j.secretName" . }} -o jsonpath='{.data.neo4j-password}' | base64 -d)"
+  kubectl exec --namespace {{ .Release.Namespace }} {{ include "quench-common.fullname" . }}-0 -- \
+    cypher-shell -u {{ .Values.auth.username }} -p "$PW" "CREATE (:Thing {name:'quench'}) RETURN 1"
+  kubectl exec --namespace {{ .Release.Namespace }} {{ include "quench-common.fullname" . }}-0 -- \
+    cypher-shell -u {{ .Values.auth.username }} -p "$PW" "MATCH (t:Thing) RETURN t.name"
+
+Or query the HTTP API (discovery JSON, unauthenticated):
+
+  curl -fsS http://{{ include "quench-common.fullname" . }}:{{ .Values.service.httpPort }}/
+{{- else }}
+
+Authentication is DISABLED (auth.enabled=false / NEO4J_AUTH=none). Do not use in production.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
