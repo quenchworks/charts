@@ -1,0 +1,81 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/memcached.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/memcached
+  digest: "sha256:53c791e8f1a8f988a086e451de3a8313d56bd7437be088dc444977437f9f60b8"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# memcached is a stateless in-memory cache: this chart runs a Deployment (no
+# persistence, no stable identity) and can scale horizontally behind the service.
+replicaCount: 1
+
+# memcached server flags. The chart builds the command from this block; append
+# anything else (e.g. --enable-largepages, TLS) via extraArgs without editing it.
+memcached:
+  memoryLimitMB: 64     # -m : max item memory in MB
+  maxConnections: 1024  # -c : max simultaneous connections
+  threads: 4            # -t : worker threads
+  extraArgs: []
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 11211
+
+# Optional horizontal autoscaling on CPU (a cache scales out well).
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
