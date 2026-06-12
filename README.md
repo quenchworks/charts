@@ -21,6 +21,7 @@ GHCR and listed on ArtifactHub.
 | etcd | etcd | `helm install e oci://ghcr.io/quenchworks/charts/etcd` |
 | rabbitmq | RabbitMQ | `helm install rq oci://ghcr.io/quenchworks/charts/rabbitmq` |
 | kafka | Apache Kafka (KRaft) | `helm install k oci://ghcr.io/quenchworks/charts/kafka` |
+| nats | NATS (JetStream) | `helm install n oci://ghcr.io/quenchworks/charts/nats` |
 
 Every chart pins its image by digest, runs nonroot on a read-only root filesystem, and shares the
 `quench-common` knob surface (scheduling, probes, extra env/volumes, sidecars, security context).

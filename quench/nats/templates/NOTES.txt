@@ -1,0 +1,25 @@
+Quenchworks NATS is installed as {{ include "quench-common.fullname" . }}.
+
+Connect from inside the cluster:
+
+  Client URL:  nats://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.clientPort }}
+  Monitoring:  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.monitorPort }}/varz
+
+Check the server is healthy (the image is minimal, so probe it over a port-forward):
+
+  kubectl port-forward {{ include "quench-common.fullname" . }}-0 {{ .Values.service.monitorPort }}:{{ .Values.service.monitorPort }} &
+  curl -s http://127.0.0.1:{{ .Values.service.monitorPort }}/healthz
+
+{{- if .Values.nats.jetstream.enabled }}
+
+JetStream is enabled; its store lives on the {{ .Values.persistence.size }} data volume.
+{{- else }}
+
+JetStream is disabled (core NATS PUB/SUB only). Enable it with --set nats.jetstream.enabled=true.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

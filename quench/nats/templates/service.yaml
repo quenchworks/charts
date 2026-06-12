@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.clientPort }}
+      targetPort: client
+      name: client
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "nats.headlessName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true   # servers must resolve each other before they are ready
+  ports:
+    - port: {{ .Values.service.clientPort }}
+      targetPort: client
+      name: client
+    - port: {{ .Values.service.clusterPort }}
+      targetPort: cluster
+      name: cluster
+    - port: {{ .Values.service.monitorPort }}
+      targetPort: monitor
+      name: monitor
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

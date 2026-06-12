@@ -1,0 +1,91 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/nats.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/nats
+  digest: "sha256:983a6a5cdab94f67b8e986f7c6cc38a0485716ff417e42fbff4d5b55e9fefb2c"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single combined server for now. A multi-node clustered topology (NATS routes
+# over the headless service) is a later addition.
+replicaCount: 1
+
+# NATS server flags. The chart builds the server command from this block; append
+# anything else (auth, TLS, limits) via extraArgs without editing the chart.
+nats:
+  # JetStream persistence (the -js store). When enabled, the store lives on the
+  # data volume below; disable it for a pure core-NATS (PUB/SUB) deployment.
+  jetstream:
+    enabled: true
+  # Any additional nats-server flags, e.g. ["--max_payload", "8MB"].
+  extraArgs: []
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  clientPort: 4222    # client connections
+  monitorPort: 8222   # HTTP monitoring (/healthz, /varz) — used by the probes
+  clusterPort: 6222   # route connections between servers (headless, for clustering)
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+# NATS has no native Prometheus endpoint (monitoring is JSON at /varz). Scraping
+# needs the prometheus-nats-exporter, which you can add via the `sidecars` knob;
+# a first-class metrics path is a tracked follow-up.
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
