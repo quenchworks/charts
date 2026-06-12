@@ -1,0 +1,41 @@
+Quenchworks ClickHouse is installed as {{ include "quench-common.fullname" . }}.
+
+The HTTP API is served on port {{ .Values.service.httpPort }} and the native TCP
+protocol on port {{ .Values.service.nativePort }} from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}
+
+User: {{ .Values.auth.username }}
+{{- if .Values.auth.database }}
+DB:   {{ .Values.auth.database }}
+{{- end }}
+
+Get the password:
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "clickhouse.secretName" . }} \
+    -o jsonpath="{.data.{{ include "clickhouse.secretPasswordKey" . }}}" | base64 -d
+
+Health-check and run a query (from a client pod, with the password in $PASSWORD):
+
+  HOST=http://{{ include "quench-common.fullname" . }}:{{ .Values.service.httpPort }}
+
+  # unauthenticated liveness probe
+  curl -fsS "$HOST/ping"        # -> Ok.
+
+  # run a query over HTTP with auth
+  curl -fsS "$HOST/?user={{ .Values.auth.username }}&password=$PASSWORD" \
+    --data-binary 'SELECT version()'
+
+  # create a table, insert, and read it back
+  curl -fsS "$HOST/?user={{ .Values.auth.username }}&password=$PASSWORD" \
+    --data-binary 'CREATE TABLE IF NOT EXISTS demo (id UInt32, name String) ENGINE = MergeTree ORDER BY id'
+  curl -fsS "$HOST/?user={{ .Values.auth.username }}&password=$PASSWORD" \
+    --data-binary "INSERT INTO demo VALUES (1, 'quench')"
+  curl -fsS "$HOST/?user={{ .Values.auth.username }}&password=$PASSWORD" \
+    --data-binary 'SELECT name FROM demo WHERE id = 1'   # -> quench
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

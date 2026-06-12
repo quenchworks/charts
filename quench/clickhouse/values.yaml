@@ -1,0 +1,92 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/clickhouse.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/clickhouse
+  digest: "sha256:bcf0aae289e229225582d520f805d29765695411d975050a743537db33ab8d8e"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single node. The default deployment needs no coordination. Clustering uses
+# ClickHouse Keeper / ZooKeeper and is a follow-up (not implemented in this chart).
+replicaCount: 1
+
+# First-run credentials, mirroring the official clickhouse-server image env. The
+# entrypoint writes a users.d/ drop-in from these on every boot (regenerated from
+# env), storing the password as sha256_hex (never plaintext). The password lives in
+# a Secret (generated if not provided, preserved across upgrades via a helm lookup).
+auth:
+  username: default
+  password: ""                 # generated (24 chars) if empty; stored in the Secret
+  database: ""                 # optional initial database created on first boot
+  defaultAccessManagement: true # CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT (SQL-driven access)
+  existingSecret: ""           # use this Secret instead of the managed one
+  existingSecretPasswordKey: "admin-password"
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""           # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""            # bind an existing PVC instead of provisioning one
+
+# ClickHouse wants a fair bit of memory; these are sane single-node defaults.
+resources:
+  requests: { cpu: 500m, memory: 1Gi }
+  limits: { cpu: "2", memory: 4Gi }
+
+service:
+  type: ClusterIP
+  # HTTP API (primary client/service port) and native TCP protocol.
+  httpPort: 8123
+  nativePort: 9000
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

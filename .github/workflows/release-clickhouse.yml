@@ -1,0 +1,103 @@
+name: release-clickhouse
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/clickhouse/**"
+      - ".github/workflows/release-clickhouse.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/clickhouse
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # pin actions to SHAs before going public (renovate)
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          # the clickhouse image is large (~2GB uncompressed static binary), so the
+          # first pull into kind can take several minutes — be generous with timeouts.
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 12m
+          kubectl rollout status statefulset/rtest-clickhouse --timeout=600s
+          # probe the HTTP API over a port-forward (the runtime image has no HTTP client)
+          kubectl port-forward rtest-clickhouse-0 8123:8123 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          # /ping returns "Ok." unauthenticated when the server is ready
+          curl -fsS http://127.0.0.1:8123/ping | grep -q '^Ok\.'
+          # read the password from the Secret and exercise the HTTP query API with auth
+          PASSWORD="$(kubectl get secret rtest-clickhouse -o jsonpath='{.data.admin-password}' | base64 -d)"
+          test -n "$PASSWORD"
+          AUTH="user=default&password=${PASSWORD}"
+          # SELECT version() and assert it matches the chart appVersion
+          ver="$(curl -fsS "http://127.0.0.1:8123/?${AUTH}" --data-binary 'SELECT version()')"
+          echo "version: $ver"
+          echo "$ver" | grep -q '^26\.3\.13\.31'
+          # CREATE / INSERT / SELECT roundtrip, asserting the value comes back
+          curl -fsS "http://127.0.0.1:8123/?${AUTH}" \
+            --data-binary 'CREATE TABLE gate (id UInt32, name String) ENGINE = MergeTree ORDER BY id' >/dev/null
+          curl -fsS "http://127.0.0.1:8123/?${AUTH}" \
+            --data-binary "INSERT INTO gate VALUES (42, 'quench')" >/dev/null
+          out="$(curl -fsS "http://127.0.0.1:8123/?${AUTH}" --data-binary 'SELECT name FROM gate WHERE id = 42')"
+          echo "roundtrip: $out"
+          test "$out" = "quench"
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/clickhouse-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"   # fail loudly rather than handing cosign an empty ref
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/clickhouse@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push. Register the ArtifactHub repo and set the ID."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/clickhouse:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
