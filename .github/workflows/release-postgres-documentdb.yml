@@ -1,0 +1,90 @@
+name: release-postgres-documentdb
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/postgres-documentdb/**"
+      - ".github/workflows/release-postgres-documentdb.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/postgres-documentdb
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # pin actions to SHAs before going public (renovate)
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          # first boot runs initdb + CREATE EXTENSION documentdb CASCADE + a restart, so allow time
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-postgres-documentdb --timeout=360s
+          run() { kubectl exec rtest-postgres-documentdb-0 -c postgresql -- psql -h /var/run/postgresql -U postgres -d postgres -tAc "$1"; }
+          run 'SELECT 1' | grep -q 1
+          # documentdb (and its cascade deps) must be installed
+          run "SELECT extname FROM pg_extension WHERE extname IN ('documentdb','documentdb_core','pg_cron','postgis','rum','vector') ORDER BY 1" | tr '\n' ' '
+          test "$(run "SELECT count(*) FROM pg_extension WHERE extname='documentdb'")" = "1"
+          # exercise the DocumentDB API: insert a BSON doc and read it back
+          run "SELECT documentdb_api.insert_one('gate','c','{\"_id\":1,\"k\":\"v\"}')" >/dev/null
+          # metrics sidecar is up (pg_up 1 proves the exporter connected); scrape via port-forward
+          kubectl port-forward pod/rtest-postgres-documentdb-0 9187:9187 >/tmp/pf.log 2>&1 &
+          pf=$!; sleep 4
+          curl -sf http://localhost:9187/metrics | grep -q '^pg_up 1'
+          kill "$pf" 2>/dev/null || true
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/postgres-documentdb-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/postgres-documentdb@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push. Register the ArtifactHub repo and set the ID."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/postgres-documentdb:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

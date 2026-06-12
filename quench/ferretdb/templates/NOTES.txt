@@ -1,0 +1,23 @@
+Quenchworks FerretDB is installed as {{ include "quench-common.fullname" . }}.
+
+Connect with any MongoDB client (driver, mongosh) inside the cluster:
+
+  mongodb://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/
+
+{{- if .Values.backend.existingSecret }}
+Backend URL comes from Secret "{{ .Values.backend.existingSecret }}".
+{{- else }}
+Backend URL is stored in Secret "{{ printf "%s-backend" (include "quench-common.fullname" .) }}".
+{{- end }}
+
+FerretDB needs a DocumentDB-extended PostgreSQL. Deploy one with the companion chart:
+
+  helm install docdb oci://ghcr.io/quenchworks/charts/postgres-documentdb --set auth.password='pw'
+  helm install {{ .Release.Name }} oci://ghcr.io/quenchworks/charts/ferretdb \
+    --set backend.url='postgres://postgres:pw@docdb-postgres-documentdb:5432/postgres'
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

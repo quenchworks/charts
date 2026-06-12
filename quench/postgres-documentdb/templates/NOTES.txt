@@ -1,0 +1,34 @@
+Quenchworks PostgreSQL + DocumentDB is installed as {{ include "quench-common.fullname" . }}.
+This is the FerretDB v2 backend; the documentdb extension lives in the `postgres` database.
+
+Connect from inside the cluster:
+
+  Host: {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  Port: {{ .Values.service.port }}
+  User: {{ .Values.auth.username }}
+  Database: postgres
+
+Point FerretDB at it:
+
+  FERRETDB_POSTGRESQL_URL=postgres://{{ .Values.auth.username }}:<password>@{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/postgres
+
+{{- if .Values.auth.enabled }}
+
+Get the password:
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "pgdocdb.secretName" . }} \
+    -o jsonpath="{.data.{{ include "pgdocdb.secretPasswordKey" . }}}" | base64 -d
+
+Then, from a client pod:
+
+  PGPASSWORD="<password>" psql -h {{ include "quench-common.fullname" . }} -U {{ .Values.auth.username }}
+{{- else }}
+
+WARNING: auth is disabled.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

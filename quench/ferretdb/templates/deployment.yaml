@@ -1,0 +1,86 @@
+{{- $liveness := dict "httpGet" (dict "path" "/debug/livez" "port" "debug") "initialDelaySeconds" 10 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/debug/readyz" "port" "debug") "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "ferretdb.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: ferretdb
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- with .Values.ferretdb.extraArgs }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          env:
+            - name: FERRETDB_LISTEN_ADDR
+              value: "0.0.0.0:{{ .Values.service.port }}"
+            - name: FERRETDB_DEBUG_ADDR
+              value: "0.0.0.0:{{ .Values.service.debugPort }}"
+            - name: FERRETDB_STATE_DIR
+              value: /state
+            - name: FERRETDB_AUTH
+              value: {{ .Values.ferretdb.auth | quote }}
+            - name: FERRETDB_POSTGRESQL_URL_FILE
+              value: /etc/ferretdb/postgresql-url
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: mongo
+              containerPort: {{ .Values.service.port }}
+            - name: debug
+              containerPort: {{ .Values.service.debugPort }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: backend-url
+              mountPath: /etc/ferretdb
+              readOnly: true
+            - name: state
+              mountPath: /state
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: backend-url
+          secret:
+            secretName: {{ include "ferretdb.backendSecretName" . }}
+            items:
+              - key: {{ include "ferretdb.backendSecretUrlKey" . }}
+                path: postgresql-url
+        - name: state
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

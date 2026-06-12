@@ -23,6 +23,8 @@ GHCR and listed on ArtifactHub.
 | kafka | Apache Kafka (KRaft) | `helm install k oci://ghcr.io/quenchworks/charts/kafka` |
 | nats | NATS (JetStream) | `helm install n oci://ghcr.io/quenchworks/charts/nats` |
 | memcached | memcached | `helm install mc oci://ghcr.io/quenchworks/charts/memcached` |
+| postgres-documentdb | PostgreSQL + DocumentDB (FerretDB backend) | `helm install d oci://ghcr.io/quenchworks/charts/postgres-documentdb` |
+| ferretdb | FerretDB (MongoDB-compatible) | `helm install f oci://ghcr.io/quenchworks/charts/ferretdb` |
 
 Every chart pins its image by digest, runs nonroot on a read-only root filesystem, and shares the
 `quench-common` knob surface (scheduling, probes, extra env/volumes, sidecars, security context).

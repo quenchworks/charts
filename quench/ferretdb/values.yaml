@@ -1,0 +1,91 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/ferretdb.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/ferretdb
+  digest: "sha256:e945522bd75c640b1cdead75ab4c9429319afbe37c99b8534fbc387fc60aef2a"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# FerretDB is a stateless proxy: this chart runs a Deployment and can scale behind
+# the service. It needs a PostgreSQL+DocumentDB backend (the postgres-documentdb
+# chart, or any DocumentDB-extended PostgreSQL).
+replicaCount: 1
+
+# Backend connection. Provide exactly one:
+#   - backend.url           : a full postgres:// URL (may include the password);
+#                             the chart stores it in a Secret and FerretDB reads it
+#                             via FERRETDB_POSTGRESQL_URL_FILE.
+#   - backend.existingSecret: a Secret you manage that holds the URL at urlKey.
+backend:
+  url: ""
+  existingSecret: ""
+  existingSecretUrlKey: "postgresql-url"
+
+# FerretDB flags (env FERRETDB_*). auth is on by default; clients authenticate
+# against the backend PostgreSQL roles.
+ferretdb:
+  auth: true
+  extraArgs: []
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: 500m, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 27017        # MongoDB wire protocol
+  debugPort: 8088    # HTTP metrics + /debug/livez, /debug/readyz (probes)
+
+# Optional horizontal autoscaling on CPU (the proxy is stateless).
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

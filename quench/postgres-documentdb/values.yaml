@@ -1,0 +1,105 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/postgres-documentdb.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/postgres-documentdb
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Authentication. On by default; PostgreSQL requires a superuser password to initialize.
+# A random password is generated if you do not set one.
+auth:
+  enabled: true
+  username: postgres          # superuser created by initdb
+  password: ""
+  database: ""                # optional extra database; empty means just the default
+  existingSecret: ""
+  existingSecretPasswordKey: "postgres-password"
+
+primary:
+  persistence:
+    enabled: true
+    size: 8Gi
+    # storageClass: ""        # default class if unset
+    accessModes: ["ReadWriteOnce"]
+    annotations: {}
+    selector: {}
+    existingClaim: ""         # bind an existing PVC instead of provisioning one
+  # /dev/shm is tiny in containers; back it with memory so parallel queries do not fail
+  shmVolume:
+    enabled: true
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 5432
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+# Prometheus metrics via a hardened postgres_exporter sidecar, built by our own factory.
+metrics:
+  enabled: false
+  image:
+    repository: ghcr.io/quenchworks/images/postgres-exporter
+    digest: "sha256:f7f65c7ec6c7c1cb7808412c6553dc3ce3f8fd8b6365ccb1d1fcdcddcdb20d79"
+    pullPolicy: IfNotPresent
+  port: 9187
+  resources:
+    requests: { cpu: 50m, memory: 32Mi }
+    limits: { cpu: 100m, memory: 64Mi }
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+  prometheusRule:
+    enabled: false
+    labels: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
