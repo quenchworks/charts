@@ -1,0 +1,105 @@
+# ============================================================================
+# LICENSE WARNING — Dragonfly is BSL-1.1 (Business Source License).
+#   *** NOT OSI-APPROVED OPEN SOURCE. *** Each release converts to Apache-2.0
+#   only years after publication. Do NOT represent Dragonfly as open source.
+#   CLEAN ALTERNATIVE: Valkey (BSD-3-Clause, already shipped in this catalog)
+#   covers the same Redis-compatible cache slot with a true open-source license
+#   — prefer it. Caution tier. SPDX: BUSL-1.1.
+# ============================================================================
+#
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/dragonfly.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/dragonfly
+  digest: "sha256:03d2d4f8f7b6110873ec0ba9fabbb674ac366701427a723c42c020e2334a3588"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Authentication. Off by default (matching the image) — open on the wire, so the
+# NetworkPolicy is the security boundary. Enable to set --requirepass via a Secret.
+auth:
+  enabled: false
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: "dragonfly-password"
+
+# Dragonfly server tuning. IMPORTANT consistency rule, enforced by the image's
+# pre-flight check: maxmemory MUST be >= threads * 256MiB or Dragonfly refuses to
+# start. If you raise threads, raise maxmemory (and the pod memory limit) together.
+# Defaults: 2 threads -> needs >= 512MiB; 512mb cap fits a ~1Gi limit.
+config:
+  threads: 2
+  maxmemory: 512mb
+  # io_uring is often restricted under nonroot/kind/seccomp; keep epoll on by
+  # default. Set to false to let Dragonfly attempt io_uring.
+  forceEpoll: true
+# Extra dragonfly flags, appended to the server command (e.g. ["--cache_mode=true"]).
+extraFlags: []
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+replicaCount: 1
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 6379
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

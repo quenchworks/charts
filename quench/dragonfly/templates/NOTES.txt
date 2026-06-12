@@ -1,0 +1,53 @@
+============================================================================
+ LICENSE WARNING — Dragonfly is BSL-1.1 (Business Source License).
+   *** NOT OSI-APPROVED OPEN SOURCE. *** Each release converts to Apache-2.0
+   only years after publication. Do NOT represent Dragonfly as open source.
+   CLEAN ALTERNATIVE: Valkey (BSD-3-Clause, already in this catalog) covers
+   the same Redis-compatible cache slot with a true open-source license —
+   prefer it:  helm install my-valkey oci://ghcr.io/quenchworks/charts/valkey
+============================================================================
+
+Quenchworks Dragonfly is installed as {{ include "quench-common.fullname" . }}.
+
+Connect from inside the cluster (Dragonfly speaks the Redis RESP protocol, so any
+redis-cli works against port {{ .Values.service.port }}):
+
+  Host: {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  Port: {{ .Values.service.port }}
+
+{{- if .Values.auth.enabled }}
+
+Get the password:
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "dragonfly.secretName" . }} \
+    -o jsonpath="{.data.{{ include "dragonfly.secretPasswordKey" . }}}" | base64 -d
+
+Round-trip from a throwaway redis-cli pod (replace <password>):
+
+  kubectl run rediscli --rm -i --restart=Never --image=redis:7-alpine -- \
+    redis-cli -h {{ include "quench-common.fullname" . }} -p {{ .Values.service.port }} -a "<password>" SET hello quench
+  kubectl run rediscli --rm -i --restart=Never --image=redis:7-alpine -- \
+    redis-cli -h {{ include "quench-common.fullname" . }} -p {{ .Values.service.port }} -a "<password>" GET hello
+{{- else }}
+
+WARNING: auth is disabled. Anyone with network access to the service can use this
+instance — the NetworkPolicy is your boundary. Enable auth with --set auth.enabled=true.
+
+Round-trip from a throwaway redis-cli pod:
+
+  kubectl run rediscli --rm -i --restart=Never --image=redis:7-alpine -- \
+    redis-cli -h {{ include "quench-common.fullname" . }} -p {{ .Values.service.port }} SET hello quench
+  kubectl run rediscli --rm -i --restart=Never --image=redis:7-alpine -- \
+    redis-cli -h {{ include "quench-common.fullname" . }} -p {{ .Values.service.port }} GET hello
+{{- end }}
+
+Memory contract: Dragonfly refuses to start unless maxmemory >= threads * 256MiB.
+This release runs {{ .Values.config.threads }} thread(s) with maxmemory {{ .Values.config.maxmemory }}.
+If you raise config.threads, raise config.maxmemory (>= threads*256MiB) and the pod
+memory limit together.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
