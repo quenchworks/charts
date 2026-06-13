@@ -1,0 +1,105 @@
+name: release-mongodb
+
+# LICENSE: MongoDB Community Server is SSPL-1.0 — NOT OSI-approved, NOT open
+# source. Clean alternative: QuenchWorks FerretDB + documentdb. Caution tier.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/mongodb/**"
+      - ".github/workflows/release-mongodb.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/mongodb
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # pin actions to SHAs before going public (renovate)
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          set -o pipefail
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind, MongoDB wire-protocol roundtrip)
+        run: |
+          set -o pipefail
+          # On a fresh dbpath the entrypoint bootstraps the root user no-auth, then
+          # restarts mongod with --auth before 27017 is serving for real, so allow time.
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-mongodb --timeout=420s
+
+          # Read the root password from the chart-managed Secret.
+          PW="$(kubectl get secret rtest-mongodb -o jsonpath='{.data.mongodb-root-password}' | base64 -d)"
+
+          # mongosh is in-image; drive the roundtrip via kubectl exec. The
+          # bootstrap restart can briefly refuse connections, so retry.
+          ok=""
+          for i in $(seq 1 30); do
+            out="$(kubectl exec rtest-mongodb-0 -- \
+              mongosh "mongodb://root:${PW}@localhost:27017/admin" --quiet \
+              --eval 'db.gate.insertOne({k:"quench"}); print(db.gate.findOne().k)' 2>/tmp/mongosh.err || true)"
+            if printf '%s' "$out" | grep -q quench; then ok=1; echo "MongoDB roundtrip OK: $out"; break; fi
+            echo "attempt $i: not ready yet"; sleep 5
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::MongoDB wire-protocol roundtrip did not return 'quench'"
+            kubectl logs rtest-mongodb-0 --tail=120 || true
+            cat /tmp/mongosh.err || true
+            exit 1
+          fi
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/mongodb-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/mongodb@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push. Register the ArtifactHub repo and set the ID."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/mongodb:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

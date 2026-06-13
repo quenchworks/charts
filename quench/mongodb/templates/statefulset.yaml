@@ -1,0 +1,127 @@
+{{/*
+LICENSE: MongoDB Community Server is SSPL-1.0 — NOT OSI-approved, NOT open source.
+Clean alternative: QuenchWorks FerretDB + documentdb (MongoDB-wire-compatible,
+truly open). Caution tier.
+
+On a FRESH dbpath with auth enabled, the entrypoint first starts mongod no-auth to
+create the root user in the admin db, then restarts mongod with --auth. That
+bootstrap restart races readiness, so probes are tcpSocket on 27017 with generous
+initial delays. mongod also relocates its unix socket + mongosh HOME under the
+writable log dir, so the read-only rootfs is satisfied by the single /data mount.
+*/}}
+{{- $liveness := dict "tcpSocket" (dict "port" "mongodb") "initialDelaySeconds" 40 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "tcpSocket" (dict "port" "mongodb") "initialDelaySeconds" 30 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: primary
+spec:
+  serviceName: {{ include "mongodb.headlessName" . }}
+  replicas: 1
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: primary
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: primary
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "mongodb.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: mongodb
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- include "quench-common.args" . | nindent 10 }}
+          env:
+            # dbpath + log/socket/HOME live under the single writable /data mount.
+            - name: MONGO_DATA_DIR
+              value: /data/db
+            - name: MONGO_LOG_DIR
+              value: /data/log
+            - name: MONGO_PORT
+              value: {{ .Values.service.port | quote }}
+            {{- if .Values.auth.enabled }}
+            # Setting both root env vars makes the entrypoint bootstrap the root
+            # user on first boot and restart mongod with --auth.
+            - name: MONGO_INITDB_ROOT_USERNAME
+              value: {{ .Values.auth.rootUsername | quote }}
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mongodb.secretName" . }}
+                  key: {{ include "mongodb.secretPasswordKey" . }}
+            {{- end }}
+            {{- if .Values.auth.database }}
+            - name: MONGO_INITDB_DATABASE
+              value: {{ .Values.auth.database | quote }}
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            # MongoDB wire protocol.
+            - name: mongodb
+              containerPort: {{ .Values.service.port }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.primary.resources | nindent 12 }}
+          volumeMounts:
+            # Single writable mount: dbpath (/data/db) + log/socket/HOME (/data/log).
+            - name: data
+              mountPath: /data
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        {{- if and .Values.primary.persistence.enabled .Values.primary.persistence.existingClaim }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.primary.persistence.existingClaim }}
+        {{- else if not .Values.primary.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
+  {{- if and .Values.primary.persistence.enabled (not .Values.primary.persistence.existingClaim) }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        {{- with .Values.primary.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes: {{ .Values.primary.persistence.accessModes }}
+        {{- with .Values.primary.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        {{- with .Values.primary.persistence.selector }}
+        selector:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.primary.persistence.size }}
+  {{- end }}

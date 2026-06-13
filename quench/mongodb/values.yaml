@@ -1,0 +1,95 @@
+# ============================================================================
+# LICENSE: SSPL-1.0 (MongoDB Community Server) — *** NOT OSI-APPROVED ***.
+# The Open Source Initiative explicitly DECLINED the SSPL; MongoDB is NOT open
+# source. Caution tier. CLEAN, TRULY-OPEN ALTERNATIVE (prefer these): the
+# QuenchWorks FerretDB + standalone `documentdb` charts give a MongoDB-wire-
+# compatible, Apache-2.0/PostgreSQL-licensed answer.
+# ============================================================================
+
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/mongodb.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/mongodb
+  digest: "sha256:a834166094c08e94dc52828cbf176ab432f2876e51ed838267df95ec5ab87169"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Authentication. On by default. On first boot (fresh dbpath) the entrypoint
+# bootstraps a root user in the admin db, then restarts mongod with --auth.
+# A random root password is generated into a Secret if you do not set one.
+# If auth.enabled=false, mongod runs WITHOUT auth — the NetworkPolicy is then
+# the only security boundary.
+auth:
+  enabled: true
+  rootUsername: root          # MONGO_INITDB_ROOT_USERNAME
+  rootPassword: ""            # generated into a Secret if empty
+  database: ""                # optional MONGO_INITDB_DATABASE (initial db)
+  existingSecret: ""
+  existingSecretPasswordKey: "mongodb-root-password"
+
+primary:
+  persistence:
+    enabled: true
+    size: 8Gi
+    # storageClass: ""        # default class if unset
+    accessModes: ["ReadWriteOnce"]
+    annotations: {}
+    selector: {}
+    existingClaim: ""         # bind an existing PVC instead of provisioning one
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  # MongoDB wire protocol.
+  port: 27017
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

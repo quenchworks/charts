@@ -1,0 +1,45 @@
+============================================================================
+ LICENSE: MongoDB Community Server is SSPL-1.0 — *** NOT OSI-APPROVED ***.
+ The OSI explicitly declined the SSPL; MongoDB is NOT open source. Caution tier.
+ Clean, truly-open alternative (prefer these): the QuenchWorks FerretDB +
+ standalone `documentdb` charts give a MongoDB-wire-compatible,
+ Apache-2.0/PostgreSQL-licensed answer.
+============================================================================
+
+Quenchworks MongoDB Community Server is installed as {{ include "quench-common.fullname" . }}.
+
+Connect from inside the cluster:
+
+  Host: {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  Port: {{ .Values.service.port }}
+{{- if .Values.auth.enabled }}
+  User: {{ .Values.auth.rootUsername }} (admin db)
+
+Get the root password:
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "mongodb.secretName" . }} \
+    -o jsonpath="{.data.{{ include "mongodb.secretPasswordKey" . }}}" | base64 -d
+
+Connect with mongosh (the client ships in-image, so you can exec straight in):
+
+  PW=$(kubectl get secret --namespace {{ .Release.Namespace }} {{ include "mongodb.secretName" . }} -o jsonpath="{.data.{{ include "mongodb.secretPasswordKey" . }}}" | base64 -d)
+  kubectl exec -it --namespace {{ .Release.Namespace }} {{ include "quench-common.fullname" . }}-0 -- \
+    mongosh "mongodb://{{ .Values.auth.rootUsername }}:${PW}@localhost:{{ .Values.service.port }}/admin"
+
+  # insert + find
+  db.gate.insertOne({ k: "quench" })
+  db.gate.findOne()
+{{- else }}
+
+WARNING: auth is DISABLED — mongod runs without authentication. The NetworkPolicy
+is the only security boundary. Enable auth (auth.enabled=true) for any real use.
+
+  kubectl exec -it --namespace {{ .Release.Namespace }} {{ include "quench-common.fullname" . }}-0 -- \
+    mongosh "mongodb://localhost:{{ .Values.service.port }}/admin"
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
