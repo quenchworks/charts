@@ -1,0 +1,61 @@
+{{- if .Values.rbac.create }}
+# An ingress controller watches the whole cluster, so the read permissions are
+# granted cluster-wide. The CRD group rules are added only when the kubernetesCRD
+# provider is enabled. Written clean-room from the providers' API needs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  # core objects the providers' informers list/watch: services and endpoints for
+  # backend resolution, secrets for TLS material, configmaps and nodes for the
+  # Kubernetes provider's shared informer caches.
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "secrets", "configmaps", "nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  {{- if .Values.providers.kubernetesIngress }}
+  # standard networking.k8s.io Ingress provider
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "ingressclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses/status"]
+    verbs: ["update"]
+  {{- end }}
+  {{- if .Values.providers.kubernetesCRD }}
+  # traefik.io CRD provider
+  - apiGroups: ["traefik.io"]
+    resources:
+      - "ingressroutes"
+      - "ingressroutetcps"
+      - "ingressrouteudps"
+      - "middlewares"
+      - "middlewaretcps"
+      - "tlsoptions"
+      - "tlsstores"
+      - "traefikservices"
+      - "serverstransports"
+      - "serverstransporttcps"
+    verbs: ["get", "list", "watch"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "traefik.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

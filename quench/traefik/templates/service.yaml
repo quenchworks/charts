@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    # 80 -> the unprivileged web entryPoint (uid 1001 cannot bind :80 directly).
+    - port: {{ .Values.service.port }}
+      targetPort: web
+      name: web
+      protocol: TCP
+    # 443 -> the unprivileged websecure entryPoint.
+    - port: {{ .Values.service.httpsPort }}
+      targetPort: websecure
+      name: websecure
+      protocol: TCP
+    {{- if .Values.service.exposeDashboard }}
+    # Optional: publish the dashboard/api (traefik entryPoint) on the Service.
+    - port: {{ .Values.ports.traefik }}
+      targetPort: traefik
+      name: traefik
+      protocol: TCP
+    {{- end }}
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

@@ -1,0 +1,143 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/traefik.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/traefik
+  digest: "sha256:a83e364cad02e1d696f2528bd4506bcb404b76b252d79b2556bc56fd7132f4f7"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Traefik is deployed as a cluster ingress controller: a Deployment that watches
+# the Kubernetes API (Ingress and/or the traefik.io CRDs) and routes traffic.
+replicaCount: 1
+
+# The runtime image is nonroot (uid 1001), so the container cannot bind privileged
+# ports (<1024). Traefik therefore listens on unprivileged container ports and the
+# Service maps the well-known 80/443 onto them:
+#
+#   entryPoint   container port   service port   purpose
+#   web          8000             80             plain HTTP
+#   websecure    8443             443            HTTPS / TLS
+#   traefik      8080             (in-cluster)   dashboard / api / ping (healthcheck)
+#
+# Do not set these below 1024; uid 1001 cannot bind them.
+ports:
+  web: 8000
+  websecure: 8443
+  traefik: 8080
+
+# Static-config providers. kubernetesIngress consumes standard networking.k8s.io
+# Ingress objects; kubernetesCRD consumes the traefik.io IngressRoute family. Each
+# provider that is enabled grants the matching cluster RBAC below.
+providers:
+  kubernetesIngress: true
+  kubernetesCRD: false
+
+# IngressClass for the kubernetesIngress provider. When created, an IngressClass of
+# this name with controller traefik.io/ingress-controller is installed; Traefik
+# claims Ingresses whose ingressClassName matches it. Ingresses with no class are
+# always served too. Only created when providers.kubernetesIngress is true.
+ingressClass:
+  create: true
+  name: traefik
+  # Make this the cluster default IngressClass (Ingresses with no class use it).
+  isDefaultClass: false
+
+# Dashboard / API on the internal `traefik` entryPoint.
+#   enabled       -> serve --api.dashboard=true (the embedded webui at /dashboard/)
+#   insecure      -> --api.insecure=true, exposing the dashboard/api on the traefik
+#                    entryPoint with no auth. Convenient for port-forward; never
+#                    expose this entryPoint publicly. Default false.
+# The /ping healthcheck endpoint is always enabled (it backs the probes), regardless.
+dashboard:
+  enabled: true
+  insecure: true
+
+# Let's Encrypt / ACME. When enabled an emptyDir is mounted at the data path so
+# acme.json is writable under the read-only rootfs. For durable certificates mount
+# a PVC at this path via extraVolumes/extraVolumeMounts instead.
+acme:
+  enabled: false
+  storagePath: /data/acme.json
+
+# Traefik log level: DEBUG, INFO, WARN, ERROR, FATAL, PANIC.
+logLevel: INFO
+
+# Extra static-config CLI flags appended verbatim to the traefik command, e.g.
+#   - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+extraArgs: []
+
+resources:
+  requests: { cpu: 100m, memory: 64Mi }
+  limits: { cpu: "1", memory: 256Mi }
+
+service:
+  # ClusterIP by default; set to LoadBalancer/NodePort to expose web/websecure.
+  type: ClusterIP
+  # Plain-HTTP service port mapped to the web entryPoint.
+  port: 80
+  # HTTPS service port mapped to the websecure entryPoint.
+  httpsPort: 443
+  # Also publish the dashboard/api (traefik entryPoint) on the Service. Leave false
+  # to keep dashboard/api in-cluster only (reach it via port-forward). The /ping
+  # endpoint lives on this entryPoint and is always reachable in-cluster.
+  exposeDashboard: false
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Cluster RBAC for the Kubernetes providers. When true a ClusterRole +
+# ClusterRoleBinding are created so Traefik can list/watch Ingresses, Services,
+# Endpoints/EndpointSlices, Secrets (and the traefik.io CRDs when kubernetesCRD is
+# on). An ingress controller is inherently cluster-scoped, so this defaults true.
+rbac:
+  create: true
+
+# An ingress controller must accept traffic from outside its namespace, so this
+# defaults to allowing external ingress. Set allowExternal=false to restrict to
+# the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Install the traefik.io CustomResourceDefinitions. Helm 3 installs everything in
+# the chart's crds/ directory automatically on first install (and never upgrades or
+# deletes them). Set to false (and delete crds/) to manage the CRDs out of band.
+crds:
+  enabled: true

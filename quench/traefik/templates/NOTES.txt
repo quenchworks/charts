@@ -1,0 +1,85 @@
+Quenchworks Traefik is installed as {{ include "quench-common.fullname" . }}.
+
+It runs as a cluster ingress controller. The container listens on unprivileged
+ports (uid 1001 cannot bind <1024) and the Service maps the well-known ports:
+
+  service :{{ .Values.service.port }}  -> entryPoint web       (container :{{ .Values.ports.web }})
+  service :{{ .Values.service.httpsPort }} -> entryPoint websecure (container :{{ .Values.ports.websecure }})
+  entryPoint traefik (container :{{ .Values.ports.traefik }}) -> dashboard / api / ping (in-cluster)
+
+Reach the dashboard / api (port-forward the internal traefik entryPoint):
+
+  kubectl port-forward deployment/{{ include "quench-common.fullname" . }} {{ .Values.ports.traefik }}:{{ .Values.ports.traefik }}
+{{- if and .Values.dashboard.enabled .Values.dashboard.insecure }}
+  # dashboard: http://127.0.0.1:{{ .Values.ports.traefik }}/dashboard/
+  # api:       http://127.0.0.1:{{ .Values.ports.traefik }}/api/overview
+{{- else }}
+  # The insecure api is disabled (dashboard.insecure=false). /ping is still served:
+{{- end }}
+  # health:    http://127.0.0.1:{{ .Values.ports.traefik }}/ping
+
+Route traffic through Traefik:
+
+{{- if .Values.providers.kubernetesIngress }}
+
+  * Standard Ingress (kubernetesIngress provider is enabled). Create an Ingress
+    whose ingressClassName is "traefik" (or omit it if Traefik is your only
+    controller):
+
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: my-app
+      spec:
+        ingressClassName: traefik
+        rules:
+          - http:
+              paths:
+                - path: /
+                  pathType: Prefix
+                  backend:
+                    service:
+                      name: my-app
+                      port:
+                        number: 80
+{{- end }}
+{{- if .Values.providers.kubernetesCRD }}
+
+  * Traefik IngressRoute (kubernetesCRD provider is enabled; the traefik.io CRDs
+    are installed from the chart's crds/ directory):
+
+      apiVersion: traefik.io/v1alpha1
+      kind: IngressRoute
+      metadata:
+        name: my-app
+      spec:
+        entryPoints: [web]
+        routes:
+          - match: Host(`app.example.com`)
+            kind: Rule
+            services:
+              - name: my-app
+                port: 80
+{{- else }}
+
+  * The kubernetesCRD provider is disabled. Enable providers.kubernetesCRD=true to
+    use the traefik.io IngressRoute family (CRDs ship in the chart's crds/ dir).
+{{- end }}
+{{- if .Values.acme.enabled }}
+
+ACME / Let's Encrypt is enabled (resolver "le", tlsChallenge) writing to
+{{ .Values.acme.storagePath }} on an emptyDir. Mount a PVC there for durable certs.
+Reference the resolver from your routes (e.g. Ingress annotation or IngressRoute tls).
+{{- else }}
+
+Enable HTTPS with Let's Encrypt by setting acme.enabled=true (and route TLS to the
+"le" resolver). A writable emptyDir is mounted for acme.json under the read-only
+rootfs; use a PVC for persistence.
+{{- end }}
+
+The image is nonroot (uid 1001), runs on a read-only root filesystem, pinned by
+digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
