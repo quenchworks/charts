@@ -1,0 +1,25 @@
+# Standalone install gate. No image override: uses the chart's real CI-maintained digest.
+# Bundles the Quenchworks PostgreSQL subchart with persistence off; deterministic shared
+# credentials so PgBouncer's generated userlist matches the backend; small resources for
+# the runner. scram-sha-256 auth proves real end-to-end auth through the pooler.
+postgresql:
+  enabled: true
+  auth:
+    username: appuser
+    password: appsecret
+    database: appdb
+  primary:
+    persistence:
+      enabled: false
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: "1", memory: 512Mi }
+
+pgbouncer:
+  authType: scram-sha-256
+  poolMode: transaction
+  adminUsers: appuser
+
+resources:
+  requests: { cpu: 50m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 128Mi }

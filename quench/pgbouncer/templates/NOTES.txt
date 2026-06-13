@@ -1,0 +1,56 @@
+Quenchworks PgBouncer is installed as {{ include "quench-common.fullname" . }}.
+
+Point your applications at the pooler instead of PostgreSQL directly:
+
+  host : {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  port : {{ .Values.service.port }}
+  user : {{ include "pgbouncer.db.user" . }}
+  db   : {{ include "pgbouncer.db.name" . }}
+
+PgBouncer transparently pools connections to the backend PostgreSQL:
+
+  backend host : {{ include "pgbouncer.db.host" . }}
+  backend port : {{ include "pgbouncer.db.port" . }}
+  pool_mode    : {{ .Values.pgbouncer.poolMode }}
+
+Connect from a client pod (the Quenchworks postgresql image ships psql):
+
+  PW=$(kubectl get secret --namespace {{ .Release.Namespace }} \
+{{- if .Values.postgresql.enabled }}
+        {{ .Release.Name }}-postgresql -o jsonpath="{.data.postgres-password}" | base64 -d)
+{{- else }}
+        <your-db-secret> -o jsonpath="{.data.password}" | base64 -d)
+{{- end }}
+
+  kubectl run pgclient --rm -it --restart=Never \
+    --image=ghcr.io/quenchworks/images/postgresql:18.4 -- \
+    psql "host={{ include "quench-common.fullname" . }} port={{ .Values.service.port }} user={{ include "pgbouncer.db.user" . }} dbname={{ include "pgbouncer.db.name" . }} password=$PW" -c 'SELECT 1;'
+
+Admin / stats console — connect to the special "pgbouncer" virtual database as an
+admin user ({{ .Values.pgbouncer.adminUsers }}):
+
+  psql "host={{ include "quench-common.fullname" . }} port={{ .Values.service.port }} user={{ .Values.pgbouncer.adminUsers }} dbname=pgbouncer password=$PW" \
+    -c 'SHOW POOLS;'
+  # also: SHOW LISTS; SHOW STATS; SHOW CLIENTS; RELOAD;
+
+Backend database:
+{{- if .Values.postgresql.enabled }}
+  Bundled Quenchworks PostgreSQL (postgresql.enabled=true). PgBouncer and the bundled PG
+  share the deterministic credentials under `postgresql.auth`. This self-contained mode is
+  mainly for demos/CI — in PRODUCTION set postgresql.enabled=false and point
+  `externalDatabase` at your real PostgreSQL.
+{{- else }}
+  External database (postgresql.enabled=false): {{ include "pgbouncer.db.host" . }}:{{ include "pgbouncer.db.port" . }}/{{ include "pgbouncer.db.name" . }}
+{{- end }}
+
+pool_mode tradeoffs:
+  transaction (default) — best throughput; no session-level state (SET, advisory locks,
+                          session-scoped prepared statements).
+  session               — most compatible; one server connection per client connection.
+  statement             — autocommit only; returns server after each statement.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

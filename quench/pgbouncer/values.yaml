@@ -1,0 +1,140 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/pgbouncer.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/pgbouncer
+  digest: "sha256:bc8e1092bdcc60008dabd1e63270f91bf77ec9430bb6f82967f0e068fbad8694"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# PgBouncer is a stateless pooler — all data lives in the backend PostgreSQL. Scale
+# horizontally by raising replicaCount (each replica keeps its own server pool, so
+# total backend connections = replicaCount * default_pool_size * databases). Default 1.
+replicaCount: 1
+
+# Bundled in-cluster PostgreSQL (the Quenchworks postgresql subchart). Default true:
+# a self-contained demo/gate that pools in front of an in-cluster PG. In PRODUCTION
+# you typically set postgresql.enabled=false and point `externalDatabase` at your real
+# PostgreSQL — the whole point of PgBouncer is to pool a separate, existing database.
+#
+# The auth block pins DETERMINISTIC credentials so PgBouncer's userlist and the bundled
+# PG agree on db/user/password.
+postgresql:
+  enabled: true
+  auth:
+    # NOTE: the bundled PostgreSQL image creates the application database only when it
+    # differs from both "postgres" and the superuser name, so username and database
+    # MUST NOT be equal (here: appuser vs appdb).
+    username: appuser
+    password: appsecret
+    database: appdb
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# External database, used when postgresql.enabled=false. Point at any reachable
+# PostgreSQL. Supply the password inline or via an existingSecret. This is the real
+# use case: pool client connections in front of an existing PostgreSQL.
+externalDatabase:
+  host: ""
+  port: 5432
+  database: appdb
+  user: appuser
+  password: ""
+  existingSecret: ""               # Secret holding the DB password
+  existingSecretPasswordKey: "password"
+
+# --- PgBouncer pooler configuration (rendered into pgbouncer.ini ConfigMap) ---
+# The full file is templated from these knobs; for advanced cases supply your own with
+# `config.raw` (a complete pgbouncer.ini string), which REPLACES the generated [databases]
+# + [pgbouncer] sections entirely.
+pgbouncer:
+  # Auth: how PgBouncer authenticates CLIENTS connecting to it. The Quenchworks PG uses
+  # scram-sha-256. With auth_type=scram-sha-256 the userlist.txt may hold the plaintext
+  # password — PgBouncer uses it to verify the client (SCRAM) AND to log in to the backend.
+  authType: scram-sha-256          # scram-sha-256 | md5 | trust (trust only for trusted networks)
+  # pool_mode: transaction (default) returns a server connection to the pool at the end of
+  # every transaction — best throughput, but no session-level features (SET, advisory locks,
+  # prepared statements unless max_prepared_statements is set). session = one server per client
+  # connection (most compatible). statement = return after every statement (autocommit only).
+  poolMode: transaction
+  maxClientConn: 1000              # max client connections accepted by PgBouncer
+  defaultPoolSize: 25              # server connections per (user, database) pair
+  minPoolSize: 0
+  reservePoolSize: 0
+  # admin_users may use the special "pgbouncer" virtual database for SHOW POOLS / RELOAD etc.
+  adminUsers: "appuser"
+  # startup parameters the client may send that PgBouncer should ignore rather than reject.
+  ignoreStartupParameters: "extra_float_digits"
+  # Extra raw lines appended verbatim to the [pgbouncer] section (key = value per line).
+  extraConfig: ""
+  # Provide a COMPLETE pgbouncer.ini here to bypass templating entirely (advanced).
+  raw: ""
+
+# The userlist.txt Secret maps usernames to credentials PgBouncer uses. When the bundled
+# PG is enabled, the entry for postgresql.auth.username is generated from the shared
+# password. For external DBs, the entry for externalDatabase.user is generated from its
+# password (inline or existingSecret). Add extra plaintext entries here as { user: password }.
+userlist:
+  existingSecret: ""               # provide your own userlist.txt Secret (key: userlist.txt)
+  extraUsers: {}                   # { "reader": "readerpw", ... } appended to the generated list
+
+resources:
+  requests: { cpu: 50m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 128Mi }
+
+service:
+  type: ClusterIP
+  port: 6432                       # PgBouncer listener (point apps here instead of PG:5432)
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# PgBouncer fronts a database; clients are typically other workloads. Default restricts
+# ingress on 6432 to the release namespace. Set allowExternal: true to accept connections
+# from anywhere (e.g. an ingress/LB exposing the pooler outside the cluster).
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

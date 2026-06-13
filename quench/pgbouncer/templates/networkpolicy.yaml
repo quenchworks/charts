@@ -1,0 +1,38 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Pooler listener (6432). Clients are usually other in-cluster workloads, so ingress
+    # is restricted to the release namespace by default; set allowExternal: true to accept
+    # connections from anywhere (e.g. exposing the pooler outside the cluster).
+    - ports:
+        - port: pgbouncer
+          protocol: TCP
+      {{- if not .Values.networkPolicy.allowExternal }}
+      from:
+        - podSelector: {}
+      {{- end }}
+  egress:
+    # DNS resolution
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Backend PostgreSQL. Open to the DB port cluster-wide so both the bundled subchart
+    # and an external DB are reachable.
+    - ports:
+        - port: {{ include "pgbouncer.db.port" . }}
+          protocol: TCP
+{{- end }}
