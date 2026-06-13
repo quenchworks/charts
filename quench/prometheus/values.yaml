@@ -1,0 +1,103 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/prometheus.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/prometheus
+  digest: "sha256:d6ed6b8d309e0c621ab73b1416669510e54211740db935e0a5fd1ec5a001056a"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single node. Prometheus' own HA story is run-two-identical-replicas (no
+# clustering); that, plus remote-write to a long-term store, is a tracked
+# follow-up. This chart ships the self-contained single-node server.
+replicaCount: 1
+
+# Prometheus configuration. The image is flag- and file-driven: the entrypoint
+# pins --storage.tsdb.path to PROM_TSDB_PATH (/prometheus, the PVC),
+# --web.listen-address to PROM_WEB_LISTEN (:9090), --config.file to
+# PROM_CONFIG_FILE (/etc/prometheus/prometheus.yml, mounted from a ConfigMap),
+# and --web.enable-lifecycle (so config reloads via POST /-/reload).
+config:
+  # The full prometheus.yml, rendered into a ConfigMap and mounted over
+  # /etc/prometheus/prometheus.yml. Default: a global scrape_interval and a
+  # self-scrape job (the `up` metric on localhost:9090).
+  prometheusYaml: |
+    global:
+      scrape_interval: 15s
+      evaluation_interval: 15s
+
+    scrape_configs:
+      - job_name: prometheus
+        static_configs:
+          - targets:
+              - localhost:9090
+  # TSDB retention by time, rendered as --storage.tsdb.retention.time=<value>.
+  # Prometheus duration shorthand: 15d, 1y, 12h, etc. Empty leaves the default (15d).
+  retentionTime: "15d"
+  # Extra raw flags appended verbatim to the server (entrypoint passes "$@"),
+  # e.g. ["--storage.tsdb.retention.size=10GB", "--query.max-samples=50000000"].
+  extraArgs: []
+
+persistence:
+  enabled: true
+  size: 16Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 9090
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

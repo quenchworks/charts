@@ -1,0 +1,35 @@
+Quenchworks Prometheus is installed as {{ include "quench-common.fullname" . }}.
+
+The HTTP API and UI are reachable inside the cluster at:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Health and readiness:
+
+  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/-/healthy   # -> Prometheus Server is Healthy.
+  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/-/ready     # -> Prometheus Server is Ready.
+
+Query (PromQL via the HTTP API):
+
+  curl 'http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/api/v1/query?query=up'
+  curl 'http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/api/v1/query_range?query=up&start=-5m&end=now&step=30s'
+
+Custom scrape config:
+
+  Edit `config.prometheusYaml` in your values and `helm upgrade` (the pod rolls on
+  the config checksum). For a live reload without a restart (--web.enable-lifecycle
+  is on):
+
+    curl -XPOST http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/-/reload
+
+Pairs with the Quenchworks exporters (node, blackbox, ...) as scrape targets and
+with Grafana / VictoriaMetrics as the long-term store and dashboards.
+
+NOTE: Prometheus ships with no authentication. This is for internal use behind
+the NetworkPolicy, which is the trust boundary. There is no Secret to manage.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
