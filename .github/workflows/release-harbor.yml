@@ -1,0 +1,187 @@
+name: release-harbor
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/harbor/**"
+      - ".github/workflows/release-harbor.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/harbor
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # pin actions to SHAs before going public (renovate)
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+      - uses: imjasonh/setup-crane@v0.4
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          # pulls quench-common + the bundled postgresql + valkey subcharts into charts/
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+
+          # The CI admin password — must match auth.adminPassword in ci/default-values.yaml.
+          ADMIN_PW="Harbor12345"
+
+          # Bundled PG (schema auto-migrates on core boot) + Valkey + all seven
+          # components + the front-door proxy. Persistence off, ingress off.
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --wait --timeout 12m
+
+          # Every workload Ready, including the proxy front door. (--wait already
+          # blocks, but assert each rollout explicitly so a stuck component fails loud.)
+          for d in core jobservice registry portal trivy exporter proxy; do
+            kubectl rollout status "deployment/rtest-harbor-${d}" --timeout=300s
+          done
+          # bundled datastores are StatefulSets (helm --wait already gates on these)
+          kubectl rollout status statefulset/rtest-postgresql --timeout=300s || true
+          kubectl rollout status statefulset/rtest-valkey --timeout=300s || true
+
+          # --- reach Harbor through the proxy Service (the real front door) ---
+          # svc/rtest-harbor maps 80 -> proxy 8080; forward to 127.0.0.1:8080 so the
+          # access host matches externalURL (auto-trusted for the CSRF same-origin check).
+          kubectl port-forward svc/rtest-harbor 8080:80 >/tmp/pf.log 2>&1 &
+          PF=$!; trap 'kill $PF 2>/dev/null || true' EXIT
+          BASE="http://127.0.0.1:8080"
+
+          # wait for the port-forward + portal to answer "/"
+          up=0
+          for i in $(seq 1 30); do
+            if curl -fsS -o /dev/null "${BASE}/"; then up=1; break; fi
+            sleep 3
+          done
+          test "$up" = 1
+
+          # --- 1) /api/v2.0/health: every component must report healthy ---
+          ok=0
+          for i in $(seq 1 40); do
+            curl -fsS -o /tmp/health.json "${BASE}/api/v2.0/health" || { sleep 3; continue; }
+            # overall status healthy AND no component left in an unhealthy state
+            status="$(grep -o '"status":"[a-z]*"' /tmp/health.json | head -1)"
+            echo "health: ${status} :: $(cat /tmp/health.json)"
+            if echo "$status" | grep -q '"status":"healthy"' \
+               && ! grep -q '"status":"unhealthy"' /tmp/health.json; then
+              ok=1; break
+            fi
+            sleep 3
+          done
+          test "$ok" = 1
+          echo "health OK: all components healthy"
+
+          # --- 2) CSRF login dance: GET /c/login to mint the cookie + token, then
+          #         POST /c/login with cookie + header + same-origin Origin/Referer ---
+          rm -f /tmp/cj.txt
+          # GET sets the _gorilla_csrf cookie (jar) and returns X-Harbor-Csrf-Token.
+          TOKEN="$(curl -fsS -c /tmp/cj.txt -D - -o /dev/null "${BASE}/c/login" \
+                    | tr -d '\r' | awk -F': ' 'tolower($1)=="x-harbor-csrf-token"{print $2}' | tail -1)"
+          echo "csrf token present: $([ -n "$TOKEN" ] && echo yes || echo no)"
+          test -n "$TOKEN"
+
+          # POST with the SAME cookie jar, the token header, and same-origin headers.
+          code="$(curl -s -o /tmp/login.txt -w '%{http_code}' \
+                    -b /tmp/cj.txt -c /tmp/cj.txt \
+                    -H "X-Harbor-Csrf-Token: ${TOKEN}" \
+                    -H "Origin: ${BASE}" -H "Referer: ${BASE}/" \
+                    --data-urlencode "principal=admin" \
+                    --data-urlencode "password=${ADMIN_PW}" \
+                    "${BASE}/c/login")"
+          echo "same-origin login HTTP status: ${code}"
+          test "$code" = "200"
+          echo "login OK: same-origin admin login -> 200"
+
+          # --- 3) cross-site CSRF must be rejected: same token+cookie, evil Origin -> 403 ---
+          # re-mint a fresh token/cookie so the only difference is the Origin.
+          rm -f /tmp/cj2.txt
+          TOKEN2="$(curl -fsS -c /tmp/cj2.txt -D - -o /dev/null "${BASE}/c/login" \
+                     | tr -d '\r' | awk -F': ' 'tolower($1)=="x-harbor-csrf-token"{print $2}' | tail -1)"
+          test -n "$TOKEN2"
+          xcode="$(curl -s -o /tmp/evil.txt -w '%{http_code}' \
+                     -b /tmp/cj2.txt \
+                     -H "X-Harbor-Csrf-Token: ${TOKEN2}" \
+                     -H "Origin: http://evil.example.com" -H "Referer: http://evil.example.com/" \
+                     --data-urlencode "principal=admin" \
+                     --data-urlencode "password=${ADMIN_PW}" \
+                     "${BASE}/c/login")"
+          echo "cross-site login HTTP status: ${xcode}"
+          test "$xcode" = "403"
+          echo "CSRF OK: cross-site Origin -> 403"
+
+          # --- 4) end-to-end registry push + pull THROUGH the proxy (/v2) with crane ---
+          # Optional but high-value: round-trip a tiny image through Harbor's default
+          # "library" project so the registry + core token service are exercised over
+          # the docker v2 protocol. crane talks plain HTTP to 127.0.0.1 with --insecure.
+          set +e
+          REPO="127.0.0.1:8080/library/ci-smoke:1"
+          push_ok=1
+          crane auth login 127.0.0.1:8080 -u admin -p "${ADMIN_PW}" --insecure || push_ok=0
+          echo "hello-quenchworks" > /tmp/payload.txt
+          tar -cf /tmp/layer.tar -C /tmp payload.txt
+          crane append -f /tmp/layer.tar -t "${REPO}" --insecure || push_ok=0
+          crane pull "${REPO}" /tmp/pulled.tar --insecure && test -s /tmp/pulled.tar || push_ok=0
+          set -e
+          if [ "$push_ok" = 1 ]; then
+            echo "registry OK: crane push + pull through the proxy"
+          else
+            echo "::warning::registry push/pull smoke did not complete; core asserts (health+login+CSRF) already passed"
+          fi
+
+          echo "INSTALL GATE PASSED: health + login(200) + cross-site(403)"
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/harbor-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"   # fail loudly rather than handing cosign an empty ref
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/harbor@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push. Register the ArtifactHub repo and set the ID."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/harbor:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

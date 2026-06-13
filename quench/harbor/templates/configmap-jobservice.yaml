@@ -1,0 +1,50 @@
+{{/*
+Jobservice ConfigMap. config.yml (mounted /etc/jobservice/config.yml) wires the
+worker pool to the Valkey jobservice DB index and routes job logs to STD_OUTPUT only
+(no FILE/DB logger — keeps the rootfs read-only and avoids the DB logger dependency).
+The env-style keys feed jobservice via envFrom: CORE_URL, the registry creds/URLs and
+the cache redis URL. CORE_SECRET / JOBSERVICE_SECRET come from the managed Secret.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "harbor.jobservice" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: jobservice
+data:
+  config.yml: |+
+    protocol: "http"
+    port: 8080
+    worker_pool:
+      workers: {{ .Values.jobservice.maxJobWorkers }}
+      backend: "redis"
+      redis_pool:
+        redis_url: {{ include "harbor.redis.url" (dict "ctx" . "db" .Values.redisDB.jobservice) | quote }}
+        namespace: "harbor_job_service_namespace"
+        idle_timeout_second: 3600
+    job_loggers:
+      - name: "STD_OUTPUT"
+        level: {{ .Values.logLevel | upper }}
+    metric:
+      enabled: {{ .Values.metrics.enabled }}
+      path: {{ .Values.metrics.jobservice.path }}
+      port: {{ .Values.metrics.jobservice.port }}
+    loggers:
+      - name: "STD_OUTPUT"
+        level: {{ .Values.logLevel | upper }}
+    reaper:
+      max_update_hours: 24
+      max_dangling_hours: 168
+  CORE_URL: {{ include "harbor.core.localURL" . | quote }}
+  TOKEN_SERVICE_URL: {{ include "harbor.token.url" . | quote }}
+  REGISTRY_URL: {{ include "harbor.registry.url" . | quote }}
+  REGISTRY_CONTROLLER_URL: {{ include "harbor.registryctl.url" . | quote }}
+  REGISTRY_CREDENTIAL_USERNAME: "harbor_registry_user"
+  JOBSERVICE_WEBHOOK_JOB_MAX_RETRY: "3"
+  JOBSERVICE_WEBHOOK_JOB_HTTP_CLIENT_TIMEOUT: "3"
+  HTTP_PROXY: ""
+  HTTPS_PROXY: ""
+  NO_PROXY: "{{ include "harbor.core" . }},{{ include "harbor.jobservice" . }},{{ include "harbor.registry" . }},{{ include "harbor.registryctl" . }},{{ include "harbor.portal" . }},127.0.0.1,localhost,.local,.internal"
+  LOG_LEVEL: {{ .Values.logLevel | quote }}
+  CORE_LOCAL_URL: {{ include "harbor.core.localURL" . | quote }}

@@ -1,0 +1,129 @@
+{{/*
+Harbor core. The control plane: serves the API, the token service (signs registry
+auth tokens with the persisted RSA key), and proxies the docker /v2 protocol to the
+registry. Auto-migrates the DB schema on boot (golang-migrate). Probes hit
+/api/v2.0/ping. Read-only rootfs: /tmp and the token cache /etc/core/token are
+emptyDir; app.conf, the 16-byte secretKey, and the token private key are read-only
+mounts from the managed Secret/ConfigMap.
+*/}}
+{{- $comp := "core" -}}
+{{- $liveness := dict "httpGet" (dict "path" "/api/v2.0/ping" "port" 8080) "initialDelaySeconds" 30 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/api/v2.0/ping" "port" 8080) "initialDelaySeconds" 20 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "harbor.core" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: {{ $comp }}
+spec:
+  replicas: {{ .Values.core.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "harbor.componentLabels" (dict "ctx" . "component" $comp) | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/cm: {{ include (print $.Template.BasePath "/configmap-core.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "harbor.componentLabels" (dict "ctx" . "component" $comp) | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "harbor.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: core
+          image: {{ include "harbor.image" (dict "ctx" . "component" "core") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "harbor.core" . }}
+          env:
+            - name: CORE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "harbor.secret" . }}
+                  key: secret
+            - name: JOBSERVICE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "harbor.secret" . }}
+                  key: JOBSERVICE_SECRET
+            - name: CSRF_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "harbor.secret" . }}
+                  key: CSRF_KEY
+            - name: HARBOR_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "harbor.secret" . }}
+                  key: HARBOR_ADMIN_PASSWORD
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "harbor.secret" . }}
+                  key: POSTGRESQL_PASSWORD
+            - name: REGISTRY_CREDENTIAL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "harbor.secret" . }}
+                  key: REGISTRY_CREDENTIAL_PASSWORD
+            - name: INTERNAL_TLS_ENABLED
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 8080
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.core.port }}
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.core.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/core/app.conf
+              subPath: app.conf
+            - name: secret-key
+              mountPath: /etc/core/key
+              subPath: key
+            - name: token-key
+              mountPath: /etc/core/private_key.pem
+              subPath: tls.key
+            - name: token-cache
+              mountPath: /etc/core/token
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "harbor.core" . }}
+            items:
+              - key: app.conf
+                path: app.conf
+        - name: secret-key
+          secret:
+            secretName: {{ include "harbor.secret" . }}
+            items:
+              - key: secretKey
+                path: key
+        - name: token-key
+          secret:
+            secretName: {{ include "harbor.secret" . }}
+            items:
+              - key: tls.key
+                path: tls.key
+        - name: token-cache
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

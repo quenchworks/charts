@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Quenchworks Harbor values",
+  "type": "object",
+  "additionalProperties": true,
+  "definitions": {
+    "componentImage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "digest"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    }
+  },
+  "properties": {
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["core", "jobservice", "registry", "registryctl", "portal", "trivyAdapter", "exporter", "busybox", "proxy"],
+      "properties": {
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
+        "proxy": { "$ref": "#/definitions/componentImage" },
+        "core": { "$ref": "#/definitions/componentImage" },
+        "jobservice": { "$ref": "#/definitions/componentImage" },
+        "registry": { "$ref": "#/definitions/componentImage" },
+        "registryctl": { "$ref": "#/definitions/componentImage" },
+        "portal": { "$ref": "#/definitions/componentImage" },
+        "trivyAdapter": { "$ref": "#/definitions/componentImage" },
+        "exporter": { "$ref": "#/definitions/componentImage" },
+        "busybox": { "$ref": "#/definitions/componentImage" }
+      }
+    },
+    "nameOverride": { "type": "string" },
+    "logLevel": { "type": "string", "enum": ["debug", "info", "warning", "error", "fatal"] },
+    "externalURL": { "type": "string" },
+    "proxy": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "service": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "type": { "type": "string" },
+            "port": { "type": ["integer", "string"] }
+          }
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "adminPassword": { "type": "string" } }
+    },
+    "postgresql": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "auth": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "username": { "type": "string", "minLength": 1 },
+            "password": { "type": "string" },
+            "database": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "externalDatabase": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": { "type": "string" },
+        "port": { "type": ["integer", "string"] },
+        "user": { "type": "string" },
+        "password": { "type": "string" },
+        "database": { "type": "string" },
+        "sslmode": { "type": "string" },
+        "existingSecret": { "type": "string" },
+        "existingSecretPasswordKey": { "type": "string" }
+      }
+    },
+    "valkey": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "auth": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "password": { "type": "string" }
+          }
+        }
+      }
+    },
+    "externalCache": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": { "type": "string" },
+        "port": { "type": ["integer", "string"] },
+        "password": { "type": "string" },
+        "existingSecret": { "type": "string" },
+        "existingSecretPasswordKey": { "type": "string" }
+      }
+    },
+    "redisDB": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "core": { "type": "integer", "minimum": 0 },
+        "registry": { "type": "integer", "minimum": 0 },
+        "jobservice": { "type": "integer", "minimum": 0 },
+        "cacheLayer": { "type": "integer", "minimum": 0 },
+        "trivyStore": { "type": "integer", "minimum": 0 },
+        "trivyJobQueue": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "persistence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "size": { "type": "string" },
+        "storageClass": { "type": "string" },
+        "accessModes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "trivy": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": { "enabled": { "type": "boolean" } }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": { "enabled": { "type": "boolean" } }
+    },
+    "ingress": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "className": { "type": "string" },
+        "host": { "type": "string" },
+        "annotations": { "type": "object" },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "secretName": { "type": "string" }
+          }
+        }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "annotations": { "type": "object" }
+      }
+    },
+    "rbac": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "create": { "type": "boolean" } }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "allowExternal": { "type": "boolean" }
+      }
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minAvailable": { "type": ["integer", "string"] }
+      }
+    }
+  }
+}

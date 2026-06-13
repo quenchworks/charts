@@ -1,0 +1,100 @@
+{{- if .Values.metrics.enabled }}
+{{/*
+Harbor exporter (optional). Aggregates Harbor metrics by reading the core API, the DB,
+and the jobservice Valkey namespace, and serves them on :8001/metrics. Read-only
+rootfs; only /tmp is writable. The DB + admin passwords come from the managed Secret.
+*/}}
+{{- $comp := "exporter" -}}
+{{- $liveness := dict "httpGet" (dict "path" "/" "port" .Values.metrics.exporter.service.port) "initialDelaySeconds" 20 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/" "port" .Values.metrics.exporter.service.port) "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "harbor.exporter" . }}-env
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: {{ $comp }}
+data:
+  LOG_LEVEL: {{ .Values.logLevel | quote }}
+  HARBOR_EXPORTER_PORT: {{ .Values.metrics.exporter.service.port | quote }}
+  HARBOR_EXPORTER_METRICS_PATH: "/metrics"
+  HARBOR_EXPORTER_METRICS_ENABLED: "true"
+  HARBOR_EXPORTER_CACHE_TIME: "23"
+  HARBOR_EXPORTER_CACHE_CLEAN_INTERVAL: "14400"
+  HARBOR_METRIC_NAMESPACE: harbor
+  HARBOR_METRIC_SUBSYSTEM: exporter
+  HARBOR_REDIS_URL: {{ include "harbor.redis.url" (dict "ctx" . "db" .Values.redisDB.jobservice) | quote }}
+  HARBOR_REDIS_NAMESPACE: harbor_job_service_namespace
+  HARBOR_REDIS_TIMEOUT: "3600"
+  HARBOR_SERVICE_SCHEME: "http"
+  HARBOR_SERVICE_HOST: {{ include "harbor.core" . | quote }}
+  HARBOR_SERVICE_PORT: {{ .Values.core.service.port | quote }}
+  HARBOR_DATABASE_HOST: {{ include "harbor.db.host" . | quote }}
+  HARBOR_DATABASE_PORT: {{ include "harbor.db.port" . | quote }}
+  HARBOR_DATABASE_USERNAME: {{ include "harbor.db.user" . | quote }}
+  HARBOR_DATABASE_DBNAME: {{ include "harbor.db.name" . | quote }}
+  HARBOR_DATABASE_SSLMODE: {{ include "harbor.db.sslmode" . | quote }}
+  HARBOR_DATABASE_MAX_IDLE_CONNS: "50"
+  HARBOR_DATABASE_MAX_OPEN_CONNS: "100"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "harbor.exporter" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: {{ $comp }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "harbor.componentLabels" (dict "ctx" . "component" $comp) | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "harbor.componentLabels" (dict "ctx" . "component" $comp) | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "harbor.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: exporter
+          image: {{ include "harbor.image" (dict "ctx" . "component" "exporter") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "harbor.exporter" . }}-env
+          env:
+            - name: HARBOR_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "harbor.secret" . }}
+                  key: HARBOR_ADMIN_PASSWORD
+            - name: HARBOR_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "harbor.secret" . }}
+                  key: POSTGRESQL_PASSWORD
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.metrics.exporter.service.port }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.metrics.exporter.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

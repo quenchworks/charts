@@ -1,0 +1,46 @@
+{{- if .Values.networkPolicy.enabled }}
+{{/*
+One NetworkPolicy covering every Harbor component pod (selected by part-of=quenchworks
++ instance). Components call each other constantly (core<->registry<->jobservice<->
+trivy) and reach the bundled PG/Valkey, so:
+  - Ingress: from any pod in the release namespace (intra-component traffic). When
+    allowExternal (default), also allow ingress from outside the namespace so the
+    ingress controller (usually another namespace) can reach core + portal.
+  - Egress: DNS, plus all same-namespace pods (PG/Valkey/peers), plus the wider cluster
+    when allowExternal (Trivy fetches its DB and core reaches replication targets).
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+        {{- if .Values.networkPolicy.allowExternal }}
+        - namespaceSelector: {}
+        {{- end }}
+  egress:
+    # DNS
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Same-namespace peers (Harbor components + bundled PostgreSQL/Valkey).
+    - to:
+        - podSelector: {}
+    {{- if .Values.networkPolicy.allowExternal }}
+    # Egress to the wider cluster/internet: Trivy DB download, replication targets,
+    # external PG/Valkey, OIDC, etc.
+    - {}
+    {{- end }}
+{{- end }}

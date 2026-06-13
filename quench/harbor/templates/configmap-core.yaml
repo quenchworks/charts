@@ -1,0 +1,68 @@
+{{/*
+Core ConfigMap. Holds app.conf (mounted at /etc/core/app.conf) plus the env-style
+keys core reads via envFrom. INTERNAL_TLS_ENABLED=false (in-cluster plaintext); the
+docker pull/push trust uses the token service, not internal TLS. Redis URLs embed the
+Valkey password and the per-purpose DB index. The DB password and the secrets come
+from the managed Secret (envFrom secretRef), not from here.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "harbor.core" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: core
+data:
+  app.conf: |+
+    appname = Harbor
+    runmode = prod
+    enablegzip = true
+
+    [prod]
+    httpport = 8080
+  PORT: "8080"
+  DATABASE_TYPE: "postgresql"
+  POSTGRESQL_HOST: {{ include "harbor.db.host" . | quote }}
+  POSTGRESQL_PORT: {{ include "harbor.db.port" . | quote }}
+  POSTGRESQL_USERNAME: {{ include "harbor.db.user" . | quote }}
+  POSTGRESQL_DATABASE: {{ include "harbor.db.name" . | quote }}
+  POSTGRESQL_SSLMODE: {{ include "harbor.db.sslmode" . | quote }}
+  POSTGRESQL_MAX_IDLE_CONNS: "50"
+  POSTGRESQL_MAX_OPEN_CONNS: "100"
+  EXT_ENDPOINT: {{ include "harbor.externalURL" . | quote }}
+  # Hosts gorilla/csrf (v1.7.3) trusts for the UI login Origin/Referer check.
+  # Without this, UI POST /c/login 403s "origin invalid" over http. See the
+  # harbor.csrfTrustedOrigins helper: EXT_ENDPOINT host + core.csrfTrustedOrigins.
+  CSRF_TRUSTED_ORIGINS: {{ include "harbor.csrfTrustedOrigins" . | quote }}
+  CORE_URL: {{ include "harbor.core.localURL" . | quote }}
+  CORE_LOCAL_URL: {{ include "harbor.core.localURL" . | quote }}
+  JOBSERVICE_URL: {{ include "harbor.jobservice.url" . | quote }}
+  REGISTRY_URL: {{ include "harbor.registry.url" . | quote }}
+  REGISTRY_CONTROLLER_URL: {{ include "harbor.registryctl.url" . | quote }}
+  TOKEN_SERVICE_URL: {{ include "harbor.token.url" . | quote }}
+  PORTAL_URL: {{ include "harbor.portal.url" . | quote }}
+  REGISTRY_STORAGE_PROVIDER_NAME: "filesystem"
+  REGISTRY_CREDENTIAL_USERNAME: "harbor_registry_user"
+  LOG_LEVEL: {{ .Values.logLevel | quote }}
+  CONFIG_PATH: "/etc/core/app.conf"
+  CHART_CACHE_DRIVER: "redis"
+  WITH_TRIVY: {{ .Values.trivy.enabled | quote }}
+  {{- if .Values.trivy.enabled }}
+  TRIVY_ADAPTER_URL: {{ include "harbor.trivy.url" . | quote }}
+  {{- end }}
+  PERMITTED_REGISTRY_TYPES_FOR_PROXY_CACHE: "docker-hub,harbor,azure-acr,aws-ecr,google-gcr,quay,docker-registry,github-ghcr,jfrog-artifactory"
+  HTTP_PROXY: ""
+  HTTPS_PROXY: ""
+  NO_PROXY: "{{ include "harbor.core" . }},{{ include "harbor.jobservice" . }},{{ include "harbor.registry" . }},{{ include "harbor.registryctl" . }},{{ include "harbor.portal" . }},127.0.0.1,localhost,.local,.internal"
+  _REDIS_URL_CORE: {{ include "harbor.redis.url" (dict "ctx" . "db" .Values.redisDB.core) | quote }}
+  _REDIS_URL_REG: {{ include "harbor.redis.url" (dict "ctx" . "db" .Values.redisDB.registry) | quote }}
+  CACHE_ENABLED: "true"
+  CACHE_EXPIRE_HOURS: "24"
+  _REDIS_URL_CACHE_LAYER: {{ include "harbor.redis.url" (dict "ctx" . "db" .Values.redisDB.cacheLayer) | quote }}
+  {{- if .Values.metrics.enabled }}
+  METRIC_ENABLE: "true"
+  METRIC_PATH: {{ .Values.metrics.core.path | quote }}
+  METRIC_PORT: {{ .Values.metrics.core.port | quote }}
+  METRIC_NAMESPACE: harbor
+  METRIC_SUBSYSTEM: core
+  {{- end }}

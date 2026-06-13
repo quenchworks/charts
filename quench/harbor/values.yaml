@@ -1,0 +1,307 @@
+# Quenchworks Harbor — a single umbrella chart that wires seven hardened component
+# images over the Quenchworks PostgreSQL and Valkey charts. Every image is pinned by
+# DIGEST (never a tag): the digest is the contract with the image factory, which
+# rewrites it after every green, scanned, cosign-signed build.
+#
+# Components: core, jobservice, registry (+registryctl as a 2nd container), portal,
+# and the OPTIONAL trivy scan adapter (trivy.enabled) and metrics exporter
+# (metrics.enabled). All run nonroot uid 1001 with a read-only rootfs and ALL caps
+# dropped; every writable path is an emptyDir (or a PVC for registry storage).
+
+# -----------------------------------------------------------------------------
+# Per-component images. The .digest fields are the factory contract (CI rewrites
+# them from the image manifests). Quenchworks refuses tag-only references.
+# -----------------------------------------------------------------------------
+images:
+  pullPolicy: IfNotPresent
+  core:
+    repository: ghcr.io/quenchworks/images/harbor-core
+    digest: "sha256:c1cbf8ca5853b00ff33f6ebaa184238b1d2e0e7539b5ba09558e3e20ebc8c990"
+  jobservice:
+    repository: ghcr.io/quenchworks/images/harbor-jobservice
+    digest: "sha256:8342a264ef6002fd0c81eb541d1643f5fc01ffd78a82e5d2fa798864a6d48f7d"
+  registry:
+    repository: ghcr.io/quenchworks/images/harbor-registry
+    digest: "sha256:e9c376c60d0b65e4a5ce4ed651196e9d80126ab24bbd57c692c749626b371a76"
+  registryctl:
+    repository: ghcr.io/quenchworks/images/harbor-registryctl
+    digest: "sha256:3a6c1fa2bb38b55c0b8f8faefa948969daae894eb952e91e9f818fa4f1a637e9"
+  portal:
+    repository: ghcr.io/quenchworks/images/harbor-portal
+    digest: "sha256:68686e9a3a026e4e2839599fb35babbdfa083f40f03596777766d81646c36887"
+  trivyAdapter:
+    repository: ghcr.io/quenchworks/images/harbor-trivy-adapter
+    digest: "sha256:4e86679ea3dc1ac97ca520c7e7a375c9a37726f564fef673f69aad110472e922"
+  exporter:
+    repository: ghcr.io/quenchworks/images/harbor-exporter
+    digest: "sha256:8a5aa15b9478f1463c2bcf263ec0bdd80ec1d3d506f89af92e382a34c7fb6624"
+  # The front-door proxy. A Quenchworks hardened nginx (the same nonroot uid-1001,
+  # read-only-rootfs image the harbor-portal is built on) that routes UI + API + the
+  # docker v2 protocol through one Service. Pinned by digest like every other image.
+  proxy:
+    repository: ghcr.io/quenchworks/images/nginx
+    digest: "sha256:9ab72e984db03531d04d0a9bc027c4ae19fa4b7a6312a922755eac9b39ad1a3f"
+  # Hardened multi-arch busybox (with the wget applet) used only by the jobservice
+  # wait-for-core initContainer. The Harbor component images carry no HTTP client, so
+  # this 0-CVE catalog toolbox polls core's readiness before jobservice boots.
+  busybox:
+    repository: ghcr.io/quenchworks/images/busybox
+    digest: "sha256:69e92a63ff8fa6bece32ff01ed1ed6500bc58a4bc898701e2a34a943b00477af"
+
+nameOverride: ""
+
+# Log level shared by every component (debug, info, warning, error, fatal).
+logLevel: info
+
+# The external URL clients use to reach Harbor (docker login / browser / API). When
+# ingress.enabled this defaults to http://<ingress.host>; otherwise set it explicitly
+# to whatever front door you put in front of the core Service. It MUST match the host
+# docker clients log in to, or token-service audience checks reject pulls/pushes.
+externalURL: ""
+
+# Bootstrap admin. Username is always `admin` (Harbor's built-in superuser). The
+# password is generated once (24 chars) and preserved across upgrades via lookup;
+# set adminPassword to pin it.
+auth:
+  adminPassword: ""
+
+# -----------------------------------------------------------------------------
+# Bundled in-cluster PostgreSQL (the Quenchworks postgresql subchart). Default true.
+# Harbor 2.x needs ONE database (`registry`); the notary DBs were dropped. The core
+# AUTO-MIGRATES the schema on boot (golang-migrate) — no separate migrator Job.
+#
+# The bundled PG seeds the app database only when auth.database differs from both
+# "postgres" and the superuser name — hence a DISTINCT user/db (user "harbor", db
+# "registry"). Credentials are deterministic so core and the bundled PG agree.
+# -----------------------------------------------------------------------------
+postgresql:
+  enabled: true
+  auth:
+    username: harbor
+    password: harbor
+    database: registry
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# External database (postgresql.enabled=false). Point at a reachable PostgreSQL whose
+# `registry` database already exists; supply the password inline or via existingSecret.
+externalDatabase:
+  host: ""
+  port: 5432
+  user: harbor
+  password: ""
+  database: registry
+  sslmode: disable
+  existingSecret: ""
+  existingSecretPasswordKey: "password"
+
+# -----------------------------------------------------------------------------
+# Bundled in-cluster Valkey (the Quenchworks valkey subchart). Default true. Harbor
+# multiplexes SIX logical redis DBs on one Valkey via distinct DB indexes:
+#   0 core | 1 registry | 2 jobservice | 3 cache-layer | 4 trivy-store | 5 trivy-jobqueue
+# The password is deterministic so the redis URLs can embed it at render time.
+# -----------------------------------------------------------------------------
+valkey:
+  enabled: true
+  auth:
+    enabled: true
+    password: harbor-valkey
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# External cache (valkey.enabled=false). host:port plus an optional password.
+externalCache:
+  host: ""
+  port: 6379
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: "redis-password"
+
+# Logical redis DB indexes (shared Valkey). Changing these is rarely needed.
+redisDB:
+  core: 0
+  registry: 1
+  jobservice: 2
+  cacheLayer: 3
+  trivyStore: 4
+  trivyJobQueue: 5
+
+# -----------------------------------------------------------------------------
+# Registry storage. A PVC by default (50Gi). For the CI gate persistence.enabled is
+# false (an emptyDir is used instead). The path is fixed at /storage.
+# -----------------------------------------------------------------------------
+persistence:
+  enabled: true
+  size: 50Gi
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+
+# -----------------------------------------------------------------------------
+# Component knobs. replicaCount stays 1 (the bundled PG/Valkey and the shared
+# registry storage are single-writer; HA is a future capability).
+# -----------------------------------------------------------------------------
+# The front-door proxy (nginx). THE single entry point: its Service (named after the
+# release, e.g. rtest-harbor) maps 80 -> proxy 8080 and routes "/" to the portal and the
+# API/registry paths to core. Keep enabled so the whole app is reachable through one
+# Service (UI login + API + docker push/pull).
+proxy:
+  enabled: true
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+core:
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "2", memory: 1Gi }
+  # Extra HOSTS trusted for the UI login CSRF Origin/Referer check
+  # (CSRF_TRUSTED_ORIGINS). harbor-core bundles github.com/gorilla/csrf v1.7.3
+  # (CVE-2025-24358 fixed), whose strict origin check 403s UI POST /c/login
+  # ("origin invalid") unless the request host is trusted. The EXT_ENDPOINT
+  # (externalURL) host is ALWAYS trusted automatically; list any ADDITIONAL
+  # access hosts here -- e.g. an alternate DNS name, or a local port-forward
+  # host such as "127.0.0.1:8080" / "localhost:8080". Each entry is a bare
+  # "host" or "host:port" (no scheme); gorilla compares host-only.
+  csrfTrustedOrigins: []
+
+jobservice:
+  replicaCount: 1
+  maxJobWorkers: 10
+  service:
+    type: ClusterIP
+    port: 8080
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+registry:
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 5000
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  registryctl:
+    service:
+      type: ClusterIP
+      port: 8080
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { cpu: 500m, memory: 256Mi }
+
+portal:
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 80
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+# Optional Trivy scan adapter. When enabled, core registers it as the default scanner
+# (WITH_TRIVY=true + TRIVY_ADAPTER_URL). The adapter downloads the Trivy DB at runtime.
+trivy:
+  enabled: false
+  debugMode: false
+  insecure: false
+  ignoreUnfixed: false
+  skipUpdate: false
+  offlineScan: false
+  securityCheck: "vuln"
+  # Trivy DB OCI source (downloaded at runtime into the cache dir).
+  dbRepository: "ghcr.io/aquasecurity/trivy-db"
+  service:
+    type: ClusterIP
+    port: 8080
+  # Cache (Trivy DB + reports). emptyDir by default; set persistence.enabled to keep it.
+  persistence:
+    enabled: false
+    size: 5Gi
+    storageClass: ""
+    accessModes: ["ReadWriteOnce"]
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+# Optional Prometheus metrics exporter. When enabled it serves /metrics on port 8001
+# and core/jobservice/registry expose their own /metrics too.
+metrics:
+  enabled: false
+  exporter:
+    service:
+      type: ClusterIP
+      port: 8001
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { cpu: 500m, memory: 256Mi }
+  # per-component metrics paths/ports (registry/jobservice expose on their own ports)
+  core:
+    path: /metrics
+    port: 8001
+  registry:
+    path: /metrics
+    port: 8001
+  jobservice:
+    path: /metrics
+    port: 8001
+
+# -----------------------------------------------------------------------------
+# Front door — a Traefik Ingress. Gate behind ingress.enabled (default true). The
+# portal serves the UI; the core serves /api, /service, /v2 (the docker protocol),
+# /chartrepo. Core is the registry's public face for /v2.
+# -----------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: traefik
+  host: harbor.local
+  annotations: {}
+  tls:
+    enabled: false
+    secretName: ""
+
+# -----------------------------------------------------------------------------
+# Common production knobs, applied to every component (via quench-common).
+# -----------------------------------------------------------------------------
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # Allow ingress to the portal/core from outside the release namespace (the ingress
+  # controller usually lives in another namespace). Backend components stay restricted.
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

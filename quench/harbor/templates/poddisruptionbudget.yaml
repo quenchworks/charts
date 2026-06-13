@@ -1,0 +1,34 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+{{/* One PDB per long-lived workload, keyed by component selector. */}}
+{{- $comps := list "core" "jobservice" "registry" "portal" -}}
+{{- if $.Values.proxy.enabled }}{{- $comps = append $comps "proxy" -}}{{- end }}
+{{- range $c := $comps }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ printf "%s-%s" (include "quench-common.fullname" $) $c }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $c }}
+spec:
+  minAvailable: {{ $.Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "harbor.componentLabels" (dict "ctx" $ "component" $c) | nindent 6 }}
+---
+{{- end }}
+{{- if .Values.trivy.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "harbor.trivy" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: trivy
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "harbor.componentLabels" (dict "ctx" . "component" "trivy") | nindent 6 }}
+{{- end }}
+{{- end }}

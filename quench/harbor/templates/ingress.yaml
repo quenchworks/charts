@@ -1,0 +1,84 @@
+{{- if .Values.ingress.enabled }}
+{{/*
+Front door. When the proxy is enabled (default) the Ingress sends EVERYTHING to the
+proxy Service, which routes "/" -> portal and the API/registry paths -> core itself.
+When the proxy is disabled it falls back to splitting paths directly: /api, /service,
+/v2, /chartrepo -> core; everything else -> portal. EXT_ENDPOINT is derived from this
+host (see the core ConfigMap) so the token-service audience matches `docker login <host>`.
+*/}}
+{{- $core := include "harbor.core" . -}}
+{{- $portal := include "harbor.portal" . -}}
+{{- $proxy := include "harbor.proxy" . -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      {{- with .Values.ingress.tls.secretName }}
+      secretName: {{ . | quote }}
+      {{- end }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          {{- if .Values.proxy.enabled }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $proxy }}
+                port:
+                  number: {{ .Values.proxy.service.port }}
+          {{- else }}
+          - path: /api/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $core }}
+                port:
+                  number: {{ .Values.core.service.port }}
+          - path: /service/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $core }}
+                port:
+                  number: {{ .Values.core.service.port }}
+          - path: /v2/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $core }}
+                port:
+                  number: {{ .Values.core.service.port }}
+          - path: /chartrepo/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $core }}
+                port:
+                  number: {{ .Values.core.service.port }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $portal }}
+                port:
+                  number: {{ .Values.portal.service.port }}
+          {{- end }}
+{{- end }}

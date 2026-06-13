@@ -1,0 +1,76 @@
+Quenchworks Harbor is installed as {{ include "quench-common.fullname" . }}.
+
+Components deployed: core, jobservice, registry (+registryctl), portal{{ if .Values.trivy.enabled }}, trivy scan adapter{{ end }}{{ if .Values.metrics.enabled }}, metrics exporter{{ end }}.
+Backing services: {{ if .Values.postgresql.enabled }}bundled Quenchworks PostgreSQL{{ else }}external PostgreSQL ({{ include "harbor.db.host" . }}){{ end }} + {{ if .Values.valkey.enabled }}bundled Quenchworks Valkey{{ else }}external cache ({{ include "harbor.redis.host" . }}){{ end }}.
+
+External endpoint: {{ include "harbor.externalURL" . }}
+
+ADMIN LOGIN
+  user     : admin
+  password : {{ if .Values.auth.adminPassword }}(the auth.adminPassword you set){{ else }}generated — read it with:
+    kubectl get secret --namespace {{ .Release.Namespace }} {{ include "harbor.secret" . }} -o jsonpath="{.data.HARBOR_ADMIN_PASSWORD}" | base64 -d ; echo{{ end }}
+
+{{- if .Values.ingress.enabled }}
+
+WEB UI / API (via the Traefik Ingress on host {{ .Values.ingress.host }})
+  Point your browser at {{ include "harbor.externalURL" . }} and log in as admin.
+  Ensure {{ .Values.ingress.host }} resolves to your ingress controller's address.
+  {{- if .Values.proxy.enabled }}
+  The Ingress targets the front-door proxy Service ({{ include "harbor.proxy" . }}),
+  which routes the UI, API, and docker v2 protocol behind one backend.
+  {{- end }}
+{{- else if .Values.proxy.enabled }}
+
+INGRESS IS DISABLED. The whole app is still reachable through ONE front-door Service —
+the "harbor" proxy Service — which routes "/" to the UI and the API/docker paths to core.
+Port-forward THAT service (not core/portal):
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "harbor.proxy" . }} 8080:{{ .Values.proxy.service.port }}
+  # Web UI:      open http://127.0.0.1:8080/ and log in as admin
+  # API health:  curl http://127.0.0.1:8080/api/v2.0/health
+  # docker login / push/pull also go through 127.0.0.1:8080.
+{{- else }}
+
+INGRESS AND PROXY ARE DISABLED. Reach the API/UI by port-forwarding the core + portal
+Services separately (no unified front door):
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "harbor.core" . }} 8080:{{ .Values.core.service.port }}
+  # API health:  curl http://127.0.0.1:8080/api/v2.0/health
+  # set externalURL to your real front door so docker login works.
+{{- end }}
+
+DOCKER LOGIN + PUSH/PULL
+  docker login {{ trimPrefix "http://" (trimPrefix "https://" (include "harbor.externalURL" .)) }}
+  # then tag and push into a project (create a project first in the UI or via the API):
+  docker tag alpine:latest {{ trimPrefix "http://" (trimPrefix "https://" (include "harbor.externalURL" .)) }}/library/alpine:latest
+  docker push {{ trimPrefix "http://" (trimPrefix "https://" (include "harbor.externalURL" .)) }}/library/alpine:latest
+  docker pull {{ trimPrefix "http://" (trimPrefix "https://" (include "harbor.externalURL" .)) }}/library/alpine:latest
+  The token service (signed with an RSA key generated and persisted by this chart)
+  is the trust anchor for these pulls/pushes — core issues bearer tokens the registry
+  honours over htpasswd basic auth.
+
+VULNERABILITY SCANNING (Trivy)
+{{- if .Values.trivy.enabled }}
+  Enabled. Core registered the adapter as the default scanner. Trigger a scan from the
+  UI (Projects -> repository -> tag -> Scan) or via the scan API. The adapter downloads
+  the Trivy DB on first use.
+{{- else }}
+  Disabled. Re-install/upgrade with --set trivy.enabled=true to add the scan adapter.
+{{- end }}
+
+METRICS (Prometheus exporter)
+{{- if .Values.metrics.enabled }}
+  Enabled on {{ include "harbor.exporter" . }}:{{ .Values.metrics.exporter.service.port }}/metrics
+  (core/registry/jobservice also expose their own /metrics).
+{{- else }}
+  Disabled. Re-install/upgrade with --set metrics.enabled=true to add the exporter.
+{{- end }}
+
+DATABASE / CACHE
+  {{ if .Values.postgresql.enabled }}Bundled PostgreSQL (one database: {{ include "harbor.db.name" . }}, user {{ include "harbor.db.user" . }}). Core auto-migrates the schema on boot.{{ else }}External PostgreSQL at {{ include "harbor.db.host" . }}:{{ include "harbor.db.port" . }} (database {{ include "harbor.db.name" . }}). Ensure it exists; core auto-migrates the schema.{{ end }}
+  {{ if .Values.valkey.enabled }}Bundled Valkey (six logical DBs multiplexed for core/registry/jobservice/cache/trivy).{{ else }}External cache at {{ include "harbor.redis.host" . }}:{{ include "harbor.redis.port" . }}.{{ end }}
+
+Note: the Harbor CLI and content-trust/notary signing are OUT OF SCOPE for this chart.
+
+The images are pinned by digest and cosign-signed. Verify e.g. the core image:
+  cosign verify {{ .Values.images.core.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

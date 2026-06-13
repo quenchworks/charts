@@ -1,0 +1,163 @@
+{{- if .Values.proxy.enabled }}
+{{/*
+Proxy (front-door) nginx config. Clean-room adaptation of upstream goharbor/harbor
+v2.14.4 make/photon/prepare/templates/nginx/nginx.http.conf.jinja (the non-TLS / HTTP
+variant). Adaptations for the Quenchworks hardened nginx (nonroot uid 1001, read-only
+rootfs): listen on 8080 (the Service maps 80 -> 8080), and every nginx pid/temp path
+lives under /tmp (an emptyDir). Upstreams resolve to the chart's component Services.
+This is THE unified front door: "/" -> portal (UI), the API/registry paths -> core.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-proxy" (include "quench-common.fullname" .) }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: proxy
+data:
+  nginx.conf: |
+    worker_processes auto;
+    pid /tmp/nginx.pid;
+
+    events {
+      worker_connections 3096;
+      use epoll;
+      multi_accept on;
+    }
+
+    http {
+      client_body_temp_path /tmp/client_body_temp;
+      proxy_temp_path /tmp/proxy_temp;
+      fastcgi_temp_path /tmp/fastcgi_temp;
+      uwsgi_temp_path /tmp/uwsgi_temp;
+      scgi_temp_path /tmp/scgi_temp;
+      tcp_nodelay on;
+
+      # this is necessary for us to be able to disable request buffering in all cases
+      proxy_http_version 1.1;
+
+      upstream core {
+        server {{ include "harbor.core" . }}:{{ .Values.core.service.port }};
+      }
+
+      upstream portal {
+        server {{ include "harbor.portal" . }}:{{ .Values.portal.service.port }};
+      }
+
+      log_format timed_combined '$remote_addr - '
+        '"$request" $status $body_bytes_sent '
+        '"$http_referer" "$http_user_agent" '
+        '$request_time $upstream_response_time $pipe';
+
+      access_log /dev/stdout timed_combined;
+
+      # Always forward a sane X-Forwarded-Proto. A direct browser -> port-forward
+      # request carries no X-Forwarded-Proto, and an empty value would leave
+      # harbor-core unable to tell the scheme. Default to the proxy's OWN scheme
+      # ($scheme, http here) so X-Forwarded-Proto is ALWAYS set correctly; this
+      # lets harbor-core's CSRF middleware flag the request plaintext http and
+      # make gorilla/csrf's same-origin check match on any host:port.
+      map $http_x_forwarded_proto $x_forwarded_proto {
+        default $scheme;
+        ""      $scheme;
+      }
+
+      server {
+        listen 8080;
+        server_tokens off;
+        # disable any limits to avoid HTTP 413 for large image uploads
+        client_max_body_size 0;
+
+        # Add extra headers
+        add_header X-Frame-Options DENY;
+        add_header Content-Security-Policy "frame-ancestors 'none'";
+
+        location / {
+          proxy_pass http://portal/;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $x_forwarded_proto;
+
+          proxy_buffering off;
+          proxy_request_buffering off;
+        }
+
+        location /c/ {
+          proxy_pass http://core/c/;
+          # Forward the FULL Host incl. port ($http_host, not $host which strips
+          # the port). harbor-core's CSRF middleware (gorilla/csrf 1.7.3) builds
+          # the expected same-origin as http://<r.Host> and compares it against
+          # the browser Origin/Referer host:port. The browser's Origin carries
+          # the port (e.g. localhost:37863), so r.Host MUST carry it too or the
+          # same-origin check mismatches on the port and 403s on any non-default
+          # port (e.g. an IDE auto-port-forward). $http_host preserves it.
+          proxy_set_header Host $http_host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $x_forwarded_proto;
+
+          proxy_buffering off;
+          proxy_request_buffering off;
+
+          proxy_send_timeout 900;
+          proxy_read_timeout 900;
+        }
+
+        location /api/ {
+          proxy_pass http://core/api/;
+          # Full Host incl. port (see /c/): API write requests are CSRF-checked too.
+          proxy_set_header Host $http_host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $x_forwarded_proto;
+
+          proxy_buffering off;
+          proxy_request_buffering off;
+        }
+
+        location /chartrepo/ {
+          proxy_pass http://core/chartrepo/;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $x_forwarded_proto;
+
+          proxy_buffering off;
+          proxy_request_buffering off;
+        }
+
+        location /v1/ {
+          return 404;
+        }
+
+        location /v2/ {
+          proxy_pass http://core/v2/;
+          proxy_set_header Host $http_host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $x_forwarded_proto;
+          proxy_buffering off;
+          proxy_request_buffering off;
+
+          proxy_send_timeout 900;
+          proxy_read_timeout 900;
+        }
+
+        location /service/ {
+          proxy_pass http://core/service/;
+          proxy_set_header Host $host;
+          proxy_set_header X-Real-IP $remote_addr;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $x_forwarded_proto;
+
+          proxy_buffering off;
+          proxy_request_buffering off;
+        }
+
+        location /service/notifications {
+          return 404;
+        }
+      }
+    }
+{{- end }}

@@ -1,0 +1,81 @@
+# Standalone install gate. No image overrides: uses the chart's real CI-maintained
+# digests. Bundles PostgreSQL + Valkey with persistence OFF and an emptyDir for the
+# registry, enables Trivy + the metrics exporter, and keeps the front-door proxy ON
+# (proxy.enabled defaults true) while disabling the Ingress (no ingress controller in
+# CI). The gate reaches Harbor through the proxy Service (<release>-harbor :80) via a
+# port-forward, exactly as a real client would. A fixed admin password makes the
+# health + CSRF login + push/pull checks deterministic.
+postgresql:
+  enabled: true
+  auth:
+    username: harbor
+    password: harbor
+    database: registry
+  primary:
+    persistence:
+      enabled: false
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: "1", memory: 512Mi }
+
+valkey:
+  enabled: true
+  auth:
+    enabled: true
+    password: harbor-valkey
+  primary:
+    persistence:
+      enabled: false
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { cpu: 500m, memory: 256Mi }
+
+# Registry storage on an emptyDir for the gate.
+persistence:
+  enabled: false
+
+# The proxy front door IS deployed (proxy.enabled defaults true); only the Ingress is
+# off. externalURL must match the host:port the gate reaches Harbor on — the gate
+# port-forwards the proxy Service to 127.0.0.1:8080, so the token-service audience and
+# the CSRF same-origin host agree (the EXT_ENDPOINT host is auto-trusted for CSRF).
+ingress:
+  enabled: false
+externalURL: "http://127.0.0.1:8080"
+
+auth:
+  adminPassword: "Harbor12345"
+
+trivy:
+  enabled: true
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+metrics:
+  enabled: true
+
+core:
+  # The EXT_ENDPOINT host (127.0.0.1:8080) is auto-trusted for the CSRF login
+  # check; also trust localhost:8080 so the gate works via either access host.
+  csrfTrustedOrigins:
+    - "localhost:8080"
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 768Mi }
+jobservice:
+  maxJobWorkers: 3
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+registry:
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  registryctl:
+    resources:
+      requests: { cpu: 25m, memory: 32Mi }
+      limits: { cpu: 250m, memory: 128Mi }
+portal:
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { cpu: 250m, memory: 128Mi }

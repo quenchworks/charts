@@ -1,0 +1,75 @@
+{{/*
+Registry + registryctl ConfigMap. config.yml is the docker distribution config the
+registry serves with; ctl-config.yml is what registryctl (GC / quota) reads, and it
+points back at the same config.yml. Storage is filesystem at /storage. Auth is
+htpasswd ONLY — the core is Harbor's public face for the docker v2 protocol and issues
+/validates bearer tokens itself, then calls the registry with htpasswd basic auth
+(REGISTRY_CREDENTIAL_*). validation.disabled keeps manifest push lenient. The redis
+cache + password are rendered in directly (deterministic). http.secret is injected
+from the env var REGISTRY_HTTP_SECRET.
+*/}}
+{{- $redisPw := include "harbor.redis.password" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "harbor.registry" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry
+data:
+  config.yml: |+
+    version: 0.1
+    log:
+      level: {{ .Values.logLevel }}
+      fields:
+        service: registry
+    storage:
+      filesystem:
+        rootdirectory: /storage
+      cache:
+        layerinfo: redis
+      maintenance:
+        uploadpurging:
+          enabled: false
+      delete:
+        enabled: true
+      redirect:
+        disable: false
+    redis:
+      addr: {{ include "harbor.redis.host" . }}:{{ include "harbor.redis.port" . }}
+      db: {{ .Values.redisDB.registry }}
+      {{- if $redisPw }}
+      password: {{ $redisPw | quote }}
+      {{- end }}
+      readtimeout: 10s
+      writetimeout: 10s
+      dialtimeout: 10s
+      pool:
+        maxidle: 100
+        maxactive: 500
+        idletimeout: 60s
+    http:
+      addr: :{{ .Values.registry.service.port }}
+      relativeurls: false
+      # secret is injected from the REGISTRY_HTTP_SECRET env var
+      debug:
+        {{- if .Values.metrics.enabled }}
+        addr: :{{ .Values.metrics.registry.port }}
+        prometheus:
+          enabled: true
+          path: {{ .Values.metrics.registry.path }}
+        {{- else }}
+        addr: localhost:5001
+        {{- end }}
+    auth:
+      htpasswd:
+        realm: harbor-registry-basic-realm
+        path: /etc/registry/passwd
+    validation:
+      disabled: true
+  ctl-config.yml: |+
+    ---
+    protocol: "http"
+    port: {{ .Values.registry.registryctl.service.port }}
+    log_level: {{ .Values.logLevel }}
+    registry_config: "/etc/registry/config.yml"

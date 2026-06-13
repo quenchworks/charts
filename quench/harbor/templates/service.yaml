@@ -1,0 +1,160 @@
+{{/* ClusterIP Services for every component. */}}
+{{- if .Values.proxy.enabled }}
+{{/*
+THE FRONT DOOR. The main "harbor" Service (e.g. rtest-harbor) fronts the whole app:
+port 80 -> proxy 8080. The proxy nginx routes "/" to the portal and the API/registry
+paths to core, so UI login + API + docker push/pull all flow through this one Service.
+Port-forward THIS service to reach Harbor.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: proxy
+spec:
+  type: {{ .Values.proxy.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.proxy.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "harbor.componentLabels" (dict "ctx" . "component" "proxy") | nindent 4 }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "harbor.core" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: core
+spec:
+  type: {{ .Values.core.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.core.service.port }}
+      targetPort: http
+      protocol: TCP
+    {{- if .Values.metrics.enabled }}
+    - name: metrics
+      port: {{ .Values.metrics.core.port }}
+      targetPort: metrics
+      protocol: TCP
+    {{- end }}
+  selector:
+    {{- include "harbor.componentLabels" (dict "ctx" . "component" "core") | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "harbor.portal" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: portal
+spec:
+  type: {{ .Values.portal.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.portal.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "harbor.componentLabels" (dict "ctx" . "component" "portal") | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "harbor.registry" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry
+spec:
+  type: {{ .Values.registry.service.type }}
+  ports:
+    - name: registry
+      port: {{ .Values.registry.service.port }}
+      targetPort: registry
+      protocol: TCP
+    {{- if .Values.metrics.enabled }}
+    - name: metrics
+      port: {{ .Values.metrics.registry.port }}
+      targetPort: metrics
+      protocol: TCP
+    {{- end }}
+  selector:
+    {{- include "harbor.componentLabels" (dict "ctx" . "component" "registry") | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "harbor.registryctl" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: registry
+spec:
+  type: {{ .Values.registry.registryctl.service.type }}
+  ports:
+    - name: ctl
+      port: {{ .Values.registry.registryctl.service.port }}
+      targetPort: ctl
+      protocol: TCP
+  selector:
+    {{- include "harbor.componentLabels" (dict "ctx" . "component" "registry") | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "harbor.jobservice" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: jobservice
+spec:
+  type: {{ .Values.jobservice.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.jobservice.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "harbor.componentLabels" (dict "ctx" . "component" "jobservice") | nindent 4 }}
+{{- if .Values.trivy.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "harbor.trivy" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: trivy
+spec:
+  type: {{ .Values.trivy.service.type }}
+  ports:
+    - name: api-server
+      port: {{ .Values.trivy.service.port }}
+      targetPort: api-server
+      protocol: TCP
+  selector:
+    {{- include "harbor.componentLabels" (dict "ctx" . "component" "trivy") | nindent 4 }}
+{{- end }}
+{{- if .Values.metrics.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "harbor.exporter" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: exporter
+spec:
+  type: {{ .Values.metrics.exporter.service.type }}
+  ports:
+    - name: metrics
+      port: {{ .Values.metrics.exporter.service.port }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "harbor.componentLabels" (dict "ctx" . "component" "exporter") | nindent 4 }}
+{{- end }}

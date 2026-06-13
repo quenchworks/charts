@@ -1,0 +1,53 @@
+{{/*
+Harbor portal. The static Angular SPA served by nginx on 8080 (the image ships its own
+nginx config + web root /opt/harbor/portal). Stateless; only /tmp needs to be writable
+under the read-only rootfs.
+*/}}
+{{- $comp := "portal" -}}
+{{- $liveness := dict "httpGet" (dict "path" "/" "port" 8080) "initialDelaySeconds" 10 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/" "port" 8080) "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "harbor.portal" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: {{ $comp }}
+spec:
+  replicas: {{ .Values.portal.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "harbor.componentLabels" (dict "ctx" . "component" $comp) | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "harbor.componentLabels" (dict "ctx" . "component" $comp) | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "harbor.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: portal
+          image: {{ include "harbor.image" (dict "ctx" . "component" "portal") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.portal.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -1,0 +1,157 @@
+{{/*
+Registry + registryctl, two containers in ONE Deployment sharing the /storage volume
+(registryctl does GC / quota over the same data the registry serves). The registry is
+docker distribution: it stores blobs/manifests on the filesystem at /storage, caches
+layer info in Valkey, and authenticates callers (core/jobservice) with htpasswd basic
+auth. http.secret comes from REGISTRY_HTTP_SECRET. registryctl exposes /api/health and
+shares CORE_SECRET/JOBSERVICE_SECRET with the rest of Harbor.
+
+Read-only rootfs everywhere: /storage is the PVC (or emptyDir for the CI gate); the
+config files + htpasswd are read-only Secret/ConfigMap mounts; /tmp is emptyDir.
+*/}}
+{{- $comp := "registry" -}}
+{{- $regLive := dict "httpGet" (dict "path" "/" "port" 5000) "initialDelaySeconds" 20 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $regReady := dict "httpGet" (dict "path" "/" "port" 5000) "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+{{- $ctlLive := dict "httpGet" (dict "path" "/api/health" "port" 8080) "initialDelaySeconds" 20 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $ctlReady := dict "httpGet" (dict "path" "/api/health" "port" 8080) "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "harbor.registry" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: {{ $comp }}
+spec:
+  replicas: {{ .Values.registry.replicaCount }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "harbor.componentLabels" (dict "ctx" . "component" $comp) | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/cm: {{ include (print $.Template.BasePath "/configmap-registry.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "harbor.componentLabels" (dict "ctx" . "component" $comp) | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "harbor.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: registry
+          image: {{ include "harbor.image" (dict "ctx" . "component" "registry") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/registry"]
+          args: ["serve", "/etc/registry/config.yml"]
+          env:
+            - name: REGISTRY_HTTP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "harbor.secret" . }}
+                  key: REGISTRY_HTTP_SECRET
+          ports:
+            - name: registry
+              containerPort: 5000
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.registry.port }}
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $regLive) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $regReady) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.registry.resources | nindent 12 }}
+          volumeMounts:
+            - name: registry-data
+              mountPath: /storage
+            - name: registry-config
+              mountPath: /etc/registry/config.yml
+              subPath: config.yml
+            - name: registry-htpasswd
+              mountPath: /etc/registry/passwd
+              subPath: passwd
+            - name: tmp
+              mountPath: /tmp
+        - name: registryctl
+          image: {{ include "harbor.image" (dict "ctx" . "component" "registryctl") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          # The harbor_registryctl binary requires an explicit config path (-c). The
+          # image entrypoint execs the binary with whatever args we pass.
+          args: ["-c", "/etc/registryctl/config.yml"]
+          env:
+            - name: CORE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "harbor.secret" . }}
+                  key: secret
+            - name: JOBSERVICE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "harbor.secret" . }}
+                  key: JOBSERVICE_SECRET
+            - name: REGISTRY_HTTP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "harbor.secret" . }}
+                  key: REGISTRY_HTTP_SECRET
+          ports:
+            - name: ctl
+              containerPort: 8080
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $ctlLive) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $ctlReady) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.registry.registryctl.resources | nindent 12 }}
+          volumeMounts:
+            - name: registry-data
+              mountPath: /storage
+            - name: registry-config
+              mountPath: /etc/registry/config.yml
+              subPath: config.yml
+            - name: registry-htpasswd
+              mountPath: /etc/registry/passwd
+              subPath: passwd
+            - name: registryctl-config
+              mountPath: /etc/registryctl/config.yml
+              subPath: ctl-config.yml
+            - name: ctl-tmp
+              mountPath: /tmp
+      volumes:
+        - name: registry-data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "harbor.registry" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: registry-config
+          configMap:
+            name: {{ include "harbor.registry" . }}
+            items:
+              - key: config.yml
+                path: config.yml
+        - name: registryctl-config
+          configMap:
+            name: {{ include "harbor.registry" . }}
+            items:
+              - key: ctl-config.yml
+                path: ctl-config.yml
+        - name: registry-htpasswd
+          secret:
+            secretName: {{ include "harbor.secret" . }}
+            items:
+              - key: REGISTRY_HTPASSWD
+                path: passwd
+        - name: tmp
+          emptyDir: {}
+        - name: ctl-tmp
+          emptyDir: {}

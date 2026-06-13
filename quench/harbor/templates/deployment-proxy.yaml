@@ -1,0 +1,68 @@
+{{- if .Values.proxy.enabled }}
+{{/*
+Harbor proxy — the unified front door. A Quenchworks hardened nginx (nonroot uid 1001,
+read-only rootfs, all caps dropped) that routes "/" to the portal (UI) and the
+API/registry paths (/api, /service, /v2, /c, /chartrepo) to core, so the whole app is
+reachable through ONE Service. listens on 8080; the main harbor Service maps 80 -> 8080.
+Every nginx pid/temp path is an emptyDir under /tmp (see the proxy ConfigMap). Probes
+hit "/" — the portal returns 200 there.
+*/}}
+{{- $comp := "proxy" -}}
+{{- $liveness := dict "httpGet" (dict "path" "/" "port" 8080) "initialDelaySeconds" 10 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/" "port" 8080) "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ printf "%s-proxy" (include "quench-common.fullname" .) }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: {{ $comp }}
+spec:
+  replicas: {{ .Values.proxy.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "harbor.componentLabels" (dict "ctx" . "component" $comp) | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/cm: {{ include (print $.Template.BasePath "/configmap-proxy.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "harbor.componentLabels" (dict "ctx" . "component" $comp) | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "harbor.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: proxy
+          image: {{ include "harbor.image" (dict "ctx" . "component" "proxy") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.proxy.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ printf "%s-proxy" (include "quench-common.fullname" .) }}
+            items:
+              - key: nginx.conf
+                path: nginx.conf
+        - name: tmp
+          emptyDir: {}
+{{- end }}

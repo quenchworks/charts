@@ -1,0 +1,125 @@
+{{/*
+Harbor jobservice. Runs async jobs (GC, replication, scan, retention) pulled from the
+Valkey jobservice DB. Health on /api/v1/stats. Read-only rootfs: /tmp and the job-logs
+dir /var/log/jobs are emptyDir; config.yml and the 16-byte secretKey mount read-only.
+*/}}
+{{- $comp := "jobservice" -}}
+{{- $liveness := dict "httpGet" (dict "path" "/api/v1/stats" "port" 8080) "initialDelaySeconds" 60 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 10 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/api/v1/stats" "port" 8080) "initialDelaySeconds" 20 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "harbor.jobservice" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: {{ $comp }}
+spec:
+  replicas: {{ .Values.jobservice.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "harbor.componentLabels" (dict "ctx" . "component" $comp) | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/cm: {{ include (print $.Template.BasePath "/configmap-jobservice.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "harbor.componentLabels" (dict "ctx" . "component" $comp) | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "harbor.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        # jobservice loads its rest config from core's /api/v2.0/internalconfig on boot
+        # and panics if core is not yet serving. The hardened catalog images carry NO
+        # HTTP/TCP client applet (no nc/wget/curl in the Wolfi busybox), so an HTTP-poll
+        # gate cannot work. Instead we give core a short head start with the busybox
+        # `sleep` applet and rely on Deployment restartPolicy: Always to converge — if
+        # jobservice still starts before core is ready it panics, exits, and k8s restarts
+        # it until core (up in ~60-90s) answers. The generous readiness failureThreshold
+        # below absorbs the one or two restarts without flapping the rollout.
+        - name: wait-for-core
+          image: {{ include "harbor.image" (dict "ctx" . "component" "busybox") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "giving core a head start before jobservice boots ..."
+              sleep 45
+              echo "done; starting jobservice (restart-convergence will handle the rest)"
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+      containers:
+        - name: jobservice
+          image: {{ include "harbor.image" (dict "ctx" . "component" "jobservice") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          # The harbor_jobservice binary requires an explicit config path (-c).
+          # The image entrypoint execs the binary with whatever args we pass.
+          args: ["-c", "/etc/jobservice/config.yml"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "harbor.jobservice" . }}
+          env:
+            - name: CORE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "harbor.secret" . }}
+                  key: secret
+            - name: JOBSERVICE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "harbor.secret" . }}
+                  key: JOBSERVICE_SECRET
+            - name: REGISTRY_CREDENTIAL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "harbor.secret" . }}
+                  key: REGISTRY_CREDENTIAL_PASSWORD
+            - name: INTERNAL_TLS_ENABLED
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 8080
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.jobservice.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/jobservice/config.yml
+              subPath: config.yml
+            - name: secret-key
+              mountPath: /etc/jobservice/key
+              subPath: key
+            - name: job-logs
+              mountPath: /var/log/jobs
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "harbor.jobservice" . }}
+            items:
+              - key: config.yml
+                path: config.yml
+        - name: secret-key
+          secret:
+            secretName: {{ include "harbor.secret" . }}
+            items:
+              - key: secretKey
+                path: key
+        - name: job-logs
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
