@@ -49,11 +49,21 @@ jobs:
           kubectl rollout status statefulset/rtest-elasticsearch --timeout=420s
           # probe the REST API over a port-forward (the runtime image has no HTTP client)
           kubectl port-forward rtest-elasticsearch-0 9200:9200 >/tmp/pf.log 2>&1 &
-          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          pf=$!; trap 'kill $pf' EXIT
+          # wait for the port-forward to come up and the node to answer (CI is slower than local)
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:9200/ >/tmp/root.json 2>/dev/null && break
+            sleep 5
+          done
           # GET / reports the Elasticsearch version
-          curl -fsS http://127.0.0.1:9200/ | grep -q '"number":"9.4.2"'
+          grep -q '"number" : "9.4.2"' /tmp/root.json
           # cluster health must be green or yellow (single-node yields yellow once replicas unassigned)
-          curl -fsS http://127.0.0.1:9200/_cluster/health | grep -qE '"status":"(green|yellow)"'
+          for i in $(seq 1 30); do
+            curl -fsS 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=10s' >/tmp/health.json 2>/dev/null \
+              && grep -qE '"status":"(green|yellow)"' /tmp/health.json && break
+            sleep 5
+          done
+          grep -qE '"status":"(green|yellow)"' /tmp/health.json
           # index + read back a document and assert it round-trips
           curl -fsS -XPUT 'http://127.0.0.1:9200/gate/_doc/1?refresh=true' -H 'Content-Type: application/json' -d '{"k":"quench"}' >/dev/null
           curl -fsS 'http://127.0.0.1:9200/gate/_doc/1' | grep -q '"quench"'
