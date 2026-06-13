@@ -1,0 +1,97 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/rustfs.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/rustfs
+  digest: "sha256:4aadda421fb71d3792ca2386f2ea300b28bfb63720f2440af0ad9e35836d3031"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single node. RustFS runs one `rustfs server <VOLUMES>` process serving the S3
+# API on port 9000. RustFS is a BETA/preview project (no stable release yet).
+replicaCount: 1
+
+# S3 root credentials. With auth enabled the access/secret key pair is wired into
+# the container as RUSTFS_ACCESS_KEY/RUSTFS_SECRET_KEY (the entrypoint passes them
+# as --access-key/--secret-key) and lives in a Secret (generated + preserved across
+# upgrades if not provided). With auth disabled, RustFS falls back to its built-in
+# default identity (rustfsadmin/rustfsadmin) and the NetworkPolicy is the boundary.
+auth:
+  # Generate and wire RUSTFS_ACCESS_KEY/RUSTFS_SECRET_KEY into the container. Hardened default.
+  enabled: true
+  accessKey: ""                # generated (20 chars) if empty
+  secretKey: ""                # generated (40 chars) if empty
+  existingSecret: ""           # use this Secret instead of the managed one
+  existingSecretAccessKeyKey: "access-key"
+  existingSecretSecretKeyKey: "secret-key"
+
+# The RustFS web console (port 9001) is opt-in. Off by default => S3-only.
+console:
+  enabled: false
+  port: 9001
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""           # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""            # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  port: 9000                   # the S3 API
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+# Extra `rustfs server` flags pass through here.
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
