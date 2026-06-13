@@ -1,0 +1,111 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/grafana.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/grafana
+  digest: "sha256:76c74455d14f954d9e5d54616453bd323f0884b91427235f686f1c0e7e6fd856"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single replica. Grafana OSS stores its state (dashboards, users, sessions) in a
+# local SQLite database on the PVC; running multiple replicas against one SQLite
+# file is unsupported. HA is an external-database (Postgres/MySQL) follow-up.
+replicaCount: 1
+
+# Admin credentials. Wired to GF_SECURITY_ADMIN_USER / GF_SECURITY_ADMIN_PASSWORD
+# from a Secret (generated if not provided). No anonymous access by default.
+auth:
+  adminUser: admin
+  adminPassword: ""              # generated (24 chars) if empty; stored in the Secret
+  existingSecret: ""             # use this Secret instead of the managed one
+  existingSecretUserKey: "admin-user"
+  existingSecretPasswordKey: "admin-password"
+
+# Grafana configuration. The image ships grafana.ini read-only at
+# /etc/grafana/grafana.ini; override any setting via GF_<SECTION>_<KEY> env.
+config:
+  # A map of GF_<SECTION>_<KEY> -> value env overrides, e.g.
+  #   extraIni:
+  #     GF_SERVER_ROOT_URL: "https://grafana.example.com"
+  #     GF_USERS_ALLOW_SIGN_UP: "false"
+  extraIni: {}
+
+# Optional datasource provisioning. When entries are present they are rendered into
+# a ConfigMap and mounted into GF_PATHS_PROVISIONING/datasources so Grafana wires
+# them on boot. Point at the Quenchworks Prometheus or VictoriaMetrics service.
+# Example:
+#   datasources:
+#     - name: Prometheus
+#       type: prometheus
+#       access: proxy
+#       url: http://prometheus:9090
+#       isDefault: true
+datasources: []
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""             # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""              # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 3000
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# A dashboard UI is commonly reached from outside the cluster, so external ingress
+# is allowed by default. Set allowExternal: false to restrict ingress to the
+# release namespace (e.g. when fronting Grafana with an in-cluster proxy only).
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

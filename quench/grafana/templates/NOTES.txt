@@ -1,0 +1,46 @@
+Quenchworks Grafana is installed as {{ include "quench-common.fullname" . }}.
+
+The dashboard UI and HTTP API are served on port {{ .Values.service.port }} from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Reach the UI from your machine with a port-forward:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 3000:{{ .Values.service.port }}
+  # then open http://127.0.0.1:3000
+
+Log in as the admin user:
+
+  User:     {{ .Values.auth.adminUser }}
+  Password: kubectl get secret --namespace {{ .Release.Namespace }} {{ include "grafana.secretName" . }} \
+              -o jsonpath="{.data.{{ include "grafana.secretPasswordKey" . }}}" | base64 -d
+
+Health check:
+
+  curl -fsS http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/api/health
+  # -> {"database":"ok","version":"{{ .Chart.AppVersion }}"}
+
+{{- if .Values.datasources }}
+
+Provisioned datasources (wired on boot from your `datasources` values):
+{{- range .Values.datasources }}
+  - {{ .name }} ({{ .type }}) -> {{ .url }}
+{{- end }}
+{{- else }}
+
+Provision a datasource (e.g. the Quenchworks Prometheus or VictoriaMetrics service)
+by setting the `datasources` value and `helm upgrade`:
+
+  datasources:
+    - name: Prometheus
+      type: prometheus
+      access: proxy
+      url: http://prometheus:9090
+      isDefault: true
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
