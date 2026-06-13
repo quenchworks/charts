@@ -1,0 +1,46 @@
+Quenchworks Loki is installed as {{ include "quench-common.fullname" . }} (single-binary mode, -target=all).
+
+The HTTP API is reachable inside the cluster at:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Readiness / health:
+
+  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/ready     # -> 200 "ready"
+  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/metrics   # -> 200
+
+Push logs (Loki has no agent of its own -- point Promtail / Grafana Alloy / the
+OTel collector, or curl directly, at the push endpoint):
+
+  curl -H 'Content-Type: application/json' \
+    -XPOST 'http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/loki/api/v1/push' \
+    --data-raw '{"streams":[{"stream":{"app":"demo"},"values":[["'"$(date +%s)000000000"'","hello loki"]]}]}'
+
+Query (LogQL via the HTTP API):
+
+  curl -G 'http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/loki/api/v1/query_range' \
+    --data-urlencode 'query={app="demo"}'
+
+Use as a Grafana datasource (Grafana is Loki's UI -- Loki ships none of its own):
+
+  Add a "Loki" datasource pointing at
+    http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+  then explore your streams in Grafana's Explore view.
+
+Custom config:
+
+  Edit `lokiConfig` in your values and `helm upgrade` (the pod rolls on the config
+  checksum). The value is templated, so Helm values render inside it.
+
+NOTE: Loki ships with `auth_enabled: false`. This is for internal use behind the
+NetworkPolicy, which is the trust boundary. There is no Secret to manage.
+
+This chart runs Loki in single-binary mode (all components in one process,
+filesystem storage). It scales vertically and via a shared object store; the
+microservices read/write/backend split is a tracked follow-up.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
