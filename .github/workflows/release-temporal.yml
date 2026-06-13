@@ -76,8 +76,11 @@ jobs:
           test "$code" = "200"
 
           # --- logs show the frontend started ---
-          kubectl logs deployment/rtest-temporal --tail=400 \
-            | grep -qiE 'frontend started|Service resources started|Starting to serve'
+          # Write to a file first: piping `kubectl logs` straight into `grep -q`
+          # makes grep close the pipe on its first match, SIGPIPE-killing kubectl
+          # (exit 141) which `pipefail` would then propagate as a spurious failure.
+          kubectl logs deployment/rtest-temporal --tail=400 >/tmp/temporal.log 2>&1
+          grep -qiE 'frontend started|Service resources started|Starting to serve' /tmp/temporal.log
 
       - name: Package and push (OCI)
         id: push
