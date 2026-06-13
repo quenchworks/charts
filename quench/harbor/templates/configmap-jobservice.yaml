@@ -1,7 +1,9 @@
 {{/*
 Jobservice ConfigMap. config.yml (mounted /etc/jobservice/config.yml) wires the
-worker pool to the Valkey jobservice DB index and routes job logs to STD_OUTPUT only
-(no FILE/DB logger — keeps the rootfs read-only and avoids the DB logger dependency).
+worker pool to the Valkey jobservice DB index and routes job logs to STD_OUTPUT (for
+kubectl logs) plus a FILE logger under the writable /var/log/jobs emptyDir. The FILE
+logger is what registers core's job-log getter so GC/scan/replication execution logs
+are retrievable via the API; a sweeper prunes old files to bound the emptyDir.
 The env-style keys feed jobservice via envFrom: CORE_URL, the registry creds/URLs and
 the cache redis URL. CORE_SECRET / JOBSERVICE_SECRET come from the managed Secret.
 */}}
@@ -26,6 +28,19 @@ data:
     job_loggers:
       - name: "STD_OUTPUT"
         level: {{ .Values.logLevel | upper }}
+      # FILE logger writes per-job logs to the writable /var/log/jobs emptyDir. This
+      # also registers core's "log data getter" so GET /system/gc/{id}/log, scan job
+      # logs, replication/retention execution logs etc. are retrievable (without it
+      # core returns 500 "no log data getter is configured"). The sweeper prunes old
+      # logs so the emptyDir does not grow unbounded.
+      - name: "FILE"
+        level: {{ .Values.logLevel | upper }}
+        settings:
+          base_dir: "/var/log/jobs"
+        sweeper:
+          duration: 1
+          settings:
+            work_dir: "/var/log/jobs"
     metric:
       enabled: {{ .Values.metrics.enabled }}
       path: {{ .Values.metrics.jobservice.path }}
