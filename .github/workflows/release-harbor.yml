@@ -98,13 +98,24 @@ jobs:
 
           # --- 2) CSRF login dance: mint the cookie + token from a safe GET, then
           #         POST /c/login with cookie + header + same-origin Origin/Referer ---
-          # harbor-core wraps /api and /c with gorilla/csrf; a safe (GET) request to a
-          # CSRF-protected route sets the _gorilla_csrf cookie AND returns the matching
-          # X-Harbor-Csrf-Token header. /c/login is POST-only (GET 404s), so mint from
-          # the public GET /api/v2.0/systeminfo instead — same CSRF middleware, no auth.
-          rm -f /tmp/cj.txt
-          TOKEN="$(curl -fsS -c /tmp/cj.txt -D - -o /dev/null "${BASE}/api/v2.0/systeminfo" \
-                    | tr -d '\r' | awk -F': ' 'tolower($1)=="x-harbor-csrf-token"{print $2}' | tail -1)"
+          # harbor-core's gorilla/csrf middleware sets the _gorilla_csrf cookie AND the
+          # matching X-Harbor-Csrf-Token response header on safe (GET) requests through a
+          # CSRF-wrapped route. Different routes expose it; probe a few public GETs and
+          # take the first that yields a token (capturing its cookie jar in lockstep).
+          mint_csrf() {  # $1 = cookie jar path -> echoes token (empty if none)
+            local jar="$1" ep tok
+            for ep in /api/v2.0/systeminfo /c/login /api/v2.0/systeminfo/getcert \
+                      /c/userExists /api/v2.0/ping /api/v2.0/health; do
+              rm -f "$jar"
+              tok="$(curl -sS -c "$jar" -D - -o /dev/null "${BASE}${ep}" \
+                      | tr -d '\r' | awk -F': ' 'tolower($1)=="x-harbor-csrf-token"{print $2}' | tail -1)"
+              if [ -n "$tok" ]; then echo "  csrf minted from ${ep}" >&2; echo "$tok"; return 0; fi
+            done
+            echo "  no endpoint returned X-Harbor-Csrf-Token; header dump for /api/v2.0/systeminfo:" >&2
+            curl -sS -D - -o /dev/null "${BASE}/api/v2.0/systeminfo" | tr -d '\r' >&2
+            return 1
+          }
+          TOKEN="$(mint_csrf /tmp/cj.txt)"
           echo "csrf token present: $([ -n "$TOKEN" ] && echo yes || echo no)"
           test -n "$TOKEN"
 
@@ -122,9 +133,7 @@ jobs:
 
           # --- 3) cross-site CSRF must be rejected: same token+cookie, evil Origin -> 403 ---
           # re-mint a fresh token/cookie so the only difference is the Origin.
-          rm -f /tmp/cj2.txt
-          TOKEN2="$(curl -fsS -c /tmp/cj2.txt -D - -o /dev/null "${BASE}/api/v2.0/systeminfo" \
-                     | tr -d '\r' | awk -F': ' 'tolower($1)=="x-harbor-csrf-token"{print $2}' | tail -1)"
+          TOKEN2="$(mint_csrf /tmp/cj2.txt)"
           test -n "$TOKEN2"
           xcode="$(curl -s -o /tmp/evil.txt -w '%{http_code}' \
                      -b /tmp/cj2.txt \
