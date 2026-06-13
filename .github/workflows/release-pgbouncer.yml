@@ -50,16 +50,29 @@ jobs:
           kubectl rollout status deployment/rtest-pgbouncer --timeout=540s
           # backend PG password (deterministic shared cred)
           PW="$(kubectl get secret rtest-postgresql -o jsonpath='{.data.postgres-password}' | base64 -d)"
-          # --- PROVE pooling end-to-end: a client authenticates to PgBouncer (SCRAM) and
+
+          # Run a throwaway client pod to completion, then read its logs. Using a
+          # non-interactive Never pod (not `kubectl run -i`) avoids the attach/TTY race
+          # that can swallow output; PGPASSWORD keeps the secret off the command line.
+          run_psql() {
+            local name="$1" db="$2"; shift 2
+            kubectl delete pod "$name" --ignore-not-found --now >/dev/null 2>&1 || true
+            kubectl run "$name" --restart=Never --image=ghcr.io/quenchworks/images/postgresql:18.4 \
+              --env="PGPASSWORD=${PW}" --command -- \
+              psql "host=rtest-pgbouncer port=6432 user=appuser dbname=${db}" "$@"
+            kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/"$name" --timeout=120s \
+              || { echo "client pod $name did not succeed"; kubectl logs "$name" || true; \
+                   kubectl logs deployment/rtest-pgbouncer || true; return 1; }
+            kubectl logs "$name"
+          }
+
+          # --- PROVE pooling end-to-end: client authenticates to PgBouncer (SCRAM) and
           # PgBouncer proxies the query to the backend PostgreSQL, returning 1. ---
-          kubectl run pgclient --rm -i --restart=Never --image=ghcr.io/quenchworks/images/postgresql:18.4 \
-            --command -- psql "host=rtest-pgbouncer port=6432 user=appuser dbname=appdb password=${PW}" \
-            -tAc 'SELECT 1;' | tee /tmp/pool.out
+          run_psql pgclient appdb -tAc 'SELECT 1;' | tee /tmp/pool.out
           grep -qx '1' /tmp/pool.out
+
           # --- admin console: SHOW POOLS on the virtual "pgbouncer" database ---
-          kubectl run pgadmin --rm -i --restart=Never --image=ghcr.io/quenchworks/images/postgresql:18.4 \
-            --command -- psql "host=rtest-pgbouncer port=6432 user=appuser dbname=pgbouncer password=${PW}" \
-            -c 'SHOW POOLS;' | tee /tmp/pools.out
+          run_psql pgadmin pgbouncer -c 'SHOW POOLS;' | tee /tmp/pools.out
           grep -q 'appdb' /tmp/pools.out
 
       - name: Package and push (OCI)
