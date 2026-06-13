@@ -1,0 +1,32 @@
+==============================================================================
+ LICENSE -- NOT OPEN SOURCE
+ Elasticsearch's default distribution is dual SSPL-1.0 / Elastic License 2.0.
+ NEITHER is OSI-approved open source. Do NOT treat it as open source.
+ CLEAN ALTERNATIVE: OpenSearch (Apache-2.0, /charts/opensearch) is the
+ truly-open drop-in fork of Elasticsearch -- prefer it for new deployments.
+==============================================================================
+
+Quenchworks Elasticsearch is installed as {{ include "quench-common.fullname" . }}.
+
+Query the HTTP API from inside the cluster:
+
+  curl http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}/
+  curl http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}/_cluster/health
+
+Index and read back a document:
+
+  curl -XPOST http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}/myindex/_doc/1?refresh=true \
+    -H 'Content-Type: application/json' -d '{"hello":"quench"}'
+  curl http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}/myindex/_doc/1
+
+{{- if .Values.config.securityDisabled }}
+
+NOTE: xpack.security is disabled (no TLS/auth). This is for internal use behind
+the NetworkPolicy. Set config.securityDisabled=false and configure TLS to expose it.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

@@ -1,0 +1,95 @@
+# !!! LICENSE WARNING -- NOT OPEN SOURCE !!!
+# Elasticsearch's default distribution is dual SSPL-1.0 / Elastic License 2.0 (ELv2).
+# NEITHER is OSI-approved open source. Do NOT represent it as open source. CAUTION TIER.
+# CLEAN ALTERNATIVE: OpenSearch (Apache-2.0, shipped at /charts/opensearch) is the
+# truly-open drop-in fork of Elasticsearch -- PREFER IT for new deployments.
+#
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/elasticsearch.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/elasticsearch
+  digest: "sha256:9d05aa8645192d9f75c2b9d650923c0045a1be66eec121a0588a3def5cf71e15"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single node for now. A multi-node cluster (seed hosts + cluster.initial_master_nodes
+# over the headless service) is a later addition.
+replicaCount: 1
+
+# Elasticsearch config knobs (the image writes elasticsearch.yml from these via ES_* env).
+config:
+  clusterName: quench-elasticsearch
+  discoveryType: single-node
+  # xpack.security off by default: this is an internal deployment and the NetworkPolicy
+  # is the trust boundary. Enable + configure TLS for exposed clusters.
+  securityDisabled: true
+  heapSize: 512m
+  # extra raw elasticsearch.yml appended verbatim (ES_CONFIG_EXTRA); e.g. "indices.query.bool.max_clause_count: 2048"
+  extraConfig: ""
+
+persistence:
+  enabled: true
+  size: 16Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 500m, memory: 1Gi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  httpPort: 9200
+  transportPort: 9300
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
