@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.apiPort }}
+      targetPort: http
+      name: http
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+---
+# Headless service: stable per-pod DNS for raft cluster traffic (8201), the basis
+# for a future multi-node HA topology. publishNotReadyAddresses so peers resolve
+# while a node is still sealed/initializing.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "openbao.headlessName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - port: {{ .Values.service.apiPort }}
+      targetPort: http
+      name: http
+    - port: {{ .Values.service.clusterPort }}
+      targetPort: cluster
+      name: cluster
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

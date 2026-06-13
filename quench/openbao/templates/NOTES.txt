@@ -1,0 +1,62 @@
+Quenchworks OpenBao is installed as {{ include "quench-common.fullname" . }}.
+
+The HTTP API is reachable inside the cluster at:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.apiPort }}
+
+{{ if .Values.dev.enabled }}
+=========================  DEV MODE  =========================
+This release runs in DEV MODE: an auto-unsealed, IN-MEMORY server. Data is NOT
+persisted and the root token is well-known. Use it for quick start / testing ONLY,
+NEVER for production. Disable with `dev.enabled=false` for a real raft node.
+
+Get the dev root token:
+
+  export BAO_TOKEN="$(kubectl get secret {{ include "openbao.devSecretName" . }} \
+    -o jsonpath='{.data.dev-root-token}' | base64 -d)"
+
+Write and read a secret (the `bao` CLI is in the image):
+
+  kubectl exec {{ include "quench-common.fullname" . }}-0 -- sh -c \
+    "BAO_ADDR=http://127.0.0.1:{{ .Values.service.apiPort }} BAO_TOKEN=$BAO_TOKEN bao kv put secret/hello v=quench"
+  kubectl exec {{ include "quench-common.fullname" . }}-0 -- sh -c \
+    "BAO_ADDR=http://127.0.0.1:{{ .Values.service.apiPort }} BAO_TOKEN=$BAO_TOKEN bao kv get secret/hello"
+{{ else }}
+###############################################################################
+#  !!  THE SERVER STARTS SEALED AND UNINITIALIZED  --  THIS IS EXPECTED  !!    #
+#                                                                             #
+#  A real OpenBao node does NOT serve secrets until you INITIALIZE it and     #
+#  then UNSEAL it. /v1/sys/health returns 501 (uninit) / 503 (sealed) until   #
+#  then; the pod is intentionally reported Ready while sealed so you can run   #
+#  these operator steps against it.                                           #
+###############################################################################
+
+1) Initialize (ONCE, ever). This prints the unseal key(s) and the initial root
+   token -- SAVE THEM SECURELY; they cannot be recovered:
+
+     kubectl exec {{ include "quench-common.fullname" . }}-0 -- sh -c \
+       "BAO_ADDR=http://127.0.0.1:{{ .Values.service.apiPort }} bao operator init -key-shares=1 -key-threshold=1"
+
+2) Unseal (after every start, until auto-unseal is configured). Use the unseal
+   key from step 1:
+
+     kubectl exec {{ include "quench-common.fullname" . }}-0 -- sh -c \
+       "BAO_ADDR=http://127.0.0.1:{{ .Values.service.apiPort }} bao operator unseal <UNSEAL_KEY>"
+
+3) Log in with the root token and use it:
+
+     kubectl exec {{ include "quench-common.fullname" . }}-0 -- sh -c \
+       "BAO_ADDR=http://127.0.0.1:{{ .Values.service.apiPort }} BAO_TOKEN=<ROOT_TOKEN> bao kv put secret/hello v=quench"
+
+For a one-command quick start instead, install with `dev.enabled=true` (in-memory,
+auto-unsealed -- testing only).
+{{ end }}
+NOTE: TLS is OFF by default and auto-unseal is not configured -- both are tracked
+follow-ups. The NetworkPolicy is the trust boundary; keep it enabled.
+
+OpenBao is the truly-open MPL-2.0 fork of HashiCorp Vault (which moved to BUSL).
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
