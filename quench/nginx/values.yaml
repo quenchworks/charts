@@ -1,0 +1,92 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/nginx.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/nginx
+  digest: "sha256:9ab72e984db03531d04d0a9bc027c4ae19fa4b7a6312a922755eac9b39ad1a3f"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# nginx is a stateless web server / reverse proxy: this chart runs a Deployment
+# (no persistence, no stable identity) and scales horizontally behind the service.
+replicaCount: 1
+
+# nginx configuration.
+#
+# The image ships a working default page served on 8080 with /stub_status enabled,
+# so no config is required out of the box. To add custom server blocks, set
+# config.serverBlock: it is written to a ConfigMap and mounted at
+# /etc/nginx/conf.d/default-quench.conf, which the shipped nginx.conf includes
+# (the http{} context already wires include /etc/nginx/conf.d/*.conf). To mount an
+# externally-managed ConfigMap of *.conf drop-ins instead, set
+# config.extraConfigMap to its name.
+config:
+  # Inline server block(s). Empty -> the image's built-in default page is served.
+  serverBlock: ""
+  # Name of an existing ConfigMap whose keys are mounted into /etc/nginx/conf.d.
+  # Takes precedence over serverBlock when set.
+  extraConfigMap: ""
+
+resources:
+  requests: { cpu: 50m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 128Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# Optional horizontal autoscaling on CPU (a stateless web server scales out well).
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# A web server commonly wants ingress from outside the namespace (ingress
+# controllers, gateways), so unlike the database charts this defaults to allowing
+# external traffic. Set allowExternal=false to restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

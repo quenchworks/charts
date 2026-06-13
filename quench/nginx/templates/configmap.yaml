@@ -1,0 +1,13 @@
+{{- if and .Values.config.serverBlock (not .Values.config.extraConfigMap) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "nginx.configMapName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # Mounted at /etc/nginx/conf.d/default-quench.conf, which the shipped nginx.conf
+  # includes via `include /etc/nginx/conf.d/*.conf;`.
+  default-quench.conf: |-
+    {{- .Values.config.serverBlock | nindent 4 }}
+{{- end }}
