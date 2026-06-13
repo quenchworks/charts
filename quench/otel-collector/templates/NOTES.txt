@@ -1,0 +1,64 @@
+Quenchworks OpenTelemetry Collector is installed as {{ include "quench-common.fullname" . }} (gateway mode).
+
+Send OTLP telemetry to the collector inside the cluster at:
+
+  gRPC: {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.ports.otlpGrpc }}
+  HTTP: http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.ports.otlpHttp }}
+
+For example, point an SDK / another collector at:
+
+  OTEL_EXPORTER_OTLP_ENDPOINT=http://{{ include "quench-common.fullname" . }}:{{ .Values.service.ports.otlpHttp }}
+
+IMPORTANT: the default config uses the `debug` exporter, so received telemetry is
+only LOGGED to the collector's stdout, not forwarded anywhere. Inspect it with:
+
+  kubectl logs deploy/{{ include "quench-common.fullname" . }}
+
+Add a real exporter before relying on this. Override the entire collector config
+via the `config` value and `helm upgrade` (the pod rolls on the config checksum):
+
+  # values.yaml
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc: { endpoint: 0.0.0.0:4317 }
+          http: { endpoint: 0.0.0.0:4318 }
+    processors:
+      memory_limiter: { check_interval: 5s, limit_percentage: 80, spike_limit_percentage: 25 }
+      batch: {}
+    exporters:
+      otlp:
+        endpoint: my-backend:4317     # forward to a real backend
+    extensions:
+      health_check: { endpoint: 0.0.0.0:13133 }
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:  { receivers: [otlp], processors: [memory_limiter, batch], exporters: [otlp] }
+        metrics: { receivers: [otlp], processors: [memory_limiter, batch], exporters: [otlp] }
+        logs:    { receivers: [otlp], processors: [memory_limiter, batch], exporters: [otlp] }
+      telemetry:
+        metrics:
+          readers:
+            - pull: { exporter: { prometheus: { host: 0.0.0.0, port: 8888 } } }
+
+Scrape the collector's OWN metrics (Prometheus format) at:
+
+  http://{{ include "quench-common.fullname" . }}:{{ .Values.service.ports.metrics }}/metrics
+
+{{- if not .Values.service.exposeMetrics }}
+  (service.exposeMetrics is false; the container listens but the Service does not
+   publish :{{ .Values.service.ports.metrics }} -- enable it to scrape over the Service.)
+{{- end }}
+
+Health (health_check extension): GET / on :{{ .Values.service.ports.health }} returns 200.
+
+MODE: this chart ships gateway mode (a Deployment). A per-node `agent` DaemonSet
+(host metrics / log tailing on every node) is a tracked follow-up.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

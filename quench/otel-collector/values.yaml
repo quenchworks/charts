@@ -1,0 +1,145 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/otel-collector.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/otel-collector
+  digest: "sha256:229d3a81139b251e1f64acc69adbf505957e4c59961e5e9eba9c6db3dd1f8fb6"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Deployment mode. The collector runs as a "gateway": a standalone Deployment that
+# receives OTLP and forwards it on. A per-node "agent" DaemonSet variant is a
+# tracked follow-up; only `deployment` is supported in this version.
+mode: deployment
+
+# Gateway replicas. The default pipeline is stateless, so this can be scaled out
+# behind the ClusterIP Service for OTLP ingest throughput.
+replicaCount: 1
+
+# OpenTelemetry Collector configuration. The whole document below is rendered into
+# a ConfigMap and mounted at /etc/otelcol/config.yaml; the container starts with
+# --config=/etc/otelcol/config.yaml. The image ships NO default config, so this
+# value is the entire collector configuration. Override it wholesale to wire real
+# exporters (otlp, prometheus, loki, ...) and tune the pipelines.
+#
+# The default pipeline receives OTLP (gRPC :4317, HTTP :4318), runs the
+# memory_limiter + batch processors, and exports to `debug` (telemetry is LOGGED,
+# not forwarded). Add a real exporter before relying on this in production.
+config:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+  processors:
+    # memory_limiter must come first in every pipeline. check_interval and the
+    # percentage limits are sized for the default 512Mi container limit; raise
+    # them alongside resources.limits.memory.
+    memory_limiter:
+      check_interval: 5s
+      limit_percentage: 80
+      spike_limit_percentage: 25
+    batch: {}
+  exporters:
+    # Safe default: log telemetry instead of forwarding it. Swap/add a real
+    # exporter (e.g. otlp to a backend, prometheus, loki) for production.
+    debug:
+      verbosity: normal
+  extensions:
+    health_check:
+      endpoint: 0.0.0.0:13133
+  service:
+    extensions: [health_check]
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [debug]
+      metrics:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [debug]
+      logs:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [debug]
+    telemetry:
+      # The collector's own internal metrics on :8888 (Prometheus /metrics).
+      metrics:
+        readers:
+          - pull:
+              exporter:
+                prometheus:
+                  host: 0.0.0.0
+                  port: 8888
+
+# Ports exposed by the Service and the container. otlpGrpc/otlpHttp are the ingest
+# ports; metrics (:8888) and health (:13133) are gated so you can keep them off the
+# Service if you only want to expose OTLP ingest.
+service:
+  type: ClusterIP
+  ports:
+    otlpGrpc: 4317
+    otlpHttp: 4318
+    metrics: 8888
+    health: 13133
+  # Whether the Service exposes the collector's own metrics port (:8888). The
+  # container always listens; this only controls Service exposure for scraping.
+  exposeMetrics: true
+  # Whether the Service exposes the health_check port (:13133). The probes hit the
+  # container directly regardless of this setting.
+  exposeHealth: false
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

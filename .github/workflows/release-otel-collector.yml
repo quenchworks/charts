@@ -1,0 +1,112 @@
+name: release-otel-collector
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/otel-collector/**"
+      - ".github/workflows/release-otel-collector.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/otel-collector
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # pin actions to SHAs before going public (renovate)
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          set -o pipefail
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/rtest-otel-collector --timeout=420s
+
+          # the runtime image has no HTTP client; probe over port-forwards.
+          kubectl port-forward deploy/rtest-otel-collector 13133:13133 >/tmp/pf-health.log 2>&1 &
+          pfh=$!
+          kubectl port-forward deploy/rtest-otel-collector 8888:8888 >/tmp/pf-metrics.log 2>&1 &
+          pfm=$!
+          kubectl port-forward deploy/rtest-otel-collector 4318:4318 >/tmp/pf-otlp.log 2>&1 &
+          pfo=$!
+          trap 'kill $pfh $pfm $pfo' EXIT
+          sleep 5
+
+          # health_check extension: GET / -> 200
+          code="$(curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:13133/ || true)"
+          test "$code" = "200"
+          echo ":13133/ -> 200 (health_check)"
+
+          # the collector's own prometheus metrics: GET /metrics -> 200
+          code="$(curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:8888/metrics || true)"
+          test "$code" = "200"
+          echo ":8888/metrics -> 200"
+
+          # send a test OTLP span over the HTTP receiver: POST /v1/traces -> 200
+          read -r -d '' SPAN <<'JSON' || true
+          {"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"ci-smoke"}}]},"scopeSpans":[{"spans":[{"traceId":"5b8efff798038103d269b633813fc60c","spanId":"eee19b7ec3c1b174","name":"ci-smoke-span","kind":1,"startTimeUnixNano":"1700000000000000000","endTimeUnixNano":"1700000000000001000"}]}]}]}
+          JSON
+          code="$(curl -fsS -o /dev/null -w '%{http_code}' \
+            -X POST http://127.0.0.1:4318/v1/traces \
+            -H 'Content-Type: application/json' \
+            -d "$SPAN" || true)"
+          test "$code" = "200"
+          echo ":4318/v1/traces -> 200 (OTLP span accepted)"
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/otel-collector-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"   # fail loudly rather than handing cosign an empty ref
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/otel-collector@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push. Register the ArtifactHub repo and set the ID."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/otel-collector:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
