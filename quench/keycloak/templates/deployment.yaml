@@ -1,0 +1,117 @@
+{{/* httpGet probes hit the management port (9000): /health/ready gates traffic,
+     /health/live restarts a wedged JVM. Keycloak boots the Quarkus runtime + connects
+     to Postgres + runs Liquibase migrations on first start, so the readiness window is
+     generous. The runtime image ships no shell HTTP client; the kubelet does the GET. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/health/live" "port" "management") "initialDelaySeconds" 60 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/health/ready" "port" "management") "initialDelaySeconds" 30 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "keycloak.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: keycloak
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- include "quench-common.args" . | nindent 10 }}
+          env:
+            # --- HTTP + management ports (must match the image's baked optimized build) ---
+            - name: KC_HTTP_PORT
+              value: "{{ .Values.service.port }}"
+            - name: KC_HTTP_MANAGEMENT_PORT
+              value: "{{ .Values.service.managementPort }}"
+            # --- Database (Postgres, required) ---
+            - name: KC_DB
+              value: "postgres"
+            - name: KC_DB_URL
+              value: {{ include "keycloak.db.url" . | quote }}
+            - name: KC_DB_USERNAME
+              value: {{ include "keycloak.db.user" . | quote }}
+            - name: KC_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.db.secretName" . }}
+                  key: {{ include "keycloak.db.secretPasswordKey" . }}
+            # --- Admin bootstrap (seeds the initial master-realm admin) ---
+            - name: KC_BOOTSTRAP_ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.secretName" . }}
+                  key: {{ include "keycloak.secretUserKey" . }}
+            - name: KC_BOOTSTRAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "keycloak.secretName" . }}
+                  key: {{ include "keycloak.secretPasswordKey" . }}
+            {{- if .Values.production.hostname }}
+            - name: KC_HOSTNAME
+              value: {{ .Values.production.hostname | quote }}
+            {{- end }}
+            {{- if .Values.production.proxyHeaders }}
+            - name: KC_PROXY_HEADERS
+              value: {{ .Values.production.proxyHeaders | quote }}
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+            - name: management
+              containerPort: {{ .Values.service.managementPort }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # Read-only rootfs: Keycloak relocates these to writable mounts. /conf is
+            # seeded from the shipped dist on first boot; /data holds runtime state;
+            # /tmp is the JVM tmpdir.
+            - name: conf
+              mountPath: /conf
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: conf
+          emptyDir: {}
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

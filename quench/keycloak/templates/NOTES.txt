@@ -1,0 +1,51 @@
+Quenchworks Keycloak is installed as {{ include "quench-common.fullname" . }}.
+
+The admin console + OIDC/SAML endpoints are served on port {{ .Values.service.port }}
+inside the cluster; health/metrics are on the management port {{ .Values.service.managementPort }}:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Reach the admin console from your machine with a port-forward:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  # then open http://127.0.0.1:8080/admin/
+
+Log in as the bootstrap admin:
+
+  User:     {{ .Values.auth.adminUser }}
+  Password: kubectl get secret --namespace {{ .Release.Namespace }} {{ include "keycloak.secretName" . }} \
+              -o jsonpath="{.data.{{ include "keycloak.secretPasswordKey" . }}}" | base64 -d
+
+Health check (management port):
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 9000:{{ .Values.service.managementPort }}
+  curl -fsS http://127.0.0.1:9000/health/ready
+  # -> {"status":"UP", ...}
+
+Database:
+{{- if .Values.postgresql.enabled }}
+  Bundled Quenchworks PostgreSQL (postgresql.enabled=true).
+    host     : {{ include "keycloak.db.host" . }}
+    database : {{ include "keycloak.db.name" . }}
+    user     : {{ include "keycloak.db.user" . }}
+  Keycloak and the bundled PG share the deterministic credentials set under
+  `postgresql.auth` in this chart's values.
+{{- else }}
+  External database (postgresql.enabled=false).
+    KC_DB_URL : {{ include "keycloak.db.url" . }}
+    user      : {{ include "keycloak.db.user" . }}
+  Ensure this PostgreSQL is reachable and the credentials are valid.
+{{- end }}
+
+Production hardening:
+  Set KC_HOSTNAME and KC_PROXY_HEADERS when fronting Keycloak with an ingress/proxy:
+
+    production:
+      hostname: https://sso.example.com
+      proxyHeaders: xforwarded
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
