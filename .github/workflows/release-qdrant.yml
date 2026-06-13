@@ -1,0 +1,108 @@
+name: release-qdrant
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/qdrant/**"
+      - ".github/workflows/release-qdrant.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/qdrant
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # pin actions to SHAs before going public (renovate)
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          set -o pipefail
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-qdrant --timeout=420s
+          # probe the REST API over a port-forward (the runtime image has no HTTP client)
+          kubectl port-forward rtest-qdrant-0 6333:6333 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          # health endpoints (unauthenticated) -> 200
+          ok=""
+          for i in $(seq 1 30); do
+            code="$(curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:6333/healthz || true)"
+            if [ "$code" = "200" ]; then ok=1; break; fi
+            sleep 5
+          done
+          test -n "$ok"   # fail loudly if /healthz never reported 200
+          [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:6333/healthz)" = "200" ]
+          [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:6333/readyz)" = "200" ]
+          [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:6333/collections)" = "200" ]
+          # real API roundtrip: create a collection, upsert a point, search it back.
+          curl -fsS -X PUT 'http://127.0.0.1:6333/collections/citest' \
+            -H 'content-type: application/json' \
+            -d '{"vectors":{"size":4,"distance":"Dot"}}' | grep -q '"result":true'
+          curl -fsS 'http://127.0.0.1:6333/collections' | grep -q '"citest"'
+          curl -fsS -X PUT 'http://127.0.0.1:6333/collections/citest/points?wait=true' \
+            -H 'content-type: application/json' \
+            -d '{"points":[{"id":1,"vector":[0.1,0.2,0.3,0.4],"payload":{"label":"a"}}]}' | grep -q '"status":"ok"'
+          out="$(curl -fsS -X POST 'http://127.0.0.1:6333/collections/citest/points/search' \
+            -H 'content-type: application/json' \
+            -d '{"vector":[0.1,0.2,0.3,0.4],"limit":1,"with_payload":true}')"
+          echo "$out"
+          echo "$out" | grep -q '"id":1'
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/qdrant-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"   # fail loudly rather than handing cosign an empty ref
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/qdrant@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push. Register the ArtifactHub repo and set the ID."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/qdrant:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

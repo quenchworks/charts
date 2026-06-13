@@ -1,0 +1,15 @@
+{{- if .Values.config.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "qdrant.configMapName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # Mounted over /qdrant/config/production.yaml and layered on with an extra
+  # --config-path flag (Qdrant merges configs, later wins). config.data is
+  # templated, so Helm values render inside it; edit it and `helm upgrade`
+  # (the pod checksum annotation rolls the StatefulSet).
+  production.yaml: |-
+    {{- tpl .Values.config.data . | nindent 4 }}
+{{- end }}

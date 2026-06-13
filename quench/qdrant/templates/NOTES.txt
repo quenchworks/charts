@@ -1,0 +1,57 @@
+Quenchworks Qdrant is installed as {{ include "quench-common.fullname" . }} (single-node).
+
+The APIs are reachable inside the cluster at:
+
+  REST + dashboard : http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+  gRPC             : {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.grpcPort }}
+
+Health (always unauthenticated):
+
+  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/healthz   # -> 200
+  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/readyz    # -> 200
+  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/livez     # -> 200
+
+Port-forward to reach it from your workstation (the web dashboard is served at /dashboard):
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  # then open http://127.0.0.1:{{ .Values.service.port }}/dashboard in a browser
+
+{{- if include "qdrant.apiKeyEnabled" . }}
+
+API-KEY AUTH IS ENABLED. Send the key on every data-path request:
+
+  KEY=...   # the value you set in auth.apiKey (or your existingSecret)
+  curl -H "api-key: $KEY" http://127.0.0.1:{{ .Values.service.port }}/collections
+{{- else }}
+
+No API key is set: the NetworkPolicy is the trust boundary. To require a key, set
+`auth.apiKey` (or point `auth.existingSecret` at one) and `helm upgrade`. The key is
+sent as the `api-key` header on REST and gRPC; health endpoints stay open so probes
+keep working.
+{{- end }}
+
+Create a collection, upsert a point, then search (over a port-forward to :{{ .Values.service.port }}):
+{{- $auth := "" }}
+{{- if include "qdrant.apiKeyEnabled" . }}{{ $auth = " -H \"api-key: $KEY\"" }}{{ end }}
+
+  curl -fsS -X PUT "http://127.0.0.1:{{ .Values.service.port }}/collections/demo"{{ $auth }} \
+    -H 'content-type: application/json' \
+    -d '{"vectors":{"size":4,"distance":"Dot"}}'
+
+  curl -fsS -X PUT "http://127.0.0.1:{{ .Values.service.port }}/collections/demo/points?wait=true"{{ $auth }} \
+    -H 'content-type: application/json' \
+    -d '{"points":[{"id":1,"vector":[0.1,0.2,0.3,0.4],"payload":{"label":"a"}}]}'
+
+  curl -fsS -X POST "http://127.0.0.1:{{ .Values.service.port }}/collections/demo/points/search"{{ $auth }} \
+    -H 'content-type: application/json' \
+    -d '{"vector":[0.1,0.2,0.3,0.4],"limit":1,"with_payload":true}'
+
+This chart runs Qdrant as a single node (one StatefulSet replica with local storage).
+Distributed mode (Raft-coordinated peers with sharded/replicated collections) is a
+tracked follow-up; keep replicaCount at 1.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

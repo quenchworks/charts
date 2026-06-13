@@ -1,0 +1,106 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/qdrant.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/qdrant
+  digest: "sha256:2643748a7461f787096d3bcc432ace6ea5f3a699a286b056d87fdf2ba7a44bef"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Qdrant keeps its index + payload state on local disk under /qdrant/storage (plus
+# snapshots under /qdrant/snapshots), so this chart ships a StatefulSet. The default
+# is a single node: Qdrant clustering (distributed/sharded collections with Raft) is
+# real but needs coordinated peer bootstrap + a shared topology -- that is a tracked
+# follow-up. Keep replicaCount at 1 here.
+replicaCount: 1
+
+# API key authentication. Qdrant has none by default; the NetworkPolicy is the trust
+# boundary. Set apiKey to a non-empty string to require it on the REST + gRPC data
+# paths (wired through QDRANT__SERVICE__API_KEY via a Secret). The health endpoints
+# (/healthz, /livez, /readyz) stay unauthenticated, so probes keep working.
+# Alternatively point existingSecret at a Secret holding the key under existingSecretKey.
+auth:
+  apiKey: ""
+  existingSecret: ""
+  existingSecretKey: api-key
+
+# Advanced config. When enabled, the rendered YAML is mounted at
+# /qdrant/config/production.yaml, which Qdrant reads last (after its baked-in
+# config and before env overrides), letting you tune anything env vars cannot.
+# Prefer extraEnvVars with QDRANT__... keys for simple toggles. The block is
+# templated (tpl), so Helm values render inside it.
+config:
+  enabled: false
+  data: |
+    log_level: INFO
+
+# Extra raw flags appended after the entrypoint's qdrant invocation, e.g.
+# ["--disable-telemetry"]. The image entrypoint passes "$@" through to the binary.
+extraArgs: []
+
+persistence:
+  enabled: true
+  size: 16Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  # REST API + web dashboard (/dashboard).
+  port: 6333
+  # gRPC API.
+  grpcPort: 6334
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
