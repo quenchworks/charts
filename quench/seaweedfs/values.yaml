@@ -1,0 +1,91 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/seaweedfs.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/seaweedfs
+  digest: "sha256:cc05f9d446a44a6956164682b916d0ae49de53e15c5f0ba5e2df6e5053c3d714"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single node. We ship the single-process `weed server -s3` model: one binary
+# runs master + volume + filer + the S3 gateway together.
+replicaCount: 1
+
+# S3 credentials. With auth enabled the entrypoint writes an identities config
+# granting the admin key full access and turns on S3 auth. The access + secret
+# keys live in a Secret (generated if not provided). With auth disabled, S3 runs
+# open (anonymous) and the NetworkPolicy is the only boundary.
+auth:
+  # Generate and wire SEAWEED_S3_ACCESS_KEY/SECRET into the container. Hardened default.
+  enabled: true
+  accessKey: ""                # generated (20 chars) if empty
+  secretKey: ""                # generated (40 chars) if empty
+  existingSecret: ""           # use this Secret instead of the managed one
+  existingSecretAccessKeyKey: "access-key"
+  existingSecretSecretKeyKey: "secret-key"
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""           # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""            # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  port: 8333                   # the S3 API
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+# Extra `weed server` flags pass through here (e.g. ["-volume.max=0"]).
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

@@ -1,0 +1,105 @@
+name: release-seaweedfs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/seaweedfs/**"
+      - ".github/workflows/release-seaweedfs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/seaweedfs
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # pin actions to SHAs before going public (renovate)
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-seaweedfs --timeout=420s
+          # probe the S3 /healthz over a port-forward (the runtime image has no HTTP client).
+          # /healthz is unauthenticated and returns 200 even with S3 auth on.
+          kubectl port-forward rtest-seaweedfs-0 8333:8333 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8333/healthz)"
+          test "$code" = "200"
+          # real S3 roundtrip with the Secret's keys via a throwaway aws-cli pod
+          ACCESS_KEY="$(kubectl get secret rtest-seaweedfs -o jsonpath='{.data.access-key}' | base64 -d)"
+          SECRET_KEY="$(kubectl get secret rtest-seaweedfs -o jsonpath='{.data.secret-key}' | base64 -d)"
+          test -n "$ACCESS_KEY"; test -n "$SECRET_KEY"
+          EP="http://rtest-seaweedfs:8333"
+          kubectl run awscli --rm -i --restart=Never --image=amazon/aws-cli \
+            --env AWS_ACCESS_KEY_ID="$ACCESS_KEY" \
+            --env AWS_SECRET_ACCESS_KEY="$SECRET_KEY" \
+            --env AWS_EC2_METADATA_DISABLED=true \
+            --command -- /bin/sh -c "
+              set -e
+              aws --endpoint-url $EP s3 mb s3://gate
+              printf quench > /tmp/o
+              aws --endpoint-url $EP s3 cp /tmp/o s3://gate/o
+              got=\$(aws --endpoint-url $EP s3 cp s3://gate/o -)
+              echo \"roundtrip got: \$got\"
+              test \"\$got\" = quench
+            " | tee /tmp/s3.log
+          grep -q 'roundtrip got: quench' /tmp/s3.log
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/seaweedfs-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"   # fail loudly rather than handing cosign an empty ref
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/seaweedfs@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push. Register the ArtifactHub repo and set the ID."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/seaweedfs:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

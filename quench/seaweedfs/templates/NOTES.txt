@@ -1,0 +1,41 @@
+Quenchworks SeaweedFS is installed as {{ include "quench-common.fullname" . }}.
+
+This is the default Quenchworks object store: S3-compatible, single node
+(master + volume + filer + S3 gateway in one process).
+
+The S3 API is served on port {{ .Values.service.port }} from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+{{- if .Values.auth.enabled }}
+
+S3 auth is enabled. Get the admin credentials from the Secret:
+
+  ACCESS_KEY=$(kubectl get secret --namespace {{ .Release.Namespace }} {{ include "seaweedfs.secretName" . }} \
+    -o jsonpath="{.data.{{ include "seaweedfs.secretAccessKeyKey" . }}}" | base64 -d)
+  SECRET_KEY=$(kubectl get secret --namespace {{ .Release.Namespace }} {{ include "seaweedfs.secretName" . }} \
+    -o jsonpath="{.data.{{ include "seaweedfs.secretSecretKeyKey" . }}}" | base64 -d)
+
+Use them with any S3 client, e.g. the AWS CLI from a pod in the cluster:
+
+  kubectl run awscli --rm -i --restart=Never --image=amazon/aws-cli \
+    --env AWS_ACCESS_KEY_ID="$ACCESS_KEY" \
+    --env AWS_SECRET_ACCESS_KEY="$SECRET_KEY" -- \
+    --endpoint-url http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }} \
+    s3 mb s3://my-bucket
+{{- else }}
+
+S3 auth is DISABLED: the API is open (anonymous). The NetworkPolicy is the only
+boundary. Set auth.enabled=true (default) for credentialed access.
+
+  kubectl run awscli --rm -i --restart=Never --image=amazon/aws-cli \
+    --env AWS_ACCESS_KEY_ID=anon --env AWS_SECRET_ACCESS_KEY=anon -- \
+    --endpoint-url http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }} \
+    s3 mb s3://my-bucket
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
