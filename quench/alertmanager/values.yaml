@@ -1,0 +1,123 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/alertmanager.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/alertmanager
+  digest: "sha256:e4948706fa357404b816f4438bc32f24acd9522485bb865993030bf30978e525"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Number of Alertmanager replicas. Alertmanager keeps local nflog (notification
+# log) and silences state on disk, so this chart ships a StatefulSet. The default
+# is a single replica.
+#
+# HA path: set replicaCount > 1 and Alertmanager forms a gossip cluster over the
+# 9094 mesh port so the replicas dedup notifications and share silences. This
+# chart always creates a headless service for stable peer DNS; when replicaCount
+# > 1 the chart wires each pod's --cluster.peer flags at that headless service
+# automatically (see clusterPeerCount / the StatefulSet args). Point every
+# Prometheus at all replicas (it fans alerts out to each); Alertmanager dedups.
+replicaCount: 1
+
+# Alertmanager configuration. The image entrypoint pins --config.file to
+# AM_CONFIG_FILE (/etc/alertmanager/alertmanager.yml, mounted from the ConfigMap
+# below), --storage.path to AM_STORAGE_PATH (/alertmanager, the writable volume),
+# and --web.listen-address to AM_WEB_LISTEN (:9093). Extra flags (cluster peers,
+# log level) are appended via clusterPeers wiring + extraArgs.
+#
+# alertmanagerConfig is rendered (templated) into the ConfigMap. The default is a
+# sane no-op: a single route grouping by alertname with a null receiver that
+# drops everything. Replace it wholesale with your real routing tree + receivers
+# (email/slack/pagerduty/webhook). It is templated, so Helm values render inside.
+alertmanagerConfig: |
+  global:
+    resolve_timeout: 5m
+
+  route:
+    receiver: "null"
+    group_by: ["alertname"]
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h
+
+  receivers:
+    # Default no-op receiver: drops everything. Replace with email/slack/pagerduty/
+    # webhook receivers and route to them. Example:
+    #   - name: team-pager
+    #     pagerduty_configs:
+    #       - routing_key: <key>
+    - name: "null"
+
+  inhibit_rules: []
+  templates: []
+
+# Extra raw flags appended verbatim after the entrypoint's pinned flags (it passes
+# "$@" to alertmanager), e.g. ["--log.level=debug", "--data.retention=120h"].
+extraArgs: []
+
+persistence:
+  enabled: true
+  size: 2Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 200m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # Web UI + HTTP/v2 API + lifecycle endpoints (/-/healthy, /-/ready).
+  port: 9093
+  # HA cluster gossip (mesh) port, tcp+udp. Used only when replicaCount > 1.
+  clusterPort: 9094
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

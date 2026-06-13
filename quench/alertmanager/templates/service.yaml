@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      name: http
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+---
+# Headless service for stable per-pod DNS. Used by the HA gossip mesh (9094) when
+# replicaCount > 1; harmless at a single replica. publishNotReadyAddresses so peers
+# can discover each other before they report ready.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "alertmanager.headlessName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      name: http
+    - port: {{ .Values.service.clusterPort }}
+      targetPort: {{ .Values.service.clusterPort }}
+      name: cluster-tcp
+      protocol: TCP
+    - port: {{ .Values.service.clusterPort }}
+      targetPort: {{ .Values.service.clusterPort }}
+      name: cluster-udp
+      protocol: UDP
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

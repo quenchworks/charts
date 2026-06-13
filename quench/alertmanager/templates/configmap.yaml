@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "alertmanager.configMapName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # Mounted over /etc/alertmanager/alertmanager.yml (the entrypoint's --config.file).
+  # alertmanagerConfig is templated so values render inside it; edit it and
+  # `helm upgrade` (the pod checksum annotation rolls the StatefulSet).
+  alertmanager.yml: |-
+    {{- tpl .Values.alertmanagerConfig . | nindent 4 }}

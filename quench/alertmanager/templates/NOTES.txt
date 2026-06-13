@@ -1,0 +1,55 @@
+Quenchworks Alertmanager is installed as {{ include "quench-common.fullname" . }}.
+
+The web UI and HTTP/v2 API are reachable inside the cluster at:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Open the UI / API from your machine (the service is ClusterIP, no auth):
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  # then browse http://127.0.0.1:{{ .Values.service.port }}/  (embedded UI)
+
+Health and readiness:
+
+  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/-/healthy        # -> 200
+  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/-/ready          # -> 200
+  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/api/v2/status     # -> 200 (cluster + version info)
+
+Point Prometheus at it (in Prometheus' prometheus.yml):
+
+  alerting:
+    alertmanagers:
+      - static_configs:
+          - targets:
+              - {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Wire receivers (the default config drops everything via a "null" receiver). Edit
+`alertmanagerConfig` in your values and `helm upgrade` (the pod rolls on the config
+checksum, or reload live with `curl -XPOST .../-/reload`). Example:
+
+  alertmanagerConfig: |
+    route:
+      receiver: team-slack
+      group_by: ["alertname"]
+    receivers:
+      - name: team-slack
+        slack_configs:
+          - api_url: https://hooks.slack.com/services/XXX
+            channel: "#alerts"
+
+High availability:
+
+  Set `replicaCount: 2` (or more). The pods form a gossip cluster over the {{ .Values.service.clusterPort }}
+  mesh port (auto-wired via --cluster.peer at the headless service) so they dedup
+  notifications and share silences. Point every Prometheus at all replicas; each
+  Prometheus fans alerts out to every Alertmanager and the cluster dedups.
+
+NOTE: Alertmanager ships with no authentication. This is for internal use behind
+the NetworkPolicy, which is the trust boundary. There is no Secret to manage
+(unless your receivers reference one).
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
