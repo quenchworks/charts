@@ -1,0 +1,60 @@
+Quenchworks Temporal is installed as {{ include "quench-common.fullname" . }}.
+
+This is the SINGLE-BINARY ALL-IN-ONE server: one process runs all four roles
+(frontend + history + matching + worker), backed by PostgreSQL.
+
+Frontend gRPC (the main client/worker port) inside the cluster:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.grpcPort }}
+
+Connect a worker or client (default namespace `default`):
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.grpcPort }}:{{ .Values.service.grpcPort }}
+  # point your SDK Client at 127.0.0.1:{{ .Values.service.grpcPort }}, namespace "default"
+
+The `temporal` CLI and the Web UI are SEPARATE components (not shipped in this image
+or chart). To register a namespace you need the standalone `temporal` CLI:
+
+  temporal operator namespace create --address 127.0.0.1:{{ .Values.service.grpcPort }} my-namespace
+
+A `default` namespace is not auto-created — register the namespaces your workers use.
+
+Metrics (Prometheus, tally) are served on:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.metricsPort }}:{{ .Values.service.metricsPort }}
+  curl -fsS http://127.0.0.1:{{ .Values.service.metricsPort }}/metrics
+
+Schema:
+  The schema-setup Job (a pre-install/pre-upgrade Helm hook) runs temporal-sql-tool
+  to create both databases and bring their schema to the latest version BEFORE the
+  server starts. Temporal uses TWO databases — the main store and the visibility
+  store ({{ include "temporal.db.mainName" . }} + {{ include "temporal.db.visibilityName" . }}).
+
+Database:
+{{- if .Values.postgresql.enabled }}
+  Bundled Quenchworks PostgreSQL (postgresql.enabled=true).
+    host           : {{ include "temporal.db.host" . }}
+    main store     : {{ include "temporal.db.mainName" . }}
+    visibility     : {{ include "temporal.db.visibilityName" . }}
+    user           : {{ include "temporal.db.user" . }}
+  Temporal, the schema-setup Job, and the bundled PG share the deterministic
+  credentials set under `postgresql.auth` in this chart's values. The bundled PG
+  seeds the main store; the schema-setup Job creates the visibility store.
+{{- else }}
+  External database (postgresql.enabled=false).
+    host           : {{ include "temporal.db.host" . }}:{{ include "temporal.db.port" . }}
+    main store     : {{ include "temporal.db.mainName" . }}
+    visibility     : {{ include "temporal.db.visibilityName" . }}
+    user           : {{ include "temporal.db.user" . }}
+  Ensure this PostgreSQL is reachable and the user can create databases + schemas.
+{{- end }}
+
+Scaling:
+  Keep replicaCount at 1 for the all-in-one server. Scale-out (one Deployment per
+  role, selected via the SERVICES env) is a future chart capability.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

@@ -1,0 +1,264 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/temporal.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/temporal
+  digest: "sha256:51b09e18f04c2aa2a881a635e3a3e8bef4cb994bf82926ef4adfeac41d4337a3"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Temporal v0.0.1 ships the SINGLE-BINARY ALL-IN-ONE server: one process runs all
+# four roles (frontend + history + matching + worker). All durable state lives in
+# PostgreSQL, so the server itself is stateless — but it does NOT cluster trivially
+# in all-in-one mode, so keep replicaCount at 1. (Scale-out — one Deployment per
+# role selected via the SERVICES env — is a future chart capability.)
+replicaCount: 1
+
+# Number of history shards. This is FIXED at first schema setup and CANNOT be
+# changed afterwards without a fresh database. 512 is a sane production default;
+# the CI gate lowers it for a quick boot.
+numHistoryShards: 512
+
+# Bundled in-cluster PostgreSQL (the Quenchworks postgresql subchart). Default true:
+# a self-contained, production-shaped install. Set false to use externalDatabase.
+# The auth block pins DETERMINISTIC credentials so Temporal, the schema-setup Job,
+# and the bundled PG all agree.
+#
+# Temporal needs TWO databases: the main store and the visibility store. The bundled
+# PG initialises ONE database at first boot (it creates the app DB only when it
+# differs from both "postgres" and the superuser name — hence DISTINCT user/db:
+# user "temporal_user", db "temporal"). The schema-setup Job then `create-database`s
+# the SECOND (visibility) DB and runs setup/update-schema against BOTH.
+postgresql:
+  enabled: true
+  auth:
+    # superuser/owner of the bundled PG; must differ from the database name so the
+    # bundled PG actually creates "temporal" at init.
+    username: temporal_user
+    password: temporal
+    # main (default) store database, created by the bundled PG at init.
+    database: temporal
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# Database/schema names. visibilityDatabase is created by the schema-setup Job
+# (the bundled PG only seeds the single `postgresql.auth.database`).
+databases:
+  main: temporal
+  visibility: temporal_visibility
+
+# External database, used when postgresql.enabled=false. Point at a reachable
+# PostgreSQL whose user can create databases and schemas. Supply the password
+# inline or via an existingSecret.
+externalDatabase:
+  host: ""
+  port: 5432
+  user: temporal_user
+  password: ""
+  existingSecret: ""             # Secret holding the DB password
+  existingSecretPasswordKey: "password"
+
+# Schema-setup Job. Runs temporal-sql-tool as a Helm pre-install/pre-upgrade hook to
+# ensure both databases exist and are at the latest schema version before the server
+# boots. Disable only if an external operator manages the schema out-of-band.
+schemaSetup:
+  enabled: true
+  # initialDelay/retries the Job uses while waiting for PostgreSQL to accept
+  # connections (helm --wait does not order hooks behind the bundled PG, so the Job
+  # polls). Each attempt sleeps `retryInterval` seconds.
+  retries: 60
+  retryInterval: 5
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 256Mi }
+
+# The server config Temporal reads at /etc/temporal/config/<TEMPORAL_ENV>.yaml.
+# Rendered through `tpl` so values (ports, DB host/name, numHistoryShards) flow in.
+# This is the Postgres-backed production config — it REPLACES the upstream sqlite
+# sample the image ships. Edit it and `helm upgrade`; the pod checksum annotation
+# rolls the Deployment.
+#
+# Notes on the bindings (the QuenchWorks clean image does NOT run dockerize, so the
+# config must be plain YAML — no `{{ }}` directives reach Temporal's parser):
+#   - Each role binds gRPC on 0.0.0.0 so the kubelet gRPC probe and the k8s Service
+#     (which hit the pod IP) can reach the frontend listener. (Binding loopback would
+#     make the Service / probe unreachable.)
+#   - The literal placeholder __POD_IP__ is substituted with the real pod IP at
+#     container start by the render-config initContainer (busybox sed, downward-API
+#     POD_IP). It is used for the membership broadcastAddress (ringpop advertises a
+#     routable address), the clusterMetadata rpcAddress, and the worker's publicClient
+#     hostPort so the in-process worker SDK client reaches the frontend AND the role
+#     advertised over ringpop matches a routable address. (Pointing publicClient at
+#     127.0.0.1 — the old bug — made the worker scanner fatally fail on loopback.)
+#   - metrics listen on 0.0.0.0:8000 so the Service can scrape :8000/metrics.
+#   - archival is disabled (it would write to the rootfs/filestore; state is in PG).
+temporalConfig: |
+  log:
+    stdout: true
+    level: info
+
+  persistence:
+    defaultStore: postgres-default
+    visibilityStore: postgres-visibility
+    numHistoryShards: {{ .Values.numHistoryShards }}
+    datastores:
+      postgres-default:
+        sql:
+          pluginName: "postgres12"
+          databaseName: {{ include "temporal.db.mainName" . | quote }}
+          connectAddr: "{{ include "temporal.db.host" . }}:{{ include "temporal.db.port" . }}"
+          connectProtocol: "tcp"
+          user: {{ include "temporal.db.user" . | quote }}
+          password: {{ include "temporal.db.password" . | quote }}
+          maxConns: 20
+          maxIdleConns: 20
+          maxConnLifetime: "1h"
+      postgres-visibility:
+        sql:
+          pluginName: "postgres12"
+          databaseName: {{ include "temporal.db.visibilityName" . | quote }}
+          connectAddr: "{{ include "temporal.db.host" . }}:{{ include "temporal.db.port" . }}"
+          connectProtocol: "tcp"
+          user: {{ include "temporal.db.user" . | quote }}
+          password: {{ include "temporal.db.password" . | quote }}
+          maxConns: 10
+          maxIdleConns: 10
+          maxConnLifetime: "1h"
+
+  global:
+    membership:
+      maxJoinDuration: 30s
+      broadcastAddress: "__POD_IP__"
+    pprof:
+      port: 7936
+    metrics:
+      prometheus:
+        framework: "tally"
+        timerType: "histogram"
+        listenAddress: "0.0.0.0:8000"
+
+  services:
+    frontend:
+      rpc:
+        grpcPort: 7233
+        membershipPort: 6933
+        bindOnIP: "0.0.0.0"
+        httpPort: 7243
+    matching:
+      rpc:
+        grpcPort: 7235
+        membershipPort: 6935
+        bindOnIP: "0.0.0.0"
+    history:
+      rpc:
+        grpcPort: 7234
+        membershipPort: 6934
+        bindOnIP: "0.0.0.0"
+    worker:
+      rpc:
+        grpcPort: 7239
+        membershipPort: 6939
+        bindOnIP: "0.0.0.0"
+
+  clusterMetadata:
+    enableGlobalNamespace: false
+    failoverVersionIncrement: 10
+    masterClusterName: "active"
+    currentClusterName: "active"
+    clusterInformation:
+      active:
+        enabled: true
+        initialFailoverVersion: 1
+        rpcName: "frontend"
+        rpcAddress: "__POD_IP__:7233"
+
+  dcRedirectionPolicy:
+    policy: "noop"
+
+  archival:
+    history:
+      state: "disabled"
+    visibility:
+      state: "disabled"
+
+  namespaceDefaults:
+    archival:
+      history:
+        state: "disabled"
+      visibility:
+        state: "disabled"
+
+  publicClient:
+    hostPort: "__POD_IP__:7233"
+
+  dynamicConfigClient:
+    filepath: "/etc/temporal/config/dynamicconfig/dynamicconfig.yaml"
+    pollInterval: "60s"
+
+# Dynamic config (runtime overrides). Minimal/empty by default. The server requires
+# the file to exist (the filepath above), so an empty map is valid.
+dynamicConfig: |
+  {}
+
+resources:
+  requests: { cpu: 500m, memory: 512Mi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  grpcPort: 7233                 # frontend gRPC — the main client port
+  httpPort: 7243                 # frontend HTTP API
+  metricsPort: 8000              # Prometheus metrics (tally)
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Temporal's frontend gRPC is a backend service for workers/clients, not a browser
+# endpoint, so ingress is restricted to the release namespace by default. Set
+# allowExternal: true to allow clients from outside the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

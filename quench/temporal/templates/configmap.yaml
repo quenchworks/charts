@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "temporal.configMapName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # The server reads /etc/temporal/config/<TEMPORAL_ENV>.yaml. We mount this whole
+  # ConfigMap at /etc/temporal/config and set TEMPORAL_ENV=production, so the key
+  # below MUST be production.yaml. temporalConfig is tpl-rendered (DB host/name,
+  # ports, numHistoryShards flow in). The DB password is rendered into the config.
+  production.yaml: |
+    {{- tpl .Values.temporalConfig . | nindent 4 }}
+  # dynamicconfig is referenced by an absolute path in the server config; the file
+  # must exist even when empty. Mounted at /etc/temporal/config/dynamicconfig/.
+  dynamicconfig.yaml: |
+    {{- tpl .Values.dynamicConfig . | nindent 4 }}

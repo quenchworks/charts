@@ -1,0 +1,181 @@
+{{/*
+All-in-one Temporal server (frontend + history + matching + worker in one process).
+The entrypoint assembles `temporal-server --root /etc/temporal --config config
+--env $TEMPORAL_ENV start` (SERVICES empty = all roles). The config ConfigMap is
+mounted over /etc/temporal/config/production.yaml (and the dynamicconfig file); the
+DB password is baked into that config by the chart.
+
+Probes: native gRPC health on the frontend port (7233). Temporal serves the standard
+grpc.health.v1.Health service. Boot is slow (it connects to PG and verifies the
+schema), so the readiness window is generous. Set customStartup/Liveness/Readiness
+probes to override (e.g. fall back to tcpSocket on clusters without gRPC probes).
+*/}}
+{{- $liveness := dict "grpc" (dict "port" 7233) "initialDelaySeconds" 60 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "grpc" (dict "port" 7233) "initialDelaySeconds" 30 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "temporal.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        # Render the server config: the clean image does not run dockerize, so the
+        # ConfigMap (template) carries the literal placeholder __POD_IP__. This step
+        # substitutes the real pod IP (downward API) and writes the result onto the
+        # shared writable emptyDir at /etc/temporal/config/ that the main container
+        # reads. Runs FIRST (before schema-setup) so the rendered config is present
+        # by the time the server boots.
+        - name: render-config
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/bin/sh", "-eu", "-c"]
+          args:
+            - |
+              {{- include "temporal.renderConfigScript" . | nindent 14 }}
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.schemaSetup.resources | nindent 12 }}
+          volumeMounts:
+            - name: config-template
+              mountPath: /etc/temporal/config-template
+              readOnly: true
+            - name: config-rendered
+              mountPath: /etc/temporal/config
+        {{- if .Values.schemaSetup.enabled }}
+        # Ensures both databases exist and their schema is current BEFORE the server
+        # boots. Polls PostgreSQL (helm installs the bundled PG concurrently), so no
+        # pre-install hook ordering is needed. Idempotent across restarts/upgrades.
+        - name: schema-setup
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/bin/sh", "-eu", "-c"]
+          args:
+            - |
+              {{- include "temporal.schemaSetupScript" . | nindent 14 }}
+          env:
+            - name: SQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "temporal.db.secretName" . }}
+                  key: {{ include "temporal.db.secretPasswordKey" . }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.schemaSetup.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+        {{- end }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: temporal
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- include "quench-common.args" . | nindent 10 }}
+          env:
+            # The pod IP, surfaced to Temporal's config loader as POD_IP. The config
+            # uses it for every service's bindOnIP, the membership broadcastAddress,
+            # the clusterMetadata rpcAddress, and the worker's publicClient hostPort —
+            # so the in-process worker SDK client can reach the frontend and the
+            # advertised ringpop address matches the bound listener.
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            # Boot the chart's Postgres-backed config: /etc/temporal/config/production.yaml.
+            # SERVICES empty = all-in-one (all four roles in one process).
+            - name: TEMPORAL_ROOT
+              value: /etc/temporal
+            - name: TEMPORAL_CONFIG_DIR
+              value: config
+            - name: TEMPORAL_ENV
+              value: production
+            - name: SERVICES
+              value: ""
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: grpc
+              containerPort: 7233
+            - name: http
+              containerPort: 7243
+            - name: history
+              containerPort: 7234
+            - name: matching
+              containerPort: 7235
+            - name: worker
+              containerPort: 7239
+            - name: metrics
+              containerPort: 8000
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # The rendered config (production.yaml + dynamicconfig) produced by the
+            # render-config initContainer on the shared writable emptyDir. The server
+            # reads --config config under --root /etc/temporal, i.e. this directory.
+            - name: config-rendered
+              mountPath: /etc/temporal/config
+              readOnly: true
+            # Read-only rootfs: the server writes nothing to the rootfs in the
+            # Postgres deployment (state lives in PG), but it needs a writable /tmp.
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        # The ConfigMap template (carries the literal __POD_IP__ placeholder), mounted
+        # read-only into the render-config initContainer.
+        - name: config-template
+          configMap:
+            name: {{ include "temporal.configMapName" . }}
+        # Shared writable scratch for the rendered config. render-config writes here;
+        # the main container reads it. Lives off the read-only rootfs.
+        - name: config-rendered
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
