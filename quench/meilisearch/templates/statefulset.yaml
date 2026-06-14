@@ -1,0 +1,127 @@
+{{/* Meilisearch serves GET /health UNAUTHENTICATED on the HTTP port (7700) even with a
+     master key set, so probes keep working regardless of auth. Both liveness and
+     readiness use /health (the engine reports "available" once it is serving). */}}
+{{- $liveness := dict "httpGet" (dict "path" "/health" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 15 "timeoutSeconds" 2 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/health" "port" "http") "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 2 "failureThreshold" 6 -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "meilisearch.headlessName" . }}
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- if not .Values.auth.existingSecret }}
+        # Roll the pod when the chart-managed master-key Secret changes.
+        checksum/masterkey: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "meilisearch.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: meilisearch
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- with .Values.extraArgs }}
+          args:
+            {{- range . }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- end }}
+          env:
+            # Production mode requires a master key; every route except /health is
+            # then authenticated with `Authorization: Bearer <master-key>`.
+            - name: MEILI_ENV
+              value: "production"
+            # The PVC mounts at /meili_data; the image entrypoint defaults MEILI_DB_PATH
+            # to the /meili_data/data.ms LMDB subdir and writes dumps/snapshots as
+            # SIBLINGS under /meili_data (NOT inside the DB path -- Meilisearch's
+            # DB-version inference fails if the DB dir also contains sibling dirs). We
+            # deliberately do NOT override MEILI_DB_PATH here so that hardened default
+            # applies; the whole /meili_data mount is the persisted volume.
+            - name: MEILI_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "meilisearch.secretRefName" . }}
+                  key: {{ include "meilisearch.secretRefKey" . }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # Index (LMDB at /meili_data/data.ms) + dumps + snapshots, all under this
+            # mount. The entrypoint creates the data.ms parent + dumps/snapshots dirs on
+            # start, so this must be writable.
+            - name: data
+              mountPath: /meili_data
+            # writable scratch for the read-only rootfs.
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim }}
+        {{- else if not .Values.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
+  {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        {{- with .Values.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes: {{ .Values.persistence.accessModes }}
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        {{- with .Values.persistence.selector }}
+        selector:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}
+  {{- end }}

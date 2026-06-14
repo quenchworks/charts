@@ -1,0 +1,99 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/meilisearch.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/meilisearch
+  digest: "sha256:555ce4af13a6a5175f9c4e694ab06fb153cb31bae7183742cbbe248c0bed2152"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Meilisearch keeps its index (LMDB) on local disk under /meili_data, so this chart
+# ships a StatefulSet. It is single-node by design: Meilisearch has no built-in
+# clustering in the OSS engine (HA is the hosted/enterprise concern). Keep
+# replicaCount at 1.
+replicaCount: 1
+
+# Master-key authentication. The chart runs Meilisearch with MEILI_ENV=production,
+# which makes a master key MANDATORY: every API route except GET /health requires
+# `Authorization: Bearer <masterKey>`. Resolution order for the key:
+#   1. auth.existingSecret  -> read the key from that Secret under existingSecretKey
+#   2. auth.masterKey       -> use this literal value (stored in a chart-managed Secret)
+#   3. neither set          -> generate a strong random key once and PRESERVE it across
+#                              upgrades via a lookup of the existing Secret
+# The generated/literal key lands in a chart-managed Secret; pull it out with:
+#   kubectl get secret <release>-meilisearch-masterkey -o jsonpath='{.data.master-key}' | base64 -d
+auth:
+  masterKey: ""
+  existingSecret: ""
+  existingSecretKey: master-key
+
+# Extra raw flags appended after the entrypoint's meilisearch invocation, e.g.
+# ["--no-analytics"]. The image entrypoint passes "$@" through to the binary.
+# (Meilisearch disables analytics at build time when not compiled with the analytics
+# feature; this chart's image is built without it.)
+extraArgs: []
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  # REST search API.
+  port: 7700
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
