@@ -1,0 +1,40 @@
+# Install gate. No real Harbor is deployed in CI, so the harbor-* scrape jobs will
+# report DOWN — that does NOT affect pod readiness (Prometheus and Grafana come up
+# regardless of whether their scrape targets answer). The gate asserts that both
+# sub-charts roll out Ready and that Grafana has the datasource + Harbor dashboard
+# provisioned. Persistence OFF, tiny resources. Release name in the gate is "hobs",
+# so the Grafana datasource is repointed at the bundled Prometheus Service
+# (hobs-prometheus:9090).
+
+dashboards:
+  enabled: true
+
+prometheus:
+  enabled: true
+  persistence:
+    enabled: false
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  config:
+    retentionTime: "2h"
+  podDisruptionBudget:
+    enabled: false
+
+grafana:
+  enabled: true
+  persistence:
+    enabled: false
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  podDisruptionBudget:
+    enabled: false
+  # Release name in the gate is "hobs" -> the bundled Prometheus Service is
+  # hobs-prometheus. Repoint the datasource accordingly.
+  datasources:
+    - name: Prometheus
+      type: prometheus
+      access: proxy
+      url: http://hobs-prometheus:9090
+      isDefault: true

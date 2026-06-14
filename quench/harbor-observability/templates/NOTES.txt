@@ -1,0 +1,41 @@
+Quenchworks Harbor observability stack "{{ .Release.Name }}" is installed in namespace {{ .Release.Namespace }}.
+
+Bundled components:
+{{- if .Values.prometheus.enabled }}
+  * Prometheus  -> Service {{ .Release.Name }}-prometheus:9090  (scrapes Harbor)
+{{- end }}
+{{- if .Values.grafana.enabled }}
+  * Grafana     -> Service {{ .Release.Name }}-grafana:3000     (datasource + Harbor dashboard)
+{{- end }}
+
+This chart MONITORS Harbor; it does not deploy it. Prometheus is configured to scrape
+the harbor-exporter ({{ .Values.harbor.metricsService }}:{{ .Values.harbor.metricsPort }}{{ .Values.harbor.metricsPath }}) plus the core/registry/jobservice
+/metrics endpoints. Install the Quenchworks harbor chart with metrics.enabled=true in
+the same namespace, or adjust prometheus.config.prometheusYaml to point at your Harbor.
+
+{{- if .Values.grafana.enabled }}
+
+GRAFANA
+  Admin password:
+    kubectl get secret --namespace {{ .Release.Namespace }} {{ .Release.Name }}-grafana \
+      -o jsonpath="{.data.admin-password}" | base64 -d ; echo
+  Reach the UI:
+    kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ .Release.Name }}-grafana 3000:3000
+    # open http://127.0.0.1:3000  (user: admin)
+  {{- if .Values.dashboards.enabled }}
+  A "Harbor Observability" dashboard is provisioned under the "Harbor" folder, wired to
+  the bundled Prometheus datasource.
+  {{- end }}
+{{- end }}
+
+{{- if .Values.prometheus.enabled }}
+
+PROMETHEUS
+  Check scrape targets:
+    kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ .Release.Name }}-prometheus 9090:9090
+    # open http://127.0.0.1:9090/targets  (the harbor-* jobs should be UP once Harbor is reachable)
+{{- end }}
+
+NOTE: the bundled Grafana datasource defaults to http://harbor-observability-prometheus:9090.
+If you installed under a release name other than "harbor-observability", override
+grafana.datasources[0].url to http://{{ .Release.Name }}-prometheus:9090.

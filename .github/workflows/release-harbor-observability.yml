@@ -1,0 +1,122 @@
+name: release-harbor-observability
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/harbor-observability/**"
+      - ".github/workflows/release-harbor-observability.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/harbor-observability
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # pin actions to SHAs before going public (renovate)
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          # pulls the prometheus + grafana sub-charts (each with quench-common) into charts/
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+
+          # Bundled Prometheus + Grafana, persistence off. No real Harbor is deployed,
+          # so the harbor-* scrape jobs are DOWN — that does not gate pod readiness.
+          helm install hobs "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --wait --timeout 5m
+
+          # Both sub-charts must roll out Ready.
+          kubectl rollout status statefulset/hobs-prometheus --timeout=300s
+          kubectl rollout status statefulset/hobs-grafana --timeout=300s
+
+          # --- Grafana datasource + dashboard provisioned ---
+          # The dashboards ConfigMap exists and the provider + JSON are mounted.
+          kubectl get configmap harbor-observability-dashboards >/dev/null
+          echo "dashboards ConfigMap present"
+
+          # Query the Grafana API through a port-forward.
+          ADMIN_PW="$(kubectl get secret hobs-grafana -o jsonpath='{.data.admin-password}' | base64 -d)"
+          kubectl port-forward svc/hobs-grafana 3000:3000 >/tmp/pf.log 2>&1 &
+          PF=$!; trap 'kill $PF 2>/dev/null || true' EXIT
+          BASE="http://admin:${ADMIN_PW}@127.0.0.1:3000"
+
+          up=0
+          for i in $(seq 1 30); do
+            if curl -fsS -o /dev/null "http://127.0.0.1:3000/api/health"; then up=1; break; fi
+            sleep 3
+          done
+          test "$up" = 1
+
+          # datasource provisioned?
+          curl -fsS "${BASE}/api/datasources" -o /tmp/ds.json
+          grep -q '"type":"prometheus"' /tmp/ds.json
+          echo "datasource provisioned: $(cat /tmp/ds.json)"
+
+          # dashboard provisioned? (search for the Harbor dashboard uid/title)
+          ok=0
+          for i in $(seq 1 20); do
+            curl -fsS "${BASE}/api/search?query=Harbor" -o /tmp/dash.json || { sleep 3; continue; }
+            if grep -q 'harbor-observability' /tmp/dash.json; then ok=1; break; fi
+            sleep 3
+          done
+          echo "dashboard search: $(cat /tmp/dash.json)"
+          test "$ok" = 1
+          echo "INSTALL GATE PASSED: prometheus + grafana Ready, datasource + dashboard provisioned"
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/harbor-observability-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"   # fail loudly rather than handing cosign an empty ref
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/harbor-observability@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push. Register the ArtifactHub repo and set the ID."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/harbor-observability:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
