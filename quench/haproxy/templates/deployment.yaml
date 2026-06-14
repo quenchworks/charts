@@ -1,0 +1,82 @@
+{{/* /healthz (monitor-uri) on the stats port gates readiness and liveness: it always
+     returns 200 once HAProxy is up, independent of backend health. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/healthz" "port" "stats") "initialDelaySeconds" 5 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/healthz" "port" "stats") "initialDelaySeconds" 2 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Roll the pods when the rendered config changes.
+        checksum/config: {{ .Values.config.haproxyConfig | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "haproxy.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: haproxy
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- with .Values.extraEnvVars }}
+          env:
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: stats
+              containerPort: 8404
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # The rendered haproxy.cfg, mounted over /etc/haproxy (read-only).
+            - name: config
+              mountPath: /etc/haproxy
+              readOnly: true
+            # read-only rootfs: HAProxy writes its pidfile + admin socket here.
+            - name: runtime
+              mountPath: /var/lib/haproxy
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "haproxy.configMapName" . }}
+        - name: runtime
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

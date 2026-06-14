@@ -1,0 +1,123 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch (.github/scripts/repin-digest.py) after every green image
+# build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/haproxy
+  digest: "sha256:17ceecf88a39df81100e5c1861e0e0a57fa1100ec534e45234a29221e47514a1"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# HAProxy is a stateless load balancer: this chart runs a Deployment (no persistence,
+# no stable identity). Scale carefully -- multiple replicas load-balance independently
+# (no shared stick-tables/peers unless you configure a peers section yourself).
+replicaCount: 1
+
+# HAProxy configuration.
+#
+# `haproxyConfig` is rendered verbatim into a ConfigMap and mounted read-only at
+# /etc/haproxy/haproxy.cfg (replacing the image's sample). The default below defines:
+#   - a `global`/`defaults` pair tuned for a nonroot, read-only-rootfs runtime (no
+#     user/group/chroot/daemon; pidfile + admin socket under /var/lib/haproxy),
+#   - a `stats` listener on :8404 exposing /stats and a /healthz monitor-uri (what the
+#     probes hit), and
+#   - a sample http frontend on :8080 -> backend `app` (which answers 200 itself until
+#     you point it at real servers).
+# Override `haproxyConfig` wholesale to run your own load-balancing topology. Keep the
+# stats/health listener on :8404 (or update service.statsPort + the probes) and bind
+# only UNPRIVILEGED ports (>=1024); uid 1001 cannot bind <1024.
+config:
+  haproxyConfig: |
+    global
+        log stdout format raw local0
+        maxconn 4096
+        stats socket /var/lib/haproxy/admin.sock mode 660 level admin
+
+    defaults
+        log     global
+        mode    http
+        option  httplog
+        option  dontlognull
+        timeout connect 5s
+        timeout client  50s
+        timeout server  50s
+
+    # Built-in stats + health page on an unprivileged port. The probes hit /healthz.
+    frontend stats
+        bind *:8404
+        stats enable
+        stats uri /stats
+        stats refresh 10s
+        monitor-uri /healthz
+
+    # Sample HTTP frontend -> backend. Replace `backend app` with real servers, e.g.:
+    #   backend app
+    #       server s1 10.0.0.1:80 check
+    #       server s2 10.0.0.2:80 check
+    frontend http_in
+        bind *:8080
+        default_backend app
+
+    backend app
+        # Answers 200 itself until you add real servers above.
+        http-request return status 200 content-type "text/plain" string "quench-haproxy ok"
+
+resources:
+  requests: { cpu: 50m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 128Mi }
+
+service:
+  type: ClusterIP
+  # The proxied/load-balanced traffic port (the http_in frontend).
+  port: 8080
+  # The stats + health endpoint port.
+  statsPort: 8404
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# A load balancer commonly wants ingress from outside the namespace (ingress
+# controllers, gateways, external clients), so this defaults to allowing external
+# traffic. Set allowExternal=false to restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
