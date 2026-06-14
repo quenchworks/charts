@@ -1,0 +1,41 @@
+{{- if .Values.ingress.enabled }}
+{{/*
+Optional Traefik Ingress (off by default). Routes the host to the Coolify app Service
+(UI + API). The realtime WebSocket tier is a separate Service; expose it via your own
+IngressRoute/middleware if you terminate WebSockets at the edge — Coolify's UI talks to
+soketi using PUSHER_HOST, which defaults to the in-cluster realtime Service.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.ingress.className }}
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      {{- with .Values.ingress.tls.secretName }}
+      secretName: {{ . | quote }}
+      {{- end }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "coolify.app" . }}
+                port:
+                  number: {{ .Values.app.service.port }}
+{{- end }}

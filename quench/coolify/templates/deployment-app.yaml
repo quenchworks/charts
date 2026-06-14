@@ -1,0 +1,121 @@
+{{/*
+Coolify control-plane APP: php-fpm + nginx (the UI/API on :8080) + Horizon + the Laravel
+scheduler, all under supervisord. The image runs as uid/gid 9999 (www-data) on a
+read-only rootfs; the only writable surfaces are storage/, bootstrap/cache, /tmp and the
+.env. The kubelet GETs /healthcheck (the image ships no shell HTTP client). Boot runs DB
+migrations + seeder + app:init (artisan), so the readiness window is generous.
+
+We override the pod security context to uid 9999 to match the image (the quench-common
+default is 1001) and mount a fsGroup of 9999 so the persistent storage volume is writable.
+*/}}
+{{- $podSec := dict "runAsNonRoot" true "runAsUser" 9999 "runAsGroup" 9999 "fsGroup" 9999 "seccompProfile" (dict "type" "RuntimeDefault") -}}
+{{- $podSec = mergeOverwrite $podSec (deepCopy (.Values.podSecurityContext | default dict)) -}}
+{{- $liveness := dict "httpGet" (dict "path" "/healthcheck" "port" "http") "initialDelaySeconds" 60 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/healthcheck" "port" "http") "initialDelaySeconds" 30 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "coolify.app" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: app
+spec:
+  replicas: {{ .Values.app.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "coolify.componentLabels" (dict "ctx" . "component" "app") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "coolify.componentLabels" (dict "ctx" . "component" "app") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "coolify.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml $podSec | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: coolify-app
+          image: {{ include "coolify.image" (dict "ctx" . "component" "app") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- include "quench-common.args" . | nindent 10 }}
+          envFrom:
+            # The FULL Coolify configuration as real env vars (DB_*, REDIS_*, PUSHER_*,
+            # APP_*, ROOT_*). Laravel's env() reads the process environment, so this is
+            # the reliable path on a read-only rootfs where the shipped .env is a symlink.
+            - secretRef:
+                name: {{ include "coolify.secret" . }}-env
+            {{- with .Values.extraEnvVarsCM }}
+            - configMapRef:
+                name: {{ . }}
+            {{- end }}
+            {{- with .Values.extraEnvVarsSecret }}
+            - secretRef:
+                name: {{ . }}
+            {{- end }}
+          {{- with .Values.extraEnvVars }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.app.service.port }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.app.resources | nindent 12 }}
+          volumeMounts:
+            # The rendered Laravel .env (Secret). subPath replaces the image's symlink
+            # (/var/www/html/.env -> /tmp/coolify.env) with the real file, which wins.
+            - name: dotenv
+              mountPath: /var/www/html/.env
+              subPath: .env
+              readOnly: true
+            # Laravel's writable tree. SSH keys Coolify generates to reach managed hosts
+            # live under storage/app/ssh, so this is the volume to persist.
+            - name: storage
+              mountPath: /var/www/html/storage
+            - name: bootstrap-cache
+              mountPath: /var/www/html/bootstrap/cache
+            # supervisord pid/sock, nginx pid + temp, php tmp, AND the .env symlink target.
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: dotenv
+          secret:
+            secretName: {{ include "coolify.secret" . }}
+            items:
+              - key: .env
+                path: .env
+        - name: bootstrap-cache
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: storage
+        {{- if .Values.app.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ if .Values.app.persistence.existingClaim }}{{ .Values.app.persistence.existingClaim }}{{ else }}{{ include "coolify.app" . }}{{ end }}
+        {{- else }}
+          emptyDir: {}
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
