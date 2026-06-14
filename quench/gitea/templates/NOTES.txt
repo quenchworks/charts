@@ -1,0 +1,61 @@
+Quenchworks Gitea is installed as {{ include "quench-common.fullname" . }}.
+
+The web UI + API + git-over-HTTP are served on port {{ .Values.service.port }};
+git-over-SSH is on port {{ .Values.service.sshPort }} (unprivileged):
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Reach the web UI from your machine with a port-forward:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 3000:{{ .Values.service.port }}
+  # then open http://127.0.0.1:3000/
+
+Log in as the bootstrap admin (created idempotently by the init flow):
+
+  User:     {{ .Values.auth.adminUser }}
+  Password: kubectl get secret --namespace {{ .Release.Namespace }} {{ include "gitea.secretName" . }} \
+              -o jsonpath="{.data.{{ include "gitea.secretPasswordKey" . }}}" | base64 -d
+
+Verify the admin via the API (basic auth):
+
+  curl -fsS -u "{{ .Values.auth.adminUser }}:<password>" http://127.0.0.1:3000/api/v1/user
+  # -> JSON for the admin user
+
+Health check:
+
+  curl -fsS http://127.0.0.1:3000/api/healthz
+  # -> {"status":"pass", ...}
+
+Clone over HTTP / SSH:
+
+  git clone http://127.0.0.1:3000/{{ .Values.auth.adminUser }}/<repo>.git
+  git clone ssh://git@<host>:{{ .Values.service.sshPort }}/{{ .Values.auth.adminUser }}/<repo>.git
+
+Database:
+{{- if .Values.postgresql.enabled }}
+  Bundled Quenchworks PostgreSQL (postgresql.enabled=true).
+    host     : {{ include "gitea.db.host" . }}
+    database : {{ include "gitea.db.name" . }}
+    user     : {{ include "gitea.db.user" . }}
+  Gitea and the bundled PG share the deterministic credentials set under
+  `postgresql.auth` in this chart's values.
+{{- else }}
+  External database (postgresql.enabled=false).
+    host     : {{ include "gitea.db.host" . }}:{{ include "gitea.db.port" . }}
+    database : {{ include "gitea.db.name" . }}
+    user     : {{ include "gitea.db.user" . }}
+  Ensure this PostgreSQL is reachable and the credentials are valid.
+{{- end }}
+
+Production hardening:
+  Set the public URL so Gitea builds correct clone/webhook/OAuth links:
+
+    server:
+      rootUrl: https://git.example.com/
+      domain: git.example.com
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

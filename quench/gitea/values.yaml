@@ -1,0 +1,135 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/gitea.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/gitea
+  digest: "sha256:b421ff0ca024c519804fed5a3def642fb6dd5935ac1b113f5d7cc71f147d61be"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Gitea keeps repository data on disk (repos, LFS, attachments, the host SSH key),
+# so it runs as a StatefulSet with a single replica. All relational state lives in
+# PostgreSQL; the on-disk data dir holds the git repositories themselves.
+replicaCount: 1
+
+# Admin bootstrap user. An initContainer runs `gitea admin user create --admin`
+# (idempotent) so the gate — and you — can log in. Wired from a Secret (the
+# password is generated once if not provided and preserved across upgrades).
+auth:
+  adminUser: gitea_admin
+  adminPassword: ""              # generated (24 chars) if empty; stored in the Secret
+  adminEmail: "admin@example.com"
+  existingSecret: ""             # use this Secret instead of the managed one
+  existingSecretUserKey: "admin-user"
+  existingSecretPasswordKey: "admin-password"
+
+# Server config. ROOT_URL is what Gitea uses to build absolute links (clone URLs,
+# webhooks, OAuth callbacks). Left empty for the self-contained gate; set it to the
+# public URL behind an ingress/proxy. domain/sshDomain feed the SSH clone host.
+server:
+  rootUrl: ""                    # e.g. https://git.example.com/ ; sets server.ROOT_URL
+  domain: ""                     # e.g. git.example.com ; sets server.DOMAIN
+  sshDomain: ""                  # SSH clone host (defaults to domain); sets server.SSH_DOMAIN
+  # Disable open registration by default (private instance). Flip to false to allow
+  # self-service sign-up.
+  disableRegistration: true
+
+# Bundled in-cluster PostgreSQL (the Quenchworks postgresql subchart). Default true:
+# a self-contained, production-shaped install. Set false to use externalDatabase.
+# The auth block below pins DETERMINISTIC credentials so both Gitea and the bundled
+# PG agree on db/user/password.
+postgresql:
+  enabled: true
+  auth:
+    # NOTE: the bundled PostgreSQL image creates the application database only when
+    # it differs from both "postgres" and the superuser name, so username and
+    # database MUST NOT be equal (here: gitea vs giteadb).
+    username: gitea
+    password: gitea
+    database: giteadb
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# External database, used when postgresql.enabled=false. Point at any reachable
+# PostgreSQL. Supply the password inline or via an existingSecret.
+externalDatabase:
+  host: ""
+  port: 5432
+  database: giteadb
+  user: gitea
+  password: ""
+  existingSecret: ""             # Secret holding the DB password
+  existingSecretPasswordKey: "password"
+
+# Persistent storage for the Gitea data dir (/data: repos, LFS, attachments, the
+# host SSH key). Disable for ephemeral/test installs (the gate uses emptyDir).
+persistence:
+  enabled: true
+  size: 10Gi
+  # storageClass: ""             # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""              # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 3000                     # HTTP (web UI + API + HTTP git clone)
+  sshPort: 2222                  # SSH git clone (unprivileged; uid 1001 cannot bind 22)
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The web UI + git HTTP/SSH endpoints are commonly reached from outside the cluster
+# (browsers, git clients), so external ingress is allowed by default. Set
+# allowExternal: false to restrict ingress to the release namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
