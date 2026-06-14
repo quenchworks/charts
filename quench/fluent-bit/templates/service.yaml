@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    # HTTP monitoring server: health, Prometheus-format metrics (/api/v1/metrics),
+    # and the JSON dashboard (/). Scrape :2020 for metrics.
+    - port: {{ .Values.service.ports.http }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

@@ -1,0 +1,125 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/fluent-bit
+  digest: "sha256:4e18aeb30dd4925cfe758141de693187237616218e0bd54e6feba24d386838e5"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Deployment mode. Fluent Bit runs as a "gateway"/aggregator: a standalone
+# Deployment that receives logs (e.g. over the forward input) and ships them on.
+#
+# NOTE: the COMMON node-log-collection pattern is a DaemonSet (one Fluent Bit per
+# node tailing /var/log/containers via the tail input). That variant needs host
+# mounts + a ServiceAccount with pod metadata read access and is a tracked
+# follow-up; only `deployment` is supported in this version.
+mode: deployment
+
+# Gateway replicas. The default pipeline (dummy -> stdout) is stateless, so this
+# can be scaled out behind the ClusterIP Service for forward-ingest throughput.
+replicaCount: 1
+
+# Fluent Bit configuration (classic .conf format). The whole string below is
+# rendered into a ConfigMap and mounted at /fluent-bit/etc/fluent-bit.conf; the
+# container starts with `-c /fluent-bit/etc/fluent-bit.conf`. Override it wholesale
+# to wire real inputs/outputs and tune the pipeline.
+#
+# The default pipeline keeps the HTTP monitoring server on :2020 (so the probes and
+# /api/v1/metrics work), reads a dummy input, and writes to stdout (logged, not
+# shipped anywhere). Add a real input/output before relying on this in production.
+#
+# Common additions:
+#   INPUTS  -- `tail` (read container/app log files), `forward` (receive from other
+#              Fluent Bit/Fluentd agents on :24224), `http`, `systemd`.
+#   OUTPUTS -- `loki` (Grafana Loki), `es` (Elasticsearch/OpenSearch), `forward`
+#              (to an aggregator), `http`.
+# Example forward-in -> loki-out aggregator:
+#   [INPUT]
+#       Name   forward
+#       Listen 0.0.0.0
+#       Port   24224
+#   [OUTPUT]
+#       Name   loki
+#       Match  *
+#       Host   loki.logging.svc.cluster.local
+#       Port   3100
+config: |
+  [SERVICE]
+      Flush        1
+      Daemon       Off
+      Log_Level    info
+      HTTP_Server  On
+      HTTP_Listen  0.0.0.0
+      HTTP_Port    2020
+      Health_Check On
+
+  [INPUT]
+      Name   dummy
+      Tag    dummy.local
+      Dummy  {"message": "quenchworks fluent-bit default config"}
+
+  [OUTPUT]
+      Name   stdout
+      Match  *
+
+# Ports exposed by the Service and the container. `http` is the HTTP monitoring
+# server (health + Prometheus-format metrics + uptime). Any extra ingest ports
+# (e.g. the forward input on 24224) come from your `config`; expose them with
+# extraServicePorts / extraContainerPorts if needed.
+service:
+  type: ClusterIP
+  ports:
+    http: 2020
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

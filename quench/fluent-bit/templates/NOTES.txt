@@ -1,0 +1,52 @@
+Quenchworks Fluent Bit is installed as {{ include "quench-common.fullname" . }} (deployment mode).
+
+Fluent Bit is running with the default pipeline (dummy input -> stdout output) plus
+the HTTP monitoring server on :{{ .Values.service.ports.http }}.
+
+IMPORTANT: the default config only LOGS a dummy record to stdout; it tails no files
+and ships nowhere. Inspect it with:
+
+  kubectl logs deploy/{{ include "quench-common.fullname" . }}
+
+Wire real inputs/outputs by overriding the entire `config` value and `helm upgrade`
+(the pod rolls on the config checksum). Examples:
+
+  # SEND LOGS IN (forward input) and SHIP LOGS OUT (Loki output):
+  config: |
+    [SERVICE]
+        HTTP_Server  On
+        HTTP_Listen  0.0.0.0
+        HTTP_Port    {{ .Values.service.ports.http }}
+        Health_Check On
+    [INPUT]
+        Name   forward
+        Listen 0.0.0.0
+        Port   24224
+    [OUTPUT]
+        Name   loki
+        Match  *
+        Host   loki.logging.svc.cluster.local
+        Port   3100
+        Labels job=fluent-bit
+
+  # Other common inputs:  tail (container/app log files), http, systemd.
+  # Other common outputs:  es (Elasticsearch/OpenSearch), forward (to an
+  #                        aggregator), http, stdout.
+
+Scrape Fluent Bit's own metrics (Prometheus format) at:
+
+  http://{{ include "quench-common.fullname" . }}:{{ .Values.service.ports.http }}/api/v1/metrics
+
+Health (HTTP monitoring server): GET /api/v1/health on :{{ .Values.service.ports.http }} returns 200.
+JSON dashboard: GET / on :{{ .Values.service.ports.http }}.
+
+MODE: this chart ships deployment (gateway/aggregator) mode. The COMMON
+node-log-collection pattern is a per-node DaemonSet (one Fluent Bit per node tailing
+/var/log/containers via the tail input); that variant needs host mounts + pod
+metadata read access and is a tracked follow-up.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
