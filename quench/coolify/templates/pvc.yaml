@@ -1,0 +1,23 @@
+{{- if and .Values.app.persistence.enabled (not .Values.app.persistence.existingClaim) }}
+{{/*
+Persistent storage for the app's Laravel storage/ tree. Coolify generates SSH keypairs
+under storage/app/ssh to authenticate to the EXTERNAL Docker hosts it manages, so this
+volume must survive pod restarts (losing it orphans every managed-server connection).
+*/}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "coolify.app" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: app
+spec:
+  accessModes:
+    {{- toYaml .Values.app.persistence.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.app.persistence.size | quote }}
+  {{- if .Values.app.persistence.storageClass }}
+  storageClassName: {{ .Values.app.persistence.storageClass | quote }}
+  {{- end }}
+{{- end }}

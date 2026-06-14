@@ -1,0 +1,191 @@
+# The digests below are the contract with the image factory. CI rewrites them from the
+# image manifests after every green build. They are never tags.
+#
+# This umbrella pins TWO control-plane images (app + realtime) by digest, so it builds
+# each image reference from .Values.images.<component> rather than the single-image
+# quench-common.image helper. The privileged coolify-helper build engine is intentionally
+# NOT referenced here — it runs on the EXTERNAL Docker hosts Coolify manages over SSH.
+images:
+  pullPolicy: IfNotPresent
+  app:
+    repository: ghcr.io/quenchworks/images/coolify-app
+    digest: "sha256:60eeb0ba9a288708742238dd615322c4563d2c623279beb5daf9b46e0c03152e"
+  realtime:
+    repository: ghcr.io/quenchworks/images/coolify-realtime
+    digest: "sha256:c7d842f893116b6f674e259b2bb129930fde0fd5172a8b3a28e647a2dc5c7326"
+
+nameOverride: ""
+
+# --- Application identity / secrets -----------------------------------------------------
+# Coolify is a Laravel app. The chart writes a deterministic .env (Secret-backed) and
+# seeds the credential Secret once, persisting every generated value across upgrades via
+# lookup (rotating APP_KEY would make existing encrypted DB rows undecryptable).
+app:
+  replicaCount: 1
+  # APP_KEY: Laravel app encryption key. Generated (base64:<32 bytes>) once if empty.
+  appKey: ""
+  # APP_ID: stable instance identifier. Generated once if empty.
+  appId: ""
+  # Public URL Coolify builds links/redirects against (APP_URL). Defaults to the ingress
+  # host when ingress is on, else the in-cluster app Service.
+  url: ""
+  # Initial root (admin) user, seeded on first boot by `artisan app:init`.
+  rootUser:
+    email: "admin@example.com"
+    password: ""               # generated (24 chars) once if empty; stored in the Secret
+  # Background workers (Horizon queue + the Laravel scheduler). On by default — Coolify
+  # needs Horizon to process deploy/queue jobs. Self-gated by the image's worker wrappers.
+  horizonEnabled: true
+  schedulerEnabled: true
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "2", memory: 2Gi }
+  service:
+    type: ClusterIP
+    port: 8080                 # nginx -> php-fpm (the UI + API + /healthcheck)
+  # Persistent /data for SSH keys + state Coolify generates to reach managed hosts.
+  # (The image keeps Laravel's storage/ on an emptyDir; SSH material lives under
+  # storage/app/ssh, so persistence is tied to that subtree via the storage PVC below.)
+  persistence:
+    enabled: true
+    size: 1Gi
+    # storageClass: ""
+    accessModes: ["ReadWriteOnce"]
+    existingClaim: ""
+
+# --- Realtime tier (soketi WebSocket :6001 + terminal bridge :6002) ---------------------
+# Pusher-compatible. Shares the PUSHER_* app id/key/secret with the app (the UI subscribes
+# to soketi using those credentials). Soketi reads SOKETI_DEFAULT_APP_{ID,KEY,SECRET}.
+realtime:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+  service:
+    type: ClusterIP
+    soketiPort: 6001
+    terminalPort: 6002
+
+# Pusher / soketi shared credentials (deterministic; generated once if empty).
+pusher:
+  appId: ""                    # PUSHER_APP_ID / SOKETI_DEFAULT_APP_ID
+  appKey: ""                   # PUSHER_APP_KEY / SOKETI_DEFAULT_APP_KEY
+  appSecret: ""                # PUSHER_APP_SECRET / SOKETI_DEFAULT_APP_SECRET
+
+# --- Bundled PostgreSQL 15 (the Quenchworks postgresql subchart, image overridden to the
+# postgresql-15 build) ------------------------------------------------------------------
+# Coolify REQUIRES PostgreSQL 15 (it ships pg15-pinned migrations). We reuse the generic
+# postgresql chart machinery (which speaks the standard POSTGRES_* entrypoint) and just
+# repin image.* to the postgresql-15 digest — cleaner than maintaining a second StatefulSet.
+# NOTE: the standard postgres entrypoint creates the application database only when
+# POSTGRES_DB differs from POSTGRES_USER, so username and database MUST NOT be equal
+# (here: coolifyadmin vs coolify).
+postgresql:
+  enabled: true
+  image:
+    repository: ghcr.io/quenchworks/images/postgresql-15
+    digest: "sha256:b799f1c9c400500265eeabc8e2fcbb3fdb1e8afbe6a39587a96fd49d51025582"
+    pullPolicy: IfNotPresent
+  auth:
+    username: coolifyadmin
+    password: coolify
+    database: coolify
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# External PostgreSQL 15, used when postgresql.enabled=false. Point at any reachable PG15.
+externalDatabase:
+  host: ""
+  port: 5432
+  database: coolify
+  user: coolify
+  password: ""
+  existingSecret: ""           # Secret holding the DB password
+  existingSecretPasswordKey: "password"
+
+# --- Bundled Redis (the Quenchworks redis subchart) -------------------------------------
+# Coolify uses Redis for the queue (Horizon), cache and sessions.
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: true
+    password: coolify-redis
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+  replica:
+    replicaCount: 0
+
+# External Redis, used when redis.enabled=false.
+externalRedis:
+  host: ""
+  port: 6379
+  password: ""
+  existingSecret: ""           # Secret holding the redis password
+  existingSecretPasswordKey: "redis-password"
+
+# --- Optional Traefik Ingress (off by default) ------------------------------------------
+ingress:
+  enabled: false
+  className: traefik
+  host: coolify.local
+  annotations: {}
+  tls:
+    enabled: false
+    secretName: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ----------------
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win). The
+# app image runs as uid 9999 (www-data); the realtime image runs as uid 1001. Per-workload
+# overrides are applied in the templates so the pod fsGroup matches the image's writable dirs.
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe replaces the block. These apply to the app.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The Coolify UI/API is commonly reached from outside the cluster (browsers), so external
+# ingress is allowed by default. Set allowExternal: false to restrict to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

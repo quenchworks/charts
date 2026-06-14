@@ -1,0 +1,38 @@
+{{/* ClusterIP Services for the app (UI/API) and the realtime tier. */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "coolify.app" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: app
+spec:
+  type: {{ .Values.app.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.app.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "coolify.componentLabels" (dict "ctx" . "component" "app") | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "coolify.realtime" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: realtime
+spec:
+  type: {{ .Values.realtime.service.type }}
+  ports:
+    - name: soketi
+      port: {{ .Values.realtime.service.soketiPort }}
+      targetPort: soketi
+      protocol: TCP
+    - name: terminal
+      port: {{ .Values.realtime.service.terminalPort }}
+      targetPort: terminal
+      protocol: TCP
+  selector:
+    {{- include "coolify.componentLabels" (dict "ctx" . "component" "realtime") | nindent 4 }}

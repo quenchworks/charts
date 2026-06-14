@@ -1,0 +1,59 @@
+# Standalone install gate. No image overrides: uses the chart's real CI-maintained
+# digests (app + realtime + the postgresql-15 override). Bundles PostgreSQL 15 + Redis
+# with persistence OFF and small resources, app persistence OFF (emptyDir storage),
+# ingress OFF. A fixed admin password + Pusher creds make the gate deterministic. The
+# gate reaches the app through the app Service via a port-forward, exactly as a browser
+# would (GET /healthcheck), and probes the realtime endpoints (soketi :6001 /ready,
+# terminal :6002 /ready).
+postgresql:
+  enabled: true
+  auth:
+    username: coolifyadmin
+    password: coolify
+    database: coolify
+  primary:
+    persistence:
+      enabled: false
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: "1", memory: 512Mi }
+
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    password: coolify-redis
+  primary:
+    persistence:
+      enabled: false
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { cpu: 500m, memory: 256Mi }
+
+app:
+  url: "http://127.0.0.1:8080"
+  rootUser:
+    email: "admin@coolify.local"
+    password: "Coolify12345"
+  persistence:
+    enabled: false
+  resources:
+    requests: { cpu: 150m, memory: 384Mi }
+    limits: { cpu: "2", memory: 1536Mi }
+
+realtime:
+  resources:
+    requests: { cpu: 50m, memory: 96Mi }
+    limits: { cpu: 500m, memory: 384Mi }
+
+# Deterministic Pusher/soketi creds so the gate is reproducible.
+pusher:
+  appId: "coolify"
+  appKey: "coolify"
+  appSecret: "coolify"
+
+ingress:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false

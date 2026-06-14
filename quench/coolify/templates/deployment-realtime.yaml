@@ -1,0 +1,93 @@
+{{/*
+Coolify REALTIME tier: soketi (Pusher-compatible WebSocket pub/sub on :6001, what the
+UI subscribes to) + the node-pty terminal bridge (:6002). Runs as uid 1001 (the
+quench-common default) on a read-only rootfs; the entrypoint writes log FIFOs under /tmp
+and node-pty spawns its PTY with cwd=$HOME (/home/coolify), so /tmp + HOME are the only
+writable surfaces. soketi reads its default app from SOKETI_DEFAULT_APP_{ID,KEY,SECRET}
+— the SAME Pusher credentials the app uses (the UI authenticates to soketi with them).
+Both endpoints expose GET /ready -> 200.
+*/}}
+{{- $liveness := dict "httpGet" (dict "path" "/" "port" "soketi") "initialDelaySeconds" 15 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/ready" "port" "soketi") "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 12 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "coolify.realtime" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: realtime
+spec:
+  replicas: {{ .Values.realtime.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "coolify.componentLabels" (dict "ctx" . "component" "realtime") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "coolify.componentLabels" (dict "ctx" . "component" "realtime") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "coolify.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: coolify-realtime
+          image: {{ include "coolify.image" (dict "ctx" . "component" "realtime") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: SOKETI_HOST
+              value: "0.0.0.0"
+            - name: SOKETI_PORT
+              value: {{ .Values.realtime.service.soketiPort | quote }}
+            - name: SOKETI_DEFAULT_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "coolify.secret" . }}
+                  key: pusher-app-id
+            - name: SOKETI_DEFAULT_APP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "coolify.secret" . }}
+                  key: pusher-app-key
+            - name: SOKETI_DEFAULT_APP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "coolify.secret" . }}
+                  key: pusher-app-secret
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          ports:
+            - name: soketi
+              containerPort: {{ .Values.realtime.service.soketiPort }}
+            - name: terminal
+              containerPort: {{ .Values.realtime.service.terminalPort }}
+          livenessProbe:
+            {{- toYaml $liveness | nindent 12 }}
+          readinessProbe:
+            {{- toYaml $readiness | nindent 12 }}
+          resources:
+            {{- toYaml .Values.realtime.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: home
+              mountPath: /home/coolify
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: home
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

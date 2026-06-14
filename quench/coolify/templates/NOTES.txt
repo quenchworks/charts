@@ -1,0 +1,51 @@
+Quenchworks Coolify is installed as {{ include "quench-common.fullname" . }}.
+
+Control plane deployed in this cluster:
+  - {{ include "coolify.app" . }}      php-fpm + nginx + Horizon + scheduler (UI/API :{{ .Values.app.service.port }})
+  - {{ include "coolify.realtime" . }} soketi WebSocket (:{{ .Values.realtime.service.soketiPort }}) + terminal bridge (:{{ .Values.realtime.service.terminalPort }})
+Backing stores: {{ if .Values.postgresql.enabled }}bundled Quenchworks PostgreSQL 15{{ else }}external PostgreSQL ({{ include "coolify.db.host" . }}){{ end }} + {{ if .Values.redis.enabled }}bundled Quenchworks Redis{{ else }}external Redis ({{ include "coolify.redis.host" . }}){{ end }}.
+
+HOW COOLIFY WORKS (read this)
+  Coolify is a CONTROL PLANE. It does NOT schedule your workloads on Kubernetes — it
+  manages EXTERNAL Docker hosts over SSH. This chart runs only the control plane (app +
+  realtime + Postgres + Redis) in the cluster. The build/deploy tier (the coolify-helper
+  build engine and the per-server proxy) runs ON the managed Docker hosts; Coolify pulls
+  and runs it there over SSH. That helper is PRIVILEGED by design (it drives the host's
+  Docker daemon) and is therefore intentionally NOT a Deployment in this chart.
+
+ADMIN LOGIN
+  email    : {{ .Values.app.rootUser.email }}
+  password : {{ if .Values.app.rootUser.password }}(the app.rootUser.password you set){{ else }}generated — read it with:
+    kubectl get secret --namespace {{ .Release.Namespace }} {{ include "coolify.secret" . }} -o jsonpath="{.data.root-user-password}" | base64 -d ; echo{{ end }}
+
+REACH THE UI
+{{- if .Values.ingress.enabled }}
+  Via the {{ .Values.ingress.className }} Ingress on host {{ .Values.ingress.host }}:
+  open {{ include "coolify.externalURL" . }} and log in. Ensure {{ .Values.ingress.host }}
+  resolves to your ingress controller.
+{{- else }}
+  Ingress is disabled. Port-forward the app Service:
+    kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "coolify.app" . }} 8080:{{ .Values.app.service.port }}
+    # Web UI:      open http://127.0.0.1:8080/
+    # Healthcheck: curl http://127.0.0.1:8080/healthcheck   (-> "OK")
+  Set app.url (or enable ingress) to your real public URL so Coolify builds correct links.
+{{- end }}
+
+ON FIRST BOOT
+  The app runs database migrations + seeder + app:init (artisan) before php-fpm serves
+  /healthcheck 200, so the first rollout takes a few minutes. Horizon (queue workers) and
+  the scheduler start alongside it.
+
+CONNECTING A SERVER TO MANAGE
+  In the UI, add a Server by its SSH host + the key Coolify generates (stored under the
+  persistent storage volume at storage/app/ssh). Coolify then installs/runs its
+  helper + proxy on THAT host. Those host-side components are privileged by design.
+
+DATABASE / CACHE
+  {{ if .Values.postgresql.enabled }}Bundled PostgreSQL 15 (database {{ include "coolify.db.name" . }}, user {{ include "coolify.db.user" . }}). Coolify migrates the schema on boot.{{ else }}External PostgreSQL 15 at {{ include "coolify.db.host" . }}:{{ include "coolify.db.port" . }} (database {{ include "coolify.db.name" . }}). Coolify migrates the schema on boot.{{ end }}
+  {{ if .Values.redis.enabled }}Bundled Redis (queue + cache + sessions).{{ else }}External Redis at {{ include "coolify.redis.host" . }}:{{ include "coolify.redis.port" . }}.{{ end }}
+
+The images are pinned by digest and cosign-signed. Verify e.g. the app image:
+  cosign verify {{ .Values.images.app.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
