@@ -1,0 +1,133 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/tempo
+  digest: "sha256:be83a1a6aa59fdd6ef84c06967b51169cf572ea812fce0a7259c9589aae8ed67"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single-binary mode: one process runs every Tempo component (-target=all). Tempo
+# keeps local storage state (trace blocks + WAL under storage.trace), so this
+# chart ships a StatefulSet. The single-binary topology is the recommended
+# deployment up to moderate ingest; scale-out (distributor/ingester/querier/
+# compactor split + an object store) is a tracked follow-up. replicaCount > 1 in
+# single-binary mode also needs a shared object store -- keep it at 1 here.
+replicaCount: 1
+
+# Tempo configuration. The image entrypoint is the binary directly; the chart
+# passes -config.file=/etc/tempo/config.yaml and -target=all. The config below is
+# rendered into a ConfigMap and mounted at that path. Replace tempoConfig wholesale
+# to bring your own config (it is templated, so you may use Helm values inside it).
+#
+# Defaults: OTLP receivers (gRPC 4317 / HTTP 4318), filesystem trace backend with
+# blocks + WAL under /var/tempo (the writable volume), single replica, compactor
+# with a finite retention. usage reporting is disabled.
+tempoConfig: |
+  target: all
+
+  server:
+    http_listen_port: {{ .Values.service.port }}
+    grpc_listen_port: {{ .Values.service.grpcPort }}
+
+  distributor:
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:{{ .Values.service.otlpGrpcPort }}
+          http:
+            endpoint: 0.0.0.0:{{ .Values.service.otlpHttpPort }}
+
+  ingester:
+    max_block_duration: 5m
+
+  compactor:
+    compaction:
+      block_retention: 48h
+
+  storage:
+    trace:
+      backend: local
+      wal:
+        path: /var/tempo/wal
+      local:
+        path: /var/tempo/traces
+
+  usage_report:
+    reporting_enabled: false
+
+# Extra raw flags appended verbatim after -config.file/-target (entrypoint passes
+# them to the binary), e.g. ["-log.level=debug"].
+extraArgs: []
+
+persistence:
+  enabled: true
+  size: 16Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  # HTTP API: query, /ready, /metrics.
+  port: 3200
+  # OTLP gRPC receiver (send spans here).
+  otlpGrpcPort: 4317
+  # OTLP HTTP receiver (POST spans to /v1/traces).
+  otlpHttpPort: 4318
+  # gRPC (inter-component / future scale-out).
+  grpcPort: 9095
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

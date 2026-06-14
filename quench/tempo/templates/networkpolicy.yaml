@@ -1,0 +1,30 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Tempo has no built-in auth: this policy is the trust boundary. http carries
+    # the query API; otlp-grpc/otlp-http receive spans; grpc is inter-component.
+    - ports:
+        - port: http
+          protocol: TCP
+        - port: otlp-grpc
+          protocol: TCP
+        - port: otlp-http
+          protocol: TCP
+        - port: grpc
+          protocol: TCP
+      {{- if not .Values.networkPolicy.allowExternal }}
+      from:
+        - podSelector: {}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,47 @@
+Quenchworks Tempo is installed as {{ include "quench-common.fullname" . }} (single-binary mode, -target=all).
+
+The HTTP API is reachable inside the cluster at:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Readiness / health:
+
+  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/ready     # -> 200
+  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/metrics   # -> 200
+
+Send traces (Tempo does not collect spans itself -- point an OpenTelemetry SDK,
+the OTel Collector, or Grafana Alloy at the OTLP receivers):
+
+  OTLP gRPC:  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.otlpGrpcPort }}
+  OTLP HTTP:  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.otlpHttpPort }}/v1/traces
+
+Quick OTLP/HTTP smoke (POST a span, expect 200):
+
+  curl -fsS -X POST 'http://{{ include "quench-common.fullname" . }}:{{ .Values.service.otlpHttpPort }}/v1/traces' \
+    -H 'Content-Type: application/json' \
+    -d '{"resourceSpans":[{"scopeSpans":[{"spans":[{"traceId":"5b8efff798038103d269b633813fc60c","spanId":"eee19b7ec3c1b173","name":"demo","kind":1,"startTimeUnixNano":"1700000000000000000","endTimeUnixNano":"1700000000000001000"}]}]}]}'
+
+Use as a Grafana datasource (Grafana is Tempo's UI -- Tempo ships none of its own):
+
+  Add a "Tempo" datasource pointing at
+    http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+  then search and view traces in Grafana's Explore view. Pairs with the
+  Quenchworks `grafana` and `loki` charts (logs <-> traces correlation).
+
+Custom config:
+
+  Edit `tempoConfig` in your values and `helm upgrade` (the pod rolls on the config
+  checksum). The value is templated, so Helm values render inside it.
+
+NOTE: Tempo has no built-in authentication. This is for internal use behind the
+NetworkPolicy, which is the trust boundary. There is no Secret to manage.
+
+This chart runs Tempo in single-binary mode (all components in one process,
+filesystem storage). It scales vertically and via a shared object store; the
+microservices distributor/ingester/querier/compactor split is a tracked follow-up.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
