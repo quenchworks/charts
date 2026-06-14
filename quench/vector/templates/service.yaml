@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    {{- if .Values.service.exposeApi }}
+    # Vector's GraphQL playground + health API (also the probe target).
+    - port: {{ .Values.service.ports.api }}
+      targetPort: api
+      protocol: TCP
+      name: api
+    {{- end }}
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

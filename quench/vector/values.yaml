@@ -1,0 +1,134 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/vector
+  digest: "sha256:fd7fe721c85a844ea1912a3feedb2fe4e1cf0b93388dbc77d0195ecd6b1e8a6c"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Deployment mode. Vector runs as an "aggregator": a standalone Deployment that
+# receives/scrapes telemetry and forwards it on. A per-node "agent" DaemonSet variant
+# (host metrics / log tailing on every node) is a tracked follow-up; only `deployment`
+# is supported in this version.
+mode: deployment
+
+# Aggregator replicas. The default pipeline is stateless, so this can be scaled out
+# behind the ClusterIP Service for ingest throughput. If you enable disk buffers or
+# stateful sources, review replica safety first.
+replicaCount: 1
+
+# Vector configuration. The whole document below is rendered into a ConfigMap and
+# mounted at /etc/vector/vector.yaml; the container starts with
+# `--config /etc/vector/vector.yaml`. Override it wholesale to wire real sources and
+# sinks and tune the pipelines.
+#
+# The default pipeline generates demo log events (demo_logs source) and writes them
+# to the console sink (telemetry is LOGGED, not forwarded), with Vector's GraphQL +
+# health API enabled on :8686 so the probes work. Add a real source/sink before
+# relying on this in production, e.g.:
+#
+#   vectorConfig:
+#     api:
+#       enabled: true
+#       address: "0.0.0.0:8686"
+#     sources:
+#       in:
+#         type: prometheus_scrape          # or http_server, syslog, opentelemetry, ...
+#         endpoints: ["http://target:9100/metrics"]
+#     transforms:
+#       parse:
+#         type: remap                      # VRL
+#         inputs: ["in"]
+#         source: '.host = get_hostname!()'
+#     sinks:
+#       out:
+#         type: loki                       # or http, elasticsearch, prometheus_exporter, ...
+#         inputs: ["parse"]
+#         endpoint: "http://loki:3100"
+#         encoding: { codec: json }
+#         labels: { source: "vector" }
+#
+# NOTE on trimmed components: the image is built with a curated feature set
+# (no kafka/pulsar/nats/mongodb/aws/gcp/azure native components). Common sources
+# (demo_logs, file, http_server/client, syslog, socket, statsd, prometheus,
+# host_metrics, internal_logs/metrics, opentelemetry, vector) and sinks (console,
+# blackhole, file, http, loki, elasticsearch, prometheus_exporter, socket,
+# opentelemetry, vector) plus all transforms (incl. remap/VRL) are available.
+vectorConfig:
+  api:
+    enabled: true
+    address: "0.0.0.0:8686"
+  sources:
+    demo:
+      type: demo_logs
+      format: json
+      interval: 1
+  sinks:
+    out:
+      type: console
+      inputs: ["demo"]
+      encoding:
+        codec: json
+
+# Ports exposed by the Service and the container. `api` (:8686) is Vector's GraphQL
+# playground + health endpoint; the probes hit it directly.
+service:
+  type: ClusterIP
+  ports:
+    api: 8686
+  # Whether the Service exposes the API port (:8686). The container always listens
+  # (when vectorConfig.api.enabled is true); this only controls Service exposure.
+  exposeApi: true
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

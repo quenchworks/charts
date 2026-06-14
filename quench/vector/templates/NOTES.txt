@@ -1,0 +1,61 @@
+Quenchworks Vector is installed as {{ include "quench-common.fullname" . }} (aggregator mode).
+
+Vector's GraphQL playground + health API is available inside the cluster at:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.ports.api }}
+
+Health:  GET /health on :{{ .Values.service.ports.api }} returns 200 (requires vectorConfig.api.enabled).
+GraphQL: POST /graphql ; the playground is served at / on :{{ .Values.service.ports.api }}.
+
+IMPORTANT: the default config uses the `demo_logs` source and the `console` sink, so
+generated demo events are only LOGGED to Vector's stdout, not forwarded anywhere.
+Inspect them with:
+
+  kubectl logs deploy/{{ include "quench-common.fullname" . }}
+
+Add a real source/sink before relying on this. Override the entire Vector config via
+the `vectorConfig` value and `helm upgrade` (the pod rolls on the config checksum):
+
+  # values.yaml
+  vectorConfig:
+    api:
+      enabled: true
+      address: "0.0.0.0:8686"
+    sources:
+      in:
+        type: prometheus_scrape
+        endpoints: ["http://target:9100/metrics"]
+    transforms:
+      shape:
+        type: remap                 # VRL
+        inputs: ["in"]
+        source: '.cluster = "prod"'
+    sinks:
+      out:
+        type: loki                  # forward to a real backend
+        inputs: ["shape"]
+        endpoint: "http://loki:3100"
+        encoding: { codec: json }
+        labels: { source: "vector" }
+
+Available components (curated image feature set): sources demo_logs, file,
+http_server, http_client, syslog, socket, statsd, prometheus_scrape, host_metrics,
+internal_logs, internal_metrics, opentelemetry, vector; ALL transforms (incl.
+remap/VRL); sinks console, blackhole, file, http, loki, elasticsearch,
+prometheus_exporter, socket, opentelemetry, vector. Kafka/pulsar/nats/cloud-SDK
+components are trimmed from the image to keep it lean and 0-CVE.
+
+{{- if not .Values.service.exposeApi }}
+
+(service.exposeApi is false; the container listens on :{{ .Values.service.ports.api }}
+ but the Service does not publish it -- the probes still hit the pod directly.)
+{{- end }}
+
+MODE: this chart ships aggregator mode (a Deployment). A per-node `agent` DaemonSet
+(host metrics / log tailing on every node) is a tracked follow-up.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
