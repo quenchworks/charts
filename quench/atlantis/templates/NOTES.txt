@@ -1,0 +1,53 @@
+Quenchworks Atlantis is installed as {{ include "quench-common.fullname" . }}.
+
+It runs Terraform/OpenTofu pull-request automation, using the BUNDLED OpenTofu
+(MPL-2.0) as the execution engine -- NOT Terraform. Distribution:
+{{ .Values.defaultTFDistribution }}.
+
+The server (web UI + webhook endpoint + /healthz) is reachable inside the
+cluster at:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Health:
+
+  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/healthz   # -> 200
+
+{{- if not .Values.repoAllowlist }}
+
+WARNING: repoAllowlist is empty. Atlantis refuses to start without it. Set
+`repoAllowlist` (comma-separated, globs OK, e.g. "github.com/myorg/*").
+{{- end }}
+{{- if and (not .Values.vcs.existingSecret) (not .Values.vcs.githubToken) }}
+
+WARNING: no VCS token is set. Atlantis cannot read PRs or post comments. Set
+`vcs.githubToken` (+ `vcs.username`) or point `vcs.existingSecret` at a Secret
+with keys `{{ .Values.vcs.secretKeys.token }}` / `{{ .Values.vcs.secretKeys.webhookSecret }}`.
+{{- end }}
+{{- if not .Values.atlantisUrl }}
+
+NOTE: atlantisUrl is unset. For real use set it to this server's externally
+reachable base URL; your VCS webhook must POST to <atlantisUrl>/events.
+{{- end }}
+
+To wire it up:
+
+  1. Set `vcs.username` + `vcs.githubToken` (or `vcs.existingSecret`) and
+     `vcs.webhookSecret` (auto-generated if left empty; read it from the Secret
+     {{ include "atlantis.secretName" . }}).
+  2. Set `repoAllowlist` to the repos Atlantis may operate on.
+  3. Set `atlantisUrl` to this server's public URL.
+  4. In your VCS, add a webhook pointing at <atlantisUrl>/events using the same
+     webhook secret.
+
+Real plan/apply requires a reachable VCS: Atlantis clones the PR branch over
+git/https (or ssh) and posts results back via the VCS API. The bundled OpenTofu
+binary (`tofu`) is on PATH in the pod -- verify with:
+
+  kubectl exec {{ include "quench-common.fullname" . }}-0 -- tofu version
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

@@ -1,0 +1,132 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/atlantis
+  digest: "sha256:0276dd25e299631957f7bdc1fe9cd63f9fc908c148f18cbb22caaea154a09210"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Atlantis keeps per-PR state on disk under --data-dir (cloned repos + plan
+# files), so this chart ships a StatefulSet with a persistent data volume. A
+# single replica is the supported topology: Atlantis serialises plan/apply by
+# locking on disk, so it is not horizontally scalable -- keep replicaCount at 1.
+replicaCount: 1
+
+# --- VCS / webhook configuration ---------------------------------------------
+# Atlantis authenticates to your VCS provider to read PRs + post comments, and
+# verifies inbound webhooks with a shared secret. Set these before installing.
+#
+# By default a Secret is rendered from the values below. To supply your own
+# Secret instead, set vcs.existingSecret to its name; it must contain the keys
+# named by vcs.secretKeys (defaults: gh-token / gh-webhook-secret).
+vcs:
+  # provider: which VCS to integrate with. One of: github, gitlab, gitea,
+  # bitbucket, azuredevops. Only `github` is wired with first-class flags below;
+  # for others, set the matching ATLANTIS_* via extraEnvVars / extraArgs.
+  provider: github
+  # The VCS user Atlantis acts as (e.g. the bot account login).
+  username: ""
+  # The API token / personal access token for that user. REQUIRED for real use.
+  # Leave empty + set existingSecret to bring your own Secret.
+  githubToken: ""
+  # The shared secret Atlantis uses to validate inbound webhook payloads.
+  # REQUIRED for real use.
+  webhookSecret: ""
+  # Bring your own Secret instead of templating one from the values above.
+  existingSecret: ""
+  secretKeys:
+    token: gh-token
+    webhookSecret: gh-webhook-secret
+
+# Repos Atlantis is allowed to operate on (ATLANTIS_REPO_ALLOWLIST). REQUIRED:
+# Atlantis refuses to start without it. Comma-separated; supports globs, e.g.
+# "github.com/myorg/*". Default "" must be overridden for real use; the CI gate
+# sets "*".
+repoAllowlist: ""
+
+# The externally reachable base URL of this Atlantis (ATLANTIS_ATLANTIS_URL).
+# Your VCS webhook must POST to <atlantisUrl>/events. REQUIRED for real use.
+atlantisUrl: ""
+
+# Which Terraform-compatible distribution Atlantis runs
+# (ATLANTIS_DEFAULT_TF_DISTRIBUTION). This image BUNDLES OpenTofu (MPL-2.0) as
+# /usr/bin/tofu, NOT Terraform (BUSL-1.1) -- so the default is `opentofu`.
+# Atlantis resolves the `tofu` binary on PATH for this distribution.
+defaultTFDistribution: opentofu
+
+# Optional server-side repos.yaml (Atlantis server-side repo config). When set,
+# it is rendered into a ConfigMap, mounted at /etc/atlantis/repos.yaml, and
+# passed via --repo-config. Leave empty to omit. The value is templated.
+repoConfig: ""
+
+# Extra raw flags appended verbatim to `atlantis server`, e.g.
+# ["--write-git-creds", "--hide-prev-plan-comments"].
+extraArgs: []
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  # The atlantis server: web UI + /events webhook endpoint + /healthz.
+  port: 4141
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # Atlantis must receive webhooks from your VCS (often outside the cluster) and
+  # serve its UI. The webhook source is external, so allowExternal defaults true.
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
