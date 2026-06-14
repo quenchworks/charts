@@ -1,0 +1,157 @@
+# Quenchworks Harbor observability stack.
+#
+# This is a meta-chart: it bundles the Quenchworks Prometheus and Grafana charts
+# and wires them to monitor a Harbor instance. It does NOT deploy Harbor — point
+# `harbor.*` at an existing Harbor release (typically the Quenchworks `harbor`
+# chart with `metrics.enabled=true`).
+#
+# Flow:
+#   * Prometheus is given an extra scrape job targeting Harbor's metrics endpoints
+#     (the harbor-exporter on :8001/metrics, plus core/registry/jobservice when
+#     they expose /metrics).
+#   * Grafana boots with a Prometheus datasource (pointing at the bundled
+#     Prometheus Service) and a provisioned Harbor dashboard.
+
+# --- Where Harbor lives (the scrape target) -------------------------------------
+# The harbor-exporter aggregates Harbor's Prometheus metrics. The Quenchworks
+# harbor chart exposes it as a "<harborRelease>-harbor-exporter" Service on port
+# 8001 at /metrics when metrics.enabled=true. core/registry/jobservice also expose
+# their own /metrics on the metrics port.
+#
+# These values document intent and feed the in-cluster Service DNS used in
+# prometheus.config.prometheusYaml below. Because Helm does not template values.yaml,
+# the concrete scrape_configs are spelled out under `prometheus.config.prometheusYaml`;
+# if you change targets here, mirror them there (or override prometheusYaml directly).
+harbor:
+  # Namespace the Harbor release runs in. Empty = the release namespace of THIS
+  # chart (set explicitly when Harbor lives in a different namespace; then use a
+  # FQDN like harbor-exporter.<ns>.svc:8001 in prometheus.config.prometheusYaml).
+  namespace: ""
+  # The harbor-exporter Service name. For the Quenchworks harbor chart with release
+  # name <harborRelease> this is "<harborRelease>-harbor-exporter".
+  metricsService: harbor-exporter
+  # Port + path the exporter serves Prometheus metrics on.
+  metricsPort: 8001
+  metricsPath: /metrics
+  # How often Prometheus scrapes Harbor.
+  scrapeInterval: 30s
+  # Additional Harbor components that expose their own /metrics (core, registry,
+  # jobservice). Documentation of the per-component targets wired below.
+  components:
+    - name: harbor-core
+      service: harbor-core
+      port: 8001
+      path: /metrics
+    - name: harbor-registry
+      service: harbor-registry
+      port: 8001
+      path: /metrics
+    - name: harbor-jobservice
+      service: harbor-jobservice
+      port: 8001
+      path: /metrics
+
+# --- Grafana dashboard provisioning ---------------------------------------------
+# A Harbor dashboard JSON is shipped in a ConfigMap (templates/configmap-dashboards.yaml)
+# and mounted into Grafana via the grafana sub-chart's extraVolumes/extraVolumeMounts
+# below. The ConfigMap name is fixed (not release-prefixed) so the static sub-chart
+# volume reference stays in sync; keep `dashboards.configMapName` and the grafana
+# extraVolumes entry equal if you rename it.
+dashboards:
+  enabled: true
+  configMapName: harbor-observability-dashboards
+
+# --- Bundled Prometheus (sub-chart: quench/prometheus) --------------------------
+prometheus:
+  enabled: true
+  # Single-node TSDB. Persistence/resources are production defaults; the CI gate
+  # overrides them in ci/default-values.yaml.
+  config:
+    retentionTime: "15d"
+    # prometheus.yml: a self-scrape plus a Harbor exporter job and per-component
+    # jobs. Hostnames are in-cluster Service DNS; this chart and Harbor are assumed
+    # co-located in the release namespace (override harbor.namespace otherwise).
+    # NOTE: the harbor.* targets above are documentation/intent; the concrete
+    # scrape_configs are spelled out here so the sub-chart receives a literal
+    # prometheus.yml (sub-chart values cannot reference the umbrella's harbor.*).
+    prometheusYaml: |
+      global:
+        scrape_interval: 15s
+        evaluation_interval: 15s
+
+      scrape_configs:
+        - job_name: prometheus
+          static_configs:
+            - targets:
+                - localhost:9090
+
+        - job_name: harbor-exporter
+          scrape_interval: 30s
+          metrics_path: /metrics
+          static_configs:
+            - targets:
+                - harbor-exporter:8001
+              labels:
+                harbor_component: exporter
+
+        - job_name: harbor-core
+          scrape_interval: 30s
+          metrics_path: /metrics
+          static_configs:
+            - targets:
+                - harbor-core:8001
+              labels:
+                harbor_component: core
+
+        - job_name: harbor-registry
+          scrape_interval: 30s
+          metrics_path: /metrics
+          static_configs:
+            - targets:
+                - harbor-registry:8001
+              labels:
+                harbor_component: registry
+
+        - job_name: harbor-jobservice
+          scrape_interval: 30s
+          metrics_path: /metrics
+          static_configs:
+            - targets:
+                - harbor-jobservice:8001
+              labels:
+                harbor_component: jobservice
+
+# --- Bundled Grafana (sub-chart: quench/grafana) --------------------------------
+grafana:
+  enabled: true
+  # Prometheus datasource -> the bundled Prometheus Service. With release name
+  # <rel> the Prometheus Service is <rel>-prometheus:9090; the URL below uses the
+  # service DNS which resolves within the release namespace.
+  datasources:
+    - name: Prometheus
+      type: prometheus
+      access: proxy
+      # The bundled Prometheus Service is "<release>-prometheus:9090". This default
+      # assumes the release is named "harbor-observability"; override the URL (or set
+      # it in your overlay) if you install under a different release name.
+      url: http://harbor-observability-prometheus:9090
+      isDefault: true
+  # Dashboard provisioning: mount the umbrella's dashboards ConfigMap. A provider
+  # YAML tells Grafana to load JSON dashboards from /var/lib/grafana/dashboards.
+  config:
+    extraIni: {}
+  extraVolumes:
+    - name: harbor-dashboards
+      configMap:
+        name: harbor-observability-dashboards
+  extraVolumeMounts:
+    # Provider file -> tells Grafana where to find dashboard JSON.
+    - name: harbor-dashboards
+      mountPath: /etc/grafana/provisioning/dashboards/harbor-observability.yaml
+      subPath: provider.yaml
+      readOnly: true
+    # The dashboard JSON itself.
+    - name: harbor-dashboards
+      mountPath: /var/lib/grafana/dashboards/harbor.json
+      subPath: harbor.json
+      readOnly: true

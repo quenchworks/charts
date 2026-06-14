@@ -1,0 +1,38 @@
+{{- if .Values.dashboards.enabled }}
+{{- /*
+  Grafana dashboard provisioning bundle. Holds two files:
+    * provider.yaml — a Grafana dashboard provider that loads JSON dashboards from
+      /var/lib/grafana/dashboards.
+    * harbor.json   — the Harbor monitoring dashboard.
+  Both are mounted into the Grafana pod via the grafana sub-chart's
+  extraVolumes/extraVolumeMounts (see values.yaml). The ConfigMap name is FIXED
+  (not release-prefixed) so the static sub-chart volume reference stays valid;
+  keep .Values.dashboards.configMapName and the grafana.extraVolumes name equal.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.dashboards.configMapName }}
+  labels:
+    app.kubernetes.io/name: harbor-observability
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/part-of: quenchworks
+    app.kubernetes.io/component: grafana-dashboards
+data:
+  provider.yaml: |-
+    apiVersion: 1
+    providers:
+      - name: harbor-observability
+        orgId: 1
+        folder: Harbor
+        type: file
+        disableDeletion: true
+        editable: false
+        allowUiUpdates: false
+        options:
+          path: /var/lib/grafana/dashboards
+          foldersFromFilesStructure: false
+  harbor.json: |-
+{{ .Files.Get "dashboards/harbor.json" | indent 4 }}
+{{- end }}
