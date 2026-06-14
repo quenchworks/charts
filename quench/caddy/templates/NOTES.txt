@@ -1,0 +1,37 @@
+Quenchworks Caddy is installed as {{ include "quench-common.fullname" . }}.
+
+Reach it from inside the cluster (HTTP on port {{ .Values.service.port }}):
+
+  Endpoint: {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+  kubectl run web-test --rm -it --image=curlimages/curl --restart=Never -- \
+    curl -fsS http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/
+
+Or port-forward from your workstation:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  curl http://127.0.0.1:8080/
+
+The admin API is in-cluster only on port {{ .Values.service.adminPort }} (used by probes / runtime config):
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 2019:{{ .Values.service.adminPort }}
+  curl http://127.0.0.1:2019/config/
+
+{{- if .Values.config.existingConfigMap }}
+
+Serving the Caddyfile from existing ConfigMap "{{ .Values.config.existingConfigMap }}" (key: Caddyfile), mounted at /etc/caddy.
+{{- else }}
+
+Serving the inline Caddyfile from config.caddyfile, written to ConfigMap
+"{{ include "caddy.configMapName" . }}" and mounted at /etc/caddy/Caddyfile. Override
+config.caddyfile to serve a site or a reverse_proxy. Ports are UNPRIVILEGED:
+8080 http, 8443 https, 2019 admin (nonroot uid 1001 cannot bind <1024).
+{{- end }}
+
+The image is nonroot (uid 1001), runs on a read-only root filesystem (writable
+emptyDir volumes at /data [certs/state], /config [autosaved config] and /tmp),
+pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

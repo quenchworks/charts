@@ -1,0 +1,123 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/caddy.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/caddy
+  digest: "sha256:8114e4840748e5ae934709ae9c0e26926514e0f0356391730ee483c2c20088a7"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Caddy is a stateless web server: this chart runs a Deployment (no persistence,
+# no stable identity) and scales horizontally behind the service. Caddy's own
+# state (certs/locks under /data, autosaved config under /config) is per-replica
+# scratch on an emptyDir; for shared ACME storage across replicas use an external
+# storage module in the Caddyfile.
+replicaCount: 1
+
+# Caddy configuration.
+#
+# config.caddyfile is the Caddyfile served by the deployment. It is written to a
+# ConfigMap and mounted read-only at /etc/caddy/Caddyfile, which the image's
+# entrypoint loads (`caddy run --config /etc/caddy/Caddyfile`). The default is a
+# minimal site that responds 200 on the unprivileged HTTP port 8080 plus the
+# admin API on 2019 (so probes and in-cluster admin work).
+#
+# To run a reverse proxy instead, override it, e.g.:
+#   config:
+#     caddyfile: |
+#       {
+#         admin :2019
+#       }
+#       :8080 {
+#         reverse_proxy upstream.svc.cluster.local:80
+#       }
+#
+# Note the ports are UNPRIVILEGED (8080 http, 8443 https, 2019 admin) because the
+# container runs as nonroot uid 1001, which cannot bind <1024. Automatic HTTPS on
+# :8443 needs a writable /data (provided) and a routable hostname; for plain
+# in-cluster HTTP keep the :8080 site. To load an externally-managed ConfigMap
+# instead of this inline Caddyfile, set config.existingConfigMap (its `Caddyfile`
+# key is mounted).
+config:
+  caddyfile: |
+    {
+    	admin :2019
+    }
+    :8080 {
+    	respond "QuenchWorks Caddy OK" 200
+    }
+  # Name of an existing ConfigMap with a `Caddyfile` key. Takes precedence over
+  # config.caddyfile when set.
+  existingConfigMap: ""
+
+resources:
+  requests: { cpu: 50m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 128Mi }
+
+service:
+  type: ClusterIP
+  # http (named `http`) -> container 8080.
+  port: 8080
+  # https (named `https`) -> container 8443. Exposed on the Service for TLS
+  # sites; the default Caddyfile serves plain HTTP, so nothing listens here until
+  # you add a TLS site.
+  httpsPort: 8443
+  # admin API (named `admin`) -> container 2019. In-cluster only; used for probes
+  # and runtime config. Do not expose this outside the cluster.
+  adminPort: 2019
+
+# Optional horizontal autoscaling on CPU (a stateless web server scales out well).
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# A web server commonly wants ingress from outside the namespace (ingress
+# controllers, gateways), so unlike the database charts this defaults to allowing
+# external traffic. Set allowExternal=false to restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
