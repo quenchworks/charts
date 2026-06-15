@@ -1,0 +1,33 @@
+name: codeql
+
+# Code scanning via CodeQL (advanced setup), GitHub Actions workflows.
+# Scoped to workflow changes plus a weekly run so it doesn't fire on every commit.
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/**']
+  pull_request:
+    branches: [main]
+    paths: ['.github/workflows/**']
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+jobs:
+  analyze:
+    name: analyze (actions)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: actions
+          queries: security-and-quality
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:actions"
