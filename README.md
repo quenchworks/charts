@@ -1,8 +1,12 @@
 # QuenchWorks charts
 
-Clean-room Helm charts for the [QuenchWorks](https://github.com/quenchworks) catalog. Every chart deploys a hardened, 0-CVE image from the [images](https://github.com/quenchworks/images) factory, pins it strictly by `sha256` digest, ships as a cosign-signed OCI artifact on GHCR, and is listed on ArtifactHub as a **verified publisher** with a Values schema.
+Clean-room Helm charts for the [QuenchWorks](https://github.com/quenchworks) catalog. Every chart deploys a hardened, 0-CVE image from the [images](https://quench-works.com/images) factory, pins it strictly by `sha256` digest, ships as a cosign-signed OCI artifact on GHCR, and is listed on ArtifactHub as a **verified publisher** with a Values schema.
 
-**52 charts.** No paywall, no account, no vendor lock. Browse them all at [quench-works.com/charts](https://quench-works.com/charts).
+<p align="center">
+  <a href="https://quench-works.com"><img src="https://raw.githubusercontent.com/quenchworks/.github/main/profile/assets/demo.gif" alt="QuenchWorks in a terminal: run a 0-CVE image, verify it with cosign, deploy the Helm chart, and watch the pod reach Running." width="760"></a>
+</p>
+
+**54 charts.** No paywall, no account, no vendor lock. Browse them all at [quench-works.com/charts](https://quench-works.com/charts).
 
 ```bash
 helm install cache oci://ghcr.io/quenchworks/charts/redis
