@@ -61,7 +61,10 @@ jobs:
           # SELECT version() and assert it matches the chart appVersion
           ver="$(curl -fsS "http://127.0.0.1:8123/?${AUTH}" --data-binary 'SELECT version()')"
           echo "version: $ver"
-          echo "$ver" | grep -q '^26\.3\.13\.31'
+          # derive the expected version from the chart's appVersion so this never
+          # goes stale when the image is bumped
+          expect="$(awk -F'"' '/^appVersion:/{print $2}' "${CHART_DIR}/Chart.yaml")"
+          echo "$ver" | grep -qF "$expect"
           # CREATE / INSERT / SELECT roundtrip, asserting the value comes back
           curl -fsS "http://127.0.0.1:8123/?${AUTH}" \
             --data-binary 'CREATE TABLE gate (id UInt32, name String) ENGINE = MergeTree ORDER BY id' >/dev/null
