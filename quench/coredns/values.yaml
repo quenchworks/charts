@@ -1,0 +1,96 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/coredns
+  digest: "sha256:ae229b2c4c36cc766e29569cddd4f2bb7a53e215e7819b3a77a6bf472eccbb6f"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# CoreDNS is stateless: this chart runs a Deployment behind a DNS Service and
+# scales horizontally. No persistence, no stable identity.
+replicaCount: 1
+
+# CoreDNS configuration.
+#
+# The container binds DNS on the unprivileged port 1053 so it runs nonroot with no
+# capabilities; the Service maps 53 -> 1053. The Corefile below is mounted at
+# /etc/coredns/Corefile (the image's -conf path) and replaces the image default.
+# Set config.existingConfigMap to mount an externally-managed ConfigMap whose
+# `Corefile` key holds the config instead.
+config:
+  # The Corefile. health (8080) and ready (8181) back the probes; whoami answers
+  # queries; forward sends everything else to the node resolvers.
+  corefile: |
+    .:1053 {
+        health :8080
+        ready :8181
+        whoami
+        forward . /etc/resolv.conf
+        cache 30
+        log
+        errors
+    }
+  # Name of an existing ConfigMap with a `Corefile` key. Takes precedence.
+  existingConfigMap: ""
+
+resources:
+  requests: { cpu: 50m, memory: 32Mi }
+  limits: { cpu: 250m, memory: 128Mi }
+
+service:
+  type: ClusterIP
+  # DNS service port; the container listens on 1053 and the Service maps 53 -> 1053.
+  port: 53
+
+# Optional horizontal autoscaling on CPU.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# DNS is commonly queried from across the cluster, so allow external ingress by
+# default. Set allowExternal=false to restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

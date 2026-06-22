@@ -1,0 +1,25 @@
+Quenchworks CoreDNS is installed as {{ include "quench-common.fullname" . }}.
+
+The server runs nonroot and binds DNS on container port 1053; the Service exposes
+it on port {{ .Values.service.port }} (UDP and TCP):
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Resolve a name from a one-off client pod:
+
+  kubectl run dnsutils --rm -it --restart=Never --image=ghcr.io/quenchworks/images/busybox -- \
+    nslookup quench-works.com {{ include "quench-common.fullname" . }}
+
+{{ if .Values.config.existingConfigMap }}
+Using the Corefile from ConfigMap "{{ .Values.config.existingConfigMap }}".
+{{- else }}
+Using the chart's Corefile (config.corefile). The health (8080) and ready (8181)
+endpoints back the probes; whoami answers queries and forward sends the rest to the
+node resolvers. Edit config.corefile and `helm upgrade` to change it.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/coredns \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
