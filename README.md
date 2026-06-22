@@ -1,5 +1,7 @@
 # QuenchWorks charts
 
+**English** · [العربية](README.ar.md) · [Español](README.es.md)
+
 Clean-room Helm charts for the [QuenchWorks](https://github.com/quenchworks) catalog. Every chart deploys a hardened, 0-CVE image from the [images](https://quench-works.com/images) factory, pins it strictly by `sha256` digest, ships as a cosign-signed OCI artifact on GHCR, and is listed on ArtifactHub as a **verified publisher** with a Values schema.
 
 <p align="center">
