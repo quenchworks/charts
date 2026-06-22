@@ -8,7 +8,7 @@ Clean-room Helm charts for the [QuenchWorks](https://github.com/quenchworks) cat
   <a href="https://quench-works.com"><img src="https://raw.githubusercontent.com/quenchworks/.github/main/profile/assets/demo.gif" alt="QuenchWorks in a terminal: run a 0-CVE image, verify it with cosign, deploy the Helm chart, and watch the pod reach Running." width="760"></a>
 </p>
 
-**54 charts.** No paywall, no account, no vendor lock. Browse them all at [quench-works.com/charts](https://quench-works.com/charts).
+**50+ charts.** No paywall, no account, no vendor lock. Browse them all at [quench-works.com/charts](https://quench-works.com/charts).
 
 ```bash
 helm install cache oci://ghcr.io/quenchworks/charts/redis
