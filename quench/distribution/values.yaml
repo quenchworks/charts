@@ -1,0 +1,102 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/distribution
+  digest: "sha256:65d4161707162d266216bf6469ec031a21dcedd9dd4ad93f27753aad1f620f17"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# A single registry runs as a StatefulSet so its blob store has a stable identity
+# and a persistent volume. Scale-out needs shared storage (S3/GCS) configured in
+# config.configYml; the default is filesystem on the PVC, so keep replicaCount 1.
+replicaCount: 1
+
+# Registry configuration. The configYml below is written to a ConfigMap and mounted
+# over the image default at /etc/distribution/config.yml. The default stores blobs
+# on the filesystem under /var/lib/registry (the PVC) and serves the API on :5000.
+# Point config.existingConfigMap at an externally-managed ConfigMap (key config.yml)
+# to manage it yourself (e.g. S3 storage, auth, TLS).
+config:
+  configYml: |
+    version: 0.1
+    log:
+      level: info
+    storage:
+      filesystem:
+        rootdirectory: /var/lib/registry
+      cache:
+        blobdescriptor: inmemory
+    http:
+      addr: :5000
+      headers:
+        X-Content-Type-Options: [nosniff]
+    health:
+      storagedriver:
+        enabled: true
+        interval: 10s
+        threshold: 3
+  existingConfigMap: ""
+
+# Blob storage volume mounted at /var/lib/registry.
+persistence:
+  enabled: true
+  size: 10Gi
+  # storageClass: ""           # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 5000                   # the registry HTTP API
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# A registry is commonly pulled/pushed from across the cluster, so allow external
+# ingress by default. Set allowExternal=false to restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

@@ -1,0 +1,24 @@
+Quenchworks Distribution (OCI registry) is installed as {{ include "quench-common.fullname" . }}.
+
+The registry API is served on port {{ .Values.service.port }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Check the API base from a one-off client pod (returns 200):
+
+  kubectl run reg-check --rm -it --restart=Never --image=ghcr.io/quenchworks/images/busybox -- \
+    wget -qS -O- http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/v2/
+
+{{ if .Values.config.existingConfigMap -}}
+Using the config from ConfigMap "{{ .Values.config.existingConfigMap }}".
+{{- else -}}
+Using the chart's config (config.configYml): filesystem storage on the
+{{ if .Values.persistence.enabled }}persistent volume{{ else }}ephemeral volume{{ end }} at /var/lib/registry, API on :5000. Edit config.configYml and
+`helm upgrade` to switch to S3/GCS storage, enable auth, or add TLS.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/distribution \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
