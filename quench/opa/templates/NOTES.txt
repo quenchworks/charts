@@ -1,0 +1,29 @@
+Quenchworks OPA (Open Policy Agent) is installed as {{ include "quench-common.fullname" . }}.
+
+The server runs nonroot and serves the policy API on container port 8181; the
+Service exposes it on port {{ .Values.service.port }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Check health and query the data API over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://127.0.0.1:{{ .Values.service.port }}/health
+  curl http://127.0.0.1:{{ .Values.service.port }}/v1/data
+
+{{ if or .Values.config.existingConfigMap .Values.config.yaml }}
+Running with an OPA config (bundles/decision logs/status) mounted at
+/config/config.yaml.
+{{- else }}
+Running with the default in-memory store and an empty policy set. Load policies
+via the REST API, or set config.yaml to pull signed bundles. Example: push a policy
+
+  curl -X PUT http://127.0.0.1:{{ .Values.service.port }}/v1/policies/example \
+    --data-binary @example.rego
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/opa \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

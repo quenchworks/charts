@@ -1,0 +1,21 @@
+Quenchworks Excalidraw is installed as {{ include "quench-common.fullname" . }}.
+
+The SPA is served by nginx (nonroot) on container port 8080; the Service exposes
+it on port {{ .Values.service.port }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Open it in a browser over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  # then visit http://127.0.0.1:8080
+
+This is the static, self-hosted Excalidraw app: no backend, no account, and the
+read-only root filesystem keeps a writable tmpfs only at /tmp for nginx. Expose it
+outside the cluster with your own Ingress or a LoadBalancer Service.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/excalidraw \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

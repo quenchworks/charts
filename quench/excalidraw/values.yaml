@@ -1,0 +1,71 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/excalidraw
+  digest: "sha256:ae98c046462274e84d31df1bc02c6916b2a66b660d91ec5a5c98e07a5e342606"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Excalidraw is a static SPA served by nginx: this chart runs a stateless
+# Deployment behind a ClusterIP Service and scales horizontally. No persistence.
+replicaCount: 1
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: 250m, memory: 128Mi }
+
+service:
+  type: ClusterIP
+  # The container serves on 8080 (nonroot); the Service exposes standard HTTP 80.
+  port: 80
+
+# Optional horizontal autoscaling on CPU.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

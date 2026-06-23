@@ -1,0 +1,85 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/opa
+  digest: "sha256:43b233ead1f2b0befb2b10e712ae4f672e9fbe049f37eba4f7d32bae789aa88c"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# OPA is stateless when run with the default in-memory store: this chart runs a
+# Deployment behind a ClusterIP Service and scales horizontally.
+replicaCount: 1
+
+# OPA server configuration.
+#
+# The container runs `opa run --server --addr=0.0.0.0:8181`. Set config.yaml to a
+# YAML OPA configuration (bundles, decision logs, status, etc.); it is written to
+# a ConfigMap, mounted at /config/config.yaml, and passed via `-c`. Point
+# config.existingConfigMap at an externally-managed ConfigMap (key `config.yaml`)
+# to use that instead. extraArgs are appended to the server command.
+config:
+  yaml: ""
+  existingConfigMap: ""
+extraArgs: []
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # The container serves the policy API on 8181; the Service maps the same port.
+  port: 8181
+
+# Optional horizontal autoscaling on CPU.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The policy API is commonly consulted from across the cluster, so allow external
+# ingress by default. Set allowExternal=false to restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
