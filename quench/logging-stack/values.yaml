@@ -1,0 +1,118 @@
+# logging-stack — an umbrella over the QuenchWorks loki and grafana component
+# charts, plus a glue layer (Grafana Loki datasource + a logs dashboard, and an
+# inline Vector log-shipper DaemonSet) wired together so Grafana browses your
+# cluster's pod logs out of the box.
+#
+# Wiring notes (read the chart README before overriding):
+#   - The Grafana Loki datasource AND the bundled dashboard are provided by THIS
+#     chart (fixed-name ConfigMaps mounted into Grafana via grafana.extraVolumes)
+#     so the datasource can point at http://<release>-loki:3100. Keep
+#     grafana.datasources: [] below.
+#   - Vector runs as a host DaemonSet templated by THIS chart (not the quench/vector
+#     component chart, which is deployment-only and renders its config via toYaml so
+#     it can't template the release name into the Loki sink). It tails container logs
+#     and pushes them to http://<release>-loki:3100/loki/api/v1/push.
+#   - One stack per namespace (the datasource/dashboard ConfigMaps have fixed names).
+#
+# PURPOSE / TRADE-OFF: this stack's job is cluster log aggregation, which needs to
+# read every pod's logs off each node. So Vector is ON by default and DOES take host
+# access: it runs as a DaemonSet that mounts the node's /var/log/pods and
+# /var/lib/docker/containers READ-ONLY. That host access is the deliberate,
+# documented trade-off for a log shipper (the wider hardened catalog avoids it).
+# Vector stays toggleable: set vector.enabled to false to drop log collection.
+
+# ---------------------------------------------------------------------------
+# Loki (subchart). Values pass straight through to the loki chart. Single-binary
+# / filesystem mode (the chart's default) — fine up to a few hundred GB/day.
+# ---------------------------------------------------------------------------
+loki:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 16Gi
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+# ---------------------------------------------------------------------------
+# Grafana (subchart). The Loki datasource AND the bundled dashboard are provided
+# by this umbrella's own templates (templates/grafana-datasources.yaml +
+# templates/grafana-dashboards.yaml, fixed names) and mounted in via extraVolumes
+# below — so keep datasources: [] here. adminPassword empty => generated secret.
+# ---------------------------------------------------------------------------
+grafana:
+  enabled: true
+  datasources: []
+  auth:
+    adminPassword: ""
+  # Mount three umbrella-owned ConfigMaps into Grafana's provisioning tree. The
+  # grafana chart leaves /etc/grafana/provisioning as a writable emptyDir; we drop
+  # files in via subPath so they coexist with that emptyDir. The dashboard JSON
+  # ConfigMap is mounted as a whole dir that the dashboard provider reads.
+  extraVolumes:
+    - name: stack-datasources
+      configMap:
+        name: logging-stack-datasources
+    - name: stack-dashboard-provider
+      configMap:
+        name: logging-stack-dashboard-provider
+    - name: stack-dashboards
+      configMap:
+        name: logging-stack-dashboards
+  extraVolumeMounts:
+    # (i) datasource: a single file into the provisioning datasources dir.
+    - name: stack-datasources
+      mountPath: /etc/grafana/provisioning/datasources/stack.yaml
+      subPath: stack.yaml
+      readOnly: true
+    # (ii) dashboard provider: a single file into the provisioning dashboards dir.
+    #      It points Grafana at the dashboards dir mounted below.
+    - name: stack-dashboard-provider
+      mountPath: /etc/grafana/provisioning/dashboards/stack.yaml
+      subPath: stack.yaml
+      readOnly: true
+    # (iii) the dashboard JSON files, mounted as a whole dir Grafana reads from.
+    - name: stack-dashboards
+      mountPath: /var/lib/grafana/dashboards
+      readOnly: true
+  # Grafana is stateless here: datasources and dashboards are provisioned from
+  # ConfigMaps on every boot. Persistence off avoids admin-password drift on
+  # reinstall (a kept PVC retains the old password while the Secret regenerates).
+  persistence:
+    enabled: false
+
+# ---------------------------------------------------------------------------
+# Dashboards — which of the bundled Grafana dashboards to provision.
+#   - All (default): leave enabled: true with all include flags true.
+#   - Just some: set the ones you don't want to false.
+#   - None: set enabled: false (Grafana still installs, just no bundled dashboards).
+# The mount is always present; this block controls which JSON files land in the
+# dashboards ConfigMap, so toggling needs no extraVolumes change.
+# ---------------------------------------------------------------------------
+dashboards:
+  enabled: true
+  include:
+    loki-kubernetes-logs: true
+
+# ---------------------------------------------------------------------------
+# Vector — the log shipper. Templated inline by this umbrella (templates/vector.yaml)
+# as a DaemonSet: a ServiceAccount + ClusterRole + binding + ConfigMap + DaemonSet.
+# It runs the `kubernetes_logs` source (tails /var/log/pods on each node, enriched
+# with pod/namespace/container/stream labels from the apiserver) into a `loki` sink
+# at http://<release>-loki:3100/loki/api/v1/push.
+#
+# HOST ACCESS: the DaemonSet mounts the node's /var/log/pods and
+# /var/lib/docker/containers READ-ONLY — the deliberate trade-off for a log shipper.
+# Vector itself runs nonroot (uid 1001) with a read-only rootfs; the only privilege
+# is reading those host log dirs. ON by default; set enabled: false to drop it.
+# ---------------------------------------------------------------------------
+vector:
+  enabled: true
+  image: ghcr.io/quenchworks/images/vector
+  digest: "sha256:4d67202d12a453b1347b271982b54dde292563235b6bc3500f2cf23579ba2df2"
+  pullPolicy: IfNotPresent
+  # Vector's GraphQL + health API port; the probes hit GET /health on it.
+  apiPort: 8686
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }

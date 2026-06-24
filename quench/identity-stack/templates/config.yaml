@@ -1,0 +1,53 @@
+{{/*
+Umbrella-owned Secret (owned by THIS chart, not a subchart). FIXED name so the
+static passthroughs in values.yaml — keycloak.db.existingSecret,
+keycloak.postgresql.auth.existingSecret, oauth2Proxy.extraEnvVars — can reference
+it by name without needing the release name (values.yaml is not templated).
+
+It is the single source of truth for the stack's shared credentials AND the one
+cross-reference that needs the release name:
+  - db-password        : the DB password. Consumed by BOTH KC_DB_PASSWORD (via
+                         keycloak.db.existingSecret) AND the bundled PostgreSQL's
+                         init password (via keycloak.postgresql.auth.existingSecret).
+                         Same Secret + same key => they always match.
+  - oidc-client-secret : oauth2-proxy's OIDC client secret (OAUTH2_PROXY_CLIENT_SECRET).
+  - cookie-secret      : oauth2-proxy's cookie signing secret (OAUTH2_PROXY_COOKIE_SECRET).
+  - OIDC_ISSUER_URL    : the Keycloak realm endpoint oauth2-proxy authenticates against.
+
+Each secret value is generated (and preserved across upgrades via lookup) when the
+matching shared.* value is empty, so nothing sensitive lives in values.yaml.
+
+ponytail: fixed Secret name => one identity-stack per namespace.
+*/}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace "identity-stack-config" -}}
+{{- $data := dict -}}
+{{- if $existing }}{{ $data = $existing.data }}{{ end -}}
+
+{{/* db-password: shared.dbPassword, else preserved, else generated (24 chars). */}}
+{{- $dbpw := .Values.shared.dbPassword -}}
+{{- if and (not $dbpw) (hasKey $data "db-password") -}}{{ $dbpw = index $data "db-password" | b64dec -}}{{- end -}}
+{{- if not $dbpw -}}{{ $dbpw = randAlphaNum 24 -}}{{- end -}}
+
+{{/* oidc-client-secret: shared.oidcClientSecret, else preserved, else generated. */}}
+{{- $clientSecret := .Values.shared.oidcClientSecret -}}
+{{- if and (not $clientSecret) (hasKey $data "oidc-client-secret") -}}{{ $clientSecret = index $data "oidc-client-secret" | b64dec -}}{{- end -}}
+{{- if not $clientSecret -}}{{ $clientSecret = randAlphaNum 32 -}}{{- end -}}
+
+{{/* cookie-secret: shared.cookieSecret, else preserved, else generated (32 bytes —
+     oauth2-proxy requires 16/24/32). */}}
+{{- $cookieSecret := .Values.shared.cookieSecret -}}
+{{- if and (not $cookieSecret) (hasKey $data "cookie-secret") -}}{{ $cookieSecret = index $data "cookie-secret" | b64dec -}}{{- end -}}
+{{- if not $cookieSecret -}}{{ $cookieSecret = randAlphaNum 32 -}}{{- end -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: identity-stack-config
+  labels:
+    {{- include "identity-stack.labels" . | nindent 4 }}
+type: Opaque
+data:
+  db-password: {{ $dbpw | b64enc | quote }}
+  oidc-client-secret: {{ $clientSecret | b64enc | quote }}
+  cookie-secret: {{ $cookieSecret | b64enc | quote }}
+stringData:
+  OIDC_ISSUER_URL: {{ include "identity-stack.oidcIssuerUrl" . | quote }}

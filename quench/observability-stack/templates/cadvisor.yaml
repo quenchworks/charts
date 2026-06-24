@@ -1,0 +1,78 @@
+{{- if .Values.cadvisor.enabled }}
+{{- $cad := .Values.cadvisor -}}
+# OPT-IN, PRIVILEGED. cAdvisor reports per-container resource usage by reading
+# the node's cgroup tree, container runtime, /sys and the root filesystem. It is
+# a privileged DaemonSet (host mounts), so it is enabled: false by default —
+# the hardened catalog avoids host access. Most clusters already expose cAdvisor
+# metrics via the kubelet (/metrics/cadvisor); enable this only if you need the
+# standalone exporter.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "observability-stack.cadvisorName" . }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/name: cadvisor
+    app.kubernetes.io/component: exporter
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cadvisor
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cadvisor
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ $cad.port | quote }}
+    spec:
+      # cAdvisor reads the node, not the K8s API. Don't project the SA token: its
+      # read-only rootfs can't create the /run/secrets mountpoint (mkdirat fails).
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: false   # opt-in: cAdvisor needs host-level reads
+      containers:
+        - name: cadvisor
+          image: "{{ $cad.image }}@{{ $cad.digest }}"
+          imagePullPolicy: {{ $cad.pullPolicy }}
+          args:
+            - --port={{ $cad.port }}
+            - --housekeeping_interval=15s
+          securityContext:
+            privileged: true   # opt-in: required for cgroup/runtime access
+          ports:
+            - name: metrics
+              containerPort: {{ $cad.port }}
+          resources:
+            {{- toYaml $cad.resources | nindent 12 }}
+          volumeMounts:
+            - name: rootfs
+              mountPath: /rootfs
+              readOnly: true
+            - name: var-run
+              mountPath: /var/run
+              readOnly: true
+            - name: sys
+              mountPath: /sys
+              readOnly: true
+            - name: docker
+              mountPath: /var/lib/docker
+              readOnly: true
+            - name: disk
+              mountPath: /dev/disk
+              readOnly: true
+      volumes:
+        - name: rootfs
+          hostPath: { path: / }
+        - name: var-run
+          hostPath: { path: /var/run }
+        - name: sys
+          hostPath: { path: /sys }
+        - name: docker
+          hostPath: { path: /var/lib/docker }
+        - name: disk
+          hostPath: { path: /dev/disk }
+{{- end }}

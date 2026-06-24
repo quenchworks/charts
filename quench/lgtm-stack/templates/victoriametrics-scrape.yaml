@@ -1,0 +1,116 @@
+{{- if .Values.victoriametrics.enabled }}
+# VictoriaMetrics promscrape config, owned by the umbrella. VM's embedded scraper
+# (enabled via -promscrape.config in victoriametrics.config.extraArgs) reads this and
+# pulls metrics itself — no separate vmagent, no Prometheus. The config is Prometheus
+# scrape_configs syntax and is RELEASE-AGNOSTIC: kubernetes_sd discovers targets at
+# runtime by annotation, so no service name is templated here. Mounted at
+# /etc/vm/scrape.yaml. FIXED ConfigMap name (referenced from victoriametrics.extraVolumes
+# in values.yaml). ponytail: fixed name => one lgtm-stack per namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lgtm-stack-vm-scrape
+  labels:
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+data:
+  scrape.yaml: |
+    global:
+      scrape_interval: 15s
+      scrape_timeout: 10s
+
+    scrape_configs:
+      # (a) VictoriaMetrics scrapes its own /metrics.
+      - job_name: victoriametrics
+        static_configs:
+          - targets:
+              - localhost:{{ .Values.victoriametrics.service.port | default 8428 }}
+
+      # (b) Annotation-based pod discovery. Release-agnostic: any pod annotated
+      # prometheus.io/scrape: "true" is scraped, honoring prometheus.io/port and
+      # prometheus.io/path. kube-state-metrics, node-exporter and the otel-collector
+      # (all templated/annotated by this chart) are picked up here without a static
+      # service name.
+      - job_name: kubernetes-pods
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: node
+          # node-exporter/ksm carry app.kubernetes.io/name; surface it as `job` so
+          # dashboards that select on a job name still bind.
+          - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+            action: replace
+            target_label: job
+            regex: (.+)
+
+      # (c) Kubelet metrics (role: node) via the apiserver proxy, SA bearer token.
+      - job_name: kubelet
+        scheme: https
+        metrics_path: /metrics
+        tls_config:
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/$1/proxy/metrics
+
+      # (d) cAdvisor via the kubelet (/metrics/cadvisor) — container CPU/memory/net/fs.
+      # No extra DaemonSet needed; the kubelet already runs cAdvisor.
+      - job_name: cadvisor
+        scheme: https
+        metrics_path: /metrics/cadvisor
+        tls_config:
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: node
+        relabel_configs:
+          - action: labelmap
+            regex: __meta_kubernetes_node_label_(.+)
+          - target_label: __address__
+            replacement: kubernetes.default.svc:443
+          - source_labels: [__meta_kubernetes_node_name]
+            regex: (.+)
+            target_label: __metrics_path__
+            replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+
+      # (e) Kubernetes apiserver: control-plane `up` + apiserver request metrics.
+      - job_name: kubernetes-apiservers
+        scheme: https
+        tls_config:
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        kubernetes_sd_configs:
+          - role: endpoints
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+            action: keep
+            regex: default;kubernetes;https
+{{- end }}

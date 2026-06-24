@@ -1,0 +1,49 @@
+{{- if .Values.grafana.enabled }}
+# Grafana dashboard provisioning, owned by the umbrella. Two ConfigMaps:
+#   1. observability-stack-dashboard-provider — a Grafana "dashboards" provisioning
+#      provider that watches a folder on disk.
+#   2. observability-stack-dashboards — the dashboard JSON files (one key each),
+#      mounted as that folder (/var/lib/grafana/dashboards) via grafana.extraVolumes.
+# Both are FIXED names so they can be referenced from the static grafana.extraVolumes
+# value in values.yaml. ponytail: fixed names => one observability-stack per namespace.
+#
+# ponytail: curated core dashboards; add the rest of the mixin when someone needs them.
+# The JSON in dashboards/*.json is the standard grafana.com community set, normalized
+# at build time to bind every datasource reference to the provisioned "prometheus" uid.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observability-stack-dashboard-provider
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+data:
+  stack.yaml: |
+    apiVersion: 1
+    providers:
+      - name: observability-stack
+        orgId: 1
+        type: file
+        disableDeletion: true
+        allowUiUpdates: false
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+          foldersFromFilesStructure: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observability-stack-dashboards
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+data:
+  {{- if .Values.dashboards.enabled }}
+  {{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+  {{- $key := trimSuffix ".json" (base $path) }}
+  {{- if index $.Values.dashboards.include $key }}
+  {{ base $path }}: |-
+    {{- $.Files.Get $path | nindent 4 }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+{{- end }}

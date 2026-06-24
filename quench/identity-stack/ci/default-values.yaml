@@ -1,0 +1,51 @@
+# Install gate values. Fits a single kind node: small/ephemeral PVC, modest
+# resources, all components enabled. This file ONLY overrides sizes/resources and
+# pins the admin password — the DB/secret wiring (existingSecret refs, the
+# OAUTH2_PROXY_* extraEnvVars, the bundled-PG existingSecret) all comes from
+# values.yaml and must NOT be re-specified here (re-setting oauth2Proxy.config
+# clientSecret/cookieSecret would re-introduce plaintext flags; re-setting
+# oauth2Proxy.extraEnvVars would drop the client/cookie-secret env).
+#
+# shared.* are left EMPTY so the umbrella Secret generates them: a 24-char DB
+# password (shared by Keycloak + the bundled PG, guaranteed to match) and a
+# 32-byte cookie secret + 32-char client secret. oauth2-proxy boots and performs
+# OIDC discovery against Keycloak's "master" realm (exists from first boot).
+#
+# Boot-time note: Keycloak runs the optimized production build (no start-dev) and
+# runs Liquibase migrations against PostgreSQL on first start, so it is the slow
+# component — the gate uses --wait --timeout 10m and the chart's generous
+# readiness window. oauth2-proxy does OIDC discovery at startup and may restart a
+# few times until Keycloak is ready; --wait tolerates that.
+
+keycloak:
+  enabled: true
+  postgresql:
+    enabled: true
+    primary:
+      persistence:
+        enabled: true
+        size: 1Gi
+      resources:
+        requests: { cpu: 100m, memory: 128Mi }
+        limits: { cpu: 500m, memory: 512Mi }
+  auth:
+    adminUser: admin
+    adminPassword: "admin-gate-password"
+  resources:
+    requests: { cpu: 300m, memory: 640Mi }
+    limits: { cpu: "2", memory: 1536Mi }
+
+oauth2Proxy:
+  enabled: true
+  nameOverride: "oauth2-proxy"
+  config:
+    # Append-only: the gate's OIDC client is not a real registered client; allow
+    # the proxy to come up and serve /ping without completing a login flow. The
+    # values.yaml extraArgs (--ssl-insecure-skip-verify) are NOT replaced because
+    # this is a different key path; config.extraArgs IS replaced, so repeat it.
+    extraArgs:
+      - "--ssl-insecure-skip-verify=true"
+      - "--insecure-oidc-allow-unverified-email=true"
+  resources:
+    requests: { cpu: 25m, memory: 48Mi }
+    limits: { cpu: 300m, memory: 128Mi }

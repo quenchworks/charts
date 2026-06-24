@@ -1,0 +1,62 @@
+apiVersion: v2
+name: logging-stack
+description: "Hardened, operator-free logging stack: Loki + Grafana + Vector, wired together for cluster log aggregation and browsing. Vector ships every pod's logs to Loki; Grafana queries Loki through a pre-provisioned datasource with a ready-made logs dashboard. No CRDs, no logging operator. All components are QuenchWorks-hardened, nonroot, 0-CVE images pinned by digest and cosign-signed. Vector runs as a host DaemonSet (read-only node log dirs) by design — that is the deliberate, toggleable trade-off for a log shipper."
+type: application
+version: 0.0.1
+appVersion: "1.0.0"
+keywords:
+  - logging
+  - logs
+  - loki
+  - grafana
+  - vector
+  - log-aggregation
+  - observability
+  - stack
+maintainers:
+  - name: QuenchWorks
+    email: info@quench-works.com
+    url: https://github.com/quenchworks
+icon: https://raw.githubusercontent.com/quenchworks/.github/main/profile/assets/chart-icon.png
+home: https://quench-works.com
+sources:
+  - https://github.com/quenchworks/charts
+  - https://github.com/grafana/loki
+  - https://github.com/grafana/grafana
+  - https://github.com/vectordotdev/vector
+annotations:
+  artifacthub.io/category: monitoring-logging
+  artifacthub.io/images: |
+    - name: loki
+      image: ghcr.io/quenchworks/images/loki@sha256:3409d6b1fa72af5034327920ae24a20d2d6693f90de3a098c5683f228115191d
+    - name: grafana
+      image: ghcr.io/quenchworks/images/grafana@sha256:422b52219a03f5f70b1eac89060964027567df3ae504e5f43f533c9ef4dc51b5
+    - name: vector
+      image: ghcr.io/quenchworks/images/vector@sha256:4d67202d12a453b1347b271982b54dde292563235b6bc3500f2cf23579ba2df2
+  artifacthub.io/operator: "false"
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/quenchworks/charts
+    - name: image
+      url: https://github.com/quenchworks/images
+  artifacthub.io/signKey: |
+    fingerprint: keyless (cosign / Sigstore)
+    url: https://github.com/quenchworks/.github/blob/main/SECURITY.md
+dependencies:
+  - name: loki
+    version: 0.0.5
+    repository: oci://ghcr.io/quenchworks/charts
+    condition: loki.enabled
+  - name: grafana
+    version: 0.0.5
+    repository: oci://ghcr.io/quenchworks/charts
+    condition: grafana.enabled
+# ponytail: Vector is NOT a chart dependency. The quench/vector component chart is
+# deployment-only and renders its config via `toYaml .Values.vectorConfig` — so it
+# cannot run as a DaemonSet, cannot mount host log dirs, and cannot template the
+# Loki sink URL with {{ .Release.Name }}. We template the Vector log-shipper
+# DaemonSet inline (templates/vector.yaml) instead, exactly as observability-stack
+# templates node-exporter inline. Image still pinned to the vector 0.54.0 digest.
+# (vector 0.0.4 is referenced in artifacthub.io/images for provenance, not as a dep.)

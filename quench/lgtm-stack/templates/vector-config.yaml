@@ -1,0 +1,66 @@
+{{- if .Values.vector.enabled }}
+{{- $v := .Values.vector -}}
+# Vector's config, owned by the umbrella (not the quench/vector component chart) so
+# the Loki sink endpoint can reference the release-prefixed Loki service name. Kept in
+# its own file so the DaemonSet can checksum it without self-recursion. Mounted over
+# /etc/vector/vector.yaml; the image entrypoint passes --config there.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "lgtm-stack.vectorName" . }}-config
+  labels:
+    {{- include "lgtm-stack.vectorLabels" . | nindent 4 }}
+data:
+  vector.yaml: |
+    data_dir: /vector-data-dir
+    api:
+      enabled: true
+      address: "0.0.0.0:{{ $v.apiPort }}"
+    sources:
+      # ponytail: the hardened quench/vector image is built WITHOUT the
+      # `kubernetes_logs` source, so we tail the node's pod logs directly and
+      # recover namespace/pod/container from the kubelet's path layout:
+      #   /var/log/pods/<namespace>_<pod>_<uid>/<container>/<n>.log
+      pod_logs:
+        type: file
+        include:
+          - /var/log/pods/*/*/*.log
+        read_from: beginning
+    transforms:
+      parse:
+        type: remap
+        inputs: ["pod_logs"]
+        source: |
+          path = string!(.file)
+          .namespace = "unknown"
+          .pod = "unknown"
+          .container = "unknown"
+          .stream = "stdout"
+          meta, merr = parse_regex(path, r'/pods/(?P<ns>[^_/]+)_(?P<pod>[^_/]+)_[^/]+/(?P<container>[^/]+)/')
+          if merr == null {
+            .namespace = meta.ns
+            .pod = meta.pod
+            .container = meta.container
+          }
+          line, lerr = parse_regex(.message, r'^(?P<ts>\S+) (?P<stream>stdout|stderr) (?P<flag>\S+) (?P<msg>.*)$')
+          if lerr == null {
+            .message = line.msg
+            .stream = line.stream
+          }
+    sinks:
+      loki:
+        type: loki
+        inputs: ["parse"]
+        endpoint: "http://{{ include "lgtm-stack.lokiName" . }}:{{ .Values.loki.service.port | default 3100 }}"
+        encoding:
+          codec: text
+        # Small, low-cardinality label set so the bundled "Loki Kubernetes Logs"
+        # dashboard (namespace/pod/container/stream) binds. The `{{ "{{ ... }}" }}`
+        # is Vector's own templating, escaped so Helm passes it through verbatim.
+        labels:
+          namespace: "{{`{{ namespace }}`}}"
+          pod: "{{`{{ pod }}`}}"
+          container: "{{`{{ container }}`}}"
+          stream: "{{`{{ stream }}`}}"
+        out_of_order_action: accept
+{{- end }}

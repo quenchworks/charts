@@ -1,0 +1,80 @@
+# Install gate values. This is the HEAVIEST stack (VictoriaMetrics + Loki + Tempo +
+# Grafana + Alertmanager + OTel Collector + Vector + kube-state-metrics + node-exporter),
+# so resource requests are deliberately small to fit a single kind node. Storage is
+# ephemeral where possible (emptyDir) or small short-lived PVCs. Components use their
+# charts' real CI-maintained image digests; the inline components use the umbrella's
+# pinned digests.
+#
+# Total CPU requests ~0.75 vCPU, memory ~1.1Gi — fits a default 2-CPU GitHub runner
+# kind node. The release-lgtm-stack workflow uses --timeout 12m (heaviest stack).
+victoriametrics:
+  enabled: true
+  persistence:
+    enabled: false        # emptyDir at /storage for the gate
+  resources:
+    requests: { cpu: 100m, memory: 192Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+loki:
+  enabled: true
+  persistence:
+    enabled: false        # emptyDir at /loki for the gate
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+tempo:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 1Gi
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+grafana:
+  enabled: true
+  persistence:
+    enabled: false
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+alertmanager:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 1Gi
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+
+otelCollector:
+  enabled: true
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+# Vector is ON for this stack (log aggregation needs to read pod logs); host access.
+vector:
+  enabled: true
+  resources:
+    requests: { cpu: 50m, memory: 96Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+kubeStateMetrics:
+  enabled: true
+  resources:
+    requests: { cpu: 25m, memory: 48Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+
+# node-exporter is ON for this stack (the Node Exporter Full dashboard needs node
+# metrics); it takes host access by design.
+nodeExporter:
+  enabled: true
+  resources:
+    requests: { cpu: 25m, memory: 24Mi }
+    limits: { cpu: 200m, memory: 96Mi }
+
+dashboards:
+  enabled: true

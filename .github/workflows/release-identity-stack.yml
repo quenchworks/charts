@@ -1,0 +1,100 @@
+name: release-identity-stack
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/identity-stack/**"
+      - ".github/workflows/release-identity-stack.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/identity-stack
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          # Use `dependency update` (not `build`): identity-stack depends on
+          # keycloak 0.0.6, which is published in the same batch as this chart, so
+          # the committed Chart.lock may predate it. `update` re-resolves from OCI
+          # and regenerates the lock; `build` would fail on a stale lock digest.
+          helm dependency update "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+
+          # all components reached Ready (--wait already gates this, assert explicitly)
+          kubectl rollout status statefulset/rtest-postgresql    --timeout=300s
+          kubectl rollout status deployment/rtest-keycloak       --timeout=600s
+          kubectl rollout status deployment/rtest-oauth2-proxy   --timeout=300s
+
+          # INTEGRATION ASSERT 1: PostgreSQL is accepting connections.
+          kubectl exec statefulset/rtest-postgresql -- \
+            pg_isready -h 127.0.0.1 -U kcadmin -d keycloak
+
+          # INTEGRATION ASSERT 2: Keycloak health on the management port (9000).
+          # Run the probe from inside the cluster against the service.
+          kubectl run kc-health --rm -i --restart=Never --image=curlimages/curl:8.10.1 -- \
+            -fsS --retry 30 --retry-delay 5 --retry-all-errors \
+            "http://rtest-keycloak:9000/health/ready"
+
+          # INTEGRATION ASSERT 3: oauth2-proxy /ping on the proxy port (4180).
+          kubectl run op-ping --rm -i --restart=Never --image=curlimages/curl:8.10.1 -- \
+            -fsS --retry 30 --retry-delay 5 --retry-all-errors \
+            "http://rtest-oauth2-proxy:4180/ping"
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/identity-stack-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/identity-stack@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/identity-stack:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

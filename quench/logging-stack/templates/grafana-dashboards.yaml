@@ -1,0 +1,50 @@
+{{- if .Values.grafana.enabled }}
+# Grafana dashboard provisioning, owned by the umbrella. Two ConfigMaps:
+#   1. logging-stack-dashboard-provider — a Grafana "dashboards" provisioning
+#      provider that watches a folder on disk.
+#   2. logging-stack-dashboards — the dashboard JSON files (one key each),
+#      mounted as that folder (/var/lib/grafana/dashboards) via grafana.extraVolumes.
+# Both are FIXED names so they can be referenced from the static grafana.extraVolumes
+# value in values.yaml. ponytail: fixed names => one logging-stack per namespace.
+#
+# ponytail: one curated logs dashboard (grafana.com id 15141 "Loki Kubernetes Logs");
+# add more to dashboards/*.json + dashboards.include when someone needs them. The
+# JSON is normalized at build time to bind every datasource reference to the
+# provisioned "loki" uid.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logging-stack-dashboard-provider
+  labels:
+    {{- include "logging-stack.labels" . | nindent 4 }}
+data:
+  stack.yaml: |
+    apiVersion: 1
+    providers:
+      - name: logging-stack
+        orgId: 1
+        type: file
+        disableDeletion: true
+        allowUiUpdates: false
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+          foldersFromFilesStructure: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logging-stack-dashboards
+  labels:
+    {{- include "logging-stack.labels" . | nindent 4 }}
+data:
+  {{- if .Values.dashboards.enabled }}
+  {{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+  {{- $key := trimSuffix ".json" (base $path) }}
+  {{- if index $.Values.dashboards.include $key }}
+  {{ base $path }}: |-
+    {{- $.Files.Get $path | nindent 4 }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+{{- end }}

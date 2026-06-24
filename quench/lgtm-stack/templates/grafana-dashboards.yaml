@@ -1,0 +1,51 @@
+{{- if .Values.grafana.enabled }}
+# Grafana dashboard provisioning, owned by the umbrella. Two ConfigMaps:
+#   1. lgtm-stack-dashboard-provider — a Grafana "dashboards" provisioning provider
+#      that watches a folder on disk.
+#   2. lgtm-stack-dashboards — the dashboard JSON files (one key each), mounted as
+#      that folder (/var/lib/grafana/dashboards) via grafana.extraVolumes.
+# Both are FIXED names so they can be referenced from the static grafana.extraVolumes
+# value in values.yaml. ponytail: fixed names => one lgtm-stack per namespace.
+#
+# Curated set. The metrics dashboards (node-exporter / cluster / kube-state-metrics)
+# are normalized at build time to bind every datasource reference to the provisioned
+# "metrics" uid (VictoriaMetrics). The Loki logs dashboard binds the "loki" uid. They
+# populate from VM's promscrape (ksm + node-exporter + kubelet/cAdvisor) and Vector
+# respectively — no extra wiring.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lgtm-stack-dashboard-provider
+  labels:
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+data:
+  stack.yaml: |
+    apiVersion: 1
+    providers:
+      - name: lgtm-stack
+        orgId: 1
+        type: file
+        disableDeletion: true
+        allowUiUpdates: false
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+          foldersFromFilesStructure: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lgtm-stack-dashboards
+  labels:
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+data:
+  {{- if .Values.dashboards.enabled }}
+  {{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+  {{- $key := trimSuffix ".json" (base $path) }}
+  {{- if index $.Values.dashboards.include $key }}
+  {{ base $path }}: |-
+    {{- $.Files.Get $path | nindent 4 }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+{{- end }}

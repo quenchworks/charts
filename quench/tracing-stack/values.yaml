@@ -1,0 +1,188 @@
+# tracing-stack — an umbrella over the QuenchWorks tempo and grafana component
+# charts, plus a glue layer (a Grafana Tempo datasource, an inline OpenTelemetry
+# Collector gateway, and a bundled Tempo operational dashboard) wired together so
+# your apps can send OTLP traces in one direction and you can explore them in
+# Grafana in the other.
+#
+# Data flow:
+#     your app --(OTLP)--> <release>-otel-collector:4317/4318
+#                              |  (traces pipeline, batch + memory_limiter)
+#                              v
+#                          OTLP --> <release>-tempo:4317
+#                              |
+#                              v
+#     Grafana --(Tempo datasource, http://<release>-tempo:3200)--> Explore -> Tempo
+#
+# Apps MAY also send OTLP straight to <release>-tempo:4317/4318 (Tempo runs its own
+# OTLP receiver); the collector gateway is the recommended ingress so you get
+# batching, memory limiting, and a single place to add processors/exporters.
+#
+# Wiring notes (read the chart README before overriding):
+#   - The Grafana Tempo datasource is provided by THIS chart (a fixed-name ConfigMap
+#     mounted into Grafana via grafana.extraVolumes) so it can point at
+#     http://<release>-tempo:3200. Keep grafana.datasources: [] below.
+#   - The OpenTelemetry Collector is templated INLINE by this umbrella (Deployment +
+#     Service + config ConfigMap) rather than pulled in as a subchart: the
+#     otel-collector chart renders its config via toYaml, so the Tempo exporter
+#     endpoint could not carry the release name. Inlining lets the exporter target
+#     {{ .Release.Name }}-tempo:4317. Same approach observability-stack uses for
+#     kube-state-metrics.
+#   - Fixed-name datasource/dashboard ConfigMaps => run one tracing-stack per namespace.
+#
+# SECURITY POSTURE: every piece is clean (NO host access). Tempo, Grafana and the
+# collector all run nonroot (uid 1001) with a read-only root filesystem and all
+# Linux capabilities dropped. Nothing cluster-scoped is created.
+
+# ---------------------------------------------------------------------------
+# Tempo (subchart). Values pass straight through to the tempo chart. Single-binary
+# (-target=all), filesystem trace backend (no object store) — fine for kind and
+# small/moderate ingest. Tempo's HTTP API (query, /ready, /metrics) is on :3200 and
+# it runs its own OTLP receivers on :4317 (gRPC) / :4318 (HTTP) — the collector
+# below exports to :4317.
+# ---------------------------------------------------------------------------
+tempo:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 8Gi
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+# ---------------------------------------------------------------------------
+# Grafana (subchart). The Tempo datasource is provided by this umbrella's own
+# template (templates/grafana-datasources.yaml, fixed name) and mounted in via
+# extraVolumes below — so keep datasources: [] here. adminPassword empty =>
+# generated secret. The dashboard provider + dashboards ConfigMaps are also
+# umbrella-owned (templates/grafana-dashboards.yaml).
+# ---------------------------------------------------------------------------
+grafana:
+  enabled: true
+  datasources: []
+  auth:
+    adminPassword: ""
+  # Mount the umbrella-owned ConfigMaps into Grafana's provisioning tree. The
+  # grafana chart leaves /etc/grafana/provisioning as a writable emptyDir; we drop
+  # files in via subPath so they coexist with it. The dashboard JSON ConfigMap is
+  # mounted as a whole dir that the dashboard provider reads.
+  extraVolumes:
+    - name: stack-datasources
+      configMap:
+        name: tracing-stack-datasources
+    - name: stack-dashboard-provider
+      configMap:
+        name: tracing-stack-dashboard-provider
+    - name: stack-dashboards
+      configMap:
+        name: tracing-stack-dashboards
+  extraVolumeMounts:
+    # (i) datasource: a single file into the provisioning datasources dir.
+    - name: stack-datasources
+      mountPath: /etc/grafana/provisioning/datasources/stack.yaml
+      subPath: stack.yaml
+      readOnly: true
+    # (ii) dashboard provider: a single file into the provisioning dashboards dir.
+    - name: stack-dashboard-provider
+      mountPath: /etc/grafana/provisioning/dashboards/stack.yaml
+      subPath: stack.yaml
+      readOnly: true
+    # (iii) the dashboard JSON files, mounted as a whole dir Grafana reads from.
+    - name: stack-dashboards
+      mountPath: /var/lib/grafana/dashboards
+      readOnly: true
+  # Grafana is stateless here: datasources and dashboards are provisioned from
+  # ConfigMaps on every boot. Persistence off avoids admin-password drift on
+  # reinstall (a kept PVC retains the old password while the Secret regenerates).
+  persistence:
+    enabled: false
+
+# ---------------------------------------------------------------------------
+# Dashboards — which of the bundled Grafana dashboards to provision.
+#   - All (default): leave enabled: true with all include flags true.
+#   - None: set enabled: false (Grafana still installs, just no bundled dashboard).
+# Trace exploration itself is via Grafana Explore -> Tempo (search by service /
+# trace id); the bundled dashboard shows Tempo's own operational metrics and
+# populates as soon as Tempo serves /metrics — no trace volume required.
+# The mount is always present; this block only controls which JSON files land in
+# the dashboards ConfigMap, so toggling needs no extraVolumes change.
+# ---------------------------------------------------------------------------
+dashboards:
+  enabled: true
+  include:
+    tempo-operational: true
+
+# ---------------------------------------------------------------------------
+# OpenTelemetry Collector — the OTLP ingress gateway. Templated INLINE by this
+# umbrella (templates/otel-collector.yaml: ServiceAccount + ConfigMap + Deployment
+# + Service) so the traces-pipeline exporter can target {{ .Release.Name }}-tempo
+# (the otel-collector subchart renders its config via toYaml and could not). Apps
+# send OTLP to the Service: <release>-otel-collector:4317 (gRPC) / :4318 (HTTP).
+# Clean (no host access), nonroot 1001, read-only rootfs. ON by default.
+#
+# `config` is the WHOLE collector configuration (the image ships none) and is
+# rendered through `tpl` so the Tempo exporter endpoint below carries the release
+# name. Override it wholesale to add receivers/processors/exporters.
+# ---------------------------------------------------------------------------
+otelCollector:
+  enabled: true
+  image: ghcr.io/quenchworks/images/otel-collector
+  digest: "sha256:ed19a525ab80c31f8997e417fbc669fca4bed5c8748264d5f24a99d5d1dcec83"
+  pullPolicy: IfNotPresent
+  replicaCount: 1
+  ports:
+    otlpGrpc: 4317
+    otlpHttp: 4318
+    metrics: 8888
+    health: 13133
+  # Whether the Service exposes the collector's own :8888 metrics port (scrape it
+  # with your metrics stack). The container always listens; this gates Service
+  # exposure only.
+  exposeMetrics: true
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+  # The entire collector configuration. Rendered through `tpl`, so Helm template
+  # expressions (e.g. {{ .Release.Name }}) work inside it. The traces pipeline
+  # receives OTLP and exports to this stack's Tempo over OTLP gRPC :4317. The tls
+  # insecure flag is fine in-cluster (plaintext OTLP between the collector and
+  # Tempo); front Tempo with mTLS if you need wire encryption.
+  config: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:{{ .Values.otelCollector.ports.otlpGrpc }}
+          http:
+            endpoint: 0.0.0.0:{{ .Values.otelCollector.ports.otlpHttp }}
+    processors:
+      # memory_limiter must come first in every pipeline.
+      memory_limiter:
+        check_interval: 5s
+        limit_percentage: 80
+        spike_limit_percentage: 25
+      batch: {}
+    exporters:
+      # Forward spans to this stack's Tempo OTLP gRPC receiver.
+      otlp/tempo:
+        endpoint: {{ .Release.Name }}-tempo:{{ .Values.tempo.service.otlpGrpcPort | default 4317 }}
+        tls:
+          insecure: true
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:{{ .Values.otelCollector.ports.health }}
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp/tempo]
+      telemetry:
+        # The collector's own internal metrics on :8888 (Prometheus /metrics).
+        metrics:
+          readers:
+            - pull:
+                exporter:
+                  prometheus:
+                    host: 0.0.0.0
+                    port: {{ .Values.otelCollector.ports.metrics }}

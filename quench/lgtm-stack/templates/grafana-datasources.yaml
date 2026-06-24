@@ -1,0 +1,72 @@
+{{- if .Values.grafana.enabled }}
+# Grafana datasource provisioning, owned by the umbrella (not the grafana subchart)
+# so each datasource url can reference its release-prefixed component Service. FIXED
+# name (not release-prefixed) so it can be referenced from the static
+# grafana.extraVolumes value in values.yaml.
+# ponytail: fixed ConfigMap name => one lgtm-stack per namespace.
+#
+# THREE datasources, the full LGTM pane:
+#   - VictoriaMetrics (type prometheus, uid "metrics") — DEFAULT. Prometheus-compatible
+#     query API on :8428; the metrics dashboards are normalized to bind uid "metrics".
+#   - Loki  (type loki,  uid "loki")  — the logs dashboard binds uid "loki".
+#   - Tempo (type tempo, uid "tempo") — Explore -> Tempo; correlation links wired to
+#     the loki/metrics uids (tracesToLogs / tracesToMetrics) for trace<->log<->metric
+#     navigation.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: lgtm-stack-datasources
+  labels:
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+data:
+  stack.yaml: |
+    apiVersion: 1
+    datasources:
+      # --- M: VictoriaMetrics (Prometheus-compatible) — the default datasource ---
+      - name: VictoriaMetrics
+        type: prometheus
+        # Fixed uid: the bundled metrics dashboards are normalized to bind every
+        # datasource reference to uid "metrics", so this MUST stay "metrics".
+        uid: metrics
+        access: proxy
+        url: http://{{ include "lgtm-stack.victoriametricsName" . }}:{{ .Values.victoriametrics.service.port | default 8428 }}
+        isDefault: true
+        editable: false
+      # --- L: Loki ---
+      - name: Loki
+        type: loki
+        # Fixed uid: the bundled logs dashboard binds uid "loki".
+        uid: loki
+        access: proxy
+        url: http://{{ include "lgtm-stack.lokiName" . }}:{{ .Values.loki.service.port | default 3100 }}
+        isDefault: false
+        editable: false
+      # --- T: Tempo ---
+      - name: Tempo
+        type: tempo
+        # Fixed uid so dashboards/links bind deterministically.
+        uid: tempo
+        access: proxy
+        url: http://{{ include "lgtm-stack.tempoName" . }}:{{ .Values.tempo.service.port | default 3200 }}
+        isDefault: false
+        editable: false
+        jsonData:
+          # Correlation across the pane: jump from a span to its logs (Loki) and to
+          # service metrics (VictoriaMetrics). Matches on the standard k8s tags.
+          tracesToLogsV2:
+            datasourceUid: loki
+            tags:
+              - key: service.name
+                value: service_name
+              - key: k8s.namespace.name
+                value: namespace
+              - key: k8s.pod.name
+                value: pod
+            filterByTraceID: true
+            filterBySpanID: false
+          tracesToMetrics:
+            datasourceUid: metrics
+            tags:
+              - key: service.name
+                value: service_name
+{{- end }}

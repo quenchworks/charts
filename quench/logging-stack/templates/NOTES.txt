@@ -1,0 +1,42 @@
+logging-stack {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Components:
+{{- if .Values.loki.enabled }}
+  - Loki     svc {{ .Release.Name }}-loki:{{ .Values.loki.service.port | default 3100 }}  (push: /loki/api/v1/push)
+{{- end }}
+{{- if .Values.grafana.enabled }}
+  - Grafana  svc {{ .Release.Name }}-grafana:{{ .Values.grafana.service.port | default 3000 }}
+{{- end }}
+{{- if .Values.vector.enabled }}
+  - Vector   (DaemonSet, host log dirs; ships pod logs to {{ .Release.Name }}-loki)
+{{- end }}
+
+1. Open Grafana:
+
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-grafana {{ .Values.grafana.service.port | default 3000 }}:{{ .Values.grafana.service.port | default 3000 }}
+   open http://127.0.0.1:{{ .Values.grafana.service.port | default 3000 }}
+
+2. Admin password (generated unless you set grafana.auth.adminPassword):
+
+   kubectl -n {{ .Release.Namespace }} get secret {{ .Release.Name }}-grafana \
+     -o jsonpath='{.data.admin-password}' | base64 -d ; echo
+
+   The "Loki" datasource is pre-provisioned and set as default, and the bundled
+   "Loki Kubernetes Logs" dashboard appears under Dashboards on first boot. In
+   Explore, run  {namespace="{{ .Release.Namespace }}"}  to see this release's logs.
+
+3. Ship your own app's logs:
+
+   Nothing to do — Vector tails EVERY pod's stdout/stderr on every node and pushes
+   it to Loki, labelled by namespace / pod / container / node / stream. Just query
+   your namespace in Grafana Explore. To collect from a file inside a container
+   instead, add a file source to the Vector config (see the README).
+
+Notes:
+  - No logging operator / CRDs. Loki runs single-binary (filesystem storage);
+    Vector is a plain DaemonSet with annotation-free, cluster-wide log discovery.
+  - Vector is ON by default for this stack (it needs to read pod logs off each
+    node). It takes host access (read-only /var/log/pods + /var/lib/docker/containers)
+    by design; set vector.enabled: false to drop log collection.
+  - This release uses fixed-name datasource/dashboard ConfigMaps, so run one
+    logging-stack per namespace.

@@ -1,0 +1,75 @@
+{{- if .Values.nodeExporter.enabled }}
+{{- $ne := .Values.nodeExporter -}}
+# HOST-ACCESS NODE AGENT. node-exporter runs in the host PID and network namespaces
+# and mounts host /proc, /sys and / read-only to read node metrics. That host access
+# is the deliberate trade-off for THIS stack (the Node Exporter Full dashboard needs
+# node metrics). ON by default; set nodeExporter.enabled: false to drop node metrics.
+# Annotated prometheus.io/scrape so VictoriaMetrics' promscrape picks it up.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "lgtm-stack.nodeExporterName" . }}
+  labels:
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/name: node-exporter
+    app.kubernetes.io/component: exporter
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: node-exporter
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: node-exporter
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: exporter
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ $ne.port | quote }}
+    spec:
+      hostPID: true        # opt-in: host process namespace
+      hostNetwork: true    # opt-in: host network namespace (binds the node IP)
+      dnsPolicy: ClusterFirstWithHostNet
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+      containers:
+        - name: node-exporter
+          image: "{{ $ne.image }}@{{ $ne.digest }}"
+          imagePullPolicy: {{ $ne.pullPolicy }}
+          args:
+            - --path.procfs=/host/proc
+            - --path.sysfs=/host/sys
+            - --path.rootfs=/host/root
+            - --web.listen-address=:{{ $ne.port }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: metrics
+              containerPort: {{ $ne.port }}
+              hostPort: {{ $ne.port }}
+          resources:
+            {{- toYaml $ne.resources | nindent 12 }}
+          volumeMounts:
+            - name: proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: root
+              mountPath: /host/root
+              mountPropagation: HostToContainer
+              readOnly: true
+      volumes:
+        - name: proc
+          hostPath: { path: /proc }
+        - name: sys
+          hostPath: { path: /sys }
+        - name: root
+          hostPath: { path: / }
+{{- end }}

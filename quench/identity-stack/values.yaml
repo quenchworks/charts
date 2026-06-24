@@ -1,0 +1,157 @@
+# identity-stack — an umbrella over the QuenchWorks keycloak and oauth2-proxy
+# component charts (PostgreSQL ships bundled INSIDE keycloak), plus a small glue
+# layer (one umbrella-owned Secret) wired together so you get self-hosted single
+# sign-on in front of your apps out of the box: Keycloak is the OIDC identity
+# provider, PostgreSQL is its database, and oauth2-proxy is the authenticating
+# reverse proxy you place in front of an upstream app.
+#
+# WIRING NOTES (read the chart README before overriding):
+#
+#   quench-common fullname == <release>-<chart>, so the in-cluster service names
+#   are <release>-postgresql:5432, <release>-keycloak:8080 (and :9000 mgmt), and
+#   <release>-oauth2-proxy:4180. Anything that needs the release name, or a shared
+#   generated credential, is produced by THIS umbrella's own template
+#   (templates/config.yaml: the fixed-name Secret "identity-stack-config") —
+#   because values.yaml is NOT templated, such a value cannot live here.
+#
+#   - DB password: the umbrella Secret holds "db-password" (generated if
+#     shared.dbPassword is empty). Both Keycloak (KC_DB_PASSWORD, via
+#     keycloak.db.existingSecret) AND the bundled PostgreSQL's init password (via
+#     keycloak.postgresql.auth.existingSecret) read that SAME Secret + key, so they
+#     always match. No plaintext password lives in values.yaml.
+#   - Keycloak -> PostgreSQL: bundled mode (default). The keycloak chart wires
+#     KC_DB_URL = jdbc:postgresql://<release>-postgresql:5432/<database>
+#     automatically. To use your OWN PostgreSQL instead, see "EXTERNAL DATABASE".
+#   - oauth2-proxy -> Keycloak: provider=oidc. The OIDC issuer URL needs the
+#     release name, so it is injected as OAUTH2_PROXY_OIDC_ISSUER_URL from the
+#     umbrella Secret. The OIDC client secret and cookie secret are injected the
+#     same way (OAUTH2_PROXY_CLIENT_SECRET / OAUTH2_PROXY_COOKIE_SECRET), so no
+#     secret appears as a plaintext command-line flag.
+
+# ---------------------------------------------------------------------------
+# Shared credentials — the single source of truth, held by the umbrella Secret
+# "identity-stack-config" (templates/config.yaml). Leave any of these EMPTY to
+# have a strong value GENERATED and preserved across upgrades (nothing sensitive
+# in values.yaml). Set them to pin a known value.
+# ---------------------------------------------------------------------------
+shared:
+  # DB password shared by Keycloak (KC_DB_PASSWORD) and the bundled PostgreSQL.
+  dbPassword: ""
+  # oauth2-proxy OIDC client secret (register the client in Keycloak; see README).
+  oidcClientSecret: ""
+  # oauth2-proxy cookie signing secret. Generated as 32 bytes when empty.
+  cookieSecret: ""
+  # Keycloak realm oauth2-proxy points its OIDC issuer at. "master" exists from
+  # first boot, so the issuer URL resolves immediately; change to your realm.
+  oidcRealm: "master"
+  # OIDC client id oauth2-proxy presents to Keycloak (register it in Keycloak).
+  oidcClientID: "oauth2-proxy"
+
+# ---------------------------------------------------------------------------
+# Keycloak (subchart). OIDC/SAML identity provider.
+#
+# BUNDLED DATABASE (default): PostgreSQL ships inside the keycloak chart
+# (keycloak.postgresql.enabled=true). The keycloak chart auto-wires KC_DB_URL to
+# jdbc:postgresql://<release>-postgresql:5432/keycloak. Both Keycloak and the
+# bundled PG read the DB password from the umbrella Secret identity-stack-config:
+#   - keycloak.db.existingSecret              -> KC_DB_PASSWORD
+#   - keycloak.postgresql.auth.existingSecret -> PostgreSQL init password
+# Same Secret + key => guaranteed match, no plaintext.
+#
+# EXTERNAL DATABASE (bring your own PG): set keycloak.postgresql.enabled=false,
+# fill keycloak.externalDatabase.{host,port,database,user}, pre-create a Secret
+# with your DB password, and point keycloak.db.existingSecret at it. No bundled PG
+# StatefulSet is rendered. See the README "Use your own PostgreSQL" section.
+#
+# NOTE: the postgresql image only creates the app database when its name differs
+# from both "postgres" and the superuser name, so username (kcadmin) and database
+# (keycloak) MUST differ.
+# ---------------------------------------------------------------------------
+keycloak:
+  enabled: true
+  # KC_DB_PASSWORD is read from the umbrella Secret (works in bundled AND external
+  # mode). New in keycloak 0.0.6.
+  db:
+    existingSecret: "identity-stack-config"
+    existingSecretPasswordKey: "db-password"
+  # Bundled PostgreSQL (the quench/postgresql subchart inside keycloak). Its init
+  # password is read from the SAME umbrella Secret + key, so it matches KC_DB_PASSWORD.
+  postgresql:
+    enabled: true
+    auth:
+      username: kcadmin
+      database: keycloak
+      existingSecret: "identity-stack-config"
+      existingSecretPasswordKey: "db-password"
+    primary:
+      persistence:
+        enabled: true
+        size: 8Gi
+  # External database — used only when postgresql.enabled is set to false above.
+  # Supply the password by pre-creating a Secret and leaving keycloak.db.existingSecret
+  # pointed at it (or point it at your own Secret).
+  externalDatabase:
+    host: ""
+    port: 5432
+    database: keycloak
+    user: kcadmin
+  auth:
+    adminUser: admin
+    adminPassword: ""                    # generated (24 chars) if empty
+  production:
+    hostname: ""                         # set to your public URL in production
+    proxyHeaders: ""                     # set "xforwarded" behind a TLS-terminating proxy
+  resources:
+    requests: { cpu: 500m, memory: 768Mi }
+    limits: { cpu: "2", memory: 2Gi }
+
+# ---------------------------------------------------------------------------
+# oauth2-proxy (subchart). The authenticating reverse proxy. provider=oidc. The
+# OIDC issuer URL, client secret and cookie secret are injected as OAUTH2_PROXY_*
+# env from the umbrella Secret (no secret as a plaintext flag). provider, client
+# id, email-domain and upstream=static://200 (so the gate reaches Ready with no
+# real backend) are set through the chart's config passthrough. Point upstream at
+# your app and register a real Keycloak client before exposing it.
+# ---------------------------------------------------------------------------
+oauth2Proxy:
+  enabled: true
+  # The dependency is aliased "oauth2Proxy" (so this values key and the
+  # oauth2Proxy.enabled condition line up), which would otherwise make
+  # quench-common name its objects <release>-oauth2Proxy. Force the real chart
+  # name back so the Service stays <release>-oauth2-proxy:4180.
+  nameOverride: "oauth2-proxy"
+  config:
+    provider: "oidc"
+    clientID: "oauth2-proxy"
+    # clientSecret / cookieSecret deliberately LEFT EMPTY here so the chart emits
+    # no plaintext --client-secret / --cookie-secret flag; both are supplied via
+    # OAUTH2_PROXY_* env from the umbrella Secret (see extraEnvVars below).
+    clientSecret: ""
+    cookieSecret: ""
+    emailDomain: "*"
+    upstream: "static://200"
+    extraArgs:
+      # Skip provider TLS/discovery strictness for the self-contained gate where
+      # the issuer is reached over in-cluster HTTP.
+      - "--ssl-insecure-skip-verify=true"
+  # Inject the release-aware issuer URL + the OIDC client secret + cookie secret
+  # from the umbrella Secret. oauth2-proxy reads OAUTH2_PROXY_<FLAG> env as config.
+  extraEnvVars:
+    - name: OAUTH2_PROXY_OIDC_ISSUER_URL
+      valueFrom:
+        secretKeyRef:
+          name: identity-stack-config
+          key: OIDC_ISSUER_URL
+    - name: OAUTH2_PROXY_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: identity-stack-config
+          key: oidc-client-secret
+    - name: OAUTH2_PROXY_COOKIE_SECRET
+      valueFrom:
+        secretKeyRef:
+          name: identity-stack-config
+          key: cookie-secret
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }

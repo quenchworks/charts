@@ -1,0 +1,45 @@
+tracing-stack {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Components:
+{{- if .Values.tempo.enabled }}
+  - Tempo             svc {{ .Release.Name }}-tempo:{{ .Values.tempo.service.port | default 3200 }} (HTTP query/api, /ready, /metrics)
+                      OTLP receivers {{ .Release.Name }}-tempo:4317 (gRPC) / :4318 (HTTP)
+{{- end }}
+{{- if .Values.grafana.enabled }}
+  - Grafana           svc {{ .Release.Name }}-grafana:{{ .Values.grafana.service.port | default 3000 }}
+{{- end }}
+{{- if .Values.otelCollector.enabled }}
+  - OTel Collector    svc {{ .Release.Name }}-otel-collector:{{ .Values.otelCollector.ports.otlpGrpc }} (OTLP gRPC) / :{{ .Values.otelCollector.ports.otlpHttp }} (OTLP HTTP)
+{{- end }}
+
+1. Send traces from your apps to the collector gateway (recommended):
+
+   OTLP gRPC:  {{ .Release.Name }}-otel-collector.{{ .Release.Namespace }}.svc:{{ .Values.otelCollector.ports.otlpGrpc }}
+   OTLP HTTP:  http://{{ .Release.Name }}-otel-collector.{{ .Release.Namespace }}.svc:{{ .Values.otelCollector.ports.otlpHttp }}
+
+   e.g. set in your app:
+     OTEL_EXPORTER_OTLP_ENDPOINT=http://{{ .Release.Name }}-otel-collector:{{ .Values.otelCollector.ports.otlpHttp }}
+
+   The collector batches and forwards spans to {{ .Release.Name }}-tempo:4317. Apps
+   MAY also send OTLP straight to {{ .Release.Name }}-tempo:4317/4318.
+
+2. Explore traces in Grafana:
+
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-grafana {{ .Values.grafana.service.port | default 3000 }}:{{ .Values.grafana.service.port | default 3000 }}
+   open http://127.0.0.1:{{ .Values.grafana.service.port | default 3000 }}
+
+   Admin password (generated unless you set grafana.auth.adminPassword):
+
+     kubectl -n {{ .Release.Namespace }} get secret {{ .Release.Name }}-grafana \
+       -o jsonpath='{.data.admin-password}' | base64 -d ; echo
+
+   The "Tempo" datasource is pre-provisioned and set as default. Go to
+   Explore -> Tempo to search by service name or look up a trace ID. The bundled
+   Tempo operational dashboard appears under Dashboards.
+
+Notes:
+  - No operator / CRDs. The collector is templated inline by this umbrella so its
+    Tempo exporter can target {{ .Release.Name }}-tempo:4317.
+  - Clean stack: no host access, nothing cluster-scoped. Tempo, Grafana and the
+    collector run nonroot (uid 1001) with read-only root filesystems.
+  - Fixed-name datasource/dashboard ConfigMaps => run one tracing-stack per namespace.

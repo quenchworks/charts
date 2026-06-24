@@ -1,0 +1,41 @@
+{{- if .Values.prometheus.enabled }}
+# RBAC for Prometheus' kubernetes_sd_configs (role: pod) discovery. The
+# prometheus subchart creates its ServiceAccount (<release>-prometheus) but
+# grants it no cluster permissions; this umbrella binds the read access the
+# in-cluster service discovery needs. ClusterRole-scoped because pod discovery
+# spans namespaces.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-prometheus" .Release.Name }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+      - nodes
+      - nodes/metrics
+      - nodes/proxy   # the kubelet + cAdvisor jobs scrape via /api/v1/nodes/<n>/proxy/metrics
+      - services
+      - endpoints
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-prometheus" .Release.Name }}
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-prometheus" .Release.Name }}
+subjects:
+  - kind: ServiceAccount
+    # the prometheus subchart's SA: quench-common fullname == <release>-prometheus
+    name: {{ include "observability-stack.prometheusName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

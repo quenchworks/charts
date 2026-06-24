@@ -1,0 +1,28 @@
+{{- if .Values.grafana.enabled }}
+# Grafana datasource provisioning, owned by the umbrella (not the grafana
+# subchart) so the content can reference the release-prefixed Prometheus service
+# name. FIXED name (not release-prefixed) so it can be referenced from the
+# static grafana.extraVolumes value in values.yaml.
+# ponytail: fixed ConfigMap name => one observability-stack per namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observability-stack-datasources
+  labels:
+    {{- include "observability-stack.labels" . | nindent 4 }}
+data:
+  # Dropped into GF_PATHS_PROVISIONING/datasources/stack.yaml; Grafana wires it
+  # on boot. Points at this stack's Prometheus.
+  stack.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        # Fixed uid: the bundled dashboards are normalized to bind every datasource
+        # reference to uid "prometheus", so this MUST stay "prometheus".
+        uid: prometheus
+        access: proxy
+        url: http://{{ include "observability-stack.prometheusName" . }}:{{ .Values.prometheus.service.port | default 9090 }}
+        isDefault: true
+        editable: false
+{{- end }}

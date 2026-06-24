@@ -1,0 +1,27 @@
+{{- if .Values.grafana.enabled }}
+# Grafana datasource provisioning, owned by the umbrella (not the grafana
+# subchart) so the content can reference the release-prefixed Tempo service name.
+# FIXED name (not release-prefixed) so it can be referenced from the static
+# grafana.extraVolumes value in values.yaml.
+# ponytail: fixed ConfigMap name => one tracing-stack per namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tracing-stack-datasources
+  labels:
+    {{- include "tracing-stack.labels" . | nindent 4 }}
+data:
+  # Dropped into GF_PATHS_PROVISIONING/datasources/stack.yaml; Grafana wires it on
+  # boot. Points at this stack's Tempo. Explore -> Tempo to search/view traces.
+  stack.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Tempo
+        type: tempo
+        # Fixed uid so dashboards/links can bind to it deterministically.
+        uid: tempo
+        access: proxy
+        url: http://{{ include "tracing-stack.tempoName" . }}:{{ .Values.tempo.service.port | default 3200 }}
+        isDefault: true
+        editable: false
+{{- end }}

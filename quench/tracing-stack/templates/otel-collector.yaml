@@ -1,0 +1,143 @@
+{{- if .Values.otelCollector.enabled }}
+{{- $otel := .Values.otelCollector -}}
+# OpenTelemetry Collector gateway, templated INLINE by this umbrella (not pulled in
+# as the otel-collector subchart) so the traces-pipeline exporter endpoint can
+# carry the release name -> {{ .Release.Name }}-tempo:4317. The subchart renders its
+# config via toYaml, which cannot template the release name. Same inlining approach
+# observability-stack uses for kube-state-metrics.
+#
+# Clean: no host access, no cluster RBAC (the config uses no k8s-API processors).
+# Nonroot 1001, read-only rootfs (only /tmp is writable), all caps dropped.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "tracing-stack.otelCollectorName" . }}
+  labels:
+    {{- include "tracing-stack.otelCollectorLabels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tracing-stack.otelCollectorName" . }}-config
+  labels:
+    {{- include "tracing-stack.otelCollectorLabels" . | nindent 4 }}
+data:
+  # Mounted over /etc/otelcol/config.yaml and passed as --config. The image ships no
+  # default config, so this is the entire configuration. Rendered through `tpl` so
+  # the Tempo exporter endpoint carries {{ "{{ .Release.Name }}" }}.
+  config.yaml: |-
+    {{- tpl $otel.config . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tracing-stack.otelCollectorName" . }}
+  labels:
+    {{- include "tracing-stack.otelCollectorLabels" . | nindent 4 }}
+spec:
+  replicas: {{ $otel.replicaCount | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "tracing-stack.otelCollectorSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Roll the pod when the collector config changes.
+        checksum/config: {{ tpl $otel.config . | sha256sum }}
+      labels:
+        {{- include "tracing-stack.otelCollectorSelectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "tracing-stack.otelCollectorName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: otel-collector
+          image: "{{ $otel.image }}@{{ $otel.digest }}"
+          imagePullPolicy: {{ $otel.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          # The image entrypoint is /usr/bin/otelcol-contrib with no default config.
+          args:
+            - --config=/etc/otelcol/config.yaml
+          ports:
+            - name: otlp-grpc
+              containerPort: {{ $otel.ports.otlpGrpc }}
+              protocol: TCP
+            - name: otlp-http
+              containerPort: {{ $otel.ports.otlpHttp }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ $otel.ports.metrics }}
+              protocol: TCP
+            - name: health
+              containerPort: {{ $otel.ports.health }}
+              protocol: TCP
+          # The health_check extension serves GET / -> 200 on :13133.
+          livenessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml $otel.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            # writable scratch for the read-only rootfs.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "tracing-stack.otelCollectorName" . }}-config
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tracing-stack.otelCollectorName" . }}
+  labels:
+    {{- include "tracing-stack.otelCollectorLabels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    # OTLP ingest ports: apps send telemetry here.
+    - name: otlp-grpc
+      port: {{ $otel.ports.otlpGrpc }}
+      targetPort: otlp-grpc
+      protocol: TCP
+    - name: otlp-http
+      port: {{ $otel.ports.otlpHttp }}
+      targetPort: otlp-http
+      protocol: TCP
+    {{- if $otel.exposeMetrics }}
+    # the collector's own Prometheus metrics (scrape target).
+    - name: metrics
+      port: {{ $otel.ports.metrics }}
+      targetPort: metrics
+      protocol: TCP
+    {{- end }}
+  selector:
+    {{- include "tracing-stack.otelCollectorSelectorLabels" . | nindent 4 }}
+{{- end }}

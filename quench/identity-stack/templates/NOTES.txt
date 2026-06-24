@@ -1,0 +1,70 @@
+identity-stack {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Components:
+{{- if and .Values.keycloak.enabled (((.Values.keycloak).postgresql).enabled) }}
+  - PostgreSQL    svc {{ .Release.Name }}-postgresql:5432   (Keycloak's database, bundled)
+{{- end }}
+{{- if .Values.keycloak.enabled }}
+  - Keycloak      svc {{ .Release.Name }}-keycloak:8080      (OIDC/SAML identity provider; mgmt/health on :9000)
+{{- end }}
+{{- if .Values.oauth2Proxy.enabled }}
+  - oauth2-proxy  svc {{ .Release.Name }}-oauth2-proxy:4180  (auth proxy in front of your app)
+{{- end }}
+
+The SSO flow: a browser hits oauth2-proxy -> oauth2-proxy redirects to Keycloak
+(OIDC) -> Keycloak authenticates the user against its database -> oauth2-proxy
+validates the token and forwards the request to your upstream app.
+
+1. Open the Keycloak admin console:
+
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-keycloak 8080:8080
+   open http://127.0.0.1:8080/admin/
+
+   Admin user: {{ .Values.keycloak.auth.adminUser | default "admin" }}
+   Admin password (generated unless you set keycloak.auth.adminPassword):
+
+   kubectl -n {{ .Release.Namespace }} get secret {{ .Release.Name }}-keycloak \
+     -o jsonpath='{.data.admin-password}' | base64 -d ; echo
+
+2. Create a realm + an OIDC client for oauth2-proxy:
+
+   a. In the admin console create (or reuse) a realm. This release points
+      oauth2-proxy at the "{{ .Values.shared.oidcRealm }}" realm
+      (shared.oidcRealm). Change shared.oidcRealm to your realm and upgrade.
+   b. In that realm create a confidential OpenID Connect client:
+        - Client ID:    {{ .Values.shared.oidcClientID }}
+        - Client auth:  On (confidential)
+        - Valid redirect URIs: https://<your-app-host>/oauth2/callback
+      Copy the generated client secret.
+   c. Set the same id/secret on the proxy and upgrade (the client secret flows to
+      oauth2-proxy from the umbrella Secret, so set it once under shared.*):
+        --set shared.oidcClientID=<id> \
+        --set shared.oidcClientSecret=<secret> \
+        --set oauth2Proxy.config.clientID=<id>
+
+   oauth2-proxy's OIDC issuer is wired automatically to:
+     http://{{ .Release.Name }}-keycloak:8080/realms/{{ .Values.shared.oidcRealm }}
+
+3. Put oauth2-proxy in FRONT of YOUR app:
+
+   - Run your app as a Service in this namespace, then point the proxy at it:
+       --set oauth2Proxy.config.upstream=http://<your-app>.{{ .Release.Namespace }}.svc:<port>
+     (the default upstream is static://200 — a placeholder that returns 200 so
+     the proxy is healthy before you wire a real backend).
+   - Expose {{ .Release.Name }}-oauth2-proxy:4180 via your Ingress; unauthenticated
+     requests are redirected to Keycloak to log in, authenticated ones are proxied
+     to your upstream. Alternatively use it as a forward-auth / auth_request
+     endpoint from your existing Ingress controller.
+
+Notes:
+  - No operator / CRDs. Keycloak boots Quarkus, connects to PostgreSQL and runs
+    Liquibase migrations on first start, so its readiness window is generous —
+    allow several minutes before it reports ready on :9000/health/ready.
+  - PostgreSQL is bundled inside the keycloak chart. Keycloak and the bundled PG
+    share one DB password from the Secret "identity-stack-config" (generated when
+    shared.dbPassword is empty), so they always match. The OIDC issuer URL, OIDC
+    client secret and cookie secret also live in that Secret (fixed name => one
+    identity-stack per namespace).
+  - All shared.* credentials are generated when left empty and preserved across
+    upgrades; set shared.oidcClientID/oidcClientSecret to your real Keycloak client
+    before exposing the proxy to real traffic.

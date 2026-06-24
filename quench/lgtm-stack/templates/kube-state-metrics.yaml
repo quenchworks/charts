@@ -1,0 +1,189 @@
+{{- if .Values.kubeStateMetrics.enabled }}
+{{- $ksm := .Values.kubeStateMetrics -}}
+# kube-state-metrics, templated inline by this umbrella (same approach the sibling
+# stacks use). Cluster object metrics (pods, deployments, nodes, ...). Annotated
+# prometheus.io/scrape so VictoriaMetrics' promscrape kubernetes-pods job picks it up.
+# Clean: no host access, nonroot 1001, read-only rootfs, all caps dropped.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "lgtm-stack.ksmName" . }}
+  labels:
+    {{- include "lgtm-stack.ksmLabels" . | nindent 4 }}
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "lgtm-stack.ksmName" . }}
+  labels:
+    {{- include "lgtm-stack.ksmLabels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - secrets
+      - nodes
+      - pods
+      - services
+      - serviceaccounts
+      - resourcequotas
+      - replicationcontrollers
+      - limitranges
+      - persistentvolumeclaims
+      - persistentvolumes
+      - namespaces
+      - endpoints
+    verbs: ["list", "watch"]
+  - apiGroups: ["apps"]
+    resources:
+      - statefulsets
+      - daemonsets
+      - deployments
+      - replicasets
+    verbs: ["list", "watch"]
+  - apiGroups: ["batch"]
+    resources:
+      - cronjobs
+      - jobs
+    verbs: ["list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources:
+      - horizontalpodautoscalers
+    verbs: ["list", "watch"]
+  - apiGroups: ["policy"]
+    resources:
+      - poddisruptionbudgets
+    verbs: ["list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources:
+      - ingresses
+      - networkpolicies
+    verbs: ["list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources:
+      - storageclasses
+      - volumeattachments
+    verbs: ["list", "watch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources:
+      - clusterroles
+      - roles
+      - clusterrolebindings
+      - rolebindings
+    verbs: ["list", "watch"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources:
+      - certificatesigningrequests
+    verbs: ["list", "watch"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources:
+      - mutatingwebhookconfigurations
+      - validatingwebhookconfigurations
+    verbs: ["list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources:
+      - leases
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "lgtm-stack.ksmName" . }}
+  labels:
+    {{- include "lgtm-stack.ksmLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "lgtm-stack.ksmName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "lgtm-stack.ksmName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "lgtm-stack.ksmName" . }}
+  labels:
+    {{- include "lgtm-stack.ksmLabels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "lgtm-stack.ksmSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "lgtm-stack.ksmSelectorLabels" . | nindent 8 }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ $ksm.port | quote }}
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: {{ include "lgtm-stack.ksmName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: kube-state-metrics
+          image: "{{ $ksm.image }}@{{ $ksm.digest }}"
+          imagePullPolicy: {{ $ksm.pullPolicy }}
+          args:
+            - --port={{ $ksm.port }}
+            - --telemetry-port=8081
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http-metrics
+              containerPort: {{ $ksm.port }}
+            - name: telemetry
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http-metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: telemetry
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml $ksm.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "lgtm-stack.ksmName" . }}
+  labels:
+    {{- include "lgtm-stack.ksmLabels" . | nindent 4 }}
+  annotations:
+    # discovered by the VM kubernetes-pods job via the pod annotations, but annotate
+    # the Service too for tools that scrape endpoints.
+    prometheus.io/scrape: "true"
+    prometheus.io/port: {{ $ksm.port | quote }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: http-metrics
+      port: {{ $ksm.port }}
+      targetPort: http-metrics
+    - name: telemetry
+      port: 8081
+      targetPort: telemetry
+  selector:
+    {{- include "lgtm-stack.ksmSelectorLabels" . | nindent 4 }}
+{{- end }}

@@ -1,0 +1,63 @@
+apiVersion: v2
+name: identity-stack
+description: "Hardened, operator-free self-hosted SSO/identity stack: Keycloak (OIDC/SAML identity provider) + PostgreSQL (Keycloak's database) + oauth2-proxy (an auth proxy you place in front of any upstream app to authenticate users against Keycloak), wired together so you get single sign-on in front of your apps out of the box. No operator, no CRDs. All components are QuenchWorks-hardened, nonroot, 0-CVE images pinned by digest and cosign-signed."
+type: application
+version: 0.0.1
+appVersion: "1.0.0"
+keywords:
+  - identity
+  - sso
+  - oidc
+  - keycloak
+  - oauth2
+  - oauth2-proxy
+  - postgresql
+  - iam
+  - authentication
+  - stack
+maintainers:
+  - name: QuenchWorks
+    email: info@quench-works.com
+    url: https://github.com/quenchworks
+icon: https://raw.githubusercontent.com/quenchworks/.github/main/profile/assets/chart-icon.png
+home: https://quench-works.com
+sources:
+  - https://github.com/quenchworks/charts
+  - https://github.com/keycloak/keycloak
+  - https://github.com/oauth2-proxy/oauth2-proxy
+  - https://github.com/postgres/postgres
+annotations:
+  artifacthub.io/category: security
+  artifacthub.io/images: |
+    - name: keycloak
+      image: ghcr.io/quenchworks/images/keycloak@sha256:5e700e70b7ce773ab14cdb3705591290b33c3dc8fa528741aec10c26eabcb64b
+    - name: postgresql
+      image: ghcr.io/quenchworks/images/postgresql@sha256:b492e8f2aa8528a0af8bc1aa835522ab222aa8e0a0a6c135b2d5fdc3e9467bd4
+    - name: oauth2-proxy
+      image: ghcr.io/quenchworks/images/oauth2-proxy@sha256:73496afee746deab63d06f404ba8e4057835a2f8b007365129c3c02840a360ac
+  artifacthub.io/operator: "false"
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/quenchworks/charts
+    - name: image
+      url: https://github.com/quenchworks/images
+  artifacthub.io/signKey: |
+    fingerprint: keyless (cosign / Sigstore)
+    url: https://github.com/quenchworks/.github/blob/main/SECURITY.md
+dependencies:
+  # PostgreSQL is NOT a direct dependency: the keycloak chart already bundles
+  # quench/postgresql (alias "postgresql", default enabled) and wires Keycloak to
+  # it automatically (keycloak.db.host resolves to <release>-postgresql). It still
+  # ships in this stack (inside keycloak), so it stays in artifacthub.io/images
+  # and the keywords above.
+  - name: keycloak
+    version: 0.0.6
+    repository: oci://ghcr.io/quenchworks/charts
+    condition: keycloak.enabled
+  - name: oauth2-proxy
+    alias: oauth2Proxy
+    version: 0.0.1
+    repository: oci://ghcr.io/quenchworks/charts
+    condition: oauth2Proxy.enabled

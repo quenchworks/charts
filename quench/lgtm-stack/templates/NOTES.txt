@@ -1,0 +1,78 @@
+lgtm-stack {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+The full LGTM observability pane — metrics, logs AND traces in one Grafana.
+
+Components:
+{{- if .Values.victoriametrics.enabled }}
+  - VictoriaMetrics   svc {{ .Release.Name }}-victoriametrics:{{ .Values.victoriametrics.service.port | default 8428 }}  (Prometheus-compatible: /api/v1/query, /health)
+{{- end }}
+{{- if .Values.loki.enabled }}
+  - Loki              svc {{ .Release.Name }}-loki:{{ .Values.loki.service.port | default 3100 }}  (push: /loki/api/v1/push, /ready)
+{{- end }}
+{{- if .Values.tempo.enabled }}
+  - Tempo             svc {{ .Release.Name }}-tempo:{{ .Values.tempo.service.port | default 3200 }} (HTTP query/api, /ready, /metrics)
+                      OTLP receivers {{ .Release.Name }}-tempo:4317 (gRPC) / :4318 (HTTP)
+{{- end }}
+{{- if .Values.grafana.enabled }}
+  - Grafana           svc {{ .Release.Name }}-grafana:{{ .Values.grafana.service.port | default 3000 }}  (3 datasources: VictoriaMetrics/Loki/Tempo)
+{{- end }}
+{{- if .Values.alertmanager.enabled }}
+  - Alertmanager      svc {{ .Release.Name }}-alertmanager:{{ .Values.alertmanager.service.port | default 9093 }}
+{{- end }}
+{{- if .Values.otelCollector.enabled }}
+  - OTel Collector    svc {{ .Release.Name }}-otel-collector:{{ .Values.otelCollector.ports.otlpGrpc }} (OTLP gRPC) / :{{ .Values.otelCollector.ports.otlpHttp }} (OTLP HTTP)
+{{- end }}
+{{- if .Values.vector.enabled }}
+  - Vector            (DaemonSet, host log dirs; ships pod logs to {{ .Release.Name }}-loki)
+{{- end }}
+{{- if .Values.kubeStateMetrics.enabled }}
+  - kube-state-metrics (scraped by VictoriaMetrics via the kubernetes-pods job)
+{{- end }}
+{{- if .Values.nodeExporter.enabled }}
+  - node-exporter      (DaemonSet, host access; scraped by VictoriaMetrics)
+{{- end }}
+
+1. Open Grafana:
+
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-grafana {{ .Values.grafana.service.port | default 3000 }}:{{ .Values.grafana.service.port | default 3000 }}
+   open http://127.0.0.1:{{ .Values.grafana.service.port | default 3000 }}
+
+2. Admin password (generated unless you set grafana.auth.adminPassword):
+
+   kubectl -n {{ .Release.Namespace }} get secret {{ .Release.Name }}-grafana \
+     -o jsonpath='{.data.admin-password}' | base64 -d ; echo
+
+   THREE datasources are pre-provisioned: VictoriaMetrics (uid metrics, default),
+   Loki (uid loki), Tempo (uid tempo). The bundled dashboards (Node Exporter Full,
+   the cluster dashboards, kube-state-metrics, and Loki Kubernetes Logs) appear under
+   Dashboards on first boot.
+
+3. Send your apps' telemetry:
+
+   METRICS — annotate your pods; VictoriaMetrics scrapes them automatically:
+     prometheus.io/scrape: "true"
+     prometheus.io/port:   "<metrics-port>"
+     prometheus.io/path:   "/metrics"   # optional, defaults to /metrics
+
+   LOGS — nothing to do. Vector tails EVERY pod's stdout/stderr on every node and
+   pushes it to Loki, labelled by namespace / pod / container / node / stream. Query
+   your namespace in Grafana Explore -> Loki.
+
+   TRACES — send OTLP to the collector gateway:
+     OTLP gRPC:  {{ .Release.Name }}-otel-collector.{{ .Release.Namespace }}.svc:{{ .Values.otelCollector.ports.otlpGrpc }}
+     OTLP HTTP:  http://{{ .Release.Name }}-otel-collector.{{ .Release.Namespace }}.svc:{{ .Values.otelCollector.ports.otlpHttp }}
+     e.g. OTEL_EXPORTER_OTLP_ENDPOINT=http://{{ .Release.Name }}-otel-collector:{{ .Values.otelCollector.ports.otlpHttp }}
+   The collector batches and forwards spans to {{ .Release.Name }}-tempo:4317. Explore
+   -> Tempo to search by service / trace ID; span panels link to Loki logs and
+   VictoriaMetrics metrics (tracesToLogs / tracesToMetrics).
+
+Notes:
+  - No operator / CRDs. VictoriaMetrics scrapes via annotation-based kubernetes_sd
+    (release-agnostic); it gets the cluster read perms via a ClusterRole this chart
+    binds to the {{ .Release.Name }}-victoriametrics SA.
+  - node-exporter and Vector are ON by default for this stack (it needs node metrics +
+    pod logs). They take host access (hostPID / host mounts / host log dirs) by design;
+    set nodeExporter.enabled / vector.enabled to false to drop them. VictoriaMetrics,
+    Loki, Tempo, Grafana, Alertmanager and the collector are clean.
+  - This release uses fixed-name datasource/dashboard/scrape ConfigMaps, so run one
+    lgtm-stack per namespace.

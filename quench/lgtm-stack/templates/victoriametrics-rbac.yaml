@@ -1,0 +1,42 @@
+{{- if .Values.victoriametrics.enabled }}
+# RBAC for VictoriaMetrics' promscrape kubernetes_sd_configs (role: pod / node /
+# endpoints) discovery. The victoriametrics subchart creates its ServiceAccount
+# (<release>-victoriametrics, quench-common fullname) but grants it no cluster
+# permissions; this umbrella binds the read access in-cluster service discovery
+# needs. ClusterRole-scoped because pod/node discovery spans namespaces. Same read
+# perms as observability-stack's prometheus-rbac.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "lgtm-stack.victoriametricsName" . }}
+  labels:
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+      - nodes
+      - nodes/metrics
+      - nodes/proxy   # the kubelet + cAdvisor jobs scrape via /api/v1/nodes/<n>/proxy/metrics
+      - services
+      - endpoints
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "lgtm-stack.victoriametricsName" . }}
+  labels:
+    {{- include "lgtm-stack.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "lgtm-stack.victoriametricsName" . }}
+subjects:
+  - kind: ServiceAccount
+    # the victoriametrics subchart's SA: quench-common fullname == <release>-victoriametrics
+    name: {{ include "lgtm-stack.victoriametricsName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -1,0 +1,143 @@
+{{- if .Values.vector.enabled }}
+{{- $v := .Values.vector -}}
+# HOST-ACCESS LOG SHIPPER. Vector is templated inline here (not via the quench/vector
+# component chart, which is deployment-only and renders its config via toYaml so it
+# can't template the release name into the Loki sink URL). It runs as a DaemonSet:
+# one pod per node tailing the node's container logs and pushing them to this stack's
+# Loki. It mounts the node's /var/log/pods and /var/lib/docker/containers READ-ONLY —
+# the deliberate trade-off for a log collector. The container itself is nonroot
+# (uid 1001) with a read-only rootfs.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "logging-stack.vectorName" . }}
+  labels:
+    {{- include "logging-stack.vectorLabels" . | nindent 4 }}
+automountServiceAccountToken: true
+---
+# Vector's kubernetes_logs source enriches each log event by reading pod metadata
+# from the apiserver, so it needs read access to pods and namespaces cluster-wide.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "logging-stack.vectorName" . }}
+  labels:
+    {{- include "logging-stack.vectorLabels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+      - namespaces
+      - nodes
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "logging-stack.vectorName" . }}
+  labels:
+    {{- include "logging-stack.vectorLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "logging-stack.vectorName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "logging-stack.vectorName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "logging-stack.vectorName" . }}
+  labels:
+    {{- include "logging-stack.vectorLabels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "logging-stack.vectorSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "logging-stack.vectorSelectorLabels" . | nindent 8 }}
+      annotations:
+        # Roll the DaemonSet when the Vector config changes.
+        checksum/config: {{ include (print $.Template.BasePath "/vector-config.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "logging-stack.vectorName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        # HOST LOG ACCESS: the node's /var/log/pods files are root-owned, so the
+        # log shipper must run as root to read them (promtail / fluent-bit / vector
+        # DaemonSets all do). This is the deliberate trade-off for a log collector;
+        # the container is otherwise locked down (read-only rootfs, no privilege
+        # escalation, all capabilities dropped).
+        runAsNonRoot: false
+        runAsUser: 0
+        runAsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: vector
+          image: "{{ $v.image }}@{{ $v.digest }}"
+          imagePullPolicy: {{ $v.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: false
+            runAsUser: 0
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: VECTOR_DATA_DIR
+              value: /vector-data-dir
+          ports:
+            - name: api
+              containerPort: {{ $v.apiPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: api
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: api
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml $v.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/vector/vector.yaml
+              subPath: vector.yaml
+              readOnly: true
+            # writable data dir for checkpoints / disk buffers (read-only rootfs).
+            - name: data
+              mountPath: /vector-data-dir
+            - name: tmp
+              mountPath: /tmp
+            # host log dirs, READ-ONLY. /var/log/pods holds the symlinked container
+            # logs; /var/lib/docker/containers holds the real files the symlinks
+            # point at (needed where the runtime is docker; harmless otherwise).
+            - name: var-log
+              mountPath: /var/log
+              readOnly: true
+            - name: var-lib-docker-containers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "logging-stack.vectorName" . }}-config
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: var-log
+          hostPath: { path: /var/log }
+        - name: var-lib-docker-containers
+          hostPath: { path: /var/lib/docker/containers }
+{{- end }}

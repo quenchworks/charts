@@ -1,0 +1,297 @@
+# observability-stack — an umbrella over the QuenchWorks prometheus, grafana,
+# and alertmanager component charts, plus a glue layer (Grafana datasource +
+# dashboards, Prometheus RBAC for in-cluster discovery, and three inline
+# exporters: kube-state-metrics, node-exporter, cAdvisor) wired together so
+# Grafana shows populated Kubernetes dashboards out of the box.
+#
+# Wiring notes (read the chart README before overriding):
+#   - The Grafana Prometheus datasource AND the bundled dashboards are provided by
+#     THIS chart (fixed-name ConfigMaps mounted into Grafana via grafana.extraVolumes)
+#     so the datasource can point at http://<release>-prometheus:9090. Keep
+#     grafana.datasources: [] below.
+#   - Prometheus discovers scrape targets via kubernetes_sd_configs: annotation-based
+#     pod scrape (prometheus.io/scrape) + the kubelet, cAdvisor (kubelet
+#     /metrics/cadvisor), and the apiserver. Release-agnostic, no static service names.
+#   - One stack per namespace (the datasource/dashboard ConfigMaps have fixed names).
+#
+# PURPOSE / TRADE-OFF: this stack's job is cluster observability, which needs node
+# and container metrics. So node-exporter and cAdvisor are ON by default and DO take
+# host access (hostPID / host /proc /sys / root mounts for node-exporter; the kubelet
+# already exposes cAdvisor, but the optional cAdvisor DaemonSet is privileged). That
+# host access is the deliberate, documented trade-off for THIS stack. Both stay
+# toggleable: set nodeExporter.enabled / cadvisor.enabled to false to drop them.
+
+# ---------------------------------------------------------------------------
+# Prometheus (subchart). Values pass straight through to the prometheus chart.
+# ---------------------------------------------------------------------------
+prometheus:
+  enabled: true
+  # The full prometheus.yml. It MUST match the structure the prometheus chart
+  # expects (config.prometheusYaml is rendered verbatim into a ConfigMap and
+  # mounted over /etc/prometheus/prometheus.yml).
+  config:
+    prometheusYaml: |
+      global:
+        scrape_interval: 15s
+        evaluation_interval: 15s
+
+      scrape_configs:
+        # (a) Prometheus scrapes itself.
+        - job_name: prometheus
+          static_configs:
+            - targets:
+                - localhost:9090
+
+        # (b) Annotation-based pod discovery. Release-agnostic: any pod annotated
+        # prometheus.io/scrape: "true" is scraped, honoring prometheus.io/port and
+        # prometheus.io/path. kube-state-metrics and node-exporter (both templated
+        # by this chart) are annotated so they are picked up here without a static
+        # service name.
+        - job_name: kubernetes-pods
+          kubernetes_sd_configs:
+            - role: pod
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+              action: keep
+              regex: "true"
+            - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+              action: replace
+              target_label: __metrics_path__
+              regex: (.+)
+            - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+              action: replace
+              regex: ([^:]+)(?::\d+)?;(\d+)
+              replacement: $1:$2
+              target_label: __address__
+            - source_labels: [__meta_kubernetes_namespace]
+              action: replace
+              target_label: namespace
+            - source_labels: [__meta_kubernetes_pod_name]
+              action: replace
+              target_label: pod
+            - source_labels: [__meta_kubernetes_pod_node_name]
+              action: replace
+              target_label: node
+            # node-exporter/ksm carry app.kubernetes.io/name; surface it as `job`
+            # so dashboards that select on a job name still bind.
+            - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+              action: replace
+              target_label: job
+              regex: (.+)
+
+        # (c) Kubelet metrics (role: node). The kubelet serves its own /metrics on
+        # the HTTPS API port; we authenticate with the SA bearer token. tls
+        # insecure is acceptable for kind (the kubelet serving cert is self-signed).
+        - job_name: kubelet
+          scheme: https
+          metrics_path: /metrics
+          tls_config:
+            insecure_skip_verify: true
+          bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+          kubernetes_sd_configs:
+            - role: node
+          relabel_configs:
+            - action: labelmap
+              regex: __meta_kubernetes_node_label_(.+)
+            - target_label: __address__
+              replacement: kubernetes.default.svc:443
+            - source_labels: [__meta_kubernetes_node_name]
+              regex: (.+)
+              target_label: __metrics_path__
+              replacement: /api/v1/nodes/$1/proxy/metrics
+
+        # (d) cAdvisor via the kubelet (/metrics/cadvisor) — container CPU/memory/
+        # network/fs. No extra DaemonSet needed; the kubelet already runs cAdvisor.
+        - job_name: cadvisor
+          scheme: https
+          metrics_path: /metrics/cadvisor
+          tls_config:
+            insecure_skip_verify: true
+          bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+          kubernetes_sd_configs:
+            - role: node
+          relabel_configs:
+            - action: labelmap
+              regex: __meta_kubernetes_node_label_(.+)
+            - target_label: __address__
+              replacement: kubernetes.default.svc:443
+            - source_labels: [__meta_kubernetes_node_name]
+              regex: (.+)
+              target_label: __metrics_path__
+              replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+
+        # (e) Kubernetes apiserver (default endpoints job): the `up` of the control
+        # plane + apiserver request metrics.
+        - job_name: kubernetes-apiservers
+          scheme: https
+          tls_config:
+            insecure_skip_verify: true
+          bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+          kubernetes_sd_configs:
+            - role: endpoints
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+              action: keep
+              regex: default;kubernetes;https
+    retentionTime: "15d"
+  persistence:
+    enabled: true
+    size: 8Gi
+  # The prometheus chart's ServiceAccount sets automountServiceAccountToken:false
+  # (hardened default), so the API token is NOT auto-mounted — but
+  # kubernetes_sd_configs (and the bearer_token_file above) need it. Project the SA
+  # token + CA + namespace into the standard in-cluster path so service discovery
+  # can authenticate. Paired with the ClusterRole/binding this umbrella creates for
+  # the <release>-prometheus SA (templates/prometheus-rbac.yaml).
+  extraVolumes:
+    - name: kube-api-access
+      projected:
+        defaultMode: 420
+        sources:
+          - serviceAccountToken:
+              path: token
+              expirationSeconds: 3607
+          - configMap:
+              name: kube-root-ca.crt
+              items:
+                - key: ca.crt
+                  path: ca.crt
+          - downwardAPI:
+              items:
+                - path: namespace
+                  fieldRef:
+                    fieldPath: metadata.namespace
+  extraVolumeMounts:
+    - name: kube-api-access
+      mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      readOnly: true
+
+# ---------------------------------------------------------------------------
+# Grafana (subchart). The Prometheus datasource AND the bundled dashboards are
+# provided by this umbrella's own templates (templates/grafana-datasources.yaml +
+# templates/grafana-dashboards.yaml, fixed names) and mounted in via extraVolumes
+# below — so keep datasources: [] here. adminPassword empty => generated secret.
+# ---------------------------------------------------------------------------
+grafana:
+  enabled: true
+  datasources: []
+  auth:
+    adminPassword: ""
+  # Mount three umbrella-owned ConfigMaps into Grafana's provisioning tree. The
+  # grafana chart leaves /etc/grafana/provisioning as a writable emptyDir; we drop
+  # files in via subPath so they coexist with that emptyDir. The dashboard JSON
+  # ConfigMap is mounted as a whole dir that the dashboard provider reads.
+  extraVolumes:
+    - name: stack-datasources
+      configMap:
+        name: observability-stack-datasources
+    - name: stack-dashboard-provider
+      configMap:
+        name: observability-stack-dashboard-provider
+    - name: stack-dashboards
+      configMap:
+        name: observability-stack-dashboards
+  extraVolumeMounts:
+    # (i) datasource: a single file into the provisioning datasources dir.
+    - name: stack-datasources
+      mountPath: /etc/grafana/provisioning/datasources/stack.yaml
+      subPath: stack.yaml
+      readOnly: true
+    # (ii) dashboard provider: a single file into the provisioning dashboards dir.
+    #      It points Grafana at the dashboards dir mounted below.
+    - name: stack-dashboard-provider
+      mountPath: /etc/grafana/provisioning/dashboards/stack.yaml
+      subPath: stack.yaml
+      readOnly: true
+    # (iii) the dashboard JSON files, mounted as a whole dir Grafana reads from.
+    - name: stack-dashboards
+      mountPath: /var/lib/grafana/dashboards
+      readOnly: true
+  # Grafana is stateless here: datasources and dashboards are provisioned from
+  # ConfigMaps on every boot, so the only thing a PVC would hold is ad-hoc UI
+  # state. Persistence off also avoids admin-password drift on reinstall (a kept
+  # PVC retains the old password while the Secret regenerates). Enable only if you
+  # create dashboards/users in the UI you need to survive a pod restart.
+  persistence:
+    enabled: false
+
+# ---------------------------------------------------------------------------
+# Dashboards — which of the bundled Grafana dashboards to provision.
+#   - All (default): leave enabled: true with all include flags true.
+#   - Just some: set the ones you don't want to false.
+#   - None: set enabled: false (Grafana still installs, just no bundled dashboards).
+# The mount is always present; this block controls which JSON files land in the
+# dashboards ConfigMap, so toggling needs no extraVolumes change.
+# ---------------------------------------------------------------------------
+dashboards:
+  enabled: true
+  include:
+    node-exporter-full: true
+    kubernetes-cluster: true
+    kubernetes-cluster-monitoring: true
+    kube-state-metrics-v2: true
+    prometheus-overview: true
+
+# ---------------------------------------------------------------------------
+# Alertmanager (subchart). Defaults are fine; replace alertmanagerConfig with
+# your real routing tree + receivers to actually notify.
+# ---------------------------------------------------------------------------
+alertmanager:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 2Gi
+
+# ---------------------------------------------------------------------------
+# kube-state-metrics — cluster object metrics (pods, deployments, nodes, ...).
+# Templated inline by this umbrella (templates/kube-state-metrics.yaml): a
+# ServiceAccount + ClusterRole + binding + Deployment + Service. The Service and
+# pod are annotated prometheus.io/scrape so the kubernetes-pods job scrapes it.
+# Clean (no host access), nonroot 1001, read-only rootfs. ON by default.
+# ---------------------------------------------------------------------------
+kubeStateMetrics:
+  enabled: true
+  image: ghcr.io/quenchworks/images/kube-state-metrics
+  digest: "sha256:210a2dcb84a2589f3629dad3be847421dde941fc3181ceede61996289cd76fe3"
+  pullPolicy: IfNotPresent
+  port: 8080
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 200m, memory: 256Mi }
+
+# ---------------------------------------------------------------------------
+# node-exporter — per-node host metrics (CPU, memory, disk, filesystem).
+# ON by default for THIS stack: cluster observability needs node metrics, and the
+# Node Exporter Full dashboard depends on them. It is a DaemonSet that runs in the
+# host PID/network namespaces and mounts host /proc, /sys and / read-only. That
+# host access is the deliberate trade-off for the observability stack (the wider
+# hardened catalog avoids it). Set enabled: false to drop node metrics.
+# ---------------------------------------------------------------------------
+nodeExporter:
+  enabled: true
+  image: ghcr.io/quenchworks/images/node-exporter
+  digest: "sha256:4c3735371055cea29cf1ed3250a2b2a7cb4a4ddcdd26ae378619ceddb2966a16"
+  pullPolicy: IfNotPresent
+  port: 9100
+  resources:
+    requests: { cpu: 50m, memory: 32Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+
+# ---------------------------------------------------------------------------
+# cAdvisor — per-node container resource metrics. Container metrics already come
+# from the kubelet (/metrics/cadvisor) via the `cadvisor` Prometheus job above, so
+# the dashboards populate WITHOUT this DaemonSet. This OPTIONAL standalone cAdvisor
+# DaemonSet (privileged host mounts) is OFF by default: it is redundant on any
+# cluster whose kubelet exposes cAdvisor (almost all of them), and its read-only
+# rootfs cannot create the SA-token mountpoint. Enable only if your kubelet does
+# not serve /metrics/cadvisor. Gated on cadvisor.enabled.
+# ---------------------------------------------------------------------------
+cadvisor:
+  enabled: false
+  image: ghcr.io/quenchworks/images/cadvisor
+  digest: "sha256:836078216185abf81bf11a8d07a1fe038346749a37ef87d78acff6d2961be57b"
+  pullPolicy: IfNotPresent
+  port: 8080
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 300m, memory: 512Mi }

@@ -1,0 +1,52 @@
+observability-stack {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Components:
+{{- if .Values.prometheus.enabled }}
+  - Prometheus        svc {{ .Release.Name }}-prometheus:{{ .Values.prometheus.service.port | default 9090 }}
+{{- end }}
+{{- if .Values.grafana.enabled }}
+  - Grafana           svc {{ .Release.Name }}-grafana:{{ .Values.grafana.service.port | default 3000 }}
+{{- end }}
+{{- if .Values.alertmanager.enabled }}
+  - Alertmanager      svc {{ .Release.Name }}-alertmanager:{{ .Values.alertmanager.service.port | default 9093 }}
+{{- end }}
+{{- if .Values.kubeStateMetrics.enabled }}
+  - kube-state-metrics (scraped via the kubernetes-pods job)
+{{- end }}
+{{- if .Values.nodeExporter.enabled }}
+  - node-exporter      (DaemonSet, host access; scraped via the kubernetes-pods job)
+{{- end }}
+{{- if .Values.cadvisor.enabled }}
+  - cAdvisor           (DaemonSet, host access; container metrics also via kubelet /metrics/cadvisor)
+{{- end }}
+
+1. Open Grafana:
+
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-grafana {{ .Values.grafana.service.port | default 3000 }}:{{ .Values.grafana.service.port | default 3000 }}
+   open http://127.0.0.1:{{ .Values.grafana.service.port | default 3000 }}
+
+2. Admin password (generated unless you set grafana.auth.adminPassword):
+
+   kubectl -n {{ .Release.Namespace }} get secret {{ .Release.Name }}-grafana \
+     -o jsonpath='{.data.admin-password}' | base64 -d ; echo
+
+   The "Prometheus" datasource is pre-provisioned and set as default, and the
+   bundled Kubernetes dashboards (Node Exporter Full, kube-state-metrics, the
+   cluster dashboards, Prometheus overview) appear under Dashboards on first boot.
+   The Explore view returns data for the `up` query immediately.
+
+3. Scrape your own workloads by annotating their pods:
+
+     prometheus.io/scrape: "true"
+     prometheus.io/port:   "<metrics-port>"
+     prometheus.io/path:   "/metrics"   # optional, defaults to /metrics
+
+Notes:
+  - No Prometheus Operator / CRDs. Scrape config is annotation-based via
+    kubernetes_sd_configs (release-agnostic).
+  - node-exporter and cAdvisor are ON by default for this stack (it needs node +
+    container metrics). They take host access (hostPID / host mounts) by design;
+    set nodeExporter.enabled / cadvisor.enabled to false to drop them. Container
+    metrics still come from the kubelet (/metrics/cadvisor) even with cAdvisor off.
+  - This release uses a fixed-name datasource ConfigMap, so run one
+    observability-stack per namespace.
