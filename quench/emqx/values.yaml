@@ -1,0 +1,110 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/emqx
+  digest: "sha256:81397e123ec881f46243b01587537c2f56727cae4c3bb032e47ea13e5bf5ec38"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# EMQX keeps its node data (mnesia, generated configs, retained messages) on disk,
+# so the chart runs it as a StatefulSet behind a ClusterIP Service with a persistent
+# /opt/emqx/data volume. The default is a SINGLE node: EMQX 6.x is BSL-1.1 licensed
+# and running more than one node (clustering) requires a commercial license, so
+# replicaCount is 1 and left to you to scale under your own license. The image runs
+# `emqx foreground` with HOME + data dir on the persistent volume.
+replicaCount: 1
+
+# Resources. EMQX runs on the BEAM (Erlang VM); idle footprint is modest but the
+# working set grows with connected clients and retained/queued messages. Defaults
+# are sized to schedule anywhere and pass the CI gate; raise to fit your fan-in.
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "2", memory: 2Gi }
+
+# Persistent storage for /opt/emqx/data (mnesia, generated configs, session state).
+# Provisioned per-pod via a volumeClaimTemplate unless persistence.existingClaim is
+# set. Set persistence.enabled=false to back it with an emptyDir (ephemeral).
+persistence:
+  enabled: true
+  size: 5Gi
+  # storageClass: ""          # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""
+
+# The EMQX dashboard admin password. The image default is admin/public; set this to
+# inject EMQX_DASHBOARD__DEFAULT_PASSWORD at boot. Use an existingSecret to avoid a
+# plaintext value (key dashboard-password); when set it wins over dashboardPassword.
+dashboardPassword: "public"
+existingSecret: ""
+existingSecretPasswordKey: "dashboard-password"
+
+service:
+  type: ClusterIP
+  # EMQX listeners. dashboard (18083) also serves the REST API and the /status
+  # liveness endpoint.
+  ports:
+    mqtt: 1883
+    mqttssl: 8883
+    ws: 8083
+    wss: 8084
+    dashboard: 18083
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+# read-only rootfs: EMQX writes runtime logs under /opt/emqx/log; back it with an
+# emptyDir (data is the persistent volume; logs need not survive restarts).
+extraVolumes:
+  - name: log
+    emptyDir: {}
+  - name: tmp
+    emptyDir: {}
+extraVolumeMounts:
+  - name: log
+    mountPath: /opt/emqx/log
+  - name: tmp
+    mountPath: /tmp
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# MQTT + dashboard are commonly reached from across the cluster, so allow external
+# ingress by default. Set allowExternal=false to restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

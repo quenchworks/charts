@@ -1,0 +1,35 @@
+Quenchworks EMQX (distributed MQTT broker) is installed as {{ include "quench-common.fullname" . }}.
+
+EMQX runs nonroot on a read-only root filesystem as a single-node StatefulSet. The
+Service exposes:
+
+  mqtt       {{ .Values.service.ports.mqtt }}    MQTT 5.0 (TCP)
+  mqttssl    {{ .Values.service.ports.mqttssl }}    MQTT over TLS
+  ws         {{ .Values.service.ports.ws }}    MQTT over websockets
+  wss        {{ .Values.service.ports.wss }}    MQTT over secure websockets
+  dashboard  {{ .Values.service.ports.dashboard }}   web dashboard + REST API + /status
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+
+Open the dashboard over a port-forward (default user `admin`):
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.ports.dashboard }}:{{ .Values.service.ports.dashboard }}
+  # then browse http://127.0.0.1:{{ .Values.service.ports.dashboard }}  (admin / <dashboardPassword>)
+  curl http://127.0.0.1:{{ .Values.service.ports.dashboard }}/status
+
+LICENSE: EMQX 6.x is Business Source License 1.1. A SINGLE node (the chart default)
+is free; running a cluster (replicaCount > 1) requires a commercial license from
+EMQ. See https://www.emqx.com/en/content/license-faq.
+
+{{ if .Values.existingSecret }}
+Dashboard password sourced from Secret {{ .Values.existingSecret }} (key {{ .Values.existingSecretPasswordKey }}).
+{{- else }}
+IMPORTANT: the dashboard admin password defaults to "public". Set dashboardPassword
+(or existingSecret) before exposing the dashboard.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/emqx \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

@@ -1,0 +1,30 @@
+Quenchworks Eclipse Mosquitto (MQTT broker) is installed as {{ include "quench-common.fullname" . }}.
+
+Mosquitto runs nonroot on a read-only root filesystem. The Service exposes the MQTT listener:
+
+  mqtt   {{ .Values.service.ports.mqtt }}   MQTT 3.1/3.1.1/5.0
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+
+Publish and subscribe over a port-forward using the bundled clients:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.ports.mqtt }}:{{ .Values.service.ports.mqtt }}
+  # in one shell:
+  kubectl exec deploy/{{ include "quench-common.fullname" . }} -- mosquitto_sub -t 'demo/#' -C 1
+  # in another:
+  kubectl exec deploy/{{ include "quench-common.fullname" . }} -- mosquitto_pub -t demo/hello -m 'hi from quench'
+
+{{ if .Values.config.existingConfigMap }}
+Running with an externally-managed config from ConfigMap {{ .Values.config.existingConfigMap }}.
+{{- else }}
+IMPORTANT: the default config allows anonymous access on 1883 for a zero-config
+bring-up. For production, set config.conf with allow_anonymous false plus a
+password_file (generate hashes with `mosquitto_passwd`), and/or a TLS listener on
+8883 with mounted certs. See README.md.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/mosquitto \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: mqtt
+      port: {{ .Values.service.ports.mqtt }}
+      targetPort: mqtt
+      protocol: TCP
+    - name: mqttssl
+      port: {{ .Values.service.ports.mqttssl }}
+      targetPort: mqttssl
+      protocol: TCP
+    - name: ws
+      port: {{ .Values.service.ports.ws }}
+      targetPort: ws
+      protocol: TCP
+    - name: wss
+      port: {{ .Values.service.ports.wss }}
+      targetPort: wss
+      protocol: TCP
+    - name: dashboard
+      port: {{ .Values.service.ports.dashboard }}
+      targetPort: dashboard
+      protocol: TCP
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "emqx.headlessName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: mqtt
+      port: {{ .Values.service.ports.mqtt }}
+      targetPort: mqtt
+      protocol: TCP
+    - name: dashboard
+      port: {{ .Values.service.ports.dashboard }}
+      targetPort: dashboard
+      protocol: TCP
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

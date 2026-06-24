@@ -1,0 +1,120 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/mosquitto
+  digest: "sha256:f9ff57e131776b3fe577002c9312c5a891c7f9a57f061156fdd61d19301f06a7"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Mosquitto is a single-instance broker (the open-source broker has no native
+# clustering), so the chart runs a single-replica Deployment behind a ClusterIP
+# Service. With persistence enabled the broker keeps its retained messages and
+# session state on a ReadWriteOnce PVC, so the update strategy is Recreate to avoid
+# two pods contending for the volume.
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# Broker configuration, rendered verbatim into a ConfigMap and mounted over
+# /etc/mosquitto/mosquitto.conf (replacing the image default). Point
+# config.existingConfigMap at an externally-managed ConfigMap (key mosquitto.conf)
+# to manage the config out of band; when set it wins over config.conf.
+#
+# The default below is BOOTABLE and matches the hardened image default: an anonymous
+# MQTT listener on 1883, persistence under the chart-mounted /mosquitto/data volume,
+# logs to stdout, and drop-ins from /etc/mosquitto/conf.d. It is NOT for production
+# as-is: turn off allow_anonymous and add a password_file or TLS listener (see
+# README.md). Nonroot/read-only-rootfs friendly: pid lives under /tmp.
+config:
+  existingConfigMap: ""
+  conf: |
+    pid_file /tmp/mosquitto.pid
+
+    persistence true
+    persistence_location /mosquitto/data/
+
+    log_dest stdout
+    log_type error
+    log_type warning
+    log_type notice
+    log_type information
+
+    listener 1883
+    allow_anonymous true
+
+    include_dir /etc/mosquitto/conf.d
+
+# Persistent storage for /mosquitto/data (retained messages + session DB). Set
+# persistence.enabled=false to back it with an emptyDir (ephemeral; state lost on
+# restart). Point existingClaim at a pre-created PVC to reuse one.
+persistence:
+  enabled: true
+  size: 1Gi
+  # storageClass: ""          # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  existingClaim: ""
+
+resources:
+  requests: { cpu: 50m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # Mosquitto listens on 1883 (MQTT). The image also opens 8883 (MQTT/TLS, needs
+  # certs via a conf.d drop-in) and 8080 (websockets); enable those listeners in
+  # config.conf and add ports here to expose them.
+  ports:
+    mqtt: 1883
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+# A writable /tmp for the read-only root filesystem (the broker writes its pid here).
+extraVolumes:
+  - name: tmp
+    emptyDir: {}
+extraVolumeMounts:
+  - name: tmp
+    mountPath: /tmp
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# MQTT clients commonly connect from across the cluster, so allow external ingress
+# by default. Set allowExternal=false to restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
