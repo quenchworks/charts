@@ -45,9 +45,15 @@ When external, everything comes from externalDatabase.
 {{- printf "jdbc:postgresql://%s:%s/%s" (include "keycloak.db.host" .) (include "keycloak.db.port" .) (include "keycloak.db.name" .) -}}
 {{- end -}}
 
-{{/* Name of the Secret that holds the DB password, and the key within it. */}}
+{{/* Name of the Secret that holds the DB password, and the key within it.
+     db.existingSecret (when set) overrides the source in BOTH bundled and external
+     modes — letting an umbrella point KC_DB_PASSWORD at a Secret it controls. When
+     empty, behavior is unchanged: bundled => the chart's managed Secret, external
+     => externalDatabase.existingSecret (or the managed Secret if none). */}}
 {{- define "keycloak.db.secretName" -}}
-{{- if .Values.postgresql.enabled -}}
+{{- if .Values.db.existingSecret -}}
+{{- .Values.db.existingSecret -}}
+{{- else if .Values.postgresql.enabled -}}
 {{- include "quench-common.fullname" . -}}
 {{- else if .Values.externalDatabase.existingSecret -}}
 {{- .Values.externalDatabase.existingSecret -}}
@@ -57,7 +63,9 @@ When external, everything comes from externalDatabase.
 {{- end -}}
 
 {{- define "keycloak.db.secretPasswordKey" -}}
-{{- if .Values.postgresql.enabled -}}
+{{- if .Values.db.existingSecret -}}
+{{- .Values.db.existingSecretPasswordKey -}}
+{{- else if .Values.postgresql.enabled -}}
 db-password
 {{- else if .Values.externalDatabase.existingSecret -}}
 {{- .Values.externalDatabase.existingSecretPasswordKey -}}

@@ -74,6 +74,20 @@ externalDatabase:
   existingSecretPasswordKey: password
 ```
 
+### Override the DB password Secret (`db.existingSecret`)
+
+`db.existingSecret` overrides the Secret `KC_DB_PASSWORD` is read from in **both**
+modes. Empty (default) keeps the existing behavior — bundled reads the managed
+`<release>-keycloak`/`db-password`, external reads `externalDatabase.existingSecret`.
+Set it to point Keycloak at a Secret you control, e.g. so an umbrella chart can have
+Keycloak and the bundled PostgreSQL share one fixed-name Secret:
+
+```yaml
+db:
+  existingSecret: my-db-secret
+  existingSecretPasswordKey: db-password
+```
+
 ## Production
 
 Behind an ingress/proxy that terminates TLS, set the public hostname and forwarded
@@ -108,6 +122,8 @@ cosign verify ghcr.io/quenchworks/images/keycloak \
 | `postgresql.enabled` | `true` | Bundle the Quenchworks PostgreSQL subchart. |
 | `postgresql.auth.{username,password,database}` | `keycloak` | Deterministic shared DB creds. |
 | `externalDatabase.*` | `""` | Used when `postgresql.enabled=false`. |
+| `db.existingSecret` | `""` | Override the Secret `KC_DB_PASSWORD` is read from (both modes). Empty = unchanged. |
+| `db.existingSecretPasswordKey` | `db-password` | Key within `db.existingSecret`. |
 | `service.port` | `8080` | HTTP (UI + protocol endpoints). |
 | `service.managementPort` | `9000` | Health + metrics. |
 | `networkPolicy.enabled` | `true` | Ingress 8080 (+9000 in-namespace), egress to DB. |
