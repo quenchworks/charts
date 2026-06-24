@@ -1,0 +1,95 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/ollama
+  digest: "sha256:c063461e020cc92cdf3d00aa5ad8c8cf126c1486b0abb1acf3f9831638af0669"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Ollama keeps pulled models on disk, so this is a stateful workload: the chart
+# runs a single-replica StatefulSet behind a ClusterIP Service, with a persistent
+# /models volume provisioned from a volumeClaimTemplate. The image already sets
+# OLLAMA_MODELS=/models and OLLAMA_HOST=0.0.0.0:11434 and starts `ollama serve`.
+
+# Resources. LLM serving is memory-hungry; the working set scales with the size of
+# the model you pull (a 7B model needs several GiB of RAM). The defaults below are
+# deliberately modest so the chart schedules anywhere and the model-less CI gate
+# passes; raise requests/limits to fit the models you intend to run.
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "2", memory: 4Gi }
+
+# Persistent storage for /models (OLLAMA_MODELS). Pulled models live here and must
+# survive restarts. Provisioned per-pod via a volumeClaimTemplate unless you point
+# persistence.existingClaim at a pre-created PVC. Set persistence.enabled=false to
+# back /models with an emptyDir (ephemeral; models are lost on restart).
+persistence:
+  enabled: true
+  size: 20Gi
+  # storageClass: ""          # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""           # bind an existing PVC instead of provisioning one
+
+service:
+  type: ClusterIP
+  # The server listens on 11434; the Service maps the same port.
+  port: 11434
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# OLLAMA_HOST and OLLAMA_MODELS are already baked into the image. Append more here,
+# e.g. OLLAMA_KEEP_ALIVE to control how long a model stays resident in memory:
+#   extraEnvVars:
+#     - name: OLLAMA_KEEP_ALIVE
+#       value: "5m"
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The inference API is commonly consulted from across the cluster, so allow
+# external ingress by default. Set allowExternal=false to restrict ingress to the
+# namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

@@ -1,0 +1,31 @@
+Quenchworks Dex (OpenID Connect identity provider) is installed as {{ include "quench-common.fullname" . }}.
+
+Dex runs nonroot on a read-only root filesystem. The Service exposes three ports:
+
+  http       {{ .Values.service.ports.http }}   OIDC issuer + login UI
+  grpc       {{ .Values.service.ports.grpc }}   gRPC API
+  telemetry  {{ .Values.service.ports.telemetry }}   health (/healthz) + metrics
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+
+Check health and the OIDC discovery document over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.ports.telemetry }}:{{ .Values.service.ports.telemetry }} {{ .Values.service.ports.http }}:{{ .Values.service.ports.http }}
+  curl http://127.0.0.1:{{ .Values.service.ports.telemetry }}/healthz
+  curl http://127.0.0.1:{{ .Values.service.ports.http }}/dex/.well-known/openid-configuration
+
+{{ if .Values.config.existingConfigMap }}
+Running with an externally-managed config from ConfigMap {{ .Values.config.existingConfigMap }}.
+{{- else }}
+IMPORTANT: the default config uses in-memory storage and a static example user
+(admin@example.com / "password"). It loses all state on restart and is for
+evaluation only. For production, set config.yaml with a stable public issuer URL,
+switch storage to postgres/etcd/kubernetes, and replace staticPasswords with a
+real connector (LDAP/SAML/OIDC/GitHub/Google).
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/dex \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

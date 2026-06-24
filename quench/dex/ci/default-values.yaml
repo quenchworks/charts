@@ -1,0 +1,33 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+#
+# A bootable dex config: in-memory storage (no disk, works on read-only rootfs),
+# issuer/web on 5556, telemetry on 5558, gRPC on 5557, one static client and one
+# static password (admin@example.com / "password", a valid bcrypt hash).
+replicaCount: 1
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 256m, memory: 192Mi }
+config:
+  yaml: |
+    issuer: http://0.0.0.0:5556/dex
+    storage:
+      type: memory
+    web:
+      http: 0.0.0.0:5556
+    grpc:
+      addr: 0.0.0.0:5557
+    telemetry:
+      http: 0.0.0.0:5558
+    enablePasswordDB: true
+    staticClients:
+      - id: example-app
+        name: 'Example App'
+        secret: ZXhhbXBsZS1hcHAtc2VjcmV0
+        redirectURIs:
+          - 'http://127.0.0.1:5555/callback'
+    staticPasswords:
+      - email: "admin@example.com"
+        hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+        username: "admin"
+        userID: "08a8684b-db88-4b73-90a9-3cd1661f5466"

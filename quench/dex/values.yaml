@@ -1,0 +1,132 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/dex
+  digest: "sha256:c53ce214bd8ea81dd829c008ac8b2f290024ac8fc96832958afa1ac58fcb7986"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The image entrypoint is `/usr/bin/dex serve`. This chart overrides the command
+# to the binary and passes `serve <config>` so dex boots from a single config file
+# rendered into a ConfigMap and mounted at /etc/dex/config.yaml. With storage:
+# type: memory dex holds no state, so a single replica is fine by default; switch
+# to a shared backend (postgres/etcd/kubernetes) before scaling out.
+replicaCount: 1
+
+# Path the rendered config is mounted at, and the args dex is started with. The
+# default args run `dex serve /etc/dex/config.yaml`; configMountPath must match
+# the file referenced in args. Override command/args only for advanced cases.
+configMountPath: /etc/dex/config.yaml
+command: ["/usr/bin/dex"]
+args: ["serve", "/etc/dex/config.yaml"]
+
+# Dex server configuration, rendered verbatim into a ConfigMap and mounted at
+# configMountPath. Point config.existingConfigMap at an externally-managed
+# ConfigMap (key config.yaml) to manage the config out of band (e.g. to keep
+# connector secrets in a separate object); when set it wins over config.yaml.
+#
+# The default below is BOOTABLE on a read-only root filesystem because
+# storage.type is `memory` (no disk writes). It is NOT for production: in-memory
+# storage loses all clients, refresh tokens and keys on restart, and the issuer
+# binds to 0.0.0.0. For production, set a stable public issuer URL, switch
+# storage to postgres/etcd/kubernetes, and replace staticPasswords with a real
+# connector (LDAP/SAML/OIDC/GitHub/Google). See README.md.
+config:
+  existingConfigMap: ""
+  yaml: |
+    issuer: http://0.0.0.0:5556/dex
+    storage:
+      type: memory
+    web:
+      http: 0.0.0.0:5556
+    grpc:
+      addr: 0.0.0.0:5557
+    telemetry:
+      http: 0.0.0.0:5558
+    enablePasswordDB: true
+    staticClients:
+      - id: example-app
+        name: 'Example App'
+        secret: ZXhhbXBsZS1hcHAtc2VjcmV0
+        redirectURIs:
+          - 'http://127.0.0.1:5555/callback'
+    staticPasswords:
+      - email: "admin@example.com"
+        # bcrypt hash of the string "password" (Dex's documented example hash)
+        hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+        username: "admin"
+        userID: "08a8684b-db88-4b73-90a9-3cd1661f5466"
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # Dex serves OIDC/UI on 5556 (http), the gRPC API on 5557, and telemetry
+  # (health, metrics) on 5558. The Service maps all three.
+  ports:
+    http: 5556
+    grpc: 5557
+    telemetry: 5558
+
+# Optional horizontal autoscaling on CPU. Only safe with a shared storage
+# backend (NOT storage.type: memory).
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+# A writable /tmp for the read-only root filesystem. Dex needs no disk for
+# storage: type: memory; this keeps /tmp writable for any transient use.
+extraVolumes:
+  - name: tmp
+    emptyDir: {}
+extraVolumeMounts:
+  - name: tmp
+    mountPath: /tmp
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The OIDC issuer is consulted from across the cluster (and often from outside
+# it), so allow external ingress by default. Set allowExternal=false to restrict
+# ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

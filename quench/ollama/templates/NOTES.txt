@@ -1,0 +1,34 @@
+Quenchworks Ollama is installed as {{ include "quench-common.fullname" . }}.
+
+The server runs nonroot with a read-only rootfs and serves the inference API on
+container port 11434; the Service exposes it on port {{ .Values.service.port }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+No model ships with the chart. Pull one into the persistent /models volume by
+exec-ing into the pod (this can take a while and needs several GiB of disk/RAM):
+
+  kubectl exec -n {{ .Release.Namespace }} -it {{ include "quench-common.fullname" . }}-0 -- ollama pull llama3.2
+  kubectl exec -n {{ .Release.Namespace }} -it {{ include "quench-common.fullname" . }}-0 -- ollama list
+
+Then query the API over a port-forward:
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://127.0.0.1:{{ .Values.service.port }}/api/version
+  curl http://127.0.0.1:{{ .Values.service.port }}/api/tags
+  curl http://127.0.0.1:{{ .Values.service.port }}/api/generate -d '{"model":"llama3.2","prompt":"hello","stream":false}'
+
+{{ if .Values.persistence.enabled -}}
+Models persist on a {{ .Values.persistence.size }} PersistentVolume mounted at /models.
+{{- else -}}
+persistence.enabled=false: /models is an emptyDir, so pulled models are LOST on
+pod restart. Enable persistence for anything beyond a smoke test.
+{{- end }}
+
+This is the CPU-only image. GPU acceleration is out of scope for this chart.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/ollama \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
