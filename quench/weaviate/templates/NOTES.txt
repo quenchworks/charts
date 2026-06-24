@@ -1,0 +1,29 @@
+Quenchworks Weaviate is installed as {{ include "quench-common.fullname" . }}.
+
+The server runs nonroot and serves the REST API on container port {{ .Values.service.httpPort }}
+and gRPC on port {{ .Values.service.grpcPort }}; the Service exposes both:
+
+  REST: {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}
+  gRPC: {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.grpcPort }}
+
+Check readiness and query the schema over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.httpPort }}:{{ .Values.service.httpPort }}
+  curl http://127.0.0.1:{{ .Values.service.httpPort }}/v1/.well-known/ready
+  curl http://127.0.0.1:{{ .Values.service.httpPort }}/v1/schema
+
+{{- if .Values.persistence.enabled }}
+{{ if .Values.persistence.existingClaim }}
+Data is stored on the existing PVC {{ .Values.persistence.existingClaim | quote }} mounted at {{ .Values.persistence.path }}.
+{{- else }}
+Data is persisted on a {{ .Values.persistence.size }} PVC (provisioned per replica via volumeClaimTemplates) mounted at {{ .Values.persistence.path }}.
+{{- end }}
+{{- else }}
+WARNING: persistence is disabled; data lives in an emptyDir and is lost when the pod is rescheduled. Enable persistence.enabled for any real use.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

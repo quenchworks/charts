@@ -1,0 +1,101 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/oauth2-proxy
+  digest: "sha256:73496afee746deab63d06f404ba8e4057835a2f8b007365129c3c02840a360ac"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# oauth2-proxy is a stateless auth reverse proxy: this chart runs a Deployment
+# behind a ClusterIP Service and scales horizontally.
+replicaCount: 1
+
+# oauth2-proxy configuration.
+#
+# The container runs the oauth2-proxy binary listening on 0.0.0.0:4180 and serves
+# /ping (HTTP 200) once the server is up. oauth2-proxy will NOT start without a
+# provider, client id/secret, a cookie secret, an upstream and an email domain, so
+# these are rendered into the container args from the values below. The cookieSecret
+# MUST be 16, 24 or 32 bytes (raw or base64) or oauth2-proxy refuses to boot.
+#
+# Provide real OAuth/OIDC credentials here (or via extraArgs / extraEnvVars) before
+# exposing the proxy. extraArgs are appended verbatim to the command.
+config:
+  # OAuth/OIDC provider (google, github, oidc, azure, keycloak-oidc, ...).
+  provider: ""
+  # OAuth client id issued by the provider.
+  clientID: ""
+  # OAuth client secret issued by the provider.
+  clientSecret: ""
+  # Cookie signing secret. MUST be 16, 24 or 32 bytes.
+  cookieSecret: ""
+  # Restrict authenticated users to these email domains. "*" allows any domain.
+  emailDomain: "*"
+  # Upstream to proxy authenticated requests to. "static://200" serves a 200 with
+  # no backend and is useful for auth-request / forward-auth setups.
+  upstream: "static://200"
+  # Extra flags appended verbatim to the oauth2-proxy command.
+  extraArgs: []
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # The container serves the proxy/auth API on 4180; the Service maps the same port.
+  port: 4180
+
+# Optional horizontal autoscaling on CPU.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The proxy is commonly consulted from across the cluster (forward-auth, ingress),
+# so allow external ingress by default. Set allowExternal=false to restrict ingress
+# to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

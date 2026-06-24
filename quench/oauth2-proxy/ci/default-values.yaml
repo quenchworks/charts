@@ -1,0 +1,21 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+#
+# oauth2-proxy refuses to start without a complete config, so the gate supplies a
+# minimal-but-bootable one: dummy Google OAuth creds, a fixed 32-character cookie
+# secret (cookie secret must be 16/24/32 bytes), any email domain, and a no-backend
+# static://200 upstream. The server boots and serves /ping with HTTP 200; real
+# credentials are only needed at actual login time.
+replicaCount: 1
+config:
+  provider: google
+  clientID: dummy
+  clientSecret: dummy
+  cookieSecret: "abcdefghijklmnopqrstuvwxyz123456"
+  emailDomain: "*"
+  upstream: "static://200"
+  extraArgs:
+    - "--skip-provider-button=true"
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }

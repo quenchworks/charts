@@ -1,0 +1,103 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/weaviate
+  digest: "sha256:f18a271005e2fb16c84b72056f1118205da631689f25c8baccad25337daff67f"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Weaviate is a vector database: it persists objects and their vector index to
+# disk, so this chart runs a StatefulSet with a PVC. Single node for now; a
+# clustered (sharded/replicated) topology over the headless service is a later
+# addition.
+replicaCount: 1
+
+persistence:
+  enabled: true
+  size: 8Gi
+  storageClass: ""            # default class if unset
+  path: /var/lib/weaviate     # mount path; mirror this into env.PERSISTENCE_DATA_PATH
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""           # bind an existing PVC instead of provisioning one
+
+# Weaviate is configured entirely through environment variables. These defaults
+# bring up a single anonymous node with no vectorizer module enabled. Add or
+# override keys here (e.g. enable modules, set authentication) and they are
+# rendered verbatim into the container env. Keep PERSISTENCE_DATA_PATH aligned
+# with persistence.path above.
+env:
+  AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+  PERSISTENCE_DATA_PATH: /var/lib/weaviate
+  CLUSTER_HOSTNAME: node1
+  QUERY_DEFAULTS_LIMIT: "25"
+  DEFAULT_VECTORIZER_MODULE: none
+  ENABLE_MODULES: ""
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  # Weaviate serves REST on 8080 and gRPC on 50051; the Service maps both.
+  httpPort: 8080
+  grpcPort: 50051
+
+# Optional horizontal autoscaling on CPU. Note: scaling a vector DB horizontally
+# needs a clustered topology; leave disabled for the single-node default.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The vector DB is consulted from across the cluster, so allow external ingress
+# by default. Set allowExternal=false to restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

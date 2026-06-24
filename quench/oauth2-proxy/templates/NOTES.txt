@@ -1,0 +1,27 @@
+Quenchworks oauth2-proxy is installed as {{ include "quench-common.fullname" . }}.
+
+The proxy runs nonroot and serves the auth/proxy API on container port 4180; the
+Service exposes it on port {{ .Values.service.port }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Check the health endpoint over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://127.0.0.1:{{ .Values.service.port }}/ping
+
+{{- if and .Values.config.provider .Values.config.clientID .Values.config.clientSecret .Values.config.cookieSecret }}
+
+Running with provider {{ .Values.config.provider | quote }}, upstream {{ .Values.config.upstream | quote }}.
+{{- else }}
+
+WARNING: oauth2-proxy will not start without a complete config. Set at least
+config.provider, config.clientID, config.clientSecret and config.cookieSecret
+(16, 24 or 32 bytes). Provide real OAuth/OIDC credentials before exposing the proxy.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/oauth2-proxy \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
