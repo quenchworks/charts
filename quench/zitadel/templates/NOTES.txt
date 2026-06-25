@@ -1,0 +1,57 @@
+Quenchworks ZITADEL is installed as {{ include "quench-common.fullname" . }}.
+
+The console, REST API and gRPC API are served (h2c / HTTP-2 cleartext) on port
+{{ .Values.service.port }} inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Reach it from your machine with a port-forward:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  # then open the console at http://localhost:{{ .Values.service.port }}/ui/console
+
+Health / readiness:
+
+  curl -fsS http://localhost:{{ .Values.service.port }}/debug/healthz   # process up
+  curl -fsS http://localhost:{{ .Values.service.port }}/debug/ready      # serving
+
+OIDC discovery:
+
+  curl -fsS http://localhost:{{ .Values.service.port }}/.well-known/openid-configuration
+
+First admin (seeded once on first boot):
+  org      : {{ .Values.firstInstance.orgName }}
+  username : {{ .Values.firstInstance.admin.username }}
+  password : kubectl get secret --namespace {{ .Release.Namespace }} {{ include "quench-common.fullname" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+
+External addressing (issuer / discovery URLs are built from these — they MUST match how
+clients connect):
+  domain : {{ .Values.externalDomain }}
+  port   : {{ .Values.externalPort }}
+  secure : {{ .Values.externalSecure }}
+Set externalDomain/externalPort/externalSecure (and front ZITADEL with TLS-terminating
+ingress) for production.
+
+Database:
+{{- if .Values.postgresql.enabled }}
+  Bundled Quenchworks PostgreSQL (postgresql.enabled=true).
+    host     : {{ include "zitadel.db.host" . }}
+    database : {{ include "zitadel.db.name" . }}
+    user     : {{ include "zitadel.db.user" . }}
+  The bundled PostgreSQL image creates this user as the superuser, so it serves both
+  ZITADEL's runtime and schema-creating (admin) connections. Set
+  postgresql.auth.password for a deterministic install.
+{{- else }}
+  External database (postgresql.enabled=false).
+    host     : {{ include "zitadel.db.host" . }}
+    database : {{ include "zitadel.db.name" . }}
+    user     : {{ include "zitadel.db.user" . }}
+    admin    : {{ include "zitadel.db.adminUser" . }}
+  Ensure this PostgreSQL is reachable; the admin role must be able to create the schema.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

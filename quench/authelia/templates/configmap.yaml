@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "authelia.configMapName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # Mounted read-only at /config/configuration.yml and passed via --config. The
+  # three mandatory secrets are NOT here; they are injected via *_FILE env vars.
+  configuration.yml: |-
+    {{- toYaml .Values.configuration | nindent 4 }}
+  {{- if .Values.auth.file.enabled }}
+  # The file auth backend's user database. Mounted read-only at /config/users.yml
+  # (configuration.authentication_backend.file.path points here). Authelia reads
+  # this for authentication; the SQLite DB / notifier writes still land on /data.
+  users.yml: |-
+    users:
+      {{ .Values.auth.file.username }}:
+        disabled: false
+        displayname: {{ .Values.auth.file.displayName | quote }}
+        password: {{ .Values.auth.file.passwordHash | quote }}
+        email: {{ .Values.auth.file.email | quote }}
+        groups:
+          {{- range .Values.auth.file.groups }}
+          - {{ . }}
+          {{- end }}
+  {{- end }}

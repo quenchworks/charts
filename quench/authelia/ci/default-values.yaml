@@ -1,0 +1,64 @@
+# CI gate values: fixed test secrets (>= 20 chars), a seeded test user, a small
+# PVC, and minimal resources. Boots standalone on SQLite + the file auth backend.
+secrets:
+  jwtSecret: "ci-jwt-secret-0123456789abcdef"
+  sessionSecret: "ci-session-secret-0123456789abcdef"
+  storageEncryptionKey: "ci-storage-enc-key-0123456789abcdef"
+
+auth:
+  file:
+    enabled: true
+    username: authelia
+    displayName: Authelia User
+    email: authelia@example.com
+    # argon2id hash of the password "authelia".
+    passwordHash: "$argon2id$v=19$m=65536,t=3,p=4$T1bW+tCvw3y5cA3KrPo0kQ$EAVJ20o9zWLMtKRA+EnTMMP1dCOf9q7ua74C2+Vfrm4"
+    groups:
+      - admins
+
+configuration:
+  theme: light
+  log:
+    level: info
+    format: text
+  server:
+    address: "tcp://0.0.0.0:9091"
+  totp:
+    issuer: authelia.com
+  authentication_backend:
+    file:
+      path: /config/users.yml
+      password:
+        algorithm: argon2
+  access_control:
+    default_policy: one_factor
+    rules:
+      - domain: "*"
+        policy: bypass
+        resources:
+          - "^/api/health$"
+  session:
+    name: authelia_session
+    cookies:
+      - domain: example.com
+        authelia_url: https://auth.example.com
+        default_redirection_url: https://www.example.com
+  regulation:
+    max_retries: 3
+    find_time: 2m
+    ban_time: 5m
+  storage:
+    local:
+      path: /data/db.sqlite3
+  notifier:
+    disable_startup_check: true
+    filesystem:
+      filename: /data/notification.txt
+
+persistence:
+  enabled: true
+  size: 1Gi
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: 250m, memory: 192Mi }

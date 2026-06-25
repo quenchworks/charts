@@ -1,0 +1,193 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/authelia
+  digest: "sha256:9d8a4377b29c18986aa226de5e60370ea48463b253dfa0c1d1ae239d19860a9c"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Authelia keeps server-side session, storage-encryption, and JWT state, so the
+# default deployment is a single-replica Deployment behind a ClusterIP Service.
+# The default storage (SQLite) and file auth backend both live on a ReadWriteOnce
+# PVC, so the update strategy is Recreate to avoid two pods contending for the
+# volume. To run more than one replica, move storage to PostgreSQL and the session
+# store to Redis (see storage.postgres / session.redis below).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The container runs `/usr/bin/authelia --config /config/configuration.yml`. The
+# config file is MANDATORY; the chart renders the `configuration` block below into
+# a ConfigMap mounted read-only at /config/configuration.yml.
+command: ["/usr/bin/authelia"]
+args: ["--config", "/config/configuration.yml"]
+
+# --- The three MANDATORY secrets (each must be >= 20 chars or Authelia refuses to
+# boot). They are delivered as files on a mounted Secret and referenced via the
+# *_FILE env vars, NEVER placed in the ConfigMap. Leave a value empty to have the
+# chart generate a 32-char random value once and preserve it across upgrades
+# (via a lookup of the existing Secret). Point existingSecret at a Secret you
+# manage yourself (keys: jwt-secret, session-secret, storage-encryption-key) to
+# bypass chart-managed generation entirely. ---
+secrets:
+  existingSecret: ""
+  jwtSecret: ""
+  sessionSecret: ""
+  storageEncryptionKey: ""
+
+# --- Default admin user for the file authentication backend. ---
+# When auth.file.enabled is true the chart seeds /data/users.yml on first boot (via
+# an initContainer) if it does not already exist. The password below is an
+# argon2id hash. The default hash is for the password "authelia" (CHANGE IT). Use
+# `authelia crypto hash generate argon2 --password <pw>` to mint a new one.
+auth:
+  file:
+    enabled: true
+    # Seed user written to /data/users.yml when the file is absent.
+    username: authelia
+    displayName: Authelia User
+    email: authelia@example.com
+    # argon2id hash of the password "authelia" (CHANGE THIS).
+    passwordHash: "$argon2id$v=19$m=65536,t=3,p=4$T1bW+tCvw3y5cA3KrPo0kQ$EAVJ20o9zWLMtKRA+EnTMMP1dCOf9q7ua74C2+Vfrm4"
+    groups:
+      - admins
+      - dev
+
+# --- Authelia configuration (rendered verbatim into a ConfigMap as
+# configuration.yml and mounted read-only at /config). This is a BOOTABLE default:
+# SQLite storage + file auth backend on the /data PVC, a filesystem notifier (no
+# SMTP), and a single-factor default access-control rule. It is NOT production-
+# ready as-is: set session.cookies[].domain / authelia_url to your real domain,
+# tighten access_control, and switch the notifier to SMTP. The three required
+# secrets are injected at runtime via *_FILE env vars and must NOT appear here. ---
+configuration:
+  theme: light
+  log:
+    level: info
+    format: text
+  server:
+    address: "tcp://0.0.0.0:9091"
+  totp:
+    issuer: authelia.com
+  # identity_validation.reset_password.jwt_secret is injected at runtime via
+  # AUTHELIA_IDENTITY_VALIDATION_RESET_PASSWORD_JWT_SECRET_FILE (not set here).
+  authentication_backend:
+    file:
+      # The chart renders this users database into the config ConfigMap (key
+      # users.yml) and mounts it read-only here. The writable SQLite DB and
+      # notifier file stay on the /data PVC.
+      path: /config/users.yml
+      password:
+        algorithm: argon2
+  access_control:
+    default_policy: one_factor
+    rules:
+      # Allow the health/metrics surface without auth.
+      - domain: "*"
+        policy: bypass
+        resources:
+          - "^/api/health$"
+  session:
+    name: authelia_session
+    # secret is injected via AUTHELIA_SESSION_SECRET_FILE
+    cookies:
+      - domain: example.com
+        authelia_url: https://auth.example.com
+        default_redirection_url: https://www.example.com
+  regulation:
+    max_retries: 3
+    find_time: 2m
+    ban_time: 5m
+  storage:
+    # encryption_key is injected via AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE
+    local:
+      path: /data/db.sqlite3
+  notifier:
+    disable_startup_check: true
+    filesystem:
+      filename: /data/notification.txt
+
+# OPTIONAL external backends (off by default, documented for production scale-out):
+#
+#   To use PostgreSQL instead of SQLite, drop the storage.local block above and add
+#   under `configuration.storage`:
+#     postgres:
+#       address: tcp://my-postgres:5432
+#       database: authelia
+#       username: authelia
+#       password: <set via extraEnvVarsSecret AUTHELIA_STORAGE_POSTGRES_PASSWORD_FILE>
+#   Then set replicaCount > 1 is safe (storage is shared).
+#
+#   To move the session store to Redis (required for multi-replica HA), add under
+#   `configuration.session`:
+#     redis:
+#       host: my-redis
+#       port: 6379
+#       password: <set via extraEnvVarsSecret AUTHELIA_SESSION_REDIS_PASSWORD_FILE>
+
+# Persistent storage mounted at /data (SQLite DB, users.yml, notification.txt). It
+# must be writable by uid 1001 (fsGroup 1001 handles ownership). Set
+# persistence.enabled=false to back it with an emptyDir (ephemeral; state lost on
+# restart, fine for a gate). Point existingClaim at a pre-created PVC to reuse one.
+persistence:
+  enabled: true
+  size: 1Gi
+  # storageClass: ""          # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  existingClaim: ""
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # Authelia serves HTTP (and the /api/health endpoint) on 9091.
+  port: 9091
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Authelia is commonly consulted as a forward-auth endpoint from ingress/other
+# namespaces, so allow external ingress by default. Set allowExternal=false to
+# restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

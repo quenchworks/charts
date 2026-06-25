@@ -1,0 +1,145 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/zitadel
+  digest: "sha256:5e1236f874ae7a2e212cfcbc38cff2390a764d11aef6c22f114e418777dd2343"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# ZITADEL is a stateless Go server: ALL state lives in an external PostgreSQL, so the
+# chart runs it as a Deployment behind a ClusterIP Service (PostgreSQL holds the
+# state and runs as a StatefulSet via the bundled subchart). The container runs the
+# cold-start subcommand `start-from-init`, which creates the schema, seeds the first
+# instance/admin, then serves — idempotent across restarts. All configuration is
+# driven via ZITADEL_* env vars. Replicas can scale horizontally; default is 1.
+replicaCount: 1
+
+# Resources. The server idles small; the working set grows with login/token traffic.
+# Defaults schedule anywhere and pass the CI gate.
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+# ZITADEL serves HTTP/2 cleartext (h2c) — gRPC and REST/console multiplexed on one
+# port. Keep this in sync with externalPort below.
+service:
+  type: ClusterIP
+  port: 8080
+
+# --- Public addressing (ZITADEL_EXTERNAL*) ---
+# externalDomain/externalPort/externalSecure tell ZITADEL the URL clients reach it on;
+# they are baked into issuer URLs and the OIDC discovery document, so they MUST match
+# how users actually connect. TLS is expected to terminate at an ingress/proxy
+# (the app runs --tlsMode disabled). Set externalSecure=true behind HTTPS ingress.
+externalDomain: "localhost"
+externalPort: 8080
+externalSecure: false
+
+# --- Master key (ZITADEL_MASTERKEY) ---
+# A 32-character key used to encrypt secrets at rest. Provided to the pod via the
+# managed Secret. Generated once (32 chars) and preserved across upgrades when left
+# empty; set a fixed value to manage it yourself. MUST be exactly 32 characters.
+masterkey: ""
+
+# --- First instance / initial admin (ZITADEL_FIRSTINSTANCE_*) ---
+# Seeded on the very first boot only (ignored once the instance exists). The admin
+# password is stored in the managed Secret. Leave password empty to auto-generate.
+firstInstance:
+  orgName: "QuenchWorks"
+  admin:
+    username: "zitadel-admin"
+    password: ""
+
+# --- Bundled database (default) ---
+# postgresql.enabled deploys the QuenchWorks PostgreSQL subchart. Its primary Service
+# is "<release>-postgresql". ZITADEL connects with the credentials below.
+# NOTE: the PostgreSQL image creates POSTGRES_USER as the SUPERUSER and only creates
+# the application database when it differs from both "postgres" and POSTGRES_USER.
+# Keep the user (zitadeluser) and database (zitadel) distinct. ZITADEL needs an admin
+# (superuser) connection to create its schema on first boot; the bundled superuser IS
+# postgresql.auth.username, so the chart wires ZITADEL's admin user to that same role.
+postgresql:
+  enabled: true
+  auth:
+    username: zitadeluser
+    password: ""            # generated into the managed Secret if left empty
+    database: zitadel
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- External database (postgresql.enabled=false) ---
+# user/userPassword: ZITADEL's runtime DB role. adminUsername/adminPassword: a role
+# with privileges to create the schema on first boot (often a superuser). sslMode:
+# disable | require | verify-ca | verify-full.
+externalDatabase:
+  host: ""
+  port: 5432
+  database: zitadel
+  user: zitadel
+  password: ""
+  adminUsername: postgres
+  adminPassword: ""
+  sslMode: disable
+  existingSecret: ""
+  existingSecretUserPasswordKey: "db-user-password"
+  existingSecretAdminPasswordKey: "db-admin-password"
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+# Extra ZITADEL_* env vars (list of {name,value} or {name,valueFrom}). Appended after
+# the chart's own env, so these win on conflict.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# The image entrypoint is /usr/bin/zitadel. In Kubernetes `command` REPLACES the image
+# ENTRYPOINT entirely, so it must name the binary; the subcommand + flags go in `args`.
+# start-from-init creates the schema, seeds the first instance, then serves (idempotent).
+command: ["/usr/bin/zitadel"]
+args: ["start-from-init", "--masterkeyFromEnv", "--tlsMode", "disabled"]
+# Security contexts merge over the hardened quench-common defaults (nonroot uid 1001,
+# read-only rootfs); your keys win. ZITADEL needs no writable filesystem dirs.
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# ZITADEL is commonly reached from across the cluster (and via ingress), so allow
+# external ingress by default. Egress is opened to the database port. Set
+# allowExternal=false to restrict ingress to the release namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

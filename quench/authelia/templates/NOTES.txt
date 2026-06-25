@@ -1,0 +1,39 @@
+Quenchworks Authelia is installed as {{ include "quench-common.fullname" . }}.
+
+It runs nonroot (uid 1001) and serves the authentication portal and the
+/api/health endpoint on container port 9091; the Service exposes it on port
+{{ .Values.service.port }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Check health over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://127.0.0.1:{{ .Values.service.port }}/api/health
+
+Storage: SQLite on a {{ if .Values.persistence.enabled }}PersistentVolumeClaim{{ else }}emptyDir (ephemeral){{ end }} mounted at /data
+(also holds the filesystem notifier output). For multi-replica HA, move storage
+to PostgreSQL and the session store to Redis (see values.yaml).
+
+{{- if .Values.auth.file.enabled }}
+
+Default login (file backend): user "{{ .Values.auth.file.username }}".
+The seeded password hash is the chart default for password "authelia" unless you
+overrode auth.file.passwordHash. CHANGE IT before exposing this instance.
+{{- end }}
+
+{{- if not .Values.secrets.existingSecret }}
+
+The three mandatory secrets (JWT, session, storage-encryption) are stored in the
+Secret {{ include "quench-common.fullname" . }} and injected via *_FILE env vars. Empty values were
+generated and are preserved across upgrades.
+{{- end }}
+
+IMPORTANT: edit configuration.session.cookies[].domain and authelia_url to your
+real domain before production use; the defaults point at example.com.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/authelia \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

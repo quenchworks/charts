@@ -1,0 +1,125 @@
+{{/* Liveness hits /debug/healthz (process up). Readiness hits /debug/ready, which
+     returns 200 only once ZITADEL has connected to PostgreSQL, run init/migrations,
+     and is actually serving — so --wait on this is the real integration test. First
+     boot runs start-from-init (schema create + first-instance seed) against an empty
+     DB, so the readiness window is generous. The kubelet performs the GET; the image
+     ships no shell HTTP client. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/debug/healthz" "port" "http2") "initialDelaySeconds" 30 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/debug/ready" "port" "http2") "initialDelaySeconds" 15 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Roll the pod when the managed Secret (masterkey/admin/DB creds) changes.
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "zitadel.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: zitadel
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- include "quench-common.args" . | nindent 10 }}
+          env:
+            # --- Database (PostgreSQL, required) ---
+            - name: ZITADEL_DATABASE_POSTGRES_HOST
+              value: {{ include "zitadel.db.host" . | quote }}
+            - name: ZITADEL_DATABASE_POSTGRES_PORT
+              value: {{ include "zitadel.db.port" . | quote }}
+            - name: ZITADEL_DATABASE_POSTGRES_DATABASE
+              value: {{ include "zitadel.db.name" . | quote }}
+            - name: ZITADEL_DATABASE_POSTGRES_USER_USERNAME
+              value: {{ include "zitadel.db.user" . | quote }}
+            - name: ZITADEL_DATABASE_POSTGRES_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "zitadel.secretName" . }}
+                  key: {{ include "zitadel.db.userPasswordKey" . }}
+            - name: ZITADEL_DATABASE_POSTGRES_USER_SSL_MODE
+              value: {{ include "zitadel.db.sslMode" . | quote }}
+            # Admin (schema-creating) connection used by start-from-init.
+            - name: ZITADEL_DATABASE_POSTGRES_ADMIN_USERNAME
+              value: {{ include "zitadel.db.adminUser" . | quote }}
+            - name: ZITADEL_DATABASE_POSTGRES_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "zitadel.secretName" . }}
+                  key: {{ include "zitadel.db.adminPasswordKey" . }}
+            - name: ZITADEL_DATABASE_POSTGRES_ADMIN_SSL_MODE
+              value: {{ include "zitadel.db.sslMode" . | quote }}
+            # --- Master key (32 chars), read from env via --masterkeyFromEnv ---
+            - name: ZITADEL_MASTERKEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "zitadel.secretName" . }}
+                  key: masterkey
+            # --- HTTP listener + public addressing ---
+            - name: ZITADEL_PORT
+              value: {{ .Values.service.port | quote }}
+            - name: ZITADEL_EXTERNALDOMAIN
+              value: {{ .Values.externalDomain | quote }}
+            - name: ZITADEL_EXTERNALPORT
+              value: {{ .Values.externalPort | quote }}
+            - name: ZITADEL_EXTERNALSECURE
+              value: {{ .Values.externalSecure | quote }}
+            # --- First instance / initial admin (seeded once on first boot) ---
+            - name: ZITADEL_FIRSTINSTANCE_ORG_NAME
+              value: {{ .Values.firstInstance.orgName | quote }}
+            - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_USERNAME
+              value: {{ .Values.firstInstance.admin.username | quote }}
+            - name: ZITADEL_FIRSTINSTANCE_ORG_HUMAN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "zitadel.secretName" . }}
+                  key: admin-password
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            # h2c: gRPC + REST/console multiplexed over HTTP/2 cleartext on one port.
+            - name: http2
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with (include "quench-common.extraVolumeMounts" .) }}
+          volumeMounts:
+            {{- . | nindent 12 }}
+          {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      {{- with (include "quench-common.extraVolumes" .) }}
+      volumes:
+        {{- . | nindent 8 }}
+      {{- end }}

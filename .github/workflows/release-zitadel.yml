@@ -1,0 +1,103 @@
+name: release-zitadel
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/zitadel/**"
+      - ".github/workflows/release-zitadel.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/zitadel
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # pin actions to SHAs before going public (renovate)
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          # pulls quench-common + the bundled postgresql subchart into charts/
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          # --wait blocks until BOTH the bundled PostgreSQL and ZITADEL are Ready.
+          # ZITADEL only becomes Ready once it connects to Postgres, runs start-from-init
+          # (schema create + first-instance seed) and is actually serving (/debug/ready
+          # returns 200), so this is the real integration test.
+          helm install rtest "${CHART_DIR}" -n zt --create-namespace -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          kubectl rollout status deployment/rtest-zitadel -n zt --timeout=540s
+          # --- confirm the container runs as the nonroot uid 1001 ---
+          pod="$(kubectl get pod -n zt -l app.kubernetes.io/name=zitadel -o jsonpath='{.items[0].metadata.name}')"
+          uid="$(kubectl get pod "$pod" -n zt -o jsonpath='{.spec.securityContext.runAsUser}')"
+          echo "runAsUser: $uid"
+          test "$uid" = "1001"
+          # --- smoke: /debug/ready returns 200, OIDC discovery returns 200 JSON ---
+          kubectl port-forward -n zt svc/rtest-zitadel 8080:8080 >/tmp/pf8080.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          rcode="$(curl -s -o /tmp/ready.txt -w '%{http_code}' http://127.0.0.1:8080/debug/ready)"
+          echo "ready HTTP status: $rcode"; cat /tmp/ready.txt
+          test "$rcode" = "200"
+          # ZITADEL is multi-tenant and routes by Host header; the OIDC discovery doc is
+          # served on the instance domain (ZITADEL_EXTERNALDOMAIN=localhost in the gate),
+          # so the request must carry a matching Host or it 404s.
+          ocode="$(curl -s -H 'Host: localhost' -o /tmp/oidc.json -w '%{http_code}' http://127.0.0.1:8080/.well-known/openid-configuration)"
+          echo "discovery HTTP status: $ocode"
+          test "$ocode" = "200"
+          grep -q '"issuer"' /tmp/oidc.json
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/zitadel-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"   # fail loudly rather than handing cosign an empty ref
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/zitadel@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push. Register the ArtifactHub repo and set the ID."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/zitadel:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
