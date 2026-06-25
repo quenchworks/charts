@@ -1,0 +1,44 @@
+Quenchworks Mattermost is installed as {{ include "quench-common.fullname" . }}.
+
+The web UI + REST API are served on port {{ .Values.service.port }} inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Reach it from your machine with a port-forward:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8065:{{ .Values.service.port }}
+  # then open http://127.0.0.1:8065/
+
+Health check:
+
+  curl -fsS http://127.0.0.1:8065/api/v4/system/ping
+  # -> {"status":"OK"}
+
+On first visit, create the initial admin account through the web UI.
+
+SiteURL:
+  {{ include "mattermost.siteUrl" . }}
+  Set `siteUrl` to your external URL when fronting Mattermost with an ingress/proxy.
+
+Database:
+{{- if .Values.postgresql.enabled }}
+  Bundled Quenchworks PostgreSQL (postgresql.enabled=true).
+    host     : {{ include "mattermost.db.host" . }}
+    database : {{ include "mattermost.db.name" . }}
+    user     : {{ include "mattermost.db.user" . }}
+  Mattermost and the bundled PG share the deterministic credentials set under
+  `postgresql.auth` in this chart's values. The full DSN lives in the Secret
+  {{ include "quench-common.fullname" . }} (key: datasource).
+{{- else }}
+  External database (postgresql.enabled=false).
+    host     : {{ include "mattermost.db.host" . }}
+    database : {{ include "mattermost.db.name" . }}
+    user     : {{ include "mattermost.db.user" . }}
+  Ensure this PostgreSQL is reachable and the credentials are valid.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

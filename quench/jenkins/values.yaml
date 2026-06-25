@@ -1,0 +1,106 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/jenkins
+  digest: "sha256:0da181c81f30ef98507211221ac30586a54895742f6234e634cb49402a429663"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Jenkins keeps all of its state (config, jobs, builds, plugins, credentials, the
+# generated initial admin secret) under JENKINS_HOME (/var/jenkins_home), so the
+# chart runs it as a single-replica StatefulSet behind a ClusterIP Service with a
+# persistent /var/jenkins_home volume. Jenkins is a controller, not a clustered
+# service: scaling the controller horizontally is unsupported (build capacity comes
+# from agents), so replicaCount stays at 1.
+replicaCount: 1
+
+# Resources. Jenkins runs on the JVM; the controller's footprint scales with the
+# number of jobs, plugins, and concurrent builds. Defaults are sized to schedule
+# anywhere and pass the CI gate; raise to fit your workload.
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "1", memory: 1536Mi }
+
+# Persistent storage for JENKINS_HOME (/var/jenkins_home): config, jobs, builds,
+# plugins, credentials. The image runs on a read-only root filesystem, so this PVC
+# is the only writable application path. Provisioned per-pod via a volumeClaimTemplate
+# unless persistence.existingClaim is set. Set persistence.enabled=false to back it
+# with an emptyDir (ephemeral — all Jenkins state is lost on restart).
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""          # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""
+
+service:
+  type: ClusterIP
+  # Jenkins listeners. http (8080) serves the web UI + REST API + /login (also the
+  # probe endpoint). agent (50000) is the inbound JNLP/TCP agent port.
+  ports:
+    http: 8080
+    agent: 50000
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+# The image entrypoint is `java -jar /usr/share/jenkins/jenkins.war --httpPort=8080`.
+# JAVA_OPTS disables the first-boot setup wizard so Jenkins boots straight to a
+# usable state (no interactive unlock step blocking readiness). Drop the
+# runSetupWizard flag if you want the guided setup instead.
+extraEnvVars:
+  - name: JAVA_OPTS
+    value: "-Djenkins.install.runSetupWizard=false"
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+# read-only rootfs: Jenkins (Jetty/Winstone) needs a writable java.io.tmpdir for
+# extracted webapp resources and uploads; back /tmp with an emptyDir. JENKINS_HOME
+# is the persistent volume mounted below.
+extraVolumes:
+  - name: tmp
+    emptyDir: {}
+extraVolumeMounts:
+  - name: tmp
+    mountPath: /tmp
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The web UI + agent port are commonly reached from across the cluster, so allow
+# external ingress by default. Set allowExternal=false to restrict ingress to the
+# namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

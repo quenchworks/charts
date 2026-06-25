@@ -1,0 +1,125 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/mattermost
+  digest: "sha256:e3821cf30bfc7493b9b68a0f42426e7e85c1d136858c53d6b3ee51945507ef07"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Mattermost stores uploaded files, plugins and per-node state on disk and REQUIRES
+# an external PostgreSQL for all relational data, so the chart runs it as a
+# StatefulSet behind a ClusterIP Service with a persistent /opt/mattermost/data
+# volume. Team Edition is single-node; replicaCount stays 1 (HA/clustering is an
+# Enterprise feature). The image runs `mattermost server`; all config is driven via
+# MM_* env vars so the config volume can start empty.
+replicaCount: 1
+
+# Resources. The Go server idles small; the working set grows with active users and
+# WebSocket connections. Defaults schedule anywhere and pass the CI gate.
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "2", memory: 2Gi }
+
+# Persistent storage for /opt/mattermost/data (uploaded files, attachments).
+# Provisioned via a volumeClaimTemplate unless persistence.existingClaim is set.
+# Set persistence.enabled=false to back it with an emptyDir (ephemeral).
+persistence:
+  enabled: true
+  size: 10Gi
+  # storageClass: ""          # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""
+
+# The public URL users reach Mattermost on (MM_SERVICESETTINGS_SITEURL). Defaults to
+# the in-cluster service DNS; set this to your ingress/proxy URL in production.
+siteUrl: ""
+
+service:
+  type: ClusterIP
+  port: 8065
+
+# --- Bundled database (default) ---
+# postgresql.enabled deploys the Quenchworks PostgreSQL subchart. Its primary Service
+# is "<release>-postgresql". Mattermost and PostgreSQL share the deterministic
+# credentials below; the datasource (MM_SQLSETTINGS_DATASOURCE) is derived from them.
+# NOTE: auth.username MUST differ from auth.database — the PostgreSQL image only
+# creates the application database when POSTGRES_DB differs from both "postgres" and
+# POSTGRES_USER. Keep the user (mmuser) and database (mattermost) distinct.
+postgresql:
+  enabled: true
+  auth:
+    username: mmuser
+    password: ""            # generated into the managed Secret if left empty
+    database: mattermost
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- External database (postgresql.enabled=false) ---
+externalDatabase:
+  host: ""
+  port: 5432
+  database: mattermost
+  user: mattermost
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: "db-password"
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+# read-only rootfs: Mattermost writes config, logs and plugins under the install dir.
+# Only /opt/mattermost/data needs to persist; the rest are ephemeral emptyDirs so the
+# container's root filesystem stays read-only. These are wired in statefulset.yaml.
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (nonroot uid 1001,
+# read-only rootfs); your keys win.
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Mattermost is commonly reached from across the cluster (and via ingress), so allow
+# external ingress by default. Egress is opened to the database port. Set
+# allowExternal=false to restrict ingress to the release namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

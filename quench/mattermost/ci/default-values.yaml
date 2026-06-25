@@ -1,0 +1,28 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+# Bundles the Quenchworks PostgreSQL subchart with small PVCs; deterministic shared
+# DB credentials; small resources for the runner. The gate confirms Mattermost
+# connects to PostgreSQL, runs migrations, and /api/v4/system/ping returns 200.
+postgresql:
+  enabled: true
+  auth:
+    username: mmuser
+    password: ci-test-password
+    database: mattermost
+  primary:
+    persistence:
+      enabled: true
+      size: 1Gi
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: "1", memory: 512Mi }
+
+persistence:
+  enabled: true
+  size: 1Gi
+
+siteUrl: "http://localhost:8065"
+
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "2", memory: 1536Mi }
