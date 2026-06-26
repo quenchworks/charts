@@ -20,8 +20,10 @@ replicaCount: 1
 # Resources. The tracking server idles small; memory grows with concurrent UI/REST
 # traffic and large artifact proxying. Defaults schedule anywhere and pass the CI gate.
 resources:
-  requests: { cpu: 250m, memory: 512Mi }
-  limits: { cpu: "2", memory: 1Gi }
+  # mlflow server loads pandas/numpy + the gunicorn worker; even with --workers 1
+  # the venv resident set is ~0.5-0.7GB, so 1Gi OOMs under load. 2Gi limit gives headroom.
+  requests: { cpu: 250m, memory: 768Mi }
+  limits: { cpu: "2", memory: 2Gi }
 
 # MLflow serves the UI + REST API (and proxies artifact access via --serve-artifacts)
 # on a single HTTP port. Keep this in sync with the server --port below.
@@ -114,6 +116,11 @@ args:
   - "--port"
   - "5000"
   - "--serve-artifacts"
+  # gunicorn defaults to ~2*cpu+1 workers; each worker loads the full mlflow +
+  # pandas/numpy stack (~0.5GB), so the default fleet OOMs small pods. Pin one
+  # worker; scale up together with resources.limits.memory if you need throughput.
+  - "--workers"
+  - "1"
 # Security contexts merge over the hardened quench-common defaults (nonroot uid 1001,
 # read-only rootfs, fsGroup 1001 so the artifact PVC is writable); your keys win.
 podSecurityContext: {}
@@ -124,7 +131,17 @@ livenessProbe: {}
 readinessProbe: {}
 customLivenessProbe: {}
 customReadinessProbe: {}
-customStartupProbe: {}
+# mlflow's first boot is slow (import pandas/numpy, start the gunicorn worker, run DB
+# migrations) — often 60-120s. A startup probe gates liveness/readiness until the server
+# is actually serving, so the slow boot isn't killed mid-start (otherwise liveness loops).
+# Up to 300s grace (30 x 10s); after it passes, liveness/readiness resume normal timing.
+customStartupProbe:
+  httpGet:
+    path: /health
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 30
 
 serviceAccount:
   create: true
