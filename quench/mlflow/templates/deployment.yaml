@@ -1,0 +1,107 @@
+{{/* Liveness and readiness both hit /health on the HTTP port. Readiness returns 200
+     only once the tracking server has connected to the PostgreSQL backend store and
+     run its DB migrations, then is serving — so --wait on readiness is the real
+     integration test. First boot runs migrations against an empty DB, so the window is
+     generous. The kubelet performs the GET; the image ships no shell HTTP client. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/health" "port" "http") "initialDelaySeconds" 30 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/health" "port" "http") "initialDelaySeconds" 15 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Roll the pod when the managed Secret (backend-store DSN / DB password) changes.
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "mlflow.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: mlflow
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          # Static args from values + the artifact destination resolved at render time.
+          # The backend-store-uri is NOT here (it carries the DB password); it is read
+          # from MLFLOW_BACKEND_STORE_URI below so it stays out of argv / the proc list.
+          args:
+            {{- range .Values.args }}
+            - {{ . | quote }}
+            {{- end }}
+            - "--artifacts-destination"
+            - {{ include "mlflow.artifactRoot" . | quote }}
+          env:
+            # Full DSN (incl. password) is assembled in the managed Secret and read from
+            # this env var by MLflow — keeps the password out of the process arguments.
+            - name: MLFLOW_BACKEND_STORE_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mlflow.secretName" . }}
+                  key: backend-store-uri
+            # Writable scratch on the read-only rootfs.
+            - name: HOME
+              value: /tmp
+            - name: TMPDIR
+              value: /tmp
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # Artifact store (logged files/models), served via --serve-artifacts.
+            - name: artifacts
+              mountPath: {{ .Values.persistence.mountPath }}
+            # Read-only rootfs: MLflow + gunicorn write temp files; back /tmp with an
+            # emptyDir. HOME/TMPDIR point here too.
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: artifacts
+        {{- if not .Values.persistence.enabled }}
+          emptyDir: {}
+        {{- else if .Values.persistence.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim }}
+        {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ include "quench-common.fullname" . }}-artifacts
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

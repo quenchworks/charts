@@ -1,0 +1,53 @@
+Quenchworks MLflow Tracking Server is installed as {{ include "quench-common.fullname" . }}.
+
+The UI and REST API are served on port {{ .Values.service.port }} inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Reach it from your machine with a port-forward:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  # then open the UI at http://localhost:{{ .Values.service.port }}/
+
+Health / API:
+
+  curl -fsS http://localhost:{{ .Values.service.port }}/health                                  # serving
+  curl -fsS http://localhost:{{ .Values.service.port }}/api/2.0/mlflow/experiments/search        # list experiments
+
+Point a client at the tracking server:
+
+  export MLFLOW_TRACKING_URI=http://localhost:{{ .Values.service.port }}
+
+Backend store:
+{{- if .Values.postgresql.enabled }}
+  Bundled Quenchworks PostgreSQL (postgresql.enabled=true).
+    host     : {{ include "mlflow.db.host" . }}
+    database : {{ include "mlflow.db.name" . }}
+    user     : {{ include "mlflow.db.user" . }}
+  The bundled PostgreSQL image creates this user as the superuser. The database and user
+  are deliberately distinct so the app database is created on first boot. Set
+  postgresql.auth.password for a deterministic install.
+{{- else }}
+  External database (postgresql.enabled=false).
+    host     : {{ include "mlflow.db.host" . }}
+    database : {{ include "mlflow.db.name" . }}
+    user     : {{ include "mlflow.db.user" . }}
+  Ensure this PostgreSQL is reachable and the database/user exist.
+{{- end }}
+
+Artifact store:
+{{- if .Values.persistence.enabled }}
+  PVC mounted at {{ .Values.persistence.mountPath }} ({{ .Values.persistence.size }}), proxied via --serve-artifacts.
+  Destination: {{ include "mlflow.artifactRoot" . }}
+{{- else }}
+  artifactRoot: {{ include "mlflow.artifactRoot" . }} (external object storage; supply credentials via extraEnvVars).
+{{- end }}
+
+NOTE: MLflow ships no built-in authentication. networkPolicy.allowExternal is
+{{ .Values.networkPolicy.allowExternal }}; front it with an authenticating ingress/proxy before exposing it.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

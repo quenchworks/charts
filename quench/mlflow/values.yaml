@@ -1,0 +1,146 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/mlflow
+  digest: "sha256:20aa121eb9183259447a7a8eea94eba76f35aff6158f83cd3db331e74a298a72"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# MLflow's tracking server is a stateless Python (Flask/gunicorn) app: ALL durable
+# state lives in an external PostgreSQL backend store (experiments, runs, params,
+# metrics, the model registry) plus an artifact store (logged files/models). The chart
+# runs it as a Deployment behind a ClusterIP Service; PostgreSQL runs as a StatefulSet
+# via the bundled subchart, and artifacts live on a PVC mounted at /mnt/artifacts.
+# The server boots only with a reachable backend store, then runs its DB migrations on
+# first connect. Replicas can scale horizontally (shared DB + shared artifact PVC);
+# default is 1 (the bundled artifact PVC is ReadWriteOnce).
+replicaCount: 1
+
+# Resources. The tracking server idles small; memory grows with concurrent UI/REST
+# traffic and large artifact proxying. Defaults schedule anywhere and pass the CI gate.
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+# MLflow serves the UI + REST API (and proxies artifact access via --serve-artifacts)
+# on a single HTTP port. Keep this in sync with the server --port below.
+service:
+  type: ClusterIP
+  port: 5000
+
+# --- Artifact store (PVC) ---
+# The simplest self-contained artifact store: a PVC mounted at /mnt/artifacts, served
+# through the tracking server (--serve-artifacts --artifacts-destination file://...).
+# For production object storage instead, disable this PVC, point artifactRoot at an
+# S3/GCS/Azure URI, and supply credentials via extraEnvVars (the image bundles boto3).
+persistence:
+  enabled: true
+  size: 10Gi
+  mountPath: /mnt/artifacts
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+# Where the server proxies/stores artifacts. With the bundled PVC this is a file:// URI
+# under persistence.mountPath. Override to e.g. "s3://my-bucket/mlflow" for object
+# storage (then set persistence.enabled=false and provide AWS_* via extraEnvVars).
+artifactRoot: ""            # empty -> file://<persistence.mountPath> when PVC is enabled
+
+# --- Bundled database (default) ---
+# postgresql.enabled deploys the QuenchWorks PostgreSQL subchart. Its primary Service is
+# "<release>-postgresql". MLflow connects with the credentials below as the backend store.
+# NOTE: the PostgreSQL image creates POSTGRES_USER as the SUPERUSER and only creates the
+# application database when it differs from both "postgres" and POSTGRES_USER. Keep the
+# user (mlflowuser) and database (mlflow) DISTINCT, or the app DB is never created.
+postgresql:
+  enabled: true
+  auth:
+    username: mlflowuser
+    password: ""            # generated into the managed Secret if left empty
+    database: mlflow
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- External database (postgresql.enabled=false) ---
+# Point MLflow at an existing PostgreSQL for the backend store. sslMode:
+# disable | require | verify-ca | verify-full. With existingSecret, the referenced
+# Secret must supply the password under existingSecretPasswordKey and this chart
+# renders no managed Secret.
+externalDatabase:
+  host: ""
+  port: 5432
+  database: mlflow
+  user: mlflow
+  password: ""
+  sslMode: disable
+  existingSecret: ""
+  existingSecretPasswordKey: "db-password"
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+# Extra env vars (list of {name,value} or {name,valueFrom}). Appended after the chart's
+# own env, so these win on conflict. Use for S3/GCS artifact-store credentials, etc.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# The image entrypoint is /usr/bin/mlflow (bare). In Kubernetes `command` REPLACES the
+# image ENTRYPOINT entirely, so `command` MUST name the binary by its full path; the
+# `server` subcommand + flags go in `args`. The backend-store-uri is NOT passed on argv
+# (it carries the DB password); it is injected as the MLFLOW_BACKEND_STORE_URI env var
+# from the Secret, which MLflow reads automatically.
+command: ["/usr/bin/mlflow"]
+args:
+  - "server"
+  - "--host"
+  - "0.0.0.0"
+  - "--port"
+  - "5000"
+  - "--serve-artifacts"
+# Security contexts merge over the hardened quench-common defaults (nonroot uid 1001,
+# read-only rootfs, fsGroup 1001 so the artifact PVC is writable); your keys win.
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# MLflow has no built-in auth, so ingress is restricted to the release namespace by
+# default (allowExternal: false). Front it with an authenticating ingress/proxy and set
+# allowExternal=true to expose it. Egress is opened to the database port + DNS.
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
