@@ -1,0 +1,50 @@
+Quenchworks Thanos is installed as {{ include "quench-common.fullname" . }}.
+
+Components enabled in this release:
+{{- if .Values.query.enabled }}
+  - query    (Deployment)  — PromQL UI/API on HTTP 10902, Store API on gRPC 10901
+{{- end }}
+{{- if .Values.receive.enabled }}
+  - receive  (StatefulSet) — remote-write on 19291, local TSDB Store API on gRPC 10901
+{{- end }}
+{{- if .Values.store.enabled }}
+  - store    (StatefulSet) — Store Gateway over object storage
+{{- end }}
+{{- if .Values.compact.enabled }}
+  - compact  (Deployment)  — single-replica bucket compactor/downsampler
+{{- end }}
+{{- if .Values.rule.enabled }}
+  - rule     (StatefulSet) — rule evaluation + alerting
+{{- end }}
+
+{{- if .Values.query.enabled }}
+
+Query is the user-facing entry point. It serves the PromQL UI/API on port
+{{ .Values.query.service.httpPort }} and goes Ready only once it connects to the
+enabled Store API providers (e.g. receive). Reach it over a port-forward:
+
+  kubectl port-forward svc/{{ include "thanos.componentFullname" (dict "ctx" . "component" "query") }} {{ .Values.query.service.httpPort }}:{{ .Values.query.service.httpPort }}
+  curl http://127.0.0.1:{{ .Values.query.service.httpPort }}/-/healthy
+  curl http://127.0.0.1:{{ .Values.query.service.httpPort }}/-/ready
+  curl 'http://127.0.0.1:{{ .Values.query.service.httpPort }}/api/v1/query?query=up'
+
+The Thanos web UI is also at http://127.0.0.1:{{ .Values.query.service.httpPort }}/
+{{- end }}
+
+{{- if .Values.receive.enabled }}
+
+Point Prometheus remote_write at receive:
+
+  remote_write:
+    - url: http://{{ include "thanos.componentFullname" (dict "ctx" . "component" "receive") }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.receive.service.remoteWritePort }}/api/v1/receive
+{{- end }}
+
+To enable long-term storage, set objstoreConfig.yaml (or .existingSecret) and
+turn on store/compact (and optionally receive.objstore.enabled); query will
+auto-discover the store gateway. See values.yaml for the per-component blocks.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/thanos \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

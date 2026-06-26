@@ -1,0 +1,136 @@
+{{- if .Values.rule.enabled }}
+{{/*
+Thanos Rule (Ruler). Evaluates Prometheus recording/alerting rules against the
+query layer, exposes a Store API (so query can read rule-evaluated series), and
+optionally ships TSDB blocks to OBJECT STORAGE. Needs query endpoints to query
+and Alertmanager URLs + rule files to be useful. A StatefulSet for a stable
+TSDB PVC at /var/thanos/rule.
+*/}}
+{{- $useObjstore := include "thanos.hasObjstore" . -}}
+{{- $liveness := dict "httpGet" (dict "path" "/-/healthy" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/-/ready" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "thanos.componentFullname" (dict "ctx" . "component" "rule") }}
+  labels:
+    {{- include "thanos.componentLabels" (dict "ctx" . "component" "rule") | nindent 4 }}
+spec:
+  serviceName: {{ include "thanos.componentHeadlessName" (dict "ctx" . "component" "rule") }}
+  replicas: {{ .Values.rule.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "rule") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- if .Values.rule.ruleFiles }}
+        checksum/rules: {{ toYaml .Values.rule.ruleFiles | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "rule") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "thanos.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: rule
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - rule
+            - --log.level=info
+            - --data-dir=/var/thanos/rule
+            - --grpc-address=0.0.0.0:10901
+            - --http-address=0.0.0.0:10902
+            - --label=rule_replica="$(POD_NAME)"
+            {{- if .Values.query.enabled }}
+            - --query=dnssrv+_http._tcp.{{ include "thanos.componentFullname" (dict "ctx" . "component" "query") }}.{{ .Release.Namespace }}.svc.cluster.local
+            {{- end }}
+            {{- range .Values.rule.alertmanagers }}
+            - --alertmanagers.url={{ . }}
+            {{- end }}
+            {{- if .Values.rule.ruleFiles }}
+            - --rule-file=/etc/thanos/rules/*.yaml
+            {{- end }}
+            {{- if $useObjstore }}
+            - --objstore.config-file=/etc/thanos/objstore/objstore.yml
+            {{- end }}
+            {{- with .Values.rule.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 10902
+              protocol: TCP
+            - name: grpc
+              containerPort: 10901
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.rule.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/thanos/rule
+            {{- if .Values.rule.ruleFiles }}
+            - name: rules
+              mountPath: /etc/thanos/rules
+              readOnly: true
+            {{- end }}
+            {{- if $useObjstore }}
+            - name: objstore
+              mountPath: /etc/thanos/objstore
+              readOnly: true
+            {{- end }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        {{- if .Values.rule.ruleFiles }}
+        - name: rules
+          configMap:
+            name: {{ include "thanos.componentFullname" (dict "ctx" . "component" "rule") }}-rules
+        {{- end }}
+        {{- if $useObjstore }}
+        - name: objstore
+          secret:
+            secretName: {{ include "thanos.objstoreSecret" . }}
+        {{- end }}
+        {{- if not .Values.rule.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
+  {{- if .Values.rule.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "rule") | nindent 10 }}
+      spec:
+        accessModes:
+          {{- toYaml .Values.rule.persistence.accessModes | nindent 10 }}
+        {{- if .Values.rule.persistence.storageClass }}
+        storageClassName: {{ .Values.rule.persistence.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.rule.persistence.size }}
+  {{- end }}
+{{- end }}

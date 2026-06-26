@@ -1,0 +1,97 @@
+{{- if .Values.query.enabled }}
+{{/*
+Thanos Query (a.k.a. Querier). Runs `thanos query`, the user-facing entry point:
+it serves the PromQL HTTP UI/API on 10902 and fans out to every Store API
+endpoint over gRPC. It discovers receive's Store API via a DNS SRV lookup on
+receive's headless Service, so query only becomes Ready once it has connected to
+receive — that connection IS the integration test.
+
+Probes: HTTP /-/healthy (liveness) and /-/ready (readiness) on 10902. /-/ready
+returns 200 once query has loaded its endpoints and is serving the API.
+*/}}
+{{- $liveness := dict "httpGet" (dict "path" "/-/healthy" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/-/ready" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "thanos.componentFullname" (dict "ctx" . "component" "query") }}
+  labels:
+    {{- include "thanos.componentLabels" (dict "ctx" . "component" "query") | nindent 4 }}
+spec:
+  replicas: {{ .Values.query.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "query") | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "query") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "thanos.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: query
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - query
+            - --log.level=info
+            - --http-address=0.0.0.0:10902
+            - --grpc-address=0.0.0.0:10901
+            - --query.replica-label=receive_replica
+            {{- if .Values.receive.enabled }}
+            - --endpoint={{ include "thanos.receiveEndpoint" . }}
+            {{- end }}
+            {{- range .Values.query.stores }}
+            - --endpoint={{ . }}
+            {{- end }}
+            {{- range .Values.query.extraEndpoints }}
+            - --endpoint={{ . }}
+            {{- end }}
+            {{- with .Values.query.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 10902
+              protocol: TCP
+            - name: grpc
+              containerPort: 10901
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.query.resources | nindent 12 }}
+          volumeMounts:
+            # Read-only rootfs: query is stateless but wants a writable /tmp.
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
+{{- end }}

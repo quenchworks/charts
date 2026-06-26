@@ -1,0 +1,21 @@
+{{- if .Values.query.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "thanos.componentFullname" (dict "ctx" . "component" "query") }}
+  labels:
+    {{- include "thanos.componentLabels" (dict "ctx" . "component" "query") | nindent 4 }}
+spec:
+  type: {{ .Values.query.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.query.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+    - name: grpc
+      port: {{ .Values.query.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+  selector:
+    {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "query") | nindent 4 }}
+{{- end }}

@@ -1,0 +1,40 @@
+{{- if .Values.store.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "thanos.componentFullname" (dict "ctx" . "component" "store") }}
+  labels:
+    {{- include "thanos.componentLabels" (dict "ctx" . "component" "store") | nindent 4 }}
+spec:
+  type: {{ .Values.store.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.store.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+    - name: grpc
+      port: {{ .Values.store.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+  selector:
+    {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "store") | nindent 4 }}
+---
+# Headless Service for SRV discovery of the store gateway's Store API by query.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "thanos.componentHeadlessName" (dict "ctx" . "component" "store") }}
+  labels:
+    {{- include "thanos.componentLabels" (dict "ctx" . "component" "store") | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: grpc
+      port: {{ .Values.store.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+  selector:
+    {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "store") | nindent 4 }}
+{{- end }}

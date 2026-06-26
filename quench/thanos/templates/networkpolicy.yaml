@@ -1,0 +1,45 @@
+{{- if .Values.networkPolicy.enabled }}
+{{/*
+One policy covering every thanos workload (selected by the shared chart
+selectorLabels). It ALWAYS allows in-namespace traffic to the Thanos ports so
+query <-> receive (and the other components') gRPC Store API on 10901 works.
+When allowExternal=true it additionally allows ingress from anywhere (so query's
+HTTP UI/API on 10902 and receive's remote-write on 19291 are reachable).
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Always permit traffic between thanos components inside the release
+    # namespace (query discovers + reads receive's Store API on gRPC 10901).
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "quench-common.selectorLabels" . | nindent 14 }}
+      ports:
+        - port: grpc
+          protocol: TCP
+        - port: http
+          protocol: TCP
+        - port: remote-write
+          protocol: TCP
+    # External / cross-namespace ingress to the user-facing + ingest ports.
+    - ports:
+        - port: http
+          protocol: TCP
+        - port: remote-write
+          protocol: TCP
+      {{- if not .Values.networkPolicy.allowExternal }}
+      from:
+        - podSelector: {}
+      {{- end }}
+{{- end }}

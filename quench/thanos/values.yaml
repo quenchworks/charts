@@ -1,0 +1,233 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+#
+# Thanos is a SINGLE static Go binary (/usr/bin/thanos) that runs every component
+# via a subcommand (query, receive, store, compact, rule, sidecar). This chart
+# deploys components as SEPARATE, individually toggleable workloads, all from this
+# one image. The image is shared; each component has its own block below.
+image:
+  repository: ghcr.io/quenchworks/images/thanos
+  digest: "sha256:7cf417061ecb11d06f9dc43c4ca00e49dfcd207c7c412a09a0185ca19386ffa9"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Object-storage configuration. Thanos store/compact (and receive when shipping
+# blocks to a bucket) read a single YAML objstore.config. It is NOT required for
+# the default self-contained install (receive keeps a local TSDB), so it is empty
+# by default. Set objstoreConfig.yaml to an objstore config (type: S3 / GCS / ...)
+# and it is written to a Secret and passed via --objstore.config-file. Point
+# objstoreConfig.existingSecret at an externally-managed Secret (key
+# `objstore.yml`) to use that instead. The Secret is only rendered when a
+# component that needs it (store/compact, or receive.objstore.enabled) is on.
+#
+#   objstoreConfig:
+#     yaml: |
+#       type: S3
+#       config:
+#         bucket: thanos
+#         endpoint: minio.storage.svc:9000
+#         access_key: ...
+#         secret_key: ...
+#         insecure: true
+objstoreConfig:
+  yaml: ""
+  existingSecret: ""
+
+# ---------------------------------------------------------------------------
+# query (Deployment) — ON by default. The user-facing entry point: serves the
+# PromQL UI/API on HTTP 10902 and fans out to every component's Store API over
+# gRPC 10901. It discovers receive's Store API through the receive headless
+# Service via DNS SRV (dnssrv+_grpc._tcp...), so query goes Ready only once it
+# has connected to receive — that connection is the chart's integration test.
+# ---------------------------------------------------------------------------
+query:
+  enabled: true
+  replicaCount: 1
+  # Extra --endpoint / --endpoint-group targets (other Store API providers, e.g.
+  # a Thanos sidecar or store gateway). The receive endpoint is wired in
+  # automatically when receive.enabled; these are appended.
+  extraEndpoints: []
+  # Static stores to also query, in addition to receive (each becomes --endpoint=<x>).
+  stores: []
+  extraArgs: []
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+  service:
+    type: ClusterIP
+    httpPort: 10902      # PromQL UI/API
+    grpcPort: 10901      # Store API (query is itself a Store API endpoint)
+  # query is stateless. It needs a writable /tmp only; the rootfs stays read-only.
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+# ---------------------------------------------------------------------------
+# receive (StatefulSet) — ON by default. A self-contained remote-write target
+# with a LOCAL TSDB at /var/thanos/receive on a PVC (NO object storage needed).
+# It accepts Prometheus remote-write on 19291 and exposes its Store API on gRPC
+# 10901 so query can read the ingested series. This is what makes the default
+# install self-contained and install-gate-able.
+# ---------------------------------------------------------------------------
+receive:
+  enabled: true
+  replicaCount: 1
+  # Replica label value written into ingested series (--label=receive_replica="0").
+  replicaLabel: "0"
+  # TSDB retention for the local store.
+  retention: "15d"
+  extraArgs: []
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  persistence:
+    enabled: true
+    # Mounted at /var/thanos/receive (the --tsdb.path). Writable PVC, so the
+    # rootfs stays read-only.
+    size: 8Gi
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    annotations: {}
+  # Optional: also upload completed TSDB blocks to object storage (requires
+  # objstoreConfig). Off by default for the self-contained install.
+  objstore:
+    enabled: false
+  service:
+    type: ClusterIP
+    httpPort: 10902      # /metrics, /-/healthy, /-/ready
+    grpcPort: 10901      # Store API (consumed by query)
+    remoteWritePort: 19291  # Prometheus remote-write receiver
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+
+# ---------------------------------------------------------------------------
+# store (StatefulSet) — OFF by default. The Store Gateway exposes the Store API
+# over historical blocks in OBJECT STORAGE, so it REQUIRES objstoreConfig. Enable
+# it (and set objstoreConfig) to query long-term data; query auto-discovers it.
+# ---------------------------------------------------------------------------
+store:
+  enabled: false
+  replicaCount: 1
+  extraArgs: []
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  persistence:
+    enabled: true
+    size: 8Gi          # local index/chunk cache at /var/thanos/store
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+  service:
+    type: ClusterIP
+    httpPort: 10902
+    grpcPort: 10901
+
+# ---------------------------------------------------------------------------
+# compact (Deployment) — OFF by default. Compacts/downsamples/retains blocks in
+# OBJECT STORAGE. REQUIRES objstoreConfig. Run a SINGLE replica (it must be the
+# only compactor per bucket). Has no Store API — query does not target it.
+# ---------------------------------------------------------------------------
+compact:
+  enabled: false
+  extraArgs: []
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  persistence:
+    enabled: true
+    size: 8Gi          # working dir at /var/thanos/compact
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+
+# ---------------------------------------------------------------------------
+# rule (StatefulSet) — OFF by default. Evaluates Prometheus recording/alerting
+# rules against the query layer and (optionally) ships results to OBJECT STORAGE.
+# Needs query endpoints + Alertmanager URLs + rule files to be useful. Exposes a
+# Store API so query can read the rule-evaluated series.
+# ---------------------------------------------------------------------------
+rule:
+  enabled: false
+  replicaCount: 1
+  # Inline rule files (map of filename -> rule YAML), mounted into the rule pod.
+  ruleFiles: {}
+  # Alertmanager URLs (--alertmanagers.url=...).
+  alertmanagers: []
+  extraArgs: []
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+  persistence:
+    enabled: true
+    size: 8Gi          # TSDB at /var/thanos/rule
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+  service:
+    type: ClusterIP
+    httpPort: 10902
+    grpcPort: 10901
+
+# ---------------------------------------------------------------------------
+# sidecar (NOT deployed by this chart) — OFF and not templated. The Thanos
+# sidecar runs INSIDE a Prometheus pod next to the Prometheus container; it has
+# no standalone workload here. Run it from your Prometheus chart and point
+# query at it via query.extraEndpoints. This flag exists only to document that.
+# ---------------------------------------------------------------------------
+sidecar:
+  enabled: false
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+# These are SHARED across every component workload.
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys
+# win). Runs nonroot uid/gid 1001 with a read-only rootfs; receive/store/compact/
+# rule get a writable PVC for their TSDB/working dir, query gets a writable /tmp.
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...})
+# shared across components; a customLivenessProbe/customReadinessProbe/
+# customStartupProbe replaces the block. Every component serves /-/healthy and
+# /-/ready on HTTP 10902.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Thanos query is the user-facing UI/API, so external ingress is allowed by
+# default. receive's remote-write/Store API and the other components are
+# backend services. Set allowExternal: false to restrict ingress to the release
+# namespace (query <-> receive on gRPC 10901 is always permitted inside the ns).
+networkPolicy:
+  enabled: true
+  allowExternal: true

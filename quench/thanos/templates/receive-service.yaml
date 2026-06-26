@@ -1,0 +1,52 @@
+{{- if .Values.receive.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "thanos.componentFullname" (dict "ctx" . "component" "receive") }}
+  labels:
+    {{- include "thanos.componentLabels" (dict "ctx" . "component" "receive") | nindent 4 }}
+spec:
+  type: {{ .Values.receive.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.receive.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+    - name: grpc
+      port: {{ .Values.receive.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+    - name: remote-write
+      port: {{ .Values.receive.service.remoteWritePort }}
+      targetPort: remote-write
+      protocol: TCP
+  selector:
+    {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "receive") | nindent 4 }}
+---
+# Headless Service governing the receive StatefulSet. Publishes a per-pod DNS
+# record AND an SRV record for the named `grpc` port (_grpc._tcp), which is what
+# query's `dnssrv+_grpc._tcp.<this-service>` endpoint resolves to discover every
+# receive replica's Store API. publishNotReadyAddresses lets query attempt to
+# connect during rollout. clusterIP: None makes it headless.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "thanos.componentHeadlessName" (dict "ctx" . "component" "receive") }}
+  labels:
+    {{- include "thanos.componentLabels" (dict "ctx" . "component" "receive") | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: grpc
+      port: {{ .Values.receive.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+    - name: http
+      port: {{ .Values.receive.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "receive") | nindent 4 }}
+{{- end }}

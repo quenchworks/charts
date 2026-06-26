@@ -1,0 +1,92 @@
+{{- if .Values.compact.enabled }}
+{{/*
+Thanos Compact. Compacts, downsamples, and applies retention to blocks in OBJECT
+STORAGE. REQUIRES an objstore config. MUST run as a SINGLE replica per bucket
+(replicas is fixed at 1; concurrent compactors corrupt the bucket). Runs with
+--wait so it stays resident and serves /-/healthy on 10902. It has no Store API,
+so query does not target it and there is no gRPC port.
+*/}}
+{{- if not (include "thanos.hasObjstore" .) }}
+{{- fail "compact.enabled=true requires objstoreConfig.yaml or objstoreConfig.existingSecret to be set (the compactor operates on blocks in object storage)." }}
+{{- end }}
+{{- $liveness := dict "httpGet" (dict "path" "/-/healthy" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/-/ready" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "thanos.componentFullname" (dict "ctx" . "component" "compact") }}
+  labels:
+    {{- include "thanos.componentLabels" (dict "ctx" . "component" "compact") | nindent 4 }}
+spec:
+  # A single compactor per bucket — never scale this up.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "compact") | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "compact") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "thanos.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: compact
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - compact
+            - --wait
+            - --log.level=info
+            - --data-dir=/var/thanos/compact
+            - --http-address=0.0.0.0:10902
+            - --objstore.config-file=/etc/thanos/objstore/objstore.yml
+            {{- with .Values.compact.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 10902
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.compact.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/thanos/compact
+            - name: objstore
+              mountPath: /etc/thanos/objstore
+              readOnly: true
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: objstore
+          secret:
+            secretName: {{ include "thanos.objstoreSecret" . }}
+        {{- if .Values.compact.persistence.enabled }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "thanos.componentFullname" (dict "ctx" . "component" "compact") }}
+        {{- else }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
+{{- end }}

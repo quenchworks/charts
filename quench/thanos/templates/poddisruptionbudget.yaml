@@ -1,0 +1,27 @@
+{{- if and .Values.query.enabled .Values.query.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "thanos.componentFullname" (dict "ctx" . "component" "query") }}
+  labels:
+    {{- include "thanos.componentLabels" (dict "ctx" . "component" "query") | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.query.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "query") | nindent 6 }}
+{{- end }}
+{{- if and .Values.receive.enabled .Values.receive.podDisruptionBudget.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "thanos.componentFullname" (dict "ctx" . "component" "receive") }}
+  labels:
+    {{- include "thanos.componentLabels" (dict "ctx" . "component" "receive") | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.receive.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "receive") | nindent 6 }}
+{{- end }}

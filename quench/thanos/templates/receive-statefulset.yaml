@@ -1,0 +1,128 @@
+{{- if .Values.receive.enabled }}
+{{/*
+Thanos Receive. Runs `thanos receive` as a self-contained remote-write target
+with a LOCAL TSDB on a PVC at /var/thanos/receive — NO object storage required.
+It accepts Prometheus remote-write on 19291 and exposes its Store API on gRPC
+10901, which query reads. This is what makes the default install self-contained.
+
+A StatefulSet (stable network identity + per-pod PVC) governed by a headless
+Service so query can DNS-SRV discover every replica's Store API.
+
+Probes: HTTP /-/healthy (liveness) and /-/ready (readiness) on 10902.
+*/}}
+{{- $liveness := dict "httpGet" (dict "path" "/-/healthy" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/-/ready" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+{{- $useObjstore := and .Values.receive.objstore.enabled (include "thanos.hasObjstore" .) -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "thanos.componentFullname" (dict "ctx" . "component" "receive") }}
+  labels:
+    {{- include "thanos.componentLabels" (dict "ctx" . "component" "receive") | nindent 4 }}
+spec:
+  serviceName: {{ include "thanos.componentHeadlessName" (dict "ctx" . "component" "receive") }}
+  replicas: {{ .Values.receive.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "receive") | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "receive") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "thanos.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: receive
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - receive
+            - --log.level=info
+            - --tsdb.path=/var/thanos/receive
+            - --tsdb.retention={{ .Values.receive.retention }}
+            - --label=receive_replica="{{ .Values.receive.replicaLabel }}"
+            - --grpc-address=0.0.0.0:10901
+            - --http-address=0.0.0.0:10902
+            - --remote-write.address=0.0.0.0:19291
+            - --receive.local-endpoint=127.0.0.1:10901
+            {{- if $useObjstore }}
+            - --objstore.config-file=/etc/thanos/objstore/objstore.yml
+            {{- end }}
+            {{- with .Values.receive.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 10902
+              protocol: TCP
+            - name: grpc
+              containerPort: 10901
+              protocol: TCP
+            - name: remote-write
+              containerPort: 19291
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.receive.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/thanos/receive
+            {{- if $useObjstore }}
+            - name: objstore
+              mountPath: /etc/thanos/objstore
+              readOnly: true
+            {{- end }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        {{- if not .Values.receive.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+        {{- if $useObjstore }}
+        - name: objstore
+          secret:
+            secretName: {{ include "thanos.objstoreSecret" . }}
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
+  {{- if .Values.receive.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "receive") | nindent 10 }}
+        {{- with .Values.receive.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes:
+          {{- toYaml .Values.receive.persistence.accessModes | nindent 10 }}
+        {{- if .Values.receive.persistence.storageClass }}
+        storageClassName: {{ .Values.receive.persistence.storageClass }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.receive.persistence.size }}
+  {{- end }}
+{{- end }}

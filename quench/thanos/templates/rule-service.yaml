@@ -1,0 +1,40 @@
+{{- if .Values.rule.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "thanos.componentFullname" (dict "ctx" . "component" "rule") }}
+  labels:
+    {{- include "thanos.componentLabels" (dict "ctx" . "component" "rule") | nindent 4 }}
+spec:
+  type: {{ .Values.rule.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.rule.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+    - name: grpc
+      port: {{ .Values.rule.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+  selector:
+    {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "rule") | nindent 4 }}
+---
+# Headless Service for SRV discovery of the ruler's Store API by query.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "thanos.componentHeadlessName" (dict "ctx" . "component" "rule") }}
+  labels:
+    {{- include "thanos.componentLabels" (dict "ctx" . "component" "rule") | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: grpc
+      port: {{ .Values.rule.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+  selector:
+    {{- include "thanos.componentSelectorLabels" (dict "ctx" . "component" "rule") | nindent 4 }}
+{{- end }}
