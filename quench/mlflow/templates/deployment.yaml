@@ -13,6 +13,10 @@ metadata:
     {{- include "quench-common.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  # The image is a single ~130MB (583MB unpacked) apko layer holding a large python
+  # venv; first pull+extract in-cluster can exceed the Deployment's default 600s
+  # progress deadline before MLflow even starts (then add Postgres + DB migrations).
+  progressDeadlineSeconds: {{ .Values.progressDeadlineSeconds | default 1200 }}
   {{- with .Values.updateStrategy }}
   strategy:
     {{- toYaml . | nindent 4 }}
