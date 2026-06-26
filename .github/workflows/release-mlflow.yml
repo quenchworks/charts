@@ -49,8 +49,11 @@ jobs:
           # --wait blocks until BOTH the bundled PostgreSQL and MLflow are Ready. MLflow
           # only becomes Ready once it connects to Postgres and runs its DB migrations on
           # first boot, so this is the real integration test.
-          helm install rtest "${CHART_DIR}" -n ml --create-namespace -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
-          kubectl rollout status deployment/rtest-mlflow -n ml --timeout=540s
+          # Generous timeout: the image is a single ~130MB apko layer that unpacks a large
+          # python venv (pandas/numpy/+78 pkgs), so pull+extract in kind is slow before the
+          # app even starts; add Postgres readiness + DB migrations on top.
+          helm install rtest "${CHART_DIR}" -n ml --create-namespace -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 20m
+          kubectl rollout status deployment/rtest-mlflow -n ml --timeout=1140s
           # --- confirm the container runs as the nonroot uid 1001 ---
           uid="$(kubectl get pod -n ml -l app.kubernetes.io/name=mlflow -o jsonpath='{.items[0].spec.securityContext.runAsUser}')"
           echo "runAsUser: $uid"
