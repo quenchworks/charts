@@ -43,17 +43,29 @@ jobs:
           helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
           helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
 
+      - name: Warm mlflow image on the kind node
+        run: |
+          set -o pipefail
+          # The mlflow image unpacks a large python venv (pandas/numpy + 78 pkgs = tens of
+          # thousands of small files); extracting it in kind's nested overlayfs is slow.
+          # Pull the exact pinned digest onto the node HERE (outside the helm --wait window)
+          # so the pod starts immediately and the readiness gate isn't eaten by extraction.
+          IMG="$(helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" | grep -oE 'ghcr.io/quenchworks/images/mlflow@sha256:[a-f0-9]{64}' | head -1)"
+          echo "warming image: $IMG"
+          NODE="$(docker ps --filter name=control-plane --format '{{.Names}}' | head -1)"
+          echo "kind node: $NODE"
+          time docker exec "$NODE" crictl pull "$IMG"
+          docker exec "$NODE" crictl images | grep -i mlflow || true
+
       - name: Install gate (kind)
         run: |
           set -o pipefail
           # --wait blocks until BOTH the bundled PostgreSQL and MLflow are Ready. MLflow
           # only becomes Ready once it connects to Postgres and runs its DB migrations on
-          # first boot, so this is the real integration test.
-          # Generous timeout: the image is a single ~130MB apko layer that unpacks a large
-          # python venv (pandas/numpy/+78 pkgs), so pull+extract in kind is slow before the
-          # app even starts; add Postgres readiness + DB migrations on top.
-          helm install rtest "${CHART_DIR}" -n ml --create-namespace -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 20m
-          kubectl rollout status deployment/rtest-mlflow -n ml --timeout=1140s
+          # first boot, so this is the real integration test. The image is pre-warmed on
+          # the node above, so this window covers boot + migrations, not extraction.
+          helm install rtest "${CHART_DIR}" -n ml --create-namespace -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          kubectl rollout status deployment/rtest-mlflow -n ml --timeout=540s
           # --- confirm the container runs as the nonroot uid 1001 ---
           uid="$(kubectl get pod -n ml -l app.kubernetes.io/name=mlflow -o jsonpath='{.items[0].spec.securityContext.runAsUser}')"
           echo "runAsUser: $uid"
@@ -67,6 +79,15 @@ jobs:
           ecode="$(curl -s -o /tmp/exp.json -w '%{http_code}' http://127.0.0.1:5000/api/2.0/mlflow/experiments/search)"
           echo "experiments HTTP status: $ecode"; cat /tmp/exp.json
           test "$ecode" = "200"
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== pods ==="; kubectl get pods -n ml -o wide || true
+          echo "=== mlflow describe ==="; kubectl describe pod -n ml -l app.kubernetes.io/name=mlflow || true
+          echo "=== mlflow logs ==="; kubectl logs -n ml -l app.kubernetes.io/name=mlflow --tail=80 || true
+          echo "=== mlflow previous logs ==="; kubectl logs -n ml -l app.kubernetes.io/name=mlflow --previous --tail=80 || true
+          echo "=== postgres logs ==="; kubectl logs -n ml -l app.kubernetes.io/name=postgresql --tail=40 || true
 
       - name: Package and push (OCI)
         id: push
