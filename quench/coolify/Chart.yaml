@@ -2,7 +2,7 @@ apiVersion: v2
 name: coolify
 description: "Self-hostable platform-as-a-service and open alternative to Heroku and Netlify. This umbrella chart wires the QuenchWorks Coolify control-plane images (the PHP/Laravel app running php-fpm, nginx, Horizon, and the scheduler under supervisord, plus the realtime tier of soketi and a terminal bridge) over bundled QuenchWorks PostgreSQL 15 and Redis, each a minimal, nonroot, 0-CVE image pinned by digest. Coolify manages external Docker hosts over SSH, so the privileged helper and proxy build tier runs on those managed hosts, not in this cluster."
 type: application
-version: 0.0.4
+version: 0.0.5
 appVersion: "4.1.2"
 keywords:
   - coolify
@@ -23,18 +23,18 @@ sources:
 annotations:
   artifacthub.io/changes: |
     - kind: changed
-      description: "Add an ArtifactHub changelog; maintenance re-release re-validated against the chart's pinned, signed image."
+      description: "Rebuild coolify-app + coolify-helper to 0-CVE (libexpat/docker-cli-buildx/docker-compose fixed). KNOWN ISSUE: coolify-realtime holds 1 Medium (cloudflared CVE-2026-41178) until Wolfi ships the fix (2026.6.1-r2); a new release will follow then."
   artifacthub.io/category: integration-delivery
   artifacthub.io/images: |
     - name: coolify-app
-      image: ghcr.io/quenchworks/images/coolify-app@sha256:60eeb0ba9a288708742238dd615322c4563d2c623279beb5daf9b46e0c03152e
+      image: ghcr.io/quenchworks/images/coolify-app@sha256:c0877b1cd077e49b9a95964c70a8caf0b840186da02dc6f015de4f4350ac4249
     - name: coolify-realtime
       image: ghcr.io/quenchworks/images/coolify-realtime@sha256:a8b07376a2b5ad79f649d660cfcfac408219f6ebc48f745f376717878be982a3
     # The build engine Coolify runs ON the EXTERNAL Docker hosts it manages (pulled and
     # run over SSH). It is PRIVILEGED by design and is NOT deployed by this chart; it is
     # listed here only so the artifact is discoverable and scanned alongside the others.
     - name: coolify-helper
-      image: ghcr.io/quenchworks/images/coolify-helper@sha256:fd897b2dd0e103ac3b1edb56f34145c8f844ed17b045771516441b49995d9eaa
+      image: ghcr.io/quenchworks/images/coolify-helper@sha256:3ac8c059ddec50582bb80d6f9626f2e2d06fd7ff67b99f8204976fe3cfd5815b
     - name: postgresql-15
       image: ghcr.io/quenchworks/images/postgresql-15@sha256:5529b416dfbafc531bb7b11fe243c180396cf9372a4966d0c82fcda84433b05e
     - name: redis
