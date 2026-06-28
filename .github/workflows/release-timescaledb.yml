@@ -1,0 +1,95 @@
+name: release-timescaledb
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/timescaledb/**"
+      - ".github/workflows/release-timescaledb.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/timescaledb
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # pin actions to SHAs before going public (renovate)
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 5m
+          kubectl rollout status statefulset/rtest-timescaledb --timeout=180s
+          kubectl exec rtest-timescaledb-0 -c timescaledb -- pg_isready -h /var/run/postgresql -U postgres -q
+          kubectl exec rtest-timescaledb-0 -c timescaledb -- psql -h /var/run/postgresql -U postgres -d qwapp -tAc 'select 1' | grep -q 1
+          # Prove the TimescaleDB extension actually loaded: extversion must be non-empty.
+          ext="$(kubectl exec rtest-timescaledb-0 -c timescaledb -- psql -h /var/run/postgresql -U postgres -d qwapp -tAc "SELECT extversion FROM pg_extension WHERE extname='timescaledb'")"
+          echo "timescaledb extversion: '${ext}'"
+          test -n "$ext"
+          # Confirm the container runs nonroot as uid 1001.
+          uid="$(kubectl exec rtest-timescaledb-0 -c timescaledb -- id -u)"
+          echo "runAsUser: ${uid}"
+          test "$uid" = "1001"
+          # metrics sidecar is up and scraping. The image has no HTTP client by design,
+          # so scrape from the runner via port-forward (pg_up 1 proves the exporter
+          # connected to the database).
+          kubectl port-forward pod/rtest-timescaledb-0 9187:9187 >/tmp/pf.log 2>&1 &
+          pf=$!
+          sleep 4
+          curl -sf http://localhost:9187/metrics | grep -q '^pg_up 1'
+          kill "$pf" 2>/dev/null || true
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/timescaledb-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/timescaledb@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push. Register the ArtifactHub repo and set the ID."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/timescaledb:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

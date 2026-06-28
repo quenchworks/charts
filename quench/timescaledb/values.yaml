@@ -1,0 +1,108 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/timescaledb.json after every green image build. It is never a tag.
+# The image is PostgreSQL 17 + the TimescaleDB extension; it runs CREATE EXTENSION
+# timescaledb on first init, so the chart does not have to.
+image:
+  repository: ghcr.io/quenchworks/images/timescaledb
+  digest: "sha256:3387171928c6e8490a46c5b68c8ce9dbe139c06df4631f6807a48b675a990fcc"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Authentication. On by default; PostgreSQL requires a superuser password to initialize.
+# A random password is generated if you do not set one.
+auth:
+  enabled: true
+  username: postgres          # superuser created by initdb
+  password: ""
+  database: ""                # optional extra database; empty means just the default
+  existingSecret: ""
+  existingSecretPasswordKey: "postgres-password"
+
+primary:
+  persistence:
+    enabled: true
+    size: 8Gi
+    # storageClass: ""        # default class if unset
+    accessModes: ["ReadWriteOnce"]
+    annotations: {}
+    selector: {}
+    existingClaim: ""         # bind an existing PVC instead of provisioning one
+  # /dev/shm is tiny in containers; back it with memory so parallel queries do not fail
+  shmVolume:
+    enabled: true
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 5432
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+# Prometheus metrics via a hardened postgres_exporter sidecar, built by our own
+# factory. TimescaleDB is a normal PostgreSQL server, so the exporter works as-is.
+metrics:
+  enabled: false
+  image:
+    repository: ghcr.io/quenchworks/images/postgres-exporter
+    digest: "sha256:325e496a0fa4b15b33ba2537f3fc5b2b90dc08992b124aa412a03ba1d8e6f389"
+    pullPolicy: IfNotPresent
+  port: 9187
+  resources:
+    requests: { cpu: 50m, memory: 32Mi }
+    limits: { cpu: 100m, memory: 64Mi }
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+  prometheusRule:
+    enabled: false
+    labels: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
