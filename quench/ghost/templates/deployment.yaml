@@ -1,0 +1,154 @@
+{{/* Liveness and readiness both hit / on the HTTP port. Ghost answers 200 (or a 30x
+     redirect to its configured url) only once it has connected to MariaDB, run its
+     migrations and started serving — so --wait on readiness is the real integration test.
+     The startup probe (customStartupProbe) gates these during the slow first boot. The
+     kubelet performs the GET; the image ships no shell HTTP client. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/" "port" "http") "initialDelaySeconds" 30 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/" "port" "http") "initialDelaySeconds" 15 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # The content PVC is ReadWriteOnce and Ghost holds it exclusively; Recreate avoids two
+  # pods contending for the volume during a rollout.
+  strategy:
+    {{- if .Values.updateStrategy }}
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+    {{- else }}
+    type: Recreate
+    {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Roll the pod when the managed Secret (DB password) changes.
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "ghost.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        {{- if .Values.persistence.enabled }}
+        # Seed the default content onto a fresh content volume.
+        #
+        # The Ghost image ships its default themes (the active "source" theme), plus the
+        # data/images/logs/settings layout, INSIDE /var/lib/ghost/content. The main
+        # container mounts the PVC over that exact path, which on a fresh (empty) volume
+        # would HIDE the shipped themes -> Ghost 500s ("active theme 'source' is missing").
+        #
+        # Mount-shadowing trap & the fix: this initContainer runs the SAME ghost image but
+        # mounts the PVC at /seed (NOT at /var/lib/ghost/content). So inside this container
+        # the image's built-in /var/lib/ghost/content is NOT shadowed by the mount, and we
+        # copy FROM it (unshadowed source) TO /seed (the PVC). The copy is no-clobber, so on
+        # restarts / existing volumes user content is never overwritten — only the missing
+        # default files are added.
+        #
+        # The image is shell-free (no /bin/sh), so the copy runs through node (present in the
+        # image), not a shell. fs.cpSync with force:false + errorOnExist:false is exactly
+        # `cp -an`: recursive, skip files that already exist on the volume.
+        - name: seed-content
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command:
+            - /usr/bin/node
+            - -e
+            - require('fs').cpSync('/var/lib/ghost/content','/seed',{recursive:true,force:false,errorOnExist:false})
+          volumeMounts:
+            - name: content
+              mountPath: /seed
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        {{- end }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: ghost
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- include "quench-common.args" . | nindent 10 }}
+          env:
+            # Ghost reads its entire configuration from env, using "__" to nest keys.
+            # Public site URL. REQUIRED — every absolute link, RSS/sitemap entry and admin
+            # redirect is derived from it.
+            - name: url
+              value: {{ required "ghost.url is required" .Values.ghost.url | quote }}
+            # Baked into the image already; set explicitly for clarity.
+            - name: NODE_ENV
+              value: production
+            # --- database (database__connection__*) ---
+            - name: database__client
+              value: mysql
+            - name: database__connection__host
+              value: {{ include "ghost.db.host" . | quote }}
+            - name: database__connection__port
+              value: {{ include "ghost.db.port" . | quote }}
+            - name: database__connection__user
+              value: {{ include "ghost.db.user" . | quote }}
+            - name: database__connection__database
+              value: {{ include "ghost.db.name" . | quote }}
+            # Password is sourced from a Secret, never inlined into the pod env / argv.
+            - name: database__connection__password
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "ghost.secretName" . }}
+                  key: {{ include "ghost.secretPasswordKey" . }}
+            # Content lives on the mounted PVC.
+            - name: paths__contentPath
+              value: {{ .Values.persistence.mountPath | quote }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # Content store: themes, images, uploaded files, data, logs, settings.
+            - name: content
+              mountPath: {{ .Values.persistence.mountPath }}
+            # Writable scratch for any temp files Ghost/Node write.
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: content
+        {{- if not .Values.persistence.enabled }}
+          emptyDir: {}
+        {{- else if .Values.persistence.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim }}
+        {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ include "quench-common.fullname" . }}-content
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

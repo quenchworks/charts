@@ -1,0 +1,152 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/ghost
+  digest: "sha256:d6b815df0eee8368937db38f5a17e203e2589f4be5e52a6876266a2b9959b20b"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Ghost is a Node.js publishing platform configured ENTIRELY by environment variables
+# (it reads double-underscore-nested config keys, e.g. database__connection__host). ALL
+# durable relational state — posts, members, settings, users — lives in an external
+# MySQL/MariaDB. Themes, images, uploaded files and logs live on a content volume mounted
+# at /var/lib/ghost/content. The chart runs Ghost as a single-replica Deployment behind a
+# ClusterIP Service; MariaDB runs as a StatefulSet via the bundled subchart, and content
+# lives on a ReadWriteOnce PVC. First boot runs DB migrations against MariaDB (60-120s),
+# gated by a startup probe. Single replica because the content PVC is ReadWriteOnce.
+replicaCount: 1
+
+# The public URL Ghost serves itself at. REQUIRED — Ghost builds every absolute link,
+# canonical URL, RSS/sitemap entry and admin redirect from this. Set it to the address
+# users actually reach Ghost at (behind your ingress/proxy), e.g. https://blog.example.com.
+ghost:
+  url: "http://localhost:2368"
+
+# Resources. Ghost (Node.js) idles ~150-300MB; memory grows with image processing,
+# concurrent requests and theme rendering. Defaults schedule anywhere and pass the CI gate.
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+# Ghost serves the public site AND the /ghost admin on a single HTTP port (2368).
+service:
+  type: ClusterIP
+  port: 2368
+
+# --- Content volume (PVC) ---
+# Ghost stores themes, images, uploaded files, data and logs under /var/lib/ghost/content.
+# The image SHIPS default themes (the active "source" theme) inside this path, so a fresh
+# empty PVC mounted here would hide them and Ghost 500s ("active theme 'source' is
+# missing"). An initContainer seeds the image's shipped content onto a fresh volume — see
+# the seed block below and templates/deployment.yaml. Single replica: ReadWriteOnce.
+persistence:
+  enabled: true
+  size: 10Gi
+  mountPath: /var/lib/ghost/content
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+# --- Bundled database (default) ---
+# mariadb.enabled deploys the QuenchWorks MariaDB subchart. Its primary Service is
+# "<release>-mariadb" (port 3306). Ghost connects with the credentials below. The MariaDB
+# image creates auth.database and auth.username/auth.password on first init; Ghost's DB
+# password is read from the chart's managed Secret (never inlined into the pod env).
+mariadb:
+  enabled: true
+  auth:
+    # rootPassword is generated into MariaDB's own Secret if left empty.
+    rootPassword: ""
+    database: ghost
+    username: ghost
+    password: ""            # generated into this chart's managed Secret if left empty
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- External database (mariadb.enabled=false) ---
+# Point Ghost at an existing MySQL/MariaDB. With existingSecret, the referenced Secret
+# must supply the password under existingSecretPasswordKey and this chart renders no
+# managed DB Secret.
+externalDatabase:
+  host: ""
+  port: 3306
+  database: ghost
+  user: ghost
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: "db-password"
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+# Extra env vars (list of {name,value} or {name,valueFrom}). Appended after the chart's
+# own env, so these win on conflict. Use for mail__*, SMTP creds, storage adapters, etc.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (nonroot uid 1001,
+# fsGroup 1001 so the content PVC is writable). Ghost writes into the content volume at
+# runtime, so the read-only rootfs default is relaxed here (the app writes to /var/lib/ghost
+# and /tmp, both backed by writable volumes). Your keys still win on conflict.
+podSecurityContext: {}
+containerSecurityContext:
+  # Ghost's Node process writes caches/locks under its app tree and content dir at runtime;
+  # the content dir is a writable PVC but Ghost also touches paths on the rootfs, so the
+  # read-only rootfs default is loosened for this app.
+  readOnlyRootFilesystem: false
+# Probe timing overrides ({enabled, initialDelaySeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+# Ghost's first boot is slow: it connects to MariaDB and runs all schema migrations
+# before it starts serving — often 60-120s on an empty DB. A startup probe gates
+# liveness/readiness until Ghost is actually serving, so the slow boot isn't killed
+# mid-migration. Up to 300s grace (30 x 10s); after it passes, normal probe timing resumes.
+customStartupProbe:
+  httpGet:
+    path: /
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 30
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Ghost's /ghost admin is password-protected, but the public site is meant to be reached
+# by readers. Default restricts ingress to the release namespace (allowExternal: false);
+# set true (front it with an ingress/TLS proxy) to expose it. Egress opens the DB port + DNS
+# plus general egress (Ghost fetches gravatars, oembeds, update checks, sends mail).
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

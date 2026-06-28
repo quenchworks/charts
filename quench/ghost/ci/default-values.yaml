@@ -1,0 +1,31 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+# Bundles the Quenchworks MariaDB subchart with a small PVC; deterministic shared DB
+# credentials; a reachable url; small resources for the runner. The gate confirms Ghost
+# connects to MariaDB, runs its migrations, the seed initContainer populated the content
+# PVC, and GET / returns 200/30x (i.e. it is actually serving).
+ghost:
+  url: "http://localhost:2368"
+
+mariadb:
+  enabled: true
+  auth:
+    rootPassword: ci-test-root-password
+    username: ghost
+    password: ci-test-password
+    database: ghost
+  primary:
+    persistence:
+      enabled: true
+      size: 1Gi
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: "1", memory: 512Mi }
+
+persistence:
+  enabled: true
+  size: 1Gi
+
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "2", memory: 1Gi }

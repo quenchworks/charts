@@ -1,0 +1,26 @@
+{{/* Standalone PVC for the content store (themes, images, data, logs, settings), mounted
+     by the Deployment at persistence.mountPath and seeded by the seed-content
+     initContainer. Skipped when persistence is disabled (emptyDir) or when an
+     existingClaim is supplied. Not tied to the pod lifecycle, so content survives
+     rollouts. */}}
+{{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "quench-common.fullname" . }}-content
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.persistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.accessModes | nindent 4 }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}

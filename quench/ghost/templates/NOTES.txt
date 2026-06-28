@@ -1,0 +1,54 @@
+Quenchworks Ghost is installed as {{ include "quench-common.fullname" . }}.
+
+The public site and the /ghost admin are served on port {{ .Values.service.port }} inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Reach it from your machine with a port-forward:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  # then open the site at http://localhost:{{ .Values.service.port }}/
+  # and the admin at  http://localhost:{{ .Values.service.port }}/ghost/
+
+Public URL:
+
+  Ghost builds every absolute link from `ghost.url` = {{ .Values.ghost.url }}
+  Set it to the address users actually reach Ghost at (behind your ingress/proxy).
+
+Database:
+{{- if .Values.mariadb.enabled }}
+  Bundled Quenchworks MariaDB (mariadb.enabled=true).
+    host     : {{ include "ghost.db.host" . }}
+    port     : {{ include "ghost.db.port" . }}
+    database : {{ include "ghost.db.name" . }}
+    user     : {{ include "ghost.db.user" . }}
+  Set mariadb.auth.password (and mariadb.auth.rootPassword) for a deterministic install.
+{{- else }}
+  External database (mariadb.enabled=false).
+    host     : {{ include "ghost.db.host" . }}
+    port     : {{ include "ghost.db.port" . }}
+    database : {{ include "ghost.db.name" . }}
+    user     : {{ include "ghost.db.user" . }}
+  Ensure this MySQL/MariaDB is reachable and the database/user exist.
+{{- end }}
+  The DB password is injected from a Secret as database__connection__password — it never
+  appears in the pod's process arguments.
+
+Content store:
+{{- if .Values.persistence.enabled }}
+  PVC mounted at {{ .Values.persistence.mountPath }} ({{ .Values.persistence.size }}).
+  On a fresh volume the seed-content initContainer copies the image's shipped default
+  themes/content into the PVC (cp -an, no-clobber) so the active "source" theme is present.
+{{- else }}
+  emptyDir (NOT persistent). Themes/images/uploads are lost on pod restart — enable
+  persistence for any real use.
+{{- end }}
+
+NOTE: Ghost's first boot connects to the database and runs schema migrations (60-120s);
+a startup probe gates liveness/readiness until it is actually serving.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
