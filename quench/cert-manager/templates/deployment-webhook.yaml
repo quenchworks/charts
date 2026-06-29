@@ -1,0 +1,104 @@
+{{/*
+cert-manager webhook: the validating + mutating admission webhook for the
+cert-manager API types. Runs `/usr/bin/webhook`. It self-bootstraps its serving
+TLS from the `dynamic` source: it generates a CA + leaf cert, persists the CA in
+the webhook CA Secret (--dynamic-serving-ca-secret-name), and serves HTTPS on
+--secure-port. The cainjector then injects that CA into the webhook configs.
+The --dynamic-serving-dns-names must cover the Service DNS the apiserver dials.
+No mounted cert volume is needed: the cert lives in-memory + the Secret.
+*/}}
+{{- $svc := include "cert-manager.webhookName" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cert-manager.webhookName" . }}
+  labels:
+    {{- include "cert-manager.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+spec:
+  replicas: {{ .Values.webhook.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "cert-manager.componentSelectorLabels" (dict "ctx" . "component" "webhook") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "cert-manager.componentSelectorLabels" (dict "ctx" . "component" "webhook") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "cert-manager.webhookServiceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: webhook
+          image: {{ include "cert-manager.image" (dict "ctx" . "component" "webhook") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - "--v={{ .Values.webhook.logLevel }}"
+            - "--secure-port={{ .Values.webhook.securePort }}"
+            - "--healthz-port={{ .Values.webhook.healthzPort }}"
+            - "--metrics-listen-address=0.0.0.0:{{ .Values.webhook.metricsPort }}"
+            - "--dynamic-serving-ca-secret-namespace=$(POD_NAMESPACE)"
+            - "--dynamic-serving-ca-secret-name={{ include "cert-manager.webhookCASecretName" . }}"
+            - "--dynamic-serving-dns-names={{ $svc }}"
+            - "--dynamic-serving-dns-names={{ $svc }}.$(POD_NAMESPACE)"
+            - "--dynamic-serving-dns-names={{ $svc }}.$(POD_NAMESPACE).svc"
+            {{- range .Values.webhook.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: https
+              containerPort: {{ .Values.webhook.securePort }}
+              protocol: TCP
+            - name: healthz
+              containerPort: {{ .Values.webhook.healthzPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.webhook.metricsPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: healthz
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 15
+            failureThreshold: 8
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: healthz
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 15
+            failureThreshold: 4
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.webhook.resources | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- include "quench-common.extraVolumeMounts" $ | nindent 12 }}
+          {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- include "quench-common.extraVolumes" $ | nindent 8 }}
+      {{- end }}

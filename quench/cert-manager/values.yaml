@@ -1,0 +1,124 @@
+# The digests below are the contract with the image factory. CI rewrites them
+# from the image-published dispatch after every green image build. They are never
+# tags. cert-manager ships four separate binaries, so one image block per
+# component. The acmesolver is NOT a deployment: the controller launches solver
+# pods on demand for ACME http-01 challenges, so its image is handed to the
+# controller via --acme-http01-solver-image (in digest form).
+image:
+  controller:
+    repository: ghcr.io/quenchworks/images/cert-manager-controller
+    digest: "sha256:6c01146b07847c7057904c278858c7923afceff44c173c9c7f794cf787bf2b49"
+  webhook:
+    repository: ghcr.io/quenchworks/images/cert-manager-webhook
+    digest: "sha256:8610e4604b2163a02835476878be8c5e9751cf84afdf5886c897036693e5d77b"
+  cainjector:
+    repository: ghcr.io/quenchworks/images/cert-manager-cainjector
+    digest: "sha256:6507c66dbbaf19474b11bd10317e586f05dc7acf0e3610d688009576e6c7e41f"
+  acmesolver:
+    repository: ghcr.io/quenchworks/images/cert-manager-acmesolver
+    digest: "sha256:241a5a21ad2f62751c0d597b01bdde6bbdebf0f78a0cb808af5ce800da467260"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Namespace cert-manager treats as the home for cluster-scoped resources
+# (ClusterIssuer-referenced Secrets, e.g. ACME account keys / CA keypairs).
+# Defaults to the release namespace at render time when left empty.
+clusterResourceNamespace: ""
+
+# Namespace used for the leader-election Lease of all three components. Upstream
+# defaults this to kube-system; we default it to the release namespace so the
+# chart stays self-contained and its leader-election RBAC is a namespaced Role
+# in its own namespace (no kube-system write grant required).
+leaderElection:
+  namespace: ""
+
+# Controller: the reconcile loop for Certificate/Issuer/ClusterIssuer/Order/
+# Challenge/CertificateRequest, plus ingress-shim. Launches acmesolver pods for
+# ACME http-01 challenges using image.acmesolver (passed by digest).
+controller:
+  replicaCount: 1
+  logLevel: 2
+  metricsPort: 9402
+  healthzPort: 9403
+  # Enable the ingress-shim: auto-create Certificates from annotated Ingresses.
+  enableCertificateOwnerRef: false
+  # DNS settings the controller uses when self-checking ACME dns-01 propagation.
+  dns01RecursiveNameservers: ""
+  dns01RecursiveNameserversOnly: false
+  extraArgs: []
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+# Webhook: the validating + mutating admission webhook for cert-manager APIs.
+# It self-bootstraps its serving certificate from the `dynamic` source: it
+# generates a CA, stores it in the webhook CA Secret, and serves TLS. No
+# cert-manager self-dependency. The cainjector injects that CA into the webhook
+# configurations.
+webhook:
+  replicaCount: 1
+  logLevel: 2
+  # HTTPS admission port the apiserver dials (via the Service :443).
+  securePort: 10250
+  healthzPort: 6080
+  metricsPort: 9402
+  # Reject API objects when the webhook is unreachable. Fail is the safe default.
+  failurePolicy: Fail
+  extraArgs: []
+  service:
+    type: ClusterIP
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { cpu: 250m, memory: 128Mi }
+
+# Cainjector: watches resources annotated cert-manager.io/inject-ca-from-secret
+# and copies the referenced Secret's CA into their caBundle. Here it injects the
+# webhook's self-generated CA into the Validating/Mutating webhook configs.
+cainjector:
+  replicaCount: 1
+  logLevel: 2
+  metricsPort: 9402
+  extraArgs: []
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { cpu: 250m, memory: 128Mi }
+
+serviceAccount:
+  create: true
+  # Override the per-component ServiceAccount names (defaults derive from the
+  # release fullname). Leave empty to use the derived names.
+  controllerName: ""
+  webhookName: ""
+  cainjectorName: ""
+  annotations: {}
+
+# RBAC is required: the controller needs cluster-wide access to the cert-manager
+# API surface and the Secrets/Ingresses it manages, the webhook needs to
+# authenticate admission reviews (auth-delegator), and the cainjector needs to
+# patch the webhook configurations with the CA bundle.
+rbac:
+  create: true
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+# These apply to all three deployments (shared pod-spec surface).
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}

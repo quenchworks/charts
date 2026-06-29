@@ -1,0 +1,48 @@
+Quenchworks cert-manager is installed as {{ include "quench-common.fullname" . }}.
+
+It runs three deployments from the four hardened cert-manager images:
+
+  {{ include "cert-manager.controllerName" . }}   reconcile loop + ACME (launches acmesolver pods on demand)
+  {{ include "cert-manager.webhookName" . }}      validating + mutating admission webhook (:443 -> {{ .Values.webhook.securePort }})
+  {{ include "cert-manager.cainjectorName" . }}   CA-bundle injection into the webhook configs
+
+No external cert-manager is required: the webhook self-bootstraps its serving CA
+into the Secret {{ include "cert-manager.webhookCASecretName" . }}, and the
+cainjector injects that CA into the Validating/Mutating webhook configurations.
+
+The CRDs (Certificate, Issuer, ClusterIssuer, CertificateRequest, Order,
+Challenge) are installed from the chart's crds/ directory.
+
+Try it with a SelfSigned issuer (no external CA needed):
+
+  kubectl apply -f - <<'EOF'
+  apiVersion: cert-manager.io/v1
+  kind: ClusterIssuer
+  metadata:
+    name: selfsigned
+  spec:
+    selfSigned: {}
+  ---
+  apiVersion: cert-manager.io/v1
+  kind: Certificate
+  metadata:
+    name: example
+    namespace: {{ .Release.Namespace }}
+  spec:
+    secretName: example-tls
+    issuerRef:
+      name: selfsigned
+      kind: ClusterIssuer
+    commonName: example.local
+    dnsNames:
+      - example.local
+  EOF
+
+  kubectl wait --for=condition=Ready certificate/example -n {{ .Release.Namespace }} --timeout=120s
+  kubectl get secret example-tls -n {{ .Release.Namespace }}   # populated tls.crt / tls.key
+
+The images are pinned by digest and signed. Verify, e.g. the controller:
+
+  cosign verify ghcr.io/quenchworks/images/cert-manager-controller \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

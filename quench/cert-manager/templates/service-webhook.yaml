@@ -1,0 +1,21 @@
+{{/*
+Webhook Service. The apiserver dials this on :443 (the webhook configs'
+clientConfig.service points here), forwarding to the webhook container's HTTPS
+port. The serving cert's SANs (set via --dynamic-serving-dns-names) cover this
+Service's DNS names so the TLS handshake validates.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cert-manager.webhookName" . }}
+  labels:
+    {{- include "cert-manager.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+spec:
+  type: {{ .Values.webhook.service.type }}
+  ports:
+    - name: https
+      port: 443
+      targetPort: https
+      protocol: TCP
+  selector:
+    {{- include "cert-manager.componentSelectorLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}

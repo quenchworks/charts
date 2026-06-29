@@ -1,0 +1,75 @@
+{{/*
+cert-manager cainjector: watches resources annotated with
+cert-manager.io/inject-ca-from-secret and copies the referenced Secret's CA into
+their caBundle field. In this chart its job is to inject the webhook's
+self-generated CA (from the webhook CA Secret) into the Validating/Mutating
+webhook configurations, which is what lets the apiserver trust the webhook. Runs
+`/usr/bin/cainjector`. Leader-elects in the configured namespace.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cert-manager.cainjectorName" . }}
+  labels:
+    {{- include "cert-manager.componentLabels" (dict "ctx" . "component" "cainjector") | nindent 4 }}
+spec:
+  replicas: {{ .Values.cainjector.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "cert-manager.componentSelectorLabels" (dict "ctx" . "component" "cainjector") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "cert-manager.componentSelectorLabels" (dict "ctx" . "component" "cainjector") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "cert-manager.cainjectorServiceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: cainjector
+          image: {{ include "cert-manager.image" (dict "ctx" . "component" "cainjector") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - "--v={{ .Values.cainjector.logLevel }}"
+            - "--leader-election-namespace={{ .Values.leaderElection.namespace | default .Release.Namespace }}"
+            - "--metrics-listen-address=0.0.0.0:{{ .Values.cainjector.metricsPort }}"
+            {{- range .Values.cainjector.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.cainjector.metricsPort }}
+              protocol: TCP
+          {{- /* The cainjector exposes no healthz endpoint (matching upstream);
+                 its readiness is governed by leader election, so no HTTP probe is
+                 defined. */}}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.cainjector.resources | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- include "quench-common.extraVolumeMounts" $ | nindent 12 }}
+          {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- include "quench-common.extraVolumes" $ | nindent 8 }}
+      {{- end }}

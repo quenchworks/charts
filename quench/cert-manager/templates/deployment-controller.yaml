@@ -1,0 +1,96 @@
+{{/*
+cert-manager controller: the reconcile loop for Certificate / Issuer /
+ClusterIssuer / CertificateRequest / Order / Challenge, plus the ingress-shim.
+Runs the bare `/usr/bin/controller` binary (flags via args). For ACME http-01
+challenges it launches short-lived acmesolver pods, so the acmesolver image is
+handed in by digest via --acme-http01-solver-image. Health is served on the
+healthz port; metrics on the metrics port.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cert-manager.controllerName" . }}
+  labels:
+    {{- include "cert-manager.componentLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+spec:
+  replicas: {{ .Values.controller.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "cert-manager.componentSelectorLabels" (dict "ctx" . "component" "controller") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "cert-manager.componentSelectorLabels" (dict "ctx" . "component" "controller") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "cert-manager.controllerServiceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: controller
+          image: {{ include "cert-manager.image" (dict "ctx" . "component" "controller") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - "--v={{ .Values.controller.logLevel }}"
+            - "--cluster-resource-namespace={{ .Values.clusterResourceNamespace | default .Release.Namespace }}"
+            - "--leader-election-namespace={{ .Values.leaderElection.namespace | default .Release.Namespace }}"
+            - "--acme-http01-solver-image={{ include "cert-manager.image" (dict "ctx" . "component" "acmesolver") }}"
+            - "--metrics-listen-address=0.0.0.0:{{ .Values.controller.metricsPort }}"
+            {{- /* The controller's /livez healthz server has no CLI flag; it is
+                   served on the built-in default port (9403). The liveness probe
+                   below targets that port. */}}
+            {{- if .Values.controller.enableCertificateOwnerRef }}
+            - "--enable-certificate-owner-ref=true"
+            {{- end }}
+            {{- with .Values.controller.dns01RecursiveNameservers }}
+            - "--dns01-recursive-nameservers={{ . }}"
+            {{- end }}
+            {{- if .Values.controller.dns01RecursiveNameserversOnly }}
+            - "--dns01-recursive-nameservers-only=true"
+            {{- end }}
+            {{- range .Values.controller.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- with .Values.extraEnvVars }}
+          env:
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.controller.metricsPort }}
+              protocol: TCP
+            - name: healthz
+              containerPort: {{ .Values.controller.healthzPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: healthz
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 15
+            failureThreshold: 8
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- include "quench-common.extraVolumeMounts" $ | nindent 12 }}
+          {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- include "quench-common.extraVolumes" $ | nindent 8 }}
+      {{- end }}

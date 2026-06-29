@@ -1,0 +1,40 @@
+{{/*
+Validating-admission webhook for the cert-manager API types. The caBundle is
+left empty on purpose: the cainjector injects it from the webhook CA Secret named
+in the cert-manager.io/inject-ca-from-secret annotation below. The
+namespaceSelector excludes namespaces labelled cert-manager.io/disable-validation
+(matching upstream), letting an operator opt a namespace out of validation.
+*/}}
+{{- $svcNs := .Release.Namespace -}}
+{{- $svcName := include "cert-manager.webhookName" . -}}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "cert-manager.webhookName" . }}
+  labels:
+    {{- include "cert-manager.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+  annotations:
+    cert-manager.io/inject-ca-from-secret: "{{ $svcNs }}/{{ include "cert-manager.webhookCASecretName" . }}"
+webhooks:
+  - name: webhook.cert-manager.io
+    rules:
+      - apiGroups: ["cert-manager.io", "acme.cert-manager.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["*/*"]
+    admissionReviewVersions: ["v1"]
+    matchPolicy: Equivalent
+    sideEffects: None
+    timeoutSeconds: 30
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    namespaceSelector:
+      matchExpressions:
+        - key: cert-manager.io/disable-validation
+          operator: NotIn
+          values: ["true"]
+    clientConfig:
+      service:
+        namespace: {{ $svcNs }}
+        name: {{ $svcName }}
+        path: /validate
+        port: 443

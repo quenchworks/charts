@@ -1,0 +1,299 @@
+{{- if .Values.rbac.create }}
+{{- /*
+Clean-room RBAC, authored from cert-manager's documented per-component API needs
+(consolidated from upstream's aggregated ClusterRoles into one role per
+component). Each component binds only to its own ServiceAccount:
+
+  * controller   reconciles the cert-manager + ACME API surface, signs CSRs,
+                 manages the backing Secrets, and solves http01 challenges
+                 (pods/services/ingresses/httproutes).
+  * webhook      authenticates incoming admission reviews (SubjectAccessReview /
+                 TokenReview) and owns the Secret holding its self-generated CA.
+  * cainjector   reads the webhook CA Secret and patches the caBundle into the
+                 webhook configurations (and, generically, apiservices/CRDs).
+
+Leader election is Lease-based, scoped to the configured namespace via a Role.
+*/}}
+{{- $leNs := .Values.leaderElection.namespace | default .Release.Namespace -}}
+# =====================================================================
+# Controller
+# =====================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "cert-manager.controllerName" . }}
+  labels:
+    {{- include "cert-manager.componentLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+rules:
+  # Issuers / ClusterIssuers: read config and write status.
+  - apiGroups: ["cert-manager.io"]
+    resources: ["issuers", "issuers/status", "clusterissuers", "clusterissuers/status"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  # Certificates / CertificateRequests: full lifecycle + status + finalizers.
+  - apiGroups: ["cert-manager.io"]
+    resources:
+      - "certificates"
+      - "certificates/status"
+      - "certificates/finalizers"
+      - "certificaterequests"
+      - "certificaterequests/status"
+      - "certificaterequests/finalizers"
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Approve CertificateRequests referencing cert-manager (cluster)issuers.
+  - apiGroups: ["cert-manager.io"]
+    resources: ["signers"]
+    resourceNames: ["issuers.cert-manager.io/*", "clusterissuers.cert-manager.io/*"]
+    verbs: ["approve"]
+  # ACME Orders / Challenges: full lifecycle + status + finalizers.
+  - apiGroups: ["acme.cert-manager.io"]
+    resources:
+      - "orders"
+      - "orders/status"
+      - "orders/finalizers"
+      - "challenges"
+      - "challenges/status"
+      - "challenges/finalizers"
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # CSR API: sign CertificateSigningRequests for cert-manager (cluster)issuers.
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["certificatesigningrequests"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["certificatesigningrequests/status"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["signers"]
+    resourceNames: ["issuers.cert-manager.io/*", "clusterissuers.cert-manager.io/*"]
+    verbs: ["sign"]
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["subjectaccessreviews"]
+    verbs: ["create"]
+  # The TLS Secrets cert-manager stores issued certs and account/CA keys in.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # http01 solver pods/services and event recording.
+  - apiGroups: [""]
+    resources: ["pods", "services"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  # ingress-shim + http01 ingress solver.
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses/finalizers"]
+    verbs: ["update"]
+  # Gateway API integration (enabled by default in cert-manager >= 1.15).
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways", "httproutes"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways/finalizers", "httproutes/finalizers"]
+    verbs: ["update"]
+  # OpenShift routes (no-op on vanilla clusters, harmless to grant).
+  - apiGroups: ["route.openshift.io"]
+    resources: ["routes/custom-host"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "cert-manager.controllerName" . }}
+  labels:
+    {{- include "cert-manager.componentLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "cert-manager.controllerName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cert-manager.controllerServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Controller leader-election Lease, scoped to the leader-election namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cert-manager.controllerName" . }}:leaderelection
+  namespace: {{ $leNs }}
+  labels:
+    {{- include "cert-manager.componentLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    resourceNames: ["cert-manager-controller"]
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "cert-manager.controllerName" . }}:leaderelection
+  namespace: {{ $leNs }}
+  labels:
+    {{- include "cert-manager.componentLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "cert-manager.controllerName" . }}:leaderelection
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cert-manager.controllerServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# =====================================================================
+# Webhook
+# =====================================================================
+# Cluster-scoped: authenticate admission reviews against the apiserver.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "cert-manager.webhookName" . }}:subjectaccessreviews
+  labels:
+    {{- include "cert-manager.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+rules:
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["subjectaccessreviews"]
+    verbs: ["create"]
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "cert-manager.webhookName" . }}:subjectaccessreviews
+  labels:
+    {{- include "cert-manager.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "cert-manager.webhookName" . }}:subjectaccessreviews
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cert-manager.webhookServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Namespaced: own the Secret the webhook self-bootstraps its serving CA into.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cert-manager.webhookName" . }}:dynamic-serving
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cert-manager.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["{{ include "cert-manager.webhookCASecretName" . }}"]
+    verbs: ["get", "list", "watch", "update"]
+  # Create is unconditional (no resourceName) so the webhook can mint the Secret
+  # on first start before it exists.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "cert-manager.webhookName" . }}:dynamic-serving
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cert-manager.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "cert-manager.webhookName" . }}:dynamic-serving
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cert-manager.webhookServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# =====================================================================
+# Cainjector
+# =====================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "cert-manager.cainjectorName" . }}
+  labels:
+    {{- include "cert-manager.componentLabels" (dict "ctx" . "component" "cainjector") | nindent 4 }}
+rules:
+  # Read the CA source: cert-manager Certificates and the backing Secrets.
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "create", "update", "patch"]
+  # Inject the caBundle into the admission webhook configs (the chart's purpose).
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingwebhookconfigurations", "mutatingwebhookconfigurations"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  # Generic CA injection targets (apiservices, CRD conversion) — supported by the
+  # cainjector even though this chart's own CRDs need no injection.
+  - apiGroups: ["apiregistration.k8s.io"]
+    resources: ["apiservices"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "cert-manager.cainjectorName" . }}
+  labels:
+    {{- include "cert-manager.componentLabels" (dict "ctx" . "component" "cainjector") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "cert-manager.cainjectorName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cert-manager.cainjectorServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Cainjector leader-election Lease, scoped to the leader-election namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cert-manager.cainjectorName" . }}:leaderelection
+  namespace: {{ $leNs }}
+  labels:
+    {{- include "cert-manager.componentLabels" (dict "ctx" . "component" "cainjector") | nindent 4 }}
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    resourceNames:
+      - "cert-manager-cainjector-leader-election"
+      - "cert-manager-cainjector-leader-election-core"
+    verbs: ["get", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "cert-manager.cainjectorName" . }}:leaderelection
+  namespace: {{ $leNs }}
+  labels:
+    {{- include "cert-manager.componentLabels" (dict "ctx" . "component" "cainjector") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "cert-manager.cainjectorName" . }}:leaderelection
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cert-manager.cainjectorServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
