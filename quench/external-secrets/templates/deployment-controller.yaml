@@ -1,0 +1,99 @@
+{{/*
+ESO controller: the reconcile loop. Runs the bare `external-secrets` binary (no
+subcommand). The --live-addr health server serves /healthz and /readyz, used by
+the probes below; it stays up once the manager has started.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "external-secrets.controllerName" . }}
+  labels:
+    {{- include "external-secrets.componentLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+spec:
+  replicas: {{ .Values.controller.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "external-secrets.componentSelectorLabels" (dict "ctx" . "component" "controller") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "external-secrets.componentSelectorLabels" (dict "ctx" . "component" "controller") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "external-secrets.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: external-secrets
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/external-secrets"]
+          args:
+            {{- if .Values.controller.leaderElect }}
+            - "--enable-leader-election=true"
+            - "--leader-election-id={{ .Values.controller.leaderElectionID }}"
+            {{- end }}
+            {{- if not .Values.controller.processClusterStore }}
+            - "--enable-cluster-store-reconciler=false"
+            {{- end }}
+            {{- if not .Values.controller.processClusterExternalSecret }}
+            - "--enable-cluster-external-secret-reconciler=false"
+            {{- end }}
+            {{- if not .Values.controller.processClusterPushSecret }}
+            - "--enable-cluster-push-secret-reconciler=false"
+            {{- end }}
+            {{- if not .Values.controller.processPushSecret }}
+            - "--enable-push-secret-reconciler=false"
+            {{- end }}
+            - "--metrics-addr=:{{ .Values.controller.metricsPort }}"
+            - "--live-addr=:{{ .Values.controller.healthPort }}"
+            - "--loglevel={{ .Values.controller.logLevel }}"
+            {{- range .Values.controller.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- with .Values.extraEnvVars }}
+          env:
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.controller.metricsPort }}
+              protocol: TCP
+            - name: health
+              containerPort: {{ .Values.controller.healthPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- include "quench-common.extraVolumeMounts" $ | nindent 12 }}
+          {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- include "quench-common.extraVolumes" $ | nindent 8 }}
+      {{- end }}

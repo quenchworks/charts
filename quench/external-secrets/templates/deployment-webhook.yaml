@@ -1,0 +1,95 @@
+{{/*
+ESO webhook: serves the validating-admission webhook over HTTPS on .port. The
+TLS cert is provided by the cert-controller via the webhook Secret, mounted
+read-only at .certDir. healthz/readyz are served on .healthPort.
+The --dns-name must match the webhook Service DNS the apiserver dials.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "external-secrets.webhookName" . }}
+  labels:
+    {{- include "external-secrets.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+spec:
+  replicas: {{ .Values.webhook.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "external-secrets.componentSelectorLabels" (dict "ctx" . "component" "webhook") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "external-secrets.componentSelectorLabels" (dict "ctx" . "component" "webhook") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "external-secrets.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: webhook
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/external-secrets"]
+          args:
+            - "webhook"
+            - "--port={{ .Values.webhook.port }}"
+            - "--dns-name={{ include "external-secrets.webhookName" . }}.{{ .Release.Namespace }}.svc"
+            - "--cert-dir={{ .Values.webhook.certDir }}"
+            - "--check-interval={{ .Values.webhook.certCheckInterval }}"
+            - "--metrics-addr=:{{ .Values.webhook.metricsPort }}"
+            - "--healthz-addr=:{{ .Values.webhook.healthPort }}"
+            - "--loglevel={{ .Values.webhook.logLevel }}"
+            {{- range .Values.webhook.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- with .Values.extraEnvVars }}
+          env:
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: webhook
+              containerPort: {{ .Values.webhook.port }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.webhook.metricsPort }}
+              protocol: TCP
+            - name: health
+              containerPort: {{ .Values.webhook.healthPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.webhook.resources | nindent 12 }}
+          volumeMounts:
+            - name: certs
+              mountPath: {{ .Values.webhook.certDir }}
+              readOnly: true
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: certs
+          secret:
+            secretName: {{ include "external-secrets.webhookCertSecretName" . }}
+            optional: true
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

@@ -1,0 +1,31 @@
+{{/*
+Webhook Service + its TLS Secret.
+
+The apiserver dials this Service on :443, which forwards to the webhook container
+port. The Secret is created empty here so the webhook can mount it on first start;
+the cert-controller then fills it with the generated cert+key (and reconciles it),
+which is why the webhook's cert volume is marked optional and reloads on change.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "external-secrets.webhookName" . }}
+  labels:
+    {{- include "external-secrets.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+spec:
+  type: {{ .Values.webhook.service.type }}
+  ports:
+    - name: webhook
+      port: 443
+      targetPort: webhook
+      protocol: TCP
+  selector:
+    {{- include "external-secrets.componentSelectorLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "external-secrets.webhookCertSecretName" . }}
+  labels:
+    {{- include "external-secrets.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+    external-secrets.io/component: webhook

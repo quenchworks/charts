@@ -1,0 +1,73 @@
+{{/*
+Validating-admission webhooks for the secret-management CRDs. The caBundle is
+left empty here on purpose: the cert-controller injects it (matching these by the
+fixed names "secretstore-validate" / "externalsecret-validate", which its RBAC
+grants patch on). failurePolicy is configurable; Fail is the safe default.
+*/}}
+{{- $svcNs := .Release.Namespace -}}
+{{- $svcName := include "external-secrets.webhookName" . -}}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: secretstore-validate
+  labels:
+    {{- include "external-secrets.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+    external-secrets.io/component: webhook
+webhooks:
+  - name: "validate.secretstore.external-secrets.io"
+    rules:
+      - apiGroups: ["external-secrets.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["secretstores"]
+        scope: "Namespaced"
+    clientConfig:
+      service:
+        namespace: {{ $svcNs }}
+        name: {{ $svcName }}
+        path: /validate-external-secrets-io-v1-secretstore
+    admissionReviewVersions: ["v1", "v1beta1"]
+    sideEffects: None
+    timeoutSeconds: 5
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+  - name: "validate.clustersecretstore.external-secrets.io"
+    rules:
+      - apiGroups: ["external-secrets.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["clustersecretstores"]
+        scope: "Cluster"
+    clientConfig:
+      service:
+        namespace: {{ $svcNs }}
+        name: {{ $svcName }}
+        path: /validate-external-secrets-io-v1-clustersecretstore
+    admissionReviewVersions: ["v1", "v1beta1"]
+    sideEffects: None
+    timeoutSeconds: 5
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: externalsecret-validate
+  labels:
+    {{- include "external-secrets.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+    external-secrets.io/component: webhook
+webhooks:
+  - name: "validate.externalsecret.external-secrets.io"
+    rules:
+      - apiGroups: ["external-secrets.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE", "DELETE"]
+        resources: ["externalsecrets"]
+        scope: "Namespaced"
+    clientConfig:
+      service:
+        namespace: {{ $svcNs }}
+        name: {{ $svcName }}
+        path: /validate-external-secrets-io-v1-externalsecret
+    admissionReviewVersions: ["v1", "v1beta1"]
+    sideEffects: None
+    timeoutSeconds: 5
+    failurePolicy: {{ .Values.webhook.failurePolicy }}

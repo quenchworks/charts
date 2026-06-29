@@ -1,0 +1,103 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+# ESO is a single binary; all three deployments (controller, webhook,
+# cert-controller) run this same image and differ only by their args.
+image:
+  repository: ghcr.io/quenchworks/images/external-secrets
+  digest: "sha256:495b2de371a1d407769c865b92a52cb03ccb30513901813dabb69ba8e7d1c89c"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Controller flags. The controller reconciles ExternalSecret/SecretStore (and the
+# cluster-scoped variants and PushSecrets) and writes the resulting Kubernetes
+# Secrets. leaderElect lets multiple replicas run with a single active leader.
+controller:
+  replicaCount: 1
+  # Process cluster-scoped resources. Disabling one drops the matching reconciler
+  # flag (and the matching RBAC rule), narrowing the operator's blast radius.
+  processClusterStore: true
+  processClusterExternalSecret: true
+  processPushSecret: true
+  processClusterPushSecret: true
+  leaderElect: false
+  # Leader-election lock name; also the resourceName the leader-election Role grants.
+  leaderElectionID: external-secrets-controller
+  logLevel: info
+  # Bind address (port) of the controller health server (--live-addr); serves
+  # /healthz and /readyz, used by the probes below.
+  healthPort: 8082
+  metricsPort: 8080
+  extraArgs: []
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+# Webhook flags. Serves the validating-admission webhook for SecretStore /
+# ClusterSecretStore / ExternalSecret on `port` (HTTPS); healthz/readyz on
+# healthPort. Its TLS material is read from the Secret the cert-controller fills.
+webhook:
+  replicaCount: 1
+  port: 10250
+  healthPort: 8081
+  metricsPort: 8080
+  # Directory the cert-controller-managed TLS cert is mounted into.
+  certDir: /tmp/certs
+  certCheckInterval: "5m"
+  # Fail (reject on webhook error) is the safe default; switch to Ignore to make
+  # the webhook fail-open if availability matters more than validation.
+  failurePolicy: Fail
+  logLevel: info
+  extraArgs: []
+  service:
+    type: ClusterIP
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { cpu: 250m, memory: 128Mi }
+
+# Cert-controller flags. Generates the webhook's self-signed CA, stores it in the
+# webhook Secret, and injects the caBundle into the ValidatingWebhookConfigurations
+# and the named CRDs. This replaces a cert-manager dependency.
+certController:
+  replicaCount: 1
+  healthPort: 8081
+  metricsPort: 8080
+  requeueInterval: "5m"
+  logLevel: info
+  extraArgs: []
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { cpu: 250m, memory: 128Mi }
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# RBAC is required: the controller needs cluster-wide access to the ESO CRDs and
+# Secrets, and the cert-controller needs to patch the webhook config + CRD bundle.
+rbac:
+  create: true
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+# These apply to all three deployments (shared pod-spec surface).
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}

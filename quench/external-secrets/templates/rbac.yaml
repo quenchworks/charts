@@ -1,0 +1,199 @@
+{{- if .Values.rbac.create }}
+{{- /*
+Clean-room RBAC, authored from the operator's documented API needs.
+
+The operator watches secret-management CRDs cluster-wide and writes the resulting
+Kubernetes Secrets, so the controller permissions are granted cluster-wide. The
+cert-controller needs to read/patch its webhook Secret, the named CRDs, and the
+ValidatingWebhookConfigurations to inject the self-signed caBundle. Both bind to
+the single shared ServiceAccount. Leader election (when enabled) is a single
+in-namespace Lease/ConfigMap, granted by a namespaced Role.
+*/}}
+# --- Controller: reconcile ESO CRDs and manage target Secrets cluster-wide ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "external-secrets.controllerName" . }}
+  labels:
+    {{- include "external-secrets.componentLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+rules:
+  # Watch the secret-management CRDs the controller reconciles, and write status.
+  - apiGroups: ["external-secrets.io"]
+    resources:
+      - "externalsecrets"
+      - "externalsecrets/status"
+      - "secretstores"
+      - "secretstores/status"
+      {{- if .Values.controller.processClusterStore }}
+      - "clustersecretstores"
+      - "clustersecretstores/status"
+      {{- end }}
+      {{- if .Values.controller.processClusterExternalSecret }}
+      - "clusterexternalsecrets"
+      - "clusterexternalsecrets/status"
+      {{- end }}
+      {{- if .Values.controller.processPushSecret }}
+      - "pushsecrets"
+      - "pushsecrets/status"
+      {{- end }}
+      {{- if .Values.controller.processClusterPushSecret }}
+      - "clusterpushsecrets"
+      - "clusterpushsecrets/status"
+      {{- end }}
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Generator CRDs (fake, password, vault dynamic, cloud token generators, ...).
+  - apiGroups: ["generators.external-secrets.io"]
+    resources:
+      - "acraccesstokens"
+      - "beyondtrustworkloadcredentialsdynamicsecrets"
+      - "cloudsmithaccesstokens"
+      - "clustergenerators"
+      - "ecrauthorizationtokens"
+      - "fakes"
+      - "gcraccesstokens"
+      - "generatorstates"
+      - "githubaccesstokens"
+      - "grafanas"
+      - "mfas"
+      - "passwords"
+      - "quayaccesstokens"
+      - "sshkeys"
+      - "stssessiontokens"
+      - "uuids"
+      - "vaultdynamicsecrets"
+      - "webhooks"
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete", "deletecollection"]
+  # Target Secrets the controller materializes, plus the source ConfigMaps/Secrets
+  # and the ServiceAccounts/namespaces it inspects for provider auth and scoping.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  {{- if .Values.controller.processClusterExternalSecret }}
+  # ClusterExternalSecret templates ExternalSecrets into many namespaces.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["external-secrets.io"]
+    resources: ["externalsecrets"]
+    verbs: ["create", "update", "delete"]
+  {{- end }}
+  {{- if .Values.controller.processPushSecret }}
+  - apiGroups: ["external-secrets.io"]
+    resources: ["pushsecrets"]
+    verbs: ["create", "update", "delete"]
+  {{- end }}
+  # Bound-token requests for provider auth, and event recording.
+  - apiGroups: [""]
+    resources: ["serviceaccounts/token"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "external-secrets.controllerName" . }}
+  labels:
+    {{- include "external-secrets.componentLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "external-secrets.controllerName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "external-secrets.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# --- Cert-controller: own the webhook CA and inject it into the API surface ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "external-secrets.certControllerName" . }}
+  labels:
+    {{- include "external-secrets.componentLabels" (dict "ctx" . "component" "cert-controller") | nindent 4 }}
+rules:
+  # Discover and patch the conversion/validation CRDs with the generated caBundle.
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  # Discover and patch the validating webhook configs with the generated caBundle.
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingwebhookconfigurations"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  # Read/write the Secret that holds the webhook's self-signed cert+key.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  # Resolve the webhook Service's endpoints when generating the cert SANs.
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  # Leader-election lease and event recording.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "external-secrets.certControllerName" . }}
+  labels:
+    {{- include "external-secrets.componentLabels" (dict "ctx" . "component" "cert-controller") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "external-secrets.certControllerName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "external-secrets.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# --- Leader election (namespaced): a single Lease/ConfigMap in the release ns ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "quench-common.fullname" . }}-leaderelection
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: [{{ .Values.controller.leaderElectionID | quote }}]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}-leaderelection
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "quench-common.fullname" . }}-leaderelection
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "external-secrets.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
