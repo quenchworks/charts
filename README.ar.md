@@ -2,6 +2,12 @@
 
 [English](README.md) · **العربية** · [Español](README.es.md)
 
+<p align="center">
+  <a href="https://quench-works.com/images"><img src="https://img.shields.io/endpoint?url=https://quench-works.com/api/v1/badge/images.json" alt="hardened images"></a>
+  <a href="https://quench-works.com/charts"><img src="https://img.shields.io/endpoint?url=https://quench-works.com/api/v1/badge/charts.json" alt="signed charts"></a>
+  <a href="https://quench-works.com/security"><img src="https://img.shields.io/endpoint?url=https://quench-works.com/api/v1/badge/cves.json" alt="open CVEs"></a>
+</p>
+
 مخططات Helm بأسلوب الغرفة النظيفة لكتالوج [QuenchWorks](https://github.com/quenchworks). كل مخطط ينشر صورة مُحصَّنة بصفر ثغرات (0-CVE) من مصنع [images](https://quench-works.com/images)، ويثبّتها بصرامة بواسطة بصمة `sha256`، ويُشحن كأداة OCI موقّعة بـ cosign على GHCR، ومُدرَج على ArtifactHub كـ **ناشر موثَّق** مع مخطط Values.
 
 <p align="center">
