@@ -2,7 +2,7 @@ apiVersion: v2
 name: authelia
 description: Hardened Authelia authentication and authorization server on a 0-CVE image
 type: application
-version: 0.0.2
+version: 0.0.3
 appVersion: "4.39.20"
 home: https://github.com/quenchworks
 icon: https://raw.githubusercontent.com/quenchworks/.github/main/profile/assets/chart-icon.png
@@ -23,8 +23,8 @@ maintainers:
     url: https://github.com/quenchworks
 annotations:
   artifacthub.io/changes: |
-    - kind: changed
-      description: "Add an ArtifactHub changelog; maintenance re-release re-validated against the chart's pinned, signed image."
+    - kind: added
+      description: "Optional bundled-or-external PostgreSQL and Redis (valkey); standalone SQLite default unchanged."
   artifacthub.io/category: security
   artifacthub.io/license: Apache-2.0
   artifacthub.io/links: |
@@ -38,12 +38,37 @@ annotations:
     - name: authelia
       image: ghcr.io/quenchworks/images/authelia@sha256:9d8a4377b29c18986aa226de5e60370ea48463b253dfa0c1d1ae239d19860a9c
       whitelisted: false
-# quench-common is the only hard dependency. The chart boots standalone on SQLite +
-# the file auth backend with NO external services. PostgreSQL and Redis are OPTIONAL
-# backends wired by pointing the configuration block at an externally-managed
-# instance (see values.yaml storage.postgres / session.redis); they are intentionally
-# NOT bundled subcharts, so a default install pulls in nothing extra.
+    - name: postgresql
+      image: ghcr.io/quenchworks/images/postgresql@sha256:b492e8f2aa8528a0af8bc1aa835522ab222aa8e0a0a6c135b2d5fdc3e9467bd4
+    - name: valkey
+      image: ghcr.io/quenchworks/images/valkey@sha256:4482926665b4e9fbe73b6ab15e403e1f4d9285112aca313ce4994095346c6565
+    - name: redis
+      image: ghcr.io/quenchworks/images/redis@sha256:f027d0109a0bdd1779bfac85a10744336f4af80518e9bc2c290984e206b3bf14
+# quench-common is the only HARD dependency. The chart boots standalone on SQLite +
+# the file auth backend with NO external services. SQL storage and the session store
+# are each OPTIONAL and independently choosable; mix-and-match freely.
+#   STORAGE modes:  bundled postgresql | external (externalDatabase.*) | off (SQLite)
+#   SESSION modes:  bundled valkey | bundled redis | external (externalRedis.*) | off
+#                   (in-memory). valkey is the recommended 0-CVE BSD store; redis is
+#                   the AGPL alternative. Enable AT MOST ONE of valkey/redis.
+# Each subchart only renders when its condition is true, so a default install (all
+# off) pulls in nothing extra and behaves exactly as the standalone SQLite default.
 dependencies:
   - name: quench-common
     version: 0.0.1
     repository: oci://ghcr.io/quenchworks/charts
+  - name: postgresql
+    alias: postgresql
+    version: 0.0.9
+    repository: oci://ghcr.io/quenchworks/charts
+    condition: postgresql.enabled
+  - name: valkey
+    alias: valkey
+    version: 0.0.8
+    repository: oci://ghcr.io/quenchworks/charts
+    condition: valkey.enabled
+  - name: redis
+    alias: redis
+    version: 0.0.8
+    repository: oci://ghcr.io/quenchworks/charts
+    condition: redis.enabled

@@ -47,6 +47,16 @@ spec:
               value: /secrets/session-secret
             - name: AUTHELIA_STORAGE_ENCRYPTION_KEY_FILE
               value: /secrets/storage-encryption-key
+            {{- if include "authelia.postgresUsed" . }}
+            # PostgreSQL storage password (storage.postgres.password) as a file.
+            - name: AUTHELIA_STORAGE_POSTGRES_PASSWORD_FILE
+              value: /backend-secrets/storage-postgres-password
+            {{- end }}
+            {{- if and (include "authelia.redisUsed" .) (include "authelia.redis.hasPassword" .) }}
+            # Redis session-store password (session.redis.password) as a file.
+            - name: AUTHELIA_SESSION_REDIS_PASSWORD_FILE
+              value: /backend-secrets/session-redis-password
+            {{- end }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
@@ -69,6 +79,16 @@ spec:
             - name: secrets
               mountPath: /secrets
               readOnly: true
+            {{- if or (include "authelia.postgresUsed" .) (and (include "authelia.redisUsed" .) (include "authelia.redis.hasPassword" .)) }}
+            # Optional backend password files (PostgreSQL / Redis), projected from
+            # the resolved Secret(s) and remapped to fixed filenames under
+            # /backend-secrets. A projected volume handles the case where PG and
+            # Redis come from different Secrets (e.g. two external existingSecrets)
+            # and where an external Secret uses its own key name.
+            - name: backend-secrets
+              mountPath: /backend-secrets
+              readOnly: true
+            {{- end }}
             - name: data
               mountPath: /data
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
@@ -80,6 +100,25 @@ spec:
         - name: secrets
           secret:
             secretName: {{ include "authelia.secretName" . }}
+        {{- if or (include "authelia.postgresUsed" .) (and (include "authelia.redisUsed" .) (include "authelia.redis.hasPassword" .)) }}
+        - name: backend-secrets
+          projected:
+            sources:
+              {{- if include "authelia.postgresUsed" . }}
+              - secret:
+                  name: {{ include "authelia.postgres.secretName" . }}
+                  items:
+                    - key: {{ include "authelia.postgres.secretKey" . }}
+                      path: storage-postgres-password
+              {{- end }}
+              {{- if and (include "authelia.redisUsed" .) (include "authelia.redis.hasPassword" .) }}
+              - secret:
+                  name: {{ include "authelia.redis.secretName" . }}
+                  items:
+                    - key: {{ include "authelia.redis.secretKey" . }}
+                      path: session-redis-password
+              {{- end }}
+        {{- end }}
         {{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
         - name: data
           persistentVolumeClaim:

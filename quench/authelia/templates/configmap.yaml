@@ -7,8 +7,29 @@ metadata:
 data:
   # Mounted read-only at /config/configuration.yml and passed via --config. The
   # three mandatory secrets are NOT here; they are injected via *_FILE env vars.
+  #
+  # Start from the user's configuration, then layer in the optional backends so the
+  # user keeps full control of every other key:
+  #   - STORAGE: when PostgreSQL is in use (bundled or external) render storage.postgres
+  #     and DROP storage.local (SQLite); the password comes from a *_FILE env var, never
+  #     placed here. Otherwise the user's storage block (SQLite by default) is untouched.
+  #   - SESSION: when a store is in use (bundled valkey, bundled redis, or external)
+  #     render session.redis; the password (if any) comes from a *_FILE env var.
+  #     Otherwise no redis block is added (Authelia keeps in-memory sessions).
+  {{- $config := deepCopy .Values.configuration }}
+  {{- if include "authelia.postgresUsed" . }}
+  {{- $storage := dict "postgres" (dict "address" (printf "tcp://%s:%s" (include "authelia.postgres.host" .) (include "authelia.postgres.port" .)) "database" (include "authelia.postgres.database" .) "username" (include "authelia.postgres.username" .)) }}
+  {{- /* Preserve any non-local storage keys the user set (e.g. encryption_key is via env). Drop local + any prior postgres. */}}
+  {{- $prevStorage := omit (default (dict) $config.storage) "local" "postgres" }}
+  {{- $_ := set $config "storage" (merge $storage $prevStorage) }}
+  {{- end }}
+  {{- if include "authelia.redisUsed" . }}
+  {{- $redis := dict "host" (include "authelia.redis.host" .) "port" (include "authelia.redis.port" . | int) }}
+  {{- $prevSession := omit (default (dict) $config.session) "redis" }}
+  {{- $_ := set $config "session" (merge (dict "redis" $redis) $prevSession) }}
+  {{- end }}
   configuration.yml: |-
-    {{- toYaml .Values.configuration | nindent 4 }}
+    {{- toYaml $config | nindent 4 }}
   {{- if .Values.auth.file.enabled }}
   # The file auth backend's user database. Mounted read-only at /config/users.yml
   # (configuration.authentication_backend.file.path points here). Authelia reads
