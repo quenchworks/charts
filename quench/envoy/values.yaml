@@ -1,0 +1,77 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/envoy
+  digest: "sha256:03bac51fd570bc1af5172c72985d0e48c51d792a40c60ebe653f55f68be76921"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Envoy holds no state in this configuration: this chart runs a Deployment behind
+# a ClusterIP Service and scales horizontally.
+replicaCount: 1
+
+# Envoy bootstrap configuration.
+#
+# The container runs `envoy -c /etc/envoy/envoy.yaml --service-cluster <name>`.
+# config (a string) is the full bootstrap YAML; it is written to a ConfigMap,
+# mounted at /etc/envoy/envoy.yaml, and passed via `-c`. Leave it empty to use
+# the chart's built-in default bootstrap (admin on 0.0.0.0:9901 and one example
+# listener on :10000 that returns a 200 direct_response). Point existingConfigMap
+# at an externally-managed ConfigMap (key `envoy.yaml`) to use that instead.
+#
+# serviceCluster is passed via --service-cluster; it defaults to the release name.
+config: ""
+existingConfigMap: ""
+serviceCluster: ""
+extraArgs: []
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # The proxy listener the default bootstrap serves on.
+  port: 10000
+  # Envoy's admin endpoint (health, stats, config dump).
+  adminPort: 9901
+
+# Optional horizontal autoscaling on CPU.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}

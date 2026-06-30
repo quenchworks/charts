@@ -1,0 +1,31 @@
+Quenchworks Envoy is installed as {{ include "quench-common.fullname" . }}.
+
+It runs nonroot as `envoy -c /etc/envoy/envoy.yaml --service-cluster {{ include "envoy.serviceCluster" . }}`.
+The Service exposes the proxy listener on port {{ .Values.service.port }} and the
+admin endpoint on port {{ .Values.service.adminPort }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Check readiness and hit the listener over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.adminPort }}:{{ .Values.service.adminPort }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://127.0.0.1:{{ .Values.service.adminPort }}/ready
+  curl http://127.0.0.1:{{ .Values.service.port }}/
+
+{{ if .Values.existingConfigMap }}
+Running with the bootstrap from existing ConfigMap "{{ .Values.existingConfigMap }}"
+(key envoy.yaml) mounted at /etc/envoy/envoy.yaml.
+{{- else if .Values.config }}
+Running with the inline bootstrap from values.config, mounted at /etc/envoy/envoy.yaml.
+{{- else }}
+Running with the chart's default bootstrap: admin on 0.0.0.0:{{ .Values.service.adminPort }}
+and one example listener on :{{ .Values.service.port }} that returns a 200 direct_response.
+Override the whole bootstrap via values.config (a string) or point existingConfigMap
+at an externally-managed ConfigMap (key envoy.yaml).
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/envoy \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
