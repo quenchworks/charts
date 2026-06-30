@@ -1,0 +1,194 @@
+{{/*
+The Ingress NGINX controller. Runs the bare /usr/bin/nginx-ingress-controller
+binary (flags via args). It watches Ingresses of its IngressClass, renders
+nginx.conf, and runs NGINX in-process to load-balance traffic to backends.
+Health + metrics are served on the metrics port (/healthz, /metrics); the
+admission webhook is served on the webhook port over TLS using the Helm-generated
+serving cert mounted from the webhook cert Secret.
+
+Hardening: nonroot (uid 1001), readonly rootfs, seccomp RuntimeDefault, all
+capabilities dropped EXCEPT NET_BIND_SERVICE (this controller legitimately binds
+:80 and :443 directly). NGINX needs writable scratch under the readonly rootfs:
+an emptyDir is mounted at /tmp (the controller writes the generated nginx.conf,
+pid and all proxy/client/fastcgi temp paths under /tmp/nginx).
+*/}}
+{{- $tls := include "ingress-nginx.webhookCerts" . | fromYaml -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ingress-nginx.controllerName" . }}
+  labels:
+    {{- include "ingress-nginx.controllerLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.controller.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "ingress-nginx.controllerSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "ingress-nginx.controllerSelectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "ingress-nginx.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        # Seed an emptyDir with the image's /etc/nginx tree (lua scripts, modules,
+        # modsecurity rules, config templates) so the read-only rootfs can stay
+        # read-only while the controller still rewrites nginx.conf and lua/cfg.json
+        # at runtime. The image is shell-free and ships no cp, so the copy is done
+        # with the image's own LuaJIT (FFI opendir/readdir + buffered io). Runs as
+        # the same hardened nonroot context; the dest is group-writable via fsGroup.
+        - name: seed-etc-nginx
+          image: {{ include "ingress-nginx.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command:
+            - /usr/bin/luajit
+            - "-e"
+            - {{ include "ingress-nginx.seedScript" . | quote }}
+          volumeMounts:
+            - name: etc-nginx
+              mountPath: /seed-etc-nginx
+            - name: ingress-controller-state
+              mountPath: /seed-ingress-controller
+            - name: tmp
+              mountPath: /seed-tmp
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: controller
+          image: {{ include "ingress-nginx.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - "/usr/bin/nginx-ingress-controller"
+            - "--controller-class={{ .Values.ingressClass.controllerValue }}"
+            - "--ingress-class={{ .Values.ingressClass.name }}"
+            - "--election-id={{ include "ingress-nginx.electionID" . }}"
+            - "--configmap=$(POD_NAMESPACE)/{{ include "ingress-nginx.configMapName" . }}"
+            - "--publish-service=$(POD_NAMESPACE)/{{ include "ingress-nginx.controllerName" . }}"
+            - "--http-port={{ .Values.controller.containerPorts.http }}"
+            - "--https-port={{ .Values.controller.containerPorts.https }}"
+            - "--healthz-port={{ .Values.controller.metricsPort }}"
+            - "--v={{ .Values.controller.logLevel }}"
+            {{- if .Values.controller.admissionWebhooks.enabled }}
+            - "--validating-webhook=:{{ .Values.controller.webhookPort }}"
+            - "--validating-webhook-certificate=/usr/local/certificates/tls.crt"
+            - "--validating-webhook-key=/usr/local/certificates/tls.key"
+            {{- end }}
+            {{- with .Values.controller.watchNamespace }}
+            - "--watch-namespace={{ . }}"
+            {{- end }}
+            {{- range .Values.controller.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # The OpenResty Lua libraries (resty.core et al.) ship under
+            # /usr/lib/lua, which is not on LuaJIT's compiled-in default path and
+            # is not added by the generated nginx.conf (it only adds
+            # /etc/nginx/lua). Put it on LUA_PATH/LUA_CPATH so nginx's embedded
+            # LuaJIT can load them.
+            - name: LUA_PATH
+              value: "/usr/lib/lua/?.lua;/usr/lib/lua/?/init.lua;;"
+            - name: LUA_CPATH
+              value: "/usr/lib/lua/?.so;;"
+            {{- with .Values.extraEnvVars }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+            {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.controller.containerPorts.http }}
+              protocol: TCP
+            - name: https
+              containerPort: {{ .Values.controller.containerPorts.https }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.controller.metricsPort }}
+              protocol: TCP
+            {{- if .Values.controller.admissionWebhooks.enabled }}
+            - name: webhook
+              containerPort: {{ .Values.controller.webhookPort }}
+              protocol: TCP
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          volumeMounts:
+            # readonly rootfs: NGINX writes the generated nginx.conf, pid and all
+            # temp/cache paths under /tmp/nginx, so /tmp must be writable.
+            - name: tmp
+              mountPath: /tmp
+            # The controller persists its generated SSL bundles and default
+            # fake-cert under /etc/ingress-controller; an emptyDir keeps the rest
+            # of the rootfs read-only while giving it this one writable tree.
+            - name: ingress-controller-state
+              mountPath: /etc/ingress-controller
+            # Writable, image-seeded /etc/nginx (see the seed-etc-nginx init): the
+            # controller rewrites nginx.conf and lua/cfg.json here on every reload.
+            - name: etc-nginx
+              mountPath: /etc/nginx
+            # NGINX opens its error/access logs under /var/log/nginx; keep it
+            # writable under the read-only rootfs.
+            - name: var-log-nginx
+              mountPath: /var/log/nginx
+            {{- if .Values.controller.admissionWebhooks.enabled }}
+            - name: webhook-cert
+              mountPath: /usr/local/certificates
+              readOnly: true
+            {{- end }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: ingress-controller-state
+          emptyDir: {}
+        - name: etc-nginx
+          emptyDir: {}
+        - name: var-log-nginx
+          emptyDir: {}
+        {{- if .Values.controller.admissionWebhooks.enabled }}
+        - name: webhook-cert
+          secret:
+            secretName: {{ include "ingress-nginx.webhookCertSecretName" . }}
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

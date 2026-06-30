@@ -1,0 +1,72 @@
+{{- if .Values.controller.admissionWebhooks.enabled }}
+{{/*
+The admission webhook: a ValidatingWebhookConfiguration that sends CREATE/UPDATE
+Ingress objects to the controller's webhook endpoint (the controller serves
+/networking/v1/ingresses on the webhook port over TLS). Malformed Ingresses are
+rejected before they are persisted.
+
+The serving cert + caBundle are Helm-generated (see _helpers webhookCerts):
+  * the Secret holds tls.crt / tls.key / ca.crt and is mounted into the controller
+  * the matching CA is baked straight into the webhook config's caBundle
+so the apiserver's TLS dial to the webhook validates with no external CA tooling.
+
+webhookCerts is evaluated once here and reused for both the Secret and the
+caBundle so the cert and the CA always belong to the same keypair.
+*/}}
+{{- $tls := include "ingress-nginx.webhookCerts" . | fromYaml -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "ingress-nginx.webhookCertSecretName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ingress-nginx.admissionLabels" . | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $tls.cert }}
+  tls.key: {{ $tls.key }}
+  ca.crt: {{ $tls.ca }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ingress-nginx.webhookServiceName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ingress-nginx.admissionLabels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: https-webhook
+      port: 443
+      targetPort: webhook
+      protocol: TCP
+  selector:
+    {{- include "ingress-nginx.controllerSelectorLabels" . | nindent 4 }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "ingress-nginx.webhookConfigName" . }}
+  labels:
+    {{- include "ingress-nginx.admissionLabels" . | nindent 4 }}
+webhooks:
+  - name: validate.nginx.ingress.kubernetes.io
+    matchPolicy: Equivalent
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: {{ .Values.controller.admissionWebhooks.failurePolicy }}
+    timeoutSeconds: {{ .Values.controller.admissionWebhooks.timeoutSeconds }}
+    rules:
+      - apiGroups: ["networking.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["ingresses"]
+    clientConfig:
+      service:
+        namespace: {{ .Release.Namespace }}
+        name: {{ include "ingress-nginx.webhookServiceName" . }}
+        path: /networking/v1/ingresses
+        port: 443
+      caBundle: {{ $tls.ca }}
+{{- end }}

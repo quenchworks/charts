@@ -1,0 +1,17 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed
+# image. The controller must reach Ready, the admission webhook must accept a
+# valid Ingress (caBundle baked in), and traffic must route end to end.
+#
+# kind has no cloud LoadBalancer, so the controller Service is a NodePort on a
+# fixed port that the kind cluster maps to the host (see the kind config in the
+# release workflow / local test).
+controller:
+  replicaCount: 1
+  service:
+    type: NodePort
+    nodePorts:
+      http: 30080
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }

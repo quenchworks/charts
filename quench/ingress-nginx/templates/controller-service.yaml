@@ -1,0 +1,41 @@
+{{/*
+The controller Service: the cluster entrypoint for ingress traffic. Forwards
+:80/:443 to the controller's http/https container ports. Defaults to
+LoadBalancer; on kind/bare-metal set controller.service.type=NodePort and the
+nodePorts so traffic can reach the controller without a cloud LB.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ingress-nginx.controllerName" . }}
+  labels:
+    {{- include "ingress-nginx.controllerLabels" . | nindent 4 }}
+  {{- with .Values.controller.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.controller.service.type }}
+  {{- with .Values.controller.service.loadBalancerIP }}
+  loadBalancerIP: {{ . }}
+  {{- end }}
+  {{- with .Values.controller.service.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+      {{- if and (eq .Values.controller.service.type "NodePort") .Values.controller.service.nodePorts.http }}
+      nodePort: {{ .Values.controller.service.nodePorts.http }}
+      {{- end }}
+    - name: https
+      port: 443
+      targetPort: https
+      protocol: TCP
+      {{- if and (eq .Values.controller.service.type "NodePort") .Values.controller.service.nodePorts.https }}
+      nodePort: {{ .Values.controller.service.nodePorts.https }}
+      {{- end }}
+  selector:
+    {{- include "ingress-nginx.controllerSelectorLabels" . | nindent 4 }}

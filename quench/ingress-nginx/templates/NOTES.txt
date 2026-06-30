@@ -1,0 +1,52 @@
+Quenchworks Ingress NGINX is installed as {{ include "quench-common.fullname" . }}.
+
+Controller deployment : {{ include "ingress-nginx.controllerName" . }}
+IngressClass          : {{ .Values.ingressClass.name }}  (controller {{ .Values.ingressClass.controllerValue }})
+Controller Service    : {{ include "ingress-nginx.controllerName" . }}  (type {{ .Values.controller.service.type }})
+{{- if .Values.controller.admissionWebhooks.enabled }}
+Admission webhook     : {{ include "ingress-nginx.webhookConfigName" . }}  (validates Ingress objects)
+
+The webhook's serving cert is Helm-generated into the Secret
+{{ include "ingress-nginx.webhookCertSecretName" . }} and its CA is baked into the
+ValidatingWebhookConfiguration — no cert-manager or external tooling is required.
+{{- end }}
+
+Expose a backend through this controller by creating an Ingress of class
+"{{ .Values.ingressClass.name }}":
+
+  apiVersion: networking.k8s.io/v1
+  kind: Ingress
+  metadata:
+    name: example
+    namespace: {{ .Release.Namespace }}
+  spec:
+    ingressClassName: {{ .Values.ingressClass.name }}
+    rules:
+      - host: example.local
+        http:
+          paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: my-backend
+                  port:
+                    number: 80
+
+{{- if eq .Values.controller.service.type "LoadBalancer" }}
+
+Find the external address the controller is reachable on:
+
+  kubectl get svc {{ include "ingress-nginx.controllerName" . }} -n {{ .Release.Namespace }} -w
+{{- else if eq .Values.controller.service.type "NodePort" }}
+
+The controller is reachable on the cluster nodes' NodePorts:
+
+  kubectl get svc {{ include "ingress-nginx.controllerName" . }} -n {{ .Release.Namespace }}
+{{- end }}
+
+The controller image is pinned by digest and cosign-signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/ingress-nginx \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

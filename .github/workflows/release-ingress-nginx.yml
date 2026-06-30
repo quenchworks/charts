@@ -1,0 +1,169 @@
+name: release-ingress-nginx
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/ingress-nginx/**"
+      - ".github/workflows/release-ingress-nginx.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/ingress-nginx
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+
+      # kind with a node port mapped to the host so the install gate can curl
+      # through the controller Service (NodePort 30080 -> host 30080).
+      - name: Write kind config
+        run: |
+          cat > /tmp/kind-ing.yaml <<'EOF'
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          nodes:
+            - role: control-plane
+              extraPortMappings:
+                - containerPort: 30080
+                  hostPort: 30080
+                  protocol: TCP
+          EOF
+      - uses: helm/kind-action@v1
+        with:
+          config: /tmp/kind-ing.yaml
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -n ingress-nginx --create-namespace \
+            -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/rtest-ingress-nginx-controller -n ingress-nginx --timeout=300s
+
+          # Prove the admission webhook is wired (its caBundle was baked into the
+          # ValidatingWebhookConfiguration): a bad Ingress must be DENIED by the
+          # webhook, and a valid Ingress must be ACCEPTED.
+          if kubectl apply -f - <<'EOF' 2>/dev/null
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: bad
+            namespace: default
+            annotations:
+              nginx.ingress.kubernetes.io/server-snippet: "}"
+          spec:
+            ingressClassName: nginx
+            rules:
+              - host: bad.local
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend: { service: { name: echo, port: { number: 80 } } }
+          EOF
+          then echo "::error::admission webhook did not reject an invalid Ingress"; exit 1; fi
+          echo "admission webhook rejected the invalid Ingress (caBundle OK)"
+
+          # Routing proof: a tiny backend + a valid Ingress (class nginx), then
+          # curl through the controller's NodePort and require the backend body.
+          kubectl apply -f - <<'EOF'
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata: { name: echo, namespace: default }
+          spec:
+            replicas: 1
+            selector: { matchLabels: { app: echo } }
+            template:
+              metadata: { labels: { app: echo } }
+              spec:
+                containers:
+                  - name: echo
+                    image: hashicorp/http-echo:1.0.0
+                    args: ["-text=ok-from-echo", "-listen=:8080"]
+                    ports: [ { containerPort: 8080 } ]
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata: { name: echo, namespace: default }
+          spec:
+            selector: { app: echo }
+            ports: [ { port: 80, targetPort: 8080 } ]
+          ---
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata: { name: echo, namespace: default }
+          spec:
+            ingressClassName: nginx
+            rules:
+              - host: echo.local
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend: { service: { name: echo, port: { number: 80 } } }
+          EOF
+          kubectl rollout status deployment/echo -n default --timeout=120s
+
+          # Poll the route until the controller has the backend endpoint wired.
+          ok=""
+          for i in $(seq 1 30); do
+            body="$(curl -s -m 5 -H 'Host: echo.local' http://127.0.0.1:30080/ || true)"
+            if [ "$body" = "ok-from-echo" ]; then ok=1; break; fi
+            sleep 5
+          done
+          test -n "$ok" || { echo "::error::Ingress did not route to the backend"; exit 1; }
+          echo "Ingress routed to the backend through the controller (HTTP 200)"
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/ingress-nginx-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/ingress-nginx@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/ingress-nginx:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

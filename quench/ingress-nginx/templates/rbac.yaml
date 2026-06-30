@@ -1,0 +1,131 @@
+{{- if .Values.rbac.create }}
+{{- /*
+Clean-room RBAC, authored from ingress-nginx's documented controller API needs.
+The controller gets cluster-wide read of the Ingress data plane inputs
+(ingresses, ingressclasses, services, endpointslices, secrets, configmaps, nodes,
+pods) + write of ingresses/status and event recording, and a namespaced Role for
+the leader-election Lease and its own ConfigMap. The admission webhook cert is
+Helm-generated, so it needs no RBAC of its own.
+*/}}
+# =====================================================================
+# Controller
+# =====================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "ingress-nginx.controllerName" . }}
+  labels:
+    {{- include "ingress-nginx.controllerLabels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "endpoints", "nodes", "pods", "secrets", "namespaces"]
+    verbs: ["list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses/status"]
+    verbs: ["update"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingressclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "ingress-nginx.controllerName" . }}
+  labels:
+    {{- include "ingress-nginx.controllerLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "ingress-nginx.controllerName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ingress-nginx.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Namespaced: the controller's own ConfigMap, the leader-election Lease, and the
+# Secrets/Endpoints/Services it reads within its own namespace at fuller verbs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "ingress-nginx.controllerName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ingress-nginx.controllerLabels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["configmaps", "pods", "secrets", "endpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses/status"]
+    verbs: ["update"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingressclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  # The controller writes/updates a per-controller ConfigMap to publish leader
+  # information and store ingress status, in addition to reading its config map.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["{{ include "ingress-nginx.electionID" . }}"]
+    verbs: ["get", "update"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create"]
+  # Leader-election Lease (coordination.k8s.io). create is unconditional so the
+  # leader can mint the lease; get/update/patch are scoped to the election Lease.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    resourceNames: ["{{ include "ingress-nginx.electionID" . }}"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "ingress-nginx.controllerName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "ingress-nginx.controllerLabels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "ingress-nginx.controllerName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "ingress-nginx.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
