@@ -57,6 +57,46 @@ jobs:
           echo "readiness probe returned HTTP ${code}"
           case "$code" in 200|204) : ;; *) echo "unexpected status"; exit 1 ;; esac
 
+      - name: Diagnostics on install-gate failure
+        if: failure()
+        run: |
+          # Runs ONLY when an earlier step failed (typically the install gate).
+          # Dumps enough in-cluster state to root-cause a "Progress deadline exceeded"
+          # or CrashLoop from the CI log alone, without a local repro. `|| true` keeps
+          # the step going so we always get the full picture even if one call errors.
+          echo "::group::pods + events (all namespaces)"
+          kubectl get pods,events -A -o wide || true
+          echo "::endgroup::"
+          # Authentik server + worker: describe (probe/restart/mount reasons) and logs
+          # for both the current and the crashed (previous) container.
+          for w in server worker; do
+            dep="rtest-authentik-${w}"
+            echo "::group::describe deployment/${dep}"
+            kubectl describe "deployment/${dep}" || true
+            echo "::endgroup::"
+            for p in $(kubectl get pods -l "app.kubernetes.io/name=authentik,app.kubernetes.io/component=${w}" -o name 2>/dev/null); do
+              echo "::group::describe ${p}"
+              kubectl describe "${p}" || true
+              echo "::endgroup::"
+              echo "::group::logs ${p} (current)"
+              kubectl logs "${p}" --all-containers --tail=200 || true
+              echo "::endgroup::"
+              echo "::group::logs ${p} (previous / crashed)"
+              kubectl logs "${p}" --all-containers --previous --tail=200 || true
+              echo "::endgroup::"
+            done
+          done
+          # Bundled backends: if PostgreSQL or valkey never went Ready, authentik cannot
+          # connect, so surface their describe + logs too.
+          for b in rtest-postgresql-0 rtest-valkey-0; do
+            echo "::group::describe pod/${b}"
+            kubectl describe "pod/${b}" || true
+            echo "::endgroup::"
+            echo "::group::logs pod/${b}"
+            kubectl logs "pod/${b}" --tail=100 || true
+            echo "::endgroup::"
+          done
+
       - name: Package and push (OCI)
         id: push
         run: |
