@@ -50,6 +50,35 @@ args: []
 # Floci server configuration, surfaced as environment variables. Anything not
 # listed here can be added via extraEnvVars.
 floci:
+  # -------------------------------------------------------------------------
+  # MODE (hardened | full)
+  # -------------------------------------------------------------------------
+  # hardened (DEFAULT): the hardened `floci` image above -- nonroot uid 1001,
+  #   no Docker socket, read-only root filesystem. Supports the 55 in-process
+  #   AWS services only. This is the safe, recommended default; leave it alone.
+  #
+  # full (OPT-IN, NOT HARDENED): the separate `floci-full` image (below), run as
+  #   ROOT with the host Docker socket (/var/run/docker.sock) mounted in. This
+  #   enables ALL 65 services including the 10 Docker-backed ones (Lambda, RDS,
+  #   ElastiCache, MSK, ECS, EKS, OpenSearch, ECR, DocumentDB, Neptune). A mounted
+  #   host Docker socket is a node-root / container-escape surface: DO NOT use on
+  #   shared or multi-tenant clusters. Requires floci.full.acknowledgeRisk=true or
+  #   the chart refuses to render.
+  mode: hardened
+  # Settings that apply only when mode=full.
+  full:
+    # Explicit acknowledgement that full mode runs root + mounts the host Docker
+    # socket. The chart FAILS to render in full mode unless this is true.
+    acknowledgeRisk: false
+    # The floci-full image (root, Docker-backed services). Multi-arch,
+    # cosign-signed, 0-CVE, pinned by digest -- never a tag. Only used when
+    # mode=full.
+    image:
+      repository: ghcr.io/quenchworks/images/floci-full
+      # Human-readable tag for reference only; the pod is pulled by digest.
+      tag: "1.5.29"
+      digest: "sha256:269b815df374249d2514aeef39353052115995b533c6706889e9d9d0d04acd09"
+      pullPolicy: IfNotPresent
   # Edge/API port. Must match service.port and containerPort. LocalStack clients
   # point their endpoint URL at this port.
   port: 4566

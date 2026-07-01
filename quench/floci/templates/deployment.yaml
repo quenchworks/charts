@@ -4,6 +4,8 @@
      boot can take a few seconds, so readiness starts a touch later. */}}
 {{- $liveness := dict "httpGet" (dict "path" "/_floci/health" "port" "http") "initialDelaySeconds" 15 "periodSeconds" 15 "timeoutSeconds" 3 "failureThreshold" 6 -}}
 {{- $readiness := dict "httpGet" (dict "path" "/_floci/health" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 3 "failureThreshold" 6 -}}
+{{- /* Full mode requires explicit floci.full.acknowledgeRisk=true; this fails rendering otherwise. */ -}}
+{{- include "floci.riskGate" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -30,15 +32,15 @@ spec:
     spec:
       serviceAccountName: {{ include "floci.serviceAccountName" . }}
       securityContext:
-        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+        {{- include "floci.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
       {{- include "quench-common.initContainers" . | nindent 6 }}
       containers:
         - name: floci
-          image: {{ include "quench-common.image" . }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ include "floci.image" . }}
+          imagePullPolicy: {{ include "floci.imagePullPolicy" . }}
           securityContext:
-            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+            {{- include "floci.containerSecurityContext" . | nindent 12 }}
           {{- include "quench-common.command" . | nindent 10 }}
           {{- include "quench-common.args" . | nindent 10 }}
           env:
@@ -49,7 +51,11 @@ spec:
             - name: FLOCI_DEFAULT_ACCOUNT_ID
               value: {{ .Values.floci.defaultAccountId | quote }}
             - name: LOCALSTACK_PARITY
+              {{- if include "floci.fullMode" . }}
+              value: "true"
+              {{- else }}
               value: {{ .Values.floci.localstackParity | quote }}
+              {{- end }}
             - name: FLOCI_STORAGE_MODE
               value: {{ .Values.floci.storage.mode | quote }}
             - name: FLOCI_STORAGE_PERSISTENT_PATH
@@ -74,6 +80,9 @@ spec:
             - name: data
               mountPath: {{ .Values.floci.storage.path }}
             {{- end }}
+            {{- if include "floci.fullMode" . }}
+            {{- include "floci.dockerSocketVolumeMount" . | nindent 12 }}
+            {{- end }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -81,5 +90,8 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "floci.pvcName" . }}
+        {{- end }}
+        {{- if include "floci.fullMode" . }}
+        {{- include "floci.dockerSocketVolume" . | nindent 8 }}
         {{- end }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

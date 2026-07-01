@@ -47,6 +47,43 @@ LocalStack API parity is disabled (`LOCALSTACK_PARITY=false`); clients still tar
 Floci's own LocalStack-wire-compatible endpoint on port `4566` for the in-process
 services above.
 
+## Full mode (opt-in, NOT hardened)
+
+The chart has a second, deliberately non-hardened mode for when you actually need
+the 10 Docker-backed services. `floci.mode=full` swaps the hardened image for the
+separate **`floci-full`** image and reconfigures the pod so those services work:
+
+- Runs the pod as **root** (`runAsNonRoot: false`, `runAsUser: 0`).
+- **Disables the read-only root filesystem** (`readOnlyRootFilesystem: false`).
+- **Bind-mounts the host Docker socket** `/var/run/docker.sock` into the pod
+  (a `hostPath` volume) so Floci can drive the Docker daemon directly.
+- Sets `LOCALSTACK_PARITY=true`.
+
+This enables **all 65 services**, i.e. everything in hardened mode **plus** the 10
+Docker-backed ones: **Lambda, RDS, ElastiCache, MSK, ECS, EKS, OpenSearch, ECR,
+DocumentDB, Neptune**.
+
+> ### Security warning
+>
+> Full mode is **not hardened**. It runs as **root** and mounts the **host Docker
+> socket**, which is a **node-root / container-escape surface**: any code in the
+> pod can control the node's Docker daemon and effectively owns the node.
+> **Do not use full mode on shared or multi-tenant clusters.** It is an opt-in
+> developer/CI convenience only.
+
+Because of that, full mode requires an explicit acknowledgement or the chart
+**refuses to render**:
+
+```sh
+helm install floci oci://ghcr.io/quenchworks/charts/floci \
+  --set floci.mode=full \
+  --set floci.full.acknowledgeRisk=true
+```
+
+Omitting `floci.full.acknowledgeRisk=true` (its default is `false`) makes
+`helm template`/`helm install` fail with a message explaining the risk. To go back
+to the safe default, set `floci.mode=hardened` (or just drop the overrides).
+
 ## Health endpoint
 
 Liveness/readiness probe `GET /_floci/health` on the edge port (`4566`); it returns
@@ -93,8 +130,12 @@ filesystem is read-only, so a writable volume must be mounted at
 |-------|---------|-------|
 | `image.repository` | `ghcr.io/quenchworks/images/floci` | |
 | `image.tag` | `1.5.29` | reference only; pod pulls by digest |
-| `image.digest` | (CI-maintained) | signed multi-arch index |
+| `image.digest` | (CI-maintained) | signed multi-arch index (hardened image) |
 | `replicaCount` | `1` | keep at 1 with in-process storage |
+| `floci.mode` | `hardened` | `hardened` (default, nonroot) or `full` (root + host docker.sock) |
+| `floci.full.acknowledgeRisk` | `false` | must be `true` for `mode=full` or the chart refuses to render |
+| `floci.full.image.repository` | `ghcr.io/quenchworks/images/floci-full` | only used when `mode=full` |
+| `floci.full.image.digest` | (pinned) | signed multi-arch `floci-full` index |
 | `floci.port` | `4566` | edge/API + health port |
 | `floci.defaultRegion` | `us-east-1` | `FLOCI_DEFAULT_REGION` |
 | `floci.defaultAccountId` | `"000000000000"` | `FLOCI_DEFAULT_ACCOUNT_ID` |

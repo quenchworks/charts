@@ -1,7 +1,27 @@
+{{- include "floci.riskGate" . -}}
 Quenchworks Floci (local AWS emulator, LocalStack-compatible) is installed as
 {{ include "quench-common.fullname" . }}.
+{{ if include "floci.fullMode" . }}
+============================================================================
+  !!!  WARNING: FLOCI IS RUNNING IN FULL MODE -- THIS IS NOT HARDENED  !!!
+============================================================================
+  This release runs the `floci-full` image as ROOT (runAsNonRoot=false) with
+  the host Docker socket /var/run/docker.sock BIND-MOUNTED into the pod, and
+  the read-only root filesystem DISABLED. This is what enables all 65 services
+  including the 10 Docker-backed ones (Lambda, RDS, ElastiCache, MSK, ECS, EKS,
+  OpenSearch, ECR, DocumentDB, Neptune).
 
+  A mounted host Docker socket is a NODE-ROOT / CONTAINER-ESCAPE surface: any
+  code in this pod can control the node's Docker daemon and effectively owns the
+  node. DO NOT use full mode on shared or multi-tenant clusters. It is an opt-in
+  developer/CI convenience only. Switch back with floci.mode=hardened.
+============================================================================
+{{ end }}
+{{ if include "floci.fullMode" . -}}
+Floci is running as ROOT with the host Docker socket mounted (full mode). The Service exposes one port:
+{{- else -}}
 Floci runs nonroot on a read-only root filesystem. The Service exposes one port:
+{{- end }}
 
   http  {{ .Values.service.port }}  LocalStack-compatible edge/API + /_floci/health
 
