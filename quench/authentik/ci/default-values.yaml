@@ -1,0 +1,54 @@
+# CI gate values: bundled PostgreSQL + valkey so the release reaches Ready in a single
+# kind node with no external services. A fixed >=50-char secret key, an ephemeral media
+# volume, and small resources. The server rollout Ready + a 200/204 from
+# /-/health/ready/ is the integration test (it proves the worker migrated the DB and
+# the server connected to both PostgreSQL and Redis).
+image:
+  # Overridden by the pinned digest in values.yaml; a tag keeps `helm template` sane
+  # before the digest is pinned. CI installs against the pinned digest.
+  pullPolicy: IfNotPresent
+
+secrets:
+  # >= 50 chars (Authentik requirement).
+  secretKey: "ci-authentik-secret-key-0123456789abcdef0123456789xyz"
+
+config:
+  logLevel: info
+  errorReporting: false
+
+server:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 384Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+worker:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 384Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+# Bundled PostgreSQL (deterministic credentials).
+postgresql:
+  enabled: true
+  auth:
+    username: authentikdb
+    password: "ci-authentik-db-pw"
+    database: authentik
+  primary:
+    persistence:
+      enabled: false
+
+# Bundled valkey (recommended 0-CVE store).
+valkey:
+  enabled: true
+redis:
+  enabled: false
+
+# Ephemeral media for the gate.
+media:
+  persistence:
+    enabled: false
+
+podDisruptionBudget:
+  enabled: false

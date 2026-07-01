@@ -1,0 +1,211 @@
+# =============================================================================
+# The digest below is the contract with the image factory. CI (the tracker) rewrites
+# it from the image-published dispatch after every green image build. It is NEVER a
+# tag. >>> The tracker pins the value at image.digest below. <<<
+# =============================================================================
+image:
+  repository: ghcr.io/quenchworks/images/authentik
+  tag: "2026.5.3"
+  # >>> TRACKER: replace the placeholder below with the published multi-arch digest.
+  digest: "sha256:REPLACE_WITH_IMAGE_DIGEST"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Authentik runs as TWO workloads from the SAME image:
+#   - server: the web UI + API + outpost endpoint. Entrypoint `ak server`. Serves
+#     HTTP on 9000 and HTTPS on 9443. Health: /-/health/live/ and /-/health/ready/.
+#   - worker: background tasks (migrations, blueprints, outpost management, e-mail,
+#     policy evaluation). Entrypoint `ak worker`. No HTTP server; liveness/readiness
+#     via `ak healthcheck`.
+# Both workloads share the same config env (secret key, PostgreSQL, Redis). The
+# worker also APPLIES the database migrations on boot, so a fresh install becomes
+# Ready once the worker has migrated and the server passes /-/health/ready/.
+
+# --- SERVER workload (web/API) ---
+server:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  # Extra CLI args appended after `ak server`.
+  extraArgs: []
+
+# --- WORKER workload (background tasks) ---
+worker:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  # Extra CLI args appended after `ak worker`.
+  extraArgs: []
+
+# Both workloads are stateless (all state lives in PostgreSQL/Redis and, for uploaded
+# media, on the shared `media` volume below), so a rolling update is safe.
+updateStrategy:
+  type: RollingUpdate
+
+# --- AUTHENTIK_SECRET_KEY --------------------------------------------------------
+# Authentik requires a >= 50-char secret key (used to sign cookies/tokens). It is
+# delivered via the AUTHENTIK_SECRET_KEY env var, sourced from a Secret key
+# `authentik-secret-key`. Leave secretKey empty to have the chart generate a 50-char
+# random value once and preserve it across upgrades (via a lookup of the existing
+# Secret). Point existingSecret at a Secret you manage yourself (key:
+# authentik-secret-key) to bypass chart-managed generation entirely.
+secrets:
+  existingSecret: ""
+  existingSecretKey: "authentik-secret-key"
+  secretKey: ""
+
+# --- Extra Authentik configuration passed as env vars (AUTHENTIK_*). These are
+# rendered verbatim into the shared ConfigMap consumed by BOTH workloads. Common
+# examples: AUTHENTIK_ERROR_REPORTING__ENABLED, AUTHENTIK_EMAIL__HOST,
+# AUTHENTIK_LOG_LEVEL, AUTHENTIK_DISABLE_UPDATE_CHECK. The database/redis wiring is
+# managed by the chart and must NOT be set here. ---
+config:
+  logLevel: info
+  # Sentry error reporting is OFF by default (no phone-home).
+  errorReporting: false
+  disableUpdateCheck: true
+  disableStartupAnalytics: true
+  # Free-form extra AUTHENTIK_* settings (key -> value), rendered into the ConfigMap.
+  extra: {}
+
+# =============================================================================
+# HARD BACKENDS — Authentik requires BOTH a PostgreSQL and a Redis. Each is choosable
+# among modes (mix-and-match freely, e.g. bundled PG + external Redis is valid):
+#
+#   DATABASE  resolves: bundled-PG  -> external-PG
+#   REDIS     resolves: bundled-valkey -> bundled-redis -> external-Redis
+#
+# EXACTLY ONE database mode and ONE redis mode must resolve, or template rendering
+# fails with a clear message. There is no standalone/in-memory fallback (unlike
+# authelia): Authentik cannot boot without both services.
+# =============================================================================
+
+# --- DATABASE, mode 1: BUNDLED PostgreSQL (the QuenchWorks postgresql subchart,
+# pulled in when enabled=true). The auth block pins DETERMINISTIC credentials so both
+# Authentik and the bundled PG agree. Authentik connects to the subchart Service at
+# "<release>-postgresql:5432". NOTE: the bundled PostgreSQL image creates the
+# application database only when it differs from both "postgres" and the superuser
+# name, so username and database here are distinct. ---
+postgresql:
+  enabled: true
+  auth:
+    # username and database MUST differ (bundled PG only creates the app database when
+    # it differs from both "postgres" and the superuser name).
+    username: authentikdb
+    password: ""              # generated (24 chars) if empty; stored in the chart Secret
+    database: authentik
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- DATABASE, mode 2: EXTERNAL PostgreSQL (used when postgresql.enabled=false).
+# Point at any reachable PostgreSQL. Supply the password inline or via an
+# existingSecret (existingSecret wins; the chart reads the password from it). ---
+externalDatabase:
+  host: ""
+  port: 5432
+  database: authentik
+  username: authentik
+  password: ""
+  existingSecret: ""          # Secret holding the DB password
+  existingSecretPasswordKey: "password"
+
+# --- REDIS, mode 1: BUNDLED VALKEY (the QuenchWorks valkey subchart, RECOMMENDED:
+# a 0-CVE, BSD-licensed, Redis-wire-compatible store). Pulled in when enabled=true.
+# Authentik speaks the Redis protocol to it at "<release>-valkey:6379"; the password
+# is read directly from valkey's own Secret (key valkey-password), so leaving password
+# empty is safe — the subchart generates one and Authentik reads that same Secret. ---
+valkey:
+  enabled: true
+  auth:
+    password: ""              # generated by the valkey subchart if empty
+
+# --- REDIS, mode 2: BUNDLED REDIS (the QuenchWorks redis subchart; the AGPL
+# ALTERNATIVE to valkey). Same wiring as valkey but Service "<release>-redis:6379"
+# and Secret key redis-password. Enable AT MOST ONE of valkey.enabled / redis.enabled;
+# if both are true the chart prefers VALKEY (and ignores redis for wiring). ---
+redis:
+  enabled: false
+  auth:
+    password: ""              # generated by the redis subchart if empty
+
+# --- REDIS, mode 3: EXTERNAL Redis/Valkey (used when both bundled stores are off).
+# Point at any reachable Redis/Valkey. Supply the password inline or via an
+# existingSecret (existingSecret wins). ---
+externalRedis:
+  host: ""
+  port: 6379
+  db: 0
+  password: ""
+  existingSecret: ""          # Secret holding the Redis password
+  existingSecretPasswordKey: "redis-password"
+
+# Uploaded media (application icons, flow backgrounds, custom CSS) live under
+# /media. Both workloads mount it; on a multi-node/multi-replica install it must be a
+# ReadWriteMany volume (or an external object store configured via config.extra). With
+# a single replica of each workload a ReadWriteOnce PVC is fine. Set enabled=false to
+# back it with an emptyDir (ephemeral; uploads lost on restart, fine for a gate).
+media:
+  persistence:
+    enabled: true
+    size: 1Gi
+    # storageClass: ""        # default class if unset
+    accessModes: ["ReadWriteOnce"]
+    annotations: {}
+    existingClaim: ""
+
+service:
+  type: ClusterIP
+  # The server serves HTTP (UI/API and the /-/health/* endpoints) on 9000 and HTTPS
+  # on 9443.
+  port: 80
+  httpsPort: 443
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Authentik's server is commonly reached from ingress and from outposts in other
+# namespaces, so allow external ingress by default. Set allowExternal=false to
+# restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

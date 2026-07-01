@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "authentik.configMapName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # Non-secret AUTHENTIK_* settings shared by BOTH workloads (server + worker), loaded
+  # via envFrom. The secret key + PostgreSQL/Redis wiring are injected separately as
+  # env vars (see authentik.backendEnv) and must NOT appear here.
+  AUTHENTIK_LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+  AUTHENTIK_ERROR_REPORTING__ENABLED: {{ .Values.config.errorReporting | quote }}
+  AUTHENTIK_DISABLE_UPDATE_CHECK: {{ .Values.config.disableUpdateCheck | quote }}
+  AUTHENTIK_DISABLE_STARTUP_ANALYTICS: {{ .Values.config.disableStartupAnalytics | quote }}
+  {{- range $k, $v := .Values.config.extra }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}

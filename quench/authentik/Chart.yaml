@@ -1,0 +1,78 @@
+apiVersion: v2
+name: authentik
+description: Hardened Authentik identity provider (OIDC/SAML/LDAP/SCIM) on a 0-CVE image
+type: application
+version: 0.1.0
+appVersion: "2026.5.3"
+home: https://github.com/quenchworks
+icon: https://raw.githubusercontent.com/quenchworks/.github/main/profile/assets/chart-icon.png
+sources:
+  - https://github.com/quenchworks/charts
+  - https://github.com/quenchworks/images
+  - https://github.com/goauthentik/authentik
+keywords:
+  - authentik
+  - identity-provider
+  - sso
+  - oidc
+  - saml
+  - ldap
+  - scim
+  - authentication
+  - security
+maintainers:
+  - name: mkabumattar
+    url: https://github.com/quenchworks
+annotations:
+  artifacthub.io/changes: |
+    - kind: added
+      description: "Initial clean-room Authentik chart: server + worker workloads, bundled-or-external PostgreSQL and Redis (valkey), generated-or-existing AUTHENTIK_SECRET_KEY."
+  artifacthub.io/category: security
+  artifacthub.io/license: MIT
+  artifacthub.io/links: |
+    - name: Chart Source
+      url: https://github.com/quenchworks/charts
+    - name: Image Source
+      url: https://github.com/quenchworks/images
+    - name: Security Policy
+      url: https://github.com/quenchworks/.github/blob/main/SECURITY.md
+  artifacthub.io/images: |
+    - name: authentik
+      image: ghcr.io/quenchworks/images/authentik@sha256:REPLACE_WITH_IMAGE_DIGEST
+      whitelisted: false
+    - name: postgresql
+      image: ghcr.io/quenchworks/images/postgresql@sha256:b492e8f2aa8528a0af8bc1aa835522ab222aa8e0a0a6c135b2d5fdc3e9467bd4
+    - name: valkey
+      image: ghcr.io/quenchworks/images/valkey@sha256:4482926665b4e9fbe73b6ab15e403e1f4d9285112aca313ce4994095346c6565
+    - name: redis
+      image: ghcr.io/quenchworks/images/redis@sha256:f027d0109a0bdd1779bfac85a10744336f4af80518e9bc2c290984e206b3bf14
+# Authentik has TWO HARD runtime dependencies: PostgreSQL and Redis. It refuses to
+# boot without both. quench-common is the only always-on chart dependency; the DB and
+# session store are each choosable as BUNDLED (the QuenchWorks subchart) or EXTERNAL
+# (point at your own), mirroring the quench/authelia layout:
+#   DATABASE modes:  bundled postgresql | external (externalDatabase.*)
+#   REDIS modes:     bundled valkey | bundled redis | external (externalRedis.*)
+#                    valkey is the recommended 0-CVE BSD store; redis is the AGPL
+#                    alternative. Enable AT MOST ONE of valkey/redis.
+# Unlike authelia (which can run standalone on SQLite), Authentik requires that
+# EXACTLY ONE database mode and EXACTLY ONE redis mode resolve — the templates fail
+# rendering with a clear message if a required backend is missing.
+dependencies:
+  - name: quench-common
+    version: 0.0.1
+    repository: oci://ghcr.io/quenchworks/charts
+  - name: postgresql
+    alias: postgresql
+    version: 0.0.9
+    repository: oci://ghcr.io/quenchworks/charts
+    condition: postgresql.enabled
+  - name: valkey
+    alias: valkey
+    version: 0.0.8
+    repository: oci://ghcr.io/quenchworks/charts
+    condition: valkey.enabled
+  - name: redis
+    alias: redis
+    version: 0.0.8
+    repository: oci://ghcr.io/quenchworks/charts
+    condition: redis.enabled

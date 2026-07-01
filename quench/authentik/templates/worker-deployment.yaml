@@ -1,0 +1,95 @@
+{{/*
+Authentik WORKER: runs `ak worker`, the background task runner (DB migrations on
+boot, blueprint application, outpost management, e-mail, scheduled + async tasks). It
+exposes NO HTTP server, so liveness/readiness use the bundled `ak healthcheck`
+command (exec probe) rather than an HTTP GET. The worker owns the schema migration,
+so on a fresh install the server only reaches /-/health/ready/ after the worker has
+migrated the database.
+*/}}
+{{- $liveness := dict "exec" (dict "command" (list "ak" "healthcheck")) "initialDelaySeconds" 20 "periodSeconds" 30 "timeoutSeconds" 30 "failureThreshold" 8 -}}
+{{- $readiness := dict "exec" (dict "command" (list "ak" "healthcheck")) "initialDelaySeconds" 20 "periodSeconds" 30 "timeoutSeconds" 30 "failureThreshold" 60 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "authentik.componentFullname" (dict "ctx" . "component" "worker") }}
+  labels:
+    {{- include "authentik.componentLabels" (dict "ctx" . "component" "worker") | nindent 4 }}
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "authentik.componentSelectorLabels" (dict "ctx" . "component" "worker") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "authentik.componentSelectorLabels" (dict "ctx" . "component" "worker") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "authentik.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: worker
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - worker
+            {{- with .Values.worker.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            {{- include "authentik.backendEnv" . | nindent 12 }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "authentik.configMapName" . }}
+            {{- with .Values.extraEnvVarsCM }}
+            - configMapRef:
+                name: {{ . }}
+            {{- end }}
+            {{- with .Values.extraEnvVarsSecret }}
+            - secretRef:
+                name: {{ . }}
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+            # Read-only rootfs: writable /tmp and shared /media (uploaded assets).
+            - name: tmp
+              mountPath: /tmp
+            - name: media
+              mountPath: /media
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if and .Values.media.persistence.enabled .Values.media.persistence.existingClaim }}
+        - name: media
+          persistentVolumeClaim:
+            claimName: {{ .Values.media.persistence.existingClaim }}
+        {{- else if .Values.media.persistence.enabled }}
+        - name: media
+          persistentVolumeClaim:
+            claimName: {{ include "quench-common.fullname" . }}-media
+        {{- else }}
+        - name: media
+          emptyDir: {}
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
