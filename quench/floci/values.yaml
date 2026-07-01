@@ -1,0 +1,160 @@
+# The digest below is the contract with the image factory. CI (release-floci.yml)
+# rewrites it from the image-published dispatch after every green image build, and
+# the tracker pins the REAL digest here after the Floci image CI is green. It is
+# never a tag. ---> PIN THE DIGEST HERE (image.digest, line 6). <---
+image:
+  repository: ghcr.io/quenchworks/images/floci
+  # Human-readable tag for reference only; the pod is pulled by digest, not this.
+  tag: "1.5.29"
+  digest: "sha256:ea56e8403342af51972527b6962b9186032d609ce8a006d26b14f4a5057922f3"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Floci's in-process emulator holds all state in RAM by default (FLOCI_STORAGE_MODE:
+# memory), so it is stateless: a Deployment, not a StatefulSet. A single replica is
+# the only correct topology for the default memory mode -- two replicas would each
+# hold their own disjoint S3/DynamoDB/SQS/SNS/IAM state behind one Service. Enable
+# persistence (below) only for single-replica durability across restarts; it is NOT
+# a path to horizontal scale.
+replicaCount: 1
+
+# The image entrypoint runs the Floci (Quarkus) server directly; no command/args
+# override is needed. Configure Floci through environment variables (env below).
+command: []
+args: []
+
+# ---------------------------------------------------------------------------
+# HARDENED SCOPE (READ THIS)
+# ---------------------------------------------------------------------------
+# Floci emulates 65 AWS services. This chart supports the 55 that run entirely
+# inside the single nonroot Java process with no external dependencies: S3,
+# DynamoDB, SQS, SNS, SES, IAM, STS, KMS, Secrets Manager, SSM, API Gateway,
+# Cognito, Kinesis, CloudFormation, Step Functions, EventBridge, CloudWatch,
+# CloudTrail, Config, Route53, CloudFront, ACM, Glue, Athena, ELBv2, Auto
+# Scaling, Batch, WAF v2, AppConfig, AppSync, Bedrock Runtime, and more.
+#
+# The other 10 are DOCKER-BACKED (Lambda, RDS, ElastiCache, MSK, ECS, EKS,
+# OpenSearch, ECR, DocumentDB, Neptune): they spin up real containers and REQUIRE
+# the host Docker socket (/var/run/docker.sock) plus root. That is fundamentally
+# incompatible with this hardened image (nonroot uid 1001, no docker.sock,
+# read-only root filesystem) and is therefore NOT SUPPORTED here. Do not try to
+# mount the Docker socket into this pod. If you need the Docker-backed services,
+# run Floci on a Docker host outside Kubernetes.
+#
+# LocalStack API parity is disabled (LOCALSTACK_PARITY=false): clients target
+# Floci's own endpoint on port 4566, which is LocalStack-wire-compatible for the
+# in-process services above.
+# ---------------------------------------------------------------------------
+
+# Floci server configuration, surfaced as environment variables. Anything not
+# listed here can be added via extraEnvVars.
+floci:
+  # Edge/API port. Must match service.port and containerPort. LocalStack clients
+  # point their endpoint URL at this port.
+  port: 4566
+  # Default AWS region and account id used by the emulated services.
+  defaultRegion: us-east-1
+  defaultAccountId: "000000000000"
+  # LocalStack API-parity emulation. Kept false for the hardened build.
+  localstackParity: false
+  # Storage/persistence for the in-process services.
+  #   memory     - all state in RAM, lost on restart (default; needs no volume,
+  #                works on the read-only root filesystem)
+  #   persistent - flush every write to disk        (needs persistence.enabled)
+  #   hybrid     - async flush every ~5s to disk     (needs persistence.enabled)
+  #   wal        - write-ahead log for durability     (needs persistence.enabled)
+  # Anything other than "memory" requires persistence.enabled=true so a writable
+  # volume is mounted at storage.path (the root filesystem is read-only).
+  storage:
+    mode: memory
+    path: /data
+
+# Best-effort single-replica persistence for the in-process services. This is a
+# convenience for keeping S3/DynamoDB/SQS/SNS/IAM state across pod restarts on ONE
+# replica; it is NOT a way to scale out (each replica keeps its own state). Leave
+# disabled for the default in-memory, ephemeral emulator. When enabled, set
+# floci.storage.mode to persistent/hybrid/wal and a PVC is mounted at
+# floci.storage.path.
+persistence:
+  enabled: false
+  # existingClaim: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 8Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  # Floci serves the LocalStack-compatible edge/API (and the /_floci/health
+  # endpoint) on a single port.
+  port: 4566
+
+# Optional horizontal autoscaling. NOTE: only meaningful if Floci is fronting a
+# shared external backend; with the default in-process memory/persistent storage,
+# each replica holds its own state, so keep replicaCount: 1 and this disabled.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# Extra environment variables (e.g. per-service config such as
+# FLOCI_SERVICES_*). Merged after the floci.* env above.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+# A writable /tmp for the read-only root filesystem. Quarkus/JVM temp files land
+# here. The persistence volume (when enabled) is mounted separately at
+# floci.storage.path.
+extraVolumes:
+  - name: tmp
+    emptyDir: {}
+extraVolumeMounts:
+  - name: tmp
+    mountPath: /tmp
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Floci is a developer/test emulator usually consumed from within the namespace
+# (or by CI pods). Restrict ingress to the namespace by default; set
+# allowExternal=true to open it to the whole cluster.
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

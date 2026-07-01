@@ -1,0 +1,36 @@
+Quenchworks Floci (local AWS emulator, LocalStack-compatible) is installed as
+{{ include "quench-common.fullname" . }}.
+
+Floci runs nonroot on a read-only root filesystem. The Service exposes one port:
+
+  http  {{ .Values.service.port }}  LocalStack-compatible edge/API + /_floci/health
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+
+SUPPORTED SERVICES (in-process only): S3, DynamoDB, SQS, SNS, IAM.
+NOT SUPPORTED here: the Docker-backed services (Lambda, RDS, ECS, EKS, ...),
+which require the host Docker socket + root and are incompatible with this
+hardened nonroot image.
+
+Check health and point an AWS client at Floci over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://127.0.0.1:{{ .Values.service.port }}/_floci/health
+  aws --endpoint-url http://127.0.0.1:{{ .Values.service.port }} s3 mb s3://demo
+
+{{ if .Values.persistence.enabled -}}
+Persistence is ENABLED (FLOCI_STORAGE_MODE={{ .Values.floci.storage.mode }}); state
+is written to a PVC at {{ .Values.floci.storage.path }}. This is single-replica
+durability only, not a scale-out mechanism -- keep replicaCount at 1.
+{{- else -}}
+Storage is IN-MEMORY (FLOCI_STORAGE_MODE={{ .Values.floci.storage.mode }}): all
+S3/DynamoDB/SQS/SNS/IAM state is lost on restart. This is the default and is fine
+for ephemeral dev/test. To persist across restarts, set persistence.enabled=true
+and floci.storage.mode to persistent/hybrid/wal (single replica only).
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/floci \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
