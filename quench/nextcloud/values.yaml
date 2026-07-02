@@ -25,7 +25,9 @@ nextcloud:
     password: ""
   # Hosts Nextcloud will answer for (it 400s "Access through untrusted domain" otherwise).
   # Rewritten on every boot from this list — add the address users actually reach Nextcloud
-  # at (behind your ingress/proxy), e.g. cloud.example.com.
+  # at (behind your ingress/proxy), e.g. cloud.example.com. localhost + 127.0.0.1 are ALWAYS
+  # trusted regardless of this list (the kubelet health probes rely on 127.0.0.1 being
+  # accepted), so listing them here is optional but harmless.
   trustedDomains:
     - localhost
     - 127.0.0.1
@@ -143,6 +145,12 @@ customStartupProbe:
   httpGet:
     path: /status.php
     port: http
+    # An installed Nextcloud 400s "Trusted domain error" for any Host not in
+    # nextcloud.trustedDomains; the kubelet probe would otherwise send the pod IP. 127.0.0.1
+    # is always trusted (the install initContainer seeds it), so probe as 127.0.0.1.
+    httpHeaders:
+      - name: Host
+        value: 127.0.0.1
   periodSeconds: 10
   timeoutSeconds: 5
   failureThreshold: 30

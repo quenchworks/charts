@@ -1,11 +1,16 @@
 {{/* Liveness and readiness hit /status.php on the HTTP port: the image's nginx FastCGI-
      passes it to php-fpm, so a 200 proves BOTH nginx (:8080) and php-fpm (:9000) are up and
-     wired. /status.php is served without a trusted-domain check and reports install state.
+     wired. /status.php reports install state. Once the instance is installed, Nextcloud
+     enforces trusted_domains on EVERY request (status.php included) and 400s "Trusted domain
+     error" for any Host not listed. The kubelet's httpGet probe sends the pod IP as the Host
+     header, which is never a trusted domain, so the probes MUST override Host to a trusted
+     value — 127.0.0.1 is always present in .Values.nextcloud.trustedDomains (keep it there).
      The install initContainer completes maintenance:install before this container starts, so
      the instance is already installed by first boot; the startup probe (customStartupProbe)
      guards the slow first boot. The kubelet performs the GET; the image ships no HTTP client. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/status.php" "port" "http") "initialDelaySeconds" 30 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/status.php" "port" "http") "initialDelaySeconds" 15 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+{{- $probeHeaders := list (dict "name" "Host" "value" "127.0.0.1") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/status.php" "port" "http" "httpHeaders" $probeHeaders) "initialDelaySeconds" 30 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/status.php" "port" "http" "httpHeaders" $probeHeaders) "initialDelaySeconds" 15 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -63,19 +68,29 @@ spec:
             - |
               set -eu
 
-              # Trusted-domain overlay (merged over config.php by Nextcloud). Rewritten every
-              # boot so nextcloud.trustedDomains / overwriteProtocol stay in sync.
+              # Chart-managed config overlay (merged over config.php by Nextcloud). Rewritten
+              # every boot so nextcloud.trustedDomains / overwriteProtocol stay in sync.
+              # 127.0.0.1 + localhost are always trusted so the kubelet health probes (which
+              # send a loopback/pod Host header) are accepted, then the operator's domains.
               {
                 echo '<?php'
                 echo '$CONFIG = array ('
                 echo "  'trusted_domains' => array ("
-                i=0
+                echo "    0 => 'localhost',"
+                echo "    1 => '127.0.0.1',"
+                i=2
                 for d in $NC_TRUSTED_DOMAINS; do
                   echo "    $i => '$d',"
                   i=$((i + 1))
                 done
                 echo '  ),'
                 echo "  'overwriteprotocol' => '$NC_OVERWRITE_PROTOCOL',"
+                # The data dir is a ReadWriteOnce PVC; Kubernetes provisions its mount point
+                # root-owned (fsGroup only sets the group, not the owner). Nextcloud otherwise
+                # tries to chmod the data dir to 0770 on every request (OC_Util), which the
+                # nonroot uid 1001 cannot do on a root-owned dir -> chmod() EPERM -> HTTP 503
+                # on /status.php forever. Disable that enforcement (the PVC is single-tenant).
+                echo "  'check_data_directory_permissions' => false,"
                 echo ');'
               } > /var/www/html/config/trusted.config.php
 
