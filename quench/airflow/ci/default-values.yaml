@@ -1,0 +1,65 @@
+# CI gate values: LocalExecutor + bundled PostgreSQL so the release reaches Ready in a
+# single kind node with no external services and no broker. A fixed Fernet key + JWT
+# secret, ephemeral state, small resources. The rollouts reaching Ready + a 200 from
+# /api/v2/monitor/health is the integration test (it proves the db-migrate Job ran, the
+# components' check-migrations init containers passed, and the api-server connected to
+# PostgreSQL).
+image:
+  pullPolicy: IfNotPresent
+
+executor: LocalExecutor
+
+secrets:
+  # A valid Fernet key (url-safe base64 of 32 bytes) and a fixed JWT secret for the gate.
+  fernetKey: "1AZOAIMxK3g_D8JiXNXhtUPggivjHhZSC-J5AXcsa8Y="
+  jwtSecret: "ci-airflow-jwt-secret-0123456789abcdef0123456789"
+
+# All-admins keeps the gate simple (no per-user password to fish out of logs); the health
+# endpoint is unauthenticated regardless.
+auth:
+  allAdmins: true
+
+config:
+  logLevel: INFO
+  loadExamples: false
+
+apiServer:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+scheduler:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 384Mi }
+    limits: { cpu: "1", memory: 768Mi }
+dagProcessor:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 50m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+triggerer:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 50m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+# Bundled PostgreSQL (deterministic credentials, ephemeral storage for the gate).
+postgresql:
+  enabled: true
+  auth:
+    username: airflow
+    password: "ci-airflow-db-pw"
+    database: airflowdb
+  primary:
+    persistence:
+      enabled: false
+
+# LocalExecutor: no broker.
+valkey:
+  enabled: false
+redis:
+  enabled: false
+
+podDisruptionBudget:
+  enabled: false

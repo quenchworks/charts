@@ -1,0 +1,70 @@
+{{- if .Values.migrateDatabase.enabled }}
+{{/*
+Runs `airflow db migrate` once per release revision. This is a NORMAL Job, not a Helm
+pre-install hook: a pre-install hook executes BEFORE the bundled postgresql subchart is
+created, so it could never reach the bundled DB. As a normal resource the Job is created
+alongside PostgreSQL and simply retries (backoffLimit) until the DB accepts connections
+and the migration applies. Under `helm install --wait` Helm blocks until this Job
+completes; every component additionally waits on it via an `airflow db check-migrations`
+init container. The name carries the release revision so `helm upgrade` creates a fresh
+Job instead of failing on an immutable, already-completed one; ttlSecondsAfterFinished
+garbage-collects finished Jobs.
+
+NOTE ON THE ADMIN USER: Airflow 3 defaults to SimpleAuthManager, which has no imperative
+`airflow users create` step — the admin user is DECLARED via config
+(AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS, see the ConfigMap) and its password is
+auto-generated on api-server boot. So this Job only owns the schema migration.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "quench-common.fullname" . }}-db-migrate-{{ .Release.Revision }}
+  labels:
+    {{- include "airflow.componentLabels" (dict "ctx" . "component" "db-migrate") | nindent 4 }}
+spec:
+  backoffLimit: {{ .Values.migrateDatabase.backoffLimit }}
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "airflow.componentSelectorLabels" (dict "ctx" . "component" "db-migrate") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "airflow.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: db-migrate
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - db
+            - migrate
+          env:
+            {{- include "airflow.backendEnv" . | nindent 12 }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "airflow.configMapName" . }}
+            {{- with .Values.extraEnvVarsCM }}
+            - configMapRef:
+                name: {{ . }}
+            {{- end }}
+            {{- with .Values.extraEnvVarsSecret }}
+            - secretRef:
+                name: {{ . }}
+            {{- end }}
+          volumeMounts:
+            {{- include "airflow.writableVolumeMounts" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.migrateDatabase.resources | nindent 12 }}
+      volumes:
+        {{- include "airflow.writableVolumes" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
+{{- end }}

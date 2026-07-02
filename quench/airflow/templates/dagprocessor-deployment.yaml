@@ -1,0 +1,78 @@
+{{/*
+DAG PROCESSOR: runs `airflow dag-processor` (a standalone role in Airflow 3). Parses DAG
+files into the metadata DB. No HTTP listener; liveness/readiness use
+`airflow jobs check --job-type DagProcessorJob --local` (exec probe).
+*/}}
+{{- $probe := dict "exec" (dict "command" (list "airflow" "jobs" "check" "--job-type" "DagProcessorJob" "--local")) "initialDelaySeconds" 30 "periodSeconds" 30 "timeoutSeconds" 20 "failureThreshold" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "airflow.componentFullname" (dict "ctx" . "component" "dag-processor") }}
+  labels:
+    {{- include "airflow.componentLabels" (dict "ctx" . "component" "dag-processor") | nindent 4 }}
+spec:
+  replicas: {{ .Values.dagProcessor.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "airflow.componentSelectorLabels" (dict "ctx" . "component" "dag-processor") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "airflow.componentSelectorLabels" (dict "ctx" . "component" "dag-processor") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "airflow.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        {{- include "airflow.waitForMigrations" . | nindent 8 }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: dag-processor
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - dag-processor
+            {{- with .Values.dagProcessor.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            {{- include "airflow.backendEnv" . | nindent 12 }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "airflow.configMapName" . }}
+            {{- with .Values.extraEnvVarsCM }}
+            - configMapRef:
+                name: {{ . }}
+            {{- end }}
+            {{- with .Values.extraEnvVarsSecret }}
+            - secretRef:
+                name: {{ . }}
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.dagProcessor.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "airflow.writableVolumeMounts" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        {{- include "airflow.writableVolumes" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

@@ -1,0 +1,23 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "quench-common.fullname" . }}-api-server
+  labels:
+    {{- include "airflow.componentLabels" (dict "ctx" . "component" "api-server") | nindent 4 }}
+spec:
+  # Only the api-server has a listener; the other roles take no ingress.
+  podSelector:
+    matchLabels:
+      {{- include "airflow.componentSelectorLabels" (dict "ctx" . "component" "api-server") | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: http
+          protocol: TCP
+      {{- if not .Values.networkPolicy.allowExternal }}
+      from:
+        - podSelector: {}
+      {{- end }}
+{{- end }}

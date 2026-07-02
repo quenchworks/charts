@@ -1,0 +1,247 @@
+# =============================================================================
+# The digest below is the contract with the image factory. CI (the tracker) rewrites
+# it from the image-published dispatch after every green image build. It is NEVER a
+# tag. >>> The tracker pins the value at image.digest below. <<<
+# =============================================================================
+image:
+  repository: ghcr.io/quenchworks/images/airflow
+  tag: "3.2.2"
+  # >>> TRACKER: the published multi-arch digest for appVersion 3.2.2.
+  digest: "sha256:a7f6b39cc130e6f7c9a385bd507f33cb1fc608c1e1a05fa11727e39795ef50d5"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# =============================================================================
+# EXECUTOR — how tasks run.
+#   LocalExecutor  (default): the scheduler runs tasks in-process. Components:
+#                  api-server + scheduler + dag-processor + triggerer. No broker.
+#   CeleryExecutor (opt-in):  adds a Celery worker workload and a Redis/valkey broker
+#                  (bundled or external). Set executor: CeleryExecutor and enable one
+#                  broker (valkey.enabled / redis.enabled / externalRedis.host).
+# Airflow 3 runs each role as a SEPARATE workload from the SAME image; the chart passes
+# the per-component subcommand (api-server / scheduler / dag-processor / triggerer /
+# celery worker). All roles share the same config env (DB, Fernet key, JWT secret).
+# =============================================================================
+executor: LocalExecutor
+
+# --- API SERVER (UI + REST API + Task Execution API). Entrypoint `airflow api-server`.
+# Serves HTTP on 8080 (binds 0.0.0.0:8080 by default). Health: /api/v2/monitor/health.
+apiServer:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  extraArgs: []
+
+# --- SCHEDULER. Entrypoint `airflow scheduler`. With LocalExecutor it also runs tasks.
+# No HTTP listener; liveness via `airflow jobs check --job-type SchedulerJob --local`.
+scheduler:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  extraArgs: []
+
+# --- DAG PROCESSOR (standalone in Airflow 3). Entrypoint `airflow dag-processor`.
+# Parses DAG files into the metadata DB. No HTTP listener.
+dagProcessor:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  extraArgs: []
+
+# --- TRIGGERER (async deferrable tasks). Entrypoint `airflow triggerer`. No HTTP
+# listener; liveness via `airflow jobs check --job-type TriggererJob --local`.
+triggerer:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  extraArgs: []
+
+# --- CELERY WORKER (only deployed when executor: CeleryExecutor). Entrypoint
+# `airflow celery worker`. Executes tasks pulled from the broker.
+worker:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  extraArgs: []
+
+# All workloads are stateless (state lives in PostgreSQL and, for Celery, the broker),
+# so a rolling update is safe.
+updateStrategy:
+  type: RollingUpdate
+
+# --- DB MIGRATION -----------------------------------------------------------------
+# Airflow needs `airflow db migrate` run once before the components can serve. This is a
+# NORMAL Job (not a Helm pre-install hook): a pre-install hook runs BEFORE the bundled
+# postgresql subchart exists, so it could never reach the bundled DB. Instead the Job
+# retries (backoffLimit) until PostgreSQL accepts connections and the migration applies,
+# while EACH component blocks in an init container running `airflow db check-migrations`
+# until the schema is up to date. Under `helm install --wait` this chain reaches Ready
+# for both bundled and external databases.
+migrateDatabase:
+  enabled: true
+  # Retries of the migrate Job while it waits for PostgreSQL to come up.
+  backoffLimit: 12
+  # Timeout (seconds) each component's `db check-migrations` init container waits.
+  waitTimeout: 300
+  resources:
+    requests: { cpu: 50m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+# --- SECRETS: Fernet key + JWT secret ---------------------------------------------
+# Airflow needs a Fernet key (AIRFLOW__CORE__FERNET_KEY) to encrypt connection/variable
+# values at rest, and a JWT secret (AIRFLOW__API_AUTH__JWT_SECRET) that MUST be identical
+# across every component (they authenticate to the api-server's Task Execution API with
+# it). Leave both empty to have the chart generate them once and preserve them across
+# upgrades via a lookup of the existing Secret. Point existingSecret at a Secret you
+# manage (keys: fernet-key, jwt-secret) to bypass chart-managed generation.
+secrets:
+  existingSecret: ""
+  existingSecretFernetKey: "fernet-key"
+  existingSecretJwtKey: "jwt-secret"
+  # fernetKey MUST be a valid Fernet key (url-safe base64 of 32 bytes, e.g. the output of
+  # `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`).
+  fernetKey: ""
+  jwtSecret: ""
+
+# --- AUTH (SimpleAuthManager, the Airflow 3 default) ------------------------------
+# Airflow 3 ships SimpleAuthManager (no FAB, no `airflow users create`). Users are
+# DECLARED here as "username:role" pairs; each user's password is auto-generated on
+# api-server boot and written to $AIRFLOW_HOME/simple_auth_manager_passwords.json.generated
+# (visible in the api-server logs). Set allAdmins=true to disable login entirely and treat
+# everyone as admin (dev/gate only). To use a different auth manager, set it via config.extra
+# (AIRFLOW__CORE__AUTH_MANAGER) with the matching provider in a custom image.
+auth:
+  users: "admin:admin"
+  allAdmins: false
+
+# --- Extra AIRFLOW_* configuration, rendered verbatim into the shared ConfigMap and
+# consumed by every workload via envFrom. The executor, DB and broker wiring, Fernet key
+# and JWT secret are managed by the chart and must NOT be set here.
+config:
+  logLevel: INFO
+  loadExamples: false
+  # Free-form extra AIRFLOW__* settings (key -> value), rendered into the ConfigMap.
+  extra: {}
+
+# =============================================================================
+# METADATA DATABASE (REQUIRED). Exactly one mode must resolve or rendering fails.
+#   mode 1: BUNDLED PostgreSQL (postgresql.enabled=true)
+#   mode 2: EXTERNAL PostgreSQL (postgresql.enabled=false + externalDatabase.host)
+# =============================================================================
+
+# --- DATABASE, mode 1: BUNDLED PostgreSQL (the QuenchWorks postgresql subchart). The
+# auth block pins DETERMINISTIC credentials so Airflow and the bundled PG agree. Airflow
+# connects to "<release>-postgresql:5432". NOTE: the bundled PostgreSQL image creates the
+# application database only when it differs from both "postgres" and the superuser name,
+# so username and database here are distinct.
+postgresql:
+  enabled: true
+  auth:
+    username: airflow
+    password: ""              # generated (24 chars) if empty; stored in the chart Secret
+    database: airflowdb
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- DATABASE, mode 2: EXTERNAL PostgreSQL (postgresql.enabled=false). Supply the
+# password inline or via an existingSecret (existingSecret wins). The password must be
+# URL-safe (it is embedded in the SQLAlchemy connection string).
+externalDatabase:
+  host: ""
+  port: 5432
+  database: airflow
+  username: airflow
+  password: ""
+  existingSecret: ""          # Secret holding the DB password
+  existingSecretPasswordKey: "password"
+
+# =============================================================================
+# CELERY BROKER (only used when executor: CeleryExecutor). Exactly one mode must resolve
+# or rendering fails when Celery is selected. LocalExecutor ignores all of these.
+#   mode 1: BUNDLED VALKEY (recommended, 0-CVE BSD)
+#   mode 2: BUNDLED REDIS   (AGPL alternative)
+#   mode 3: EXTERNAL Redis/valkey (externalRedis.host)
+# =============================================================================
+
+# --- BROKER, mode 1: BUNDLED VALKEY. Airflow speaks the Redis protocol to
+# "<release>-valkey:6379"; the password is read from valkey's own Secret (key
+# valkey-password), so leaving password empty is safe.
+valkey:
+  enabled: false
+  auth:
+    password: ""              # generated by the valkey subchart if empty
+
+# --- BROKER, mode 2: BUNDLED REDIS. Same wiring as valkey but "<release>-redis:6379"
+# and Secret key redis-password. Enable AT MOST ONE of valkey/redis; if both are true the
+# chart prefers VALKEY.
+redis:
+  enabled: false
+  auth:
+    password: ""
+
+# --- BROKER, mode 3: EXTERNAL Redis/valkey. Supply the password inline or via an
+# existingSecret (existingSecret wins).
+externalRedis:
+  host: ""
+  port: 6379
+  db: 0
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: "redis-password"
+
+service:
+  type: ClusterIP
+  # The api-server serves the UI/REST API and /api/v2/monitor/health on 8080.
+  port: 8080
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The api-server is commonly reached from ingress; allow external ingress by default.
+# Set allowExternal=false to restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

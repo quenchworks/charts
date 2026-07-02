@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "airflow.configMapName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # Non-secret AIRFLOW__* settings shared by EVERY workload (loaded via envFrom). The
+  # Fernet key, JWT secret and DB/broker wiring are injected separately as explicit env
+  # vars (see airflow.backendEnv) and must NOT appear here.
+  AIRFLOW__CORE__EXECUTOR: {{ .Values.executor | quote }}
+  AIRFLOW__CORE__LOAD_EXAMPLES: {{ .Values.config.loadExamples | quote }}
+  AIRFLOW__LOGGING__LOGGING_LEVEL: {{ .Values.config.logLevel | quote }}
+  # Non-api-server components reach the api-server's Task Execution API here.
+  AIRFLOW__CORE__EXECUTION_API_SERVER_URL: {{ printf "http://%s:%v/execution/" (include "quench-common.fullname" .) .Values.service.port | quote }}
+  # SimpleAuthManager (Airflow 3 default): declarative users + optional all-admins dev mode.
+  AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: {{ .Values.auth.users | quote }}
+  AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: {{ .Values.auth.allAdmins | quote }}
+  {{- range $k, $v := .Values.config.extra }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}
