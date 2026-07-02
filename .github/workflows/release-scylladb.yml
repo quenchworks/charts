@@ -57,7 +57,10 @@ jobs:
           # (CQL on 9042 is the client-facing port the NetworkPolicy allows). Readiness
           # gates on the REST API, which comes up a few seconds before the CQL server
           # accepts queries, so retry the roundtrip until CQL is actually serving.
-          CQL="CREATE KEYSPACE IF NOT EXISTS gate WITH replication={'class':'SimpleStrategy','replication_factor':1}; CREATE TABLE IF NOT EXISTS gate.t(id int PRIMARY KEY, v text); INSERT INTO gate.t(id,v) VALUES (1,'quench'); SELECT v FROM gate.t WHERE id=1;"
+          # ScyllaDB 2026.2 enables tablets by default, and tablet keyspaces reject
+          # SimpleStrategy ("SimpleStrategy doesn't support tablet replication"), so the
+          # CREATE KEYSPACE must use NetworkTopologyStrategy (works single- and multi-node).
+          CQL="CREATE KEYSPACE IF NOT EXISTS gate WITH replication={'class':'NetworkTopologyStrategy','replication_factor':1}; CREATE TABLE IF NOT EXISTS gate.t(id int PRIMARY KEY, v text); INSERT INTO gate.t(id,v) VALUES (1,'quench'); SELECT v FROM gate.t WHERE id=1;"
           ok=""
           for i in $(seq 1 12); do
             out="$(kubectl run "cqlclient-${i}" --rm -i --restart=Never --image=scylladb/scylla:6.2 --command -- \
@@ -67,6 +70,31 @@ jobs:
             echo "CQL not ready yet, retrying in 15s..."; sleep 15
           done
           [ -n "$ok" ] || { echo "::error::CQL roundtrip did not return the expected value"; exit 1; }
+
+      - name: Diagnostics on install-gate failure
+        if: failure()
+        run: |
+          # Runs ONLY when an earlier step failed (typically the install gate).
+          # Dumps enough in-cluster state to root-cause a rollout timeout, CrashLoop,
+          # or failed CQL roundtrip from the CI log alone. `|| true` keeps the step
+          # going so we always get the full picture even if one call errors.
+          echo "::group::pods + events (all namespaces)"
+          kubectl get pods,events -A -o wide || true
+          echo "::endgroup::"
+          echo "::group::describe statefulset/rtest-scylladb"
+          kubectl describe statefulset/rtest-scylladb || true
+          echo "::endgroup::"
+          for p in $(kubectl get pods -l app.kubernetes.io/name=scylladb -o name 2>/dev/null); do
+            echo "::group::describe ${p}"
+            kubectl describe "${p}" || true
+            echo "::endgroup::"
+            echo "::group::logs ${p} (current)"
+            kubectl logs "${p}" --all-containers --tail=200 || true
+            echo "::endgroup::"
+            echo "::group::logs ${p} (previous / crashed)"
+            kubectl logs "${p}" --all-containers --previous --tail=200 || true
+            echo "::endgroup::"
+          done
 
       - name: Package and push (OCI)
         id: push

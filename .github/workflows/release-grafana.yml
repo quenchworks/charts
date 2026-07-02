@@ -53,7 +53,7 @@ jobs:
           # /api/health returns 200 with database ok + the running version
           curl -fsS http://127.0.0.1:3000/api/health | tee /tmp/health.json
           grep -q '"database": *"ok"' /tmp/health.json
-          grep -q '"version": *"13.0.3"' /tmp/health.json
+          grep -q '"version": *"13.1.0"' /tmp/health.json
           # exercise an authenticated endpoint with the admin creds from the Secret:
           # basic-auth GET /api/org must return the default org (asserts login works).
           USER="$(kubectl get secret rtest-grafana -o jsonpath='{.data.admin-user}' | base64 -d)"
@@ -61,6 +61,31 @@ jobs:
           test -n "$USER"; test -n "$PASS"
           curl -fsS -u "$USER:$PASS" http://127.0.0.1:3000/api/org | tee /tmp/org.json
           grep -q '"name"' /tmp/org.json
+
+      - name: Diagnostics on install-gate failure
+        if: failure()
+        run: |
+          # Runs ONLY when an earlier step failed (typically the install gate).
+          # Dumps enough in-cluster state to root-cause a rollout timeout, CrashLoop,
+          # or failed probe/assertion from the CI log alone. `|| true` keeps the step
+          # going so we always get the full picture even if one call errors.
+          echo "::group::pods + events (all namespaces)"
+          kubectl get pods,events -A -o wide || true
+          echo "::endgroup::"
+          echo "::group::describe statefulset/rtest-grafana"
+          kubectl describe statefulset/rtest-grafana || true
+          echo "::endgroup::"
+          for p in $(kubectl get pods -l app.kubernetes.io/name=grafana -o name 2>/dev/null); do
+            echo "::group::describe ${p}"
+            kubectl describe "${p}" || true
+            echo "::endgroup::"
+            echo "::group::logs ${p} (current)"
+            kubectl logs "${p}" --all-containers --tail=200 || true
+            echo "::endgroup::"
+            echo "::group::logs ${p} (previous / crashed)"
+            kubectl logs "${p}" --all-containers --previous --tail=200 || true
+            echo "::endgroup::"
+          done
 
       - name: Package and push (OCI)
         id: push

@@ -56,7 +56,7 @@ jobs:
             sleep 5
           done
           # GET / reports the Elasticsearch version
-          grep -q '"number" : "9.4.2"' /tmp/root.json
+          grep -q '"number" : "9.4.3"' /tmp/root.json
           # cluster health must be green or yellow (single-node yields yellow once replicas unassigned)
           for i in $(seq 1 30); do
             curl -fsS 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=10s' >/tmp/health.json 2>/dev/null \
@@ -67,6 +67,31 @@ jobs:
           # index + read back a document and assert it round-trips
           curl -fsS -XPUT 'http://127.0.0.1:9200/gate/_doc/1?refresh=true' -H 'Content-Type: application/json' -d '{"k":"quench"}' >/dev/null
           curl -fsS 'http://127.0.0.1:9200/gate/_doc/1' | grep -q '"quench"'
+
+      - name: Diagnostics on install-gate failure
+        if: failure()
+        run: |
+          # Runs ONLY when an earlier step failed (typically the install gate).
+          # Dumps enough in-cluster state to root-cause a rollout timeout, CrashLoop,
+          # or failed probe/assertion from the CI log alone. `|| true` keeps the step
+          # going so we always get the full picture even if one call errors.
+          echo "::group::pods + events (all namespaces)"
+          kubectl get pods,events -A -o wide || true
+          echo "::endgroup::"
+          echo "::group::describe statefulset/rtest-elasticsearch"
+          kubectl describe statefulset/rtest-elasticsearch || true
+          echo "::endgroup::"
+          for p in $(kubectl get pods -l app.kubernetes.io/name=elasticsearch -o name 2>/dev/null); do
+            echo "::group::describe ${p}"
+            kubectl describe "${p}" || true
+            echo "::endgroup::"
+            echo "::group::logs ${p} (current)"
+            kubectl logs "${p}" --all-containers --tail=200 || true
+            echo "::endgroup::"
+            echo "::group::logs ${p} (previous / crashed)"
+            kubectl logs "${p}" --all-containers --previous --tail=200 || true
+            echo "::endgroup::"
+          done
 
       - name: Package and push (OCI)
         id: push
