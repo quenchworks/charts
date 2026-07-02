@@ -1,0 +1,44 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+# Brings up all three workloads (Graylog + bundled MongoDB + OpenSearch) with minimal
+# resources and shrunk JVM heaps so a kind runner can host them, and deterministic
+# secrets. The generous startup probe (values.yaml, 600s grace) covers the slow first
+# boot. The gate confirms Graylog connects to both backends and /api/system/lbstatus
+# reports ALIVE (i.e. it is actually serving).
+graylog:
+  externalUri: "http://localhost:9000/"
+  adminPassword: ci-test-admin-password
+  passwordSecret: ci-test-password-secret-0123456789
+  # shrink the Graylog heap so it fits alongside MongoDB + OpenSearch on the runner
+  serverJavaOpts: "-Xms512m -Xmx512m -server -XX:+UseG1GC -Dlog4j2.formatMsgNoLookups=true"
+
+resources:
+  requests: { cpu: 250m, memory: 768Mi }
+  limits: { cpu: "2", memory: 1280Mi }
+
+persistence:
+  enabled: true
+  size: 1Gi
+
+mongodb:
+  enabled: true
+  auth:
+    rootPassword: ci-test-root-password
+  primary:
+    persistence:
+      enabled: true
+      size: 1Gi
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: "1", memory: 512Mi }
+
+opensearch:
+  enabled: true
+  config:
+    heapSize: 512m
+  persistence:
+    enabled: true
+    size: 2Gi
+  resources:
+    requests: { cpu: 250m, memory: 1Gi }
+    limits: { cpu: "2", memory: 1536Mi }

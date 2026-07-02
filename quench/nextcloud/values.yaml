@@ -1,0 +1,167 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/nextcloud
+  digest: "sha256:028029e55ea1673efb284223430fd87f76ca99f345bdae9a59fc24acd7e08c19"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Nextcloud is a PHP app served by php-fpm behind the image's own nginx on port 8080
+# (nonroot). ALL durable relational state — accounts, shares, metadata — lives in an
+# external MySQL/MariaDB; user files live under /var/www/html/data and the instance
+# config (config.php) under /var/www/html/config, both on ReadWriteOnce PVCs. The image
+# entrypoint does NOT self-install, so an `install` initContainer runs `occ
+# maintenance:install` once (writing config.php + creating the schema) before the app
+# container serves. Single-replica Deployment behind a ClusterIP Service; MariaDB runs as
+# a StatefulSet via the bundled subchart. Single replica because the PVCs are ReadWriteOnce.
+replicaCount: 1
+
+nextcloud:
+  # Admin account created on first install. Password is generated into the managed Secret
+  # if left empty; set it for a deterministic install.
+  admin:
+    username: admin
+    password: ""
+  # Hosts Nextcloud will answer for (it 400s "Access through untrusted domain" otherwise).
+  # Rewritten on every boot from this list — add the address users actually reach Nextcloud
+  # at (behind your ingress/proxy), e.g. cloud.example.com.
+  trustedDomains:
+    - localhost
+    - 127.0.0.1
+  # Protocol Nextcloud assumes when generating absolute URLs. Set to "https" when a TLS
+  # proxy/ingress terminates in front of the (plain-HTTP) pod.
+  overwriteProtocol: http
+
+# Resources. Nextcloud (php-fpm) idles low; memory grows with concurrent requests, previews
+# and background jobs. Defaults schedule anywhere and pass the CI gate.
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+# The image's nginx serves HTTP on 8080 (nonroot can't bind <1024).
+service:
+  type: ClusterIP
+  port: 8080
+
+# --- Persistence ---
+# Nextcloud keeps a writable config tree and the user-file data dir on a read-only rootfs.
+# Two ReadWriteOnce PVCs back the two writable, must-survive-restart paths the image
+# defines. The mount paths are fixed by the image and not configurable. custom_apps and
+# /tmp are ephemeral emptyDirs (bundled apps under the read-only /var/www/html/apps persist
+# in the image itself).
+persistence:
+  data:
+    # User files. Mounted at /var/www/html/data.
+    enabled: true
+    size: 10Gi
+    # storageClass: ""        # default class if unset
+    accessModes: ["ReadWriteOnce"]
+    annotations: {}
+    existingClaim: ""         # bind an existing PVC instead of provisioning one
+  config:
+    # config.php + *.config.php overlays. Mounted at /var/www/html/config.
+    enabled: true
+    size: 1Gi
+    # storageClass: ""
+    accessModes: ["ReadWriteOnce"]
+    annotations: {}
+    existingClaim: ""
+
+# --- Bundled database (default) ---
+# mariadb.enabled deploys the QuenchWorks MariaDB subchart. Its primary Service is
+# "<release>-mariadb" (port 3306). Nextcloud connects with the credentials below. The
+# MariaDB image creates auth.database and auth.username/auth.password on first init;
+# Nextcloud's DB password is read from the chart's managed Secret (never inlined into env).
+mariadb:
+  enabled: true
+  auth:
+    # rootPassword is generated into MariaDB's own Secret if left empty.
+    rootPassword: ""
+    database: nextcloud
+    username: nextcloud
+    password: ""            # generated into this chart's managed Secret if left empty
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- External database (mariadb.enabled=false) ---
+# Point Nextcloud at an existing MySQL/MariaDB. With existingSecret, the referenced Secret
+# must supply the password under existingSecretPasswordKey and this chart renders no
+# managed DB password (the admin password is still generated into the managed Secret).
+externalDatabase:
+  host: ""
+  port: 3306
+  database: nextcloud
+  user: nextcloud
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: "db-password"
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+# Extra env vars (list of {name,value} or {name,valueFrom}). Appended after the container's
+# own env. Use for SMTP creds, REDIS_HOST, or occ-tunable knobs read by your own tooling.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (nonroot uid 1001,
+# fsGroup 1001 so the PVCs are writable, read-only rootfs). The image is read-only-rootfs
+# friendly — data/config/custom_apps/tmp are the only writable surfaces and are all
+# backed by volumes here — so the hardened readOnlyRootFilesystem default is kept.
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+# The install initContainer runs occ maintenance:install (schema creation) before the app
+# container starts, so by the time the container boots it is already installed and
+# /status.php answers quickly. The startup probe still guards the slow first boot (image
+# pull + php-fpm/nginx start): up to 300s grace (30 x 10s), then normal probe timing.
+# /status.php is served without a trusted-domain check and reports install state.
+customStartupProbe:
+  httpGet:
+    path: /status.php
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 30
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Default restricts ingress to the release namespace (allowExternal: false); set true (and
+# front Nextcloud with an ingress/TLS proxy) to serve users from outside the namespace.
+# Egress opens the DB port + DNS plus general egress (app store, update checks, federation).
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

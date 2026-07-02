@@ -1,0 +1,121 @@
+name: release-skywalking
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/skywalking/**"
+      - ".github/workflows/release-skywalking.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/skywalking
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # pin actions to SHAs before going public (renovate)
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          # pulls quench-common + the bundled elasticsearch subchart into charts/
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Warm skywalking image on the kind node
+        run: |
+          set -o pipefail
+          # Pull the exact pinned digest onto the kind node HERE (outside the helm --wait
+          # window) so the OAP pod starts immediately and the readiness gate isn't eaten by
+          # image extraction (the JRE + OAP distribution is a large image).
+          IMG="$(helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" | grep -oE 'ghcr.io/quenchworks/images/skywalking@sha256:[a-f0-9]{64}' | head -1)"
+          echo "warming image: $IMG"
+          NODE="$(docker ps --filter name=control-plane --format '{{.Names}}' | head -1)"
+          echo "kind node: $NODE"
+          time docker exec "$NODE" crictl pull "$IMG"
+          docker exec "$NODE" crictl images | grep -i skywalking || true
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          # SkyWalking 10.2+ has no embedded store, so the gate enables the bundled
+          # Elasticsearch subchart. --wait blocks until BOTH Elasticsearch and OAP are Ready.
+          # OAP only becomes Ready once it connects to ES, creates its indices, and opens the
+          # query port (12800) — the real integration test. The OAP image is pre-warmed above.
+          helm install rtest "${CHART_DIR}" -n skywalking --create-namespace -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 15m
+          kubectl rollout status deployment/rtest-skywalking -n skywalking --timeout=780s
+          # --- confirm the container runs as the nonroot uid 1001 ---
+          uid="$(kubectl get pod -n skywalking -l app.kubernetes.io/name=skywalking -o jsonpath='{.items[0].spec.securityContext.runAsUser}')"
+          echo "runAsUser: $uid"
+          test "$uid" = "1001"
+          # --- smoke: the OAP GraphQL query endpoint answers on 12800 ---
+          kubectl port-forward -n skywalking svc/rtest-skywalking 12800:12800 >/tmp/pf12800.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          code="$(curl -s -o /tmp/gql.txt -w '%{http_code}' -X POST http://127.0.0.1:12800/graphql -H 'Content-Type: application/json' -d '{"query":"{ getAllServices(duration:{start:\"2020-01-01 0000\",end:\"2020-01-01 0001\",step:MINUTE}){ name } }"}')"
+          echo "POST /graphql HTTP status: $code"
+          case "$code" in
+            200) echo "OAP query API is serving (HTTP 200)";;
+            *) echo "unexpected HTTP status $code"; head -c 500 /tmp/gql.txt; exit 1;;
+          esac
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== pods ==="; kubectl get pods -n skywalking -o wide || true
+          echo "=== oap describe ==="; kubectl describe pod -n skywalking -l app.kubernetes.io/name=skywalking || true
+          echo "=== oap logs ==="; kubectl logs -n skywalking -l app.kubernetes.io/name=skywalking --tail=100 || true
+          echo "=== oap previous logs ==="; kubectl logs -n skywalking -l app.kubernetes.io/name=skywalking --previous --tail=80 || true
+          echo "=== elasticsearch describe ==="; kubectl describe pod -n skywalking -l app.kubernetes.io/name=elasticsearch || true
+          echo "=== elasticsearch logs ==="; kubectl logs -n skywalking -l app.kubernetes.io/name=elasticsearch --tail=60 || true
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/skywalking-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"   # fail loudly rather than handing cosign an empty ref
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/skywalking@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push. Register the ArtifactHub repo and set the ID."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/skywalking:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

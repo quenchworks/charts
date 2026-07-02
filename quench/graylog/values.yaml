@@ -1,0 +1,184 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/graylog
+  digest: "sha256:f536a26aa7cc348700e1d0fd7b86cd959aab2ca22801e29f5e439bb52e88f6cd"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Graylog is a JVM log management server. It requires TWO backends: MongoDB holds
+# configuration/metadata (users, streams, dashboards, inputs) and an OpenSearch (or
+# Elasticsearch) node stores the indexed log messages. The server itself is stateless
+# apart from a small writable data dir (server.conf, node-id, message journal) under
+# /var/lib/graylog. This chart runs Graylog as a single-replica Deployment behind a
+# ClusterIP Service; MongoDB and OpenSearch run as StatefulSets via the bundled
+# subcharts. First boot connects to both backends and initialises the schema/indices
+# (slow on the JVM), gated by a generous startup probe. Single replica because the data
+# PVC is ReadWriteOnce.
+replicaCount: 1
+
+# --- Graylog server settings ---
+graylog:
+  # GRAYLOG_HTTP_EXTERNAL_URI — REQUIRED. The URI browsers/API clients reach Graylog at
+  # (behind your ingress/proxy), e.g. https://graylog.example.com/. Graylog builds the web
+  # UI's asset/API base and redirect URLs from it. Must end with a trailing slash.
+  externalUri: "http://localhost:9000/"
+  # GRAYLOG_HTTP_BIND_ADDRESS — where the server binds inside the pod. Keep 0.0.0.0:<port>.
+  bindAddress: "0.0.0.0:9000"
+  # The built-in admin (root) account. GRAYLOG_ROOT_USERNAME defaults to "admin".
+  adminUsername: admin
+  # REQUIRED. The admin account password in PLAINTEXT. The chart never stores it: it
+  # renders only its sha256 (GRAYLOG_ROOT_PASSWORD_SHA2) into the managed Secret. Set it
+  # to a strong value; you log into the web UI with adminUsername + this password.
+  adminPassword: ""
+  # GRAYLOG_PASSWORD_SECRET — server-side secret used to encrypt/salt stored credentials.
+  # MUST be >= 16 chars. Left empty, the chart generates a random 96-char value into the
+  # managed Secret on first install and reuses it on upgrades (via lookup).
+  passwordSecret: ""
+  # The MongoDB database Graylog uses (path component of the connection URI).
+  mongodbDatabase: graylog
+  # Override GRAYLOG_SERVER_JAVA_OPTS (the image bakes -Xms1g -Xmx1g). Set to shrink the
+  # heap for small clusters, e.g. "-Xms512m -Xmx512m -server -XX:+UseG1GC". Empty = image default.
+  serverJavaOpts: ""
+
+# Resources. Graylog is a JVM server; it idles around the configured heap plus overhead.
+# Defaults schedule on a modest node; shrink graylog.serverJavaOpts alongside for smaller ones.
+resources:
+  requests: { cpu: 500m, memory: 1536Mi }
+  limits: { cpu: "2", memory: 2Gi }
+
+# Graylog serves the web UI AND the REST API on a single HTTP port (9000).
+service:
+  type: ClusterIP
+  port: 9000
+  # Extra message-input ports to expose on the Service (and open in the NetworkPolicy).
+  # Inputs are created at runtime in the Graylog UI; declare their ports here so traffic
+  # can reach the pod, e.g.:
+  #   - { name: gelf-tcp, port: 12201, protocol: TCP }
+  #   - { name: syslog-udp, port: 1514, protocol: UDP }
+  inputs: []
+
+# --- Data volume (PVC) ---
+# Graylog writes its rendered server.conf, node-id and message journal under
+# /var/lib/graylog. Small but must survive restarts (the node-id identifies this Graylog
+# node to the cluster). Single replica: ReadWriteOnce.
+persistence:
+  enabled: true
+  size: 8Gi
+  mountPath: /var/lib/graylog
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+# --- Bundled MongoDB (config/metadata store, default) ---
+# mongodb.enabled deploys the QuenchWorks MongoDB subchart. Its primary Service is
+# "<release>-mongodb" (port 27017). Graylog connects as the root user against the admin
+# authSource; the chart builds the full mongodb:// URI (with the resolved root password)
+# into its managed Secret and injects it as GRAYLOG_MONGODB_URI. Set auth.rootPassword for
+# a deterministic install (otherwise a random one is generated and shared via lookup).
+mongodb:
+  enabled: true
+  auth:
+    enabled: true
+    rootUsername: root
+    rootPassword: ""        # shared with Graylog's URI; set for a deterministic install
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- Bundled OpenSearch (log storage, default) ---
+# opensearch.enabled deploys the QuenchWorks OpenSearch subchart. Its Service is
+# "<release>-opensearch" (httpPort 9200). With the security plugin disabled (the subchart
+# default for an internal deployment) Graylog reaches it over plain http with no auth;
+# GRAYLOG_ELASTICSEARCH_HOSTS points there.
+opensearch:
+  enabled: true
+  config:
+    heapSize: 1g
+  persistence:
+    enabled: true
+    size: 16Gi
+
+# --- External MongoDB (mongodb.enabled=false) ---
+# Point Graylog at an existing MongoDB. Either set the full connection uri, or reference an
+# existingSecret carrying the uri under existingSecretUriKey (then no managed uri is rendered).
+externalMongodb:
+  uri: ""                          # e.g. mongodb://user:pass@host:27017/graylog?authSource=admin
+  existingSecret: ""
+  existingSecretUriKey: "mongodb-uri"
+
+# --- External OpenSearch/Elasticsearch (opensearch.enabled=false) ---
+# Comma-separated hosts, e.g. "http://os-1:9200,http://os-2:9200". With auth, embed
+# credentials in the URI (http://user:pass@host:9200).
+externalOpensearch:
+  hosts: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 120
+updateStrategy: {}
+# Extra env vars (list of {name,value} or {name,valueFrom}). Appended after the chart's
+# own env, so these win on conflict. Use for any additional GRAYLOG_<KEY> overrides
+# (e.g. timezone, transport_email_*, trusted_proxies).
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (nonroot uid 1001,
+# fsGroup 1001 so the data PVC is writable, read-only rootfs). Graylog writes only to the
+# data PVC (/var/lib/graylog) and /tmp (emptyDir), so the read-only rootfs default holds.
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+# Graylog's first boot is slow: the JVM starts, connects to MongoDB and OpenSearch, and
+# initialises its schema/indices before serving — often 60-180s. A startup probe gates
+# liveness/readiness until the load-balancer status endpoint reports ALIVE, so the slow
+# boot isn't killed. Up to 600s grace (60 x 10s); after it passes, normal probe timing resumes.
+customStartupProbe:
+  httpGet:
+    path: /api/system/lbstatus
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 60
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Graylog's web UI + API are authenticated, but exposure is still scoped. Default restricts
+# ingress to the release namespace (allowExternal: false); set true (front it with an
+# ingress/TLS proxy) to expose it. Egress opens MongoDB (27017), OpenSearch (9200) and DNS
+# plus general egress (Graylog fetches GeoIP/marketplace content, sends notifications).
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

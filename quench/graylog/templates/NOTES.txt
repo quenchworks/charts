@@ -1,0 +1,48 @@
+Quenchworks Graylog is installed as {{ include "quench-common.fullname" . }}.
+
+The web UI and REST API are served on port {{ .Values.service.port }} inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/
+
+Reach it from your machine with a port-forward:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  # then open http://localhost:{{ .Values.service.port }}/ and log in as:
+  #   username: {{ .Values.graylog.adminUsername }}
+  #   password: the graylog.adminPassword you set (only its sha256 is stored in the cluster)
+
+Public URI:
+
+  Graylog builds the web UI asset/API base and redirects from GRAYLOG_HTTP_EXTERNAL_URI = {{ .Values.graylog.externalUri }}
+  Set graylog.externalUri to the address users actually reach Graylog at (behind your ingress/proxy); it must end with a trailing slash.
+
+Config/metadata store (MongoDB):
+{{- if .Values.mongodb.enabled }}
+  Bundled Quenchworks MongoDB (mongodb.enabled=true), Service <release>-mongodb:27017.
+  Graylog connects as the root user (database "{{ .Values.graylog.mongodbDatabase }}", authSource=admin).
+  Set mongodb.auth.rootPassword for a deterministic install (otherwise a random one is generated and shared).
+{{- else }}
+  External MongoDB (mongodb.enabled=false) from externalMongodb.uri / existingSecret.
+{{- end }}
+
+Log storage (OpenSearch):
+{{- if .Values.opensearch.enabled }}
+  Bundled Quenchworks OpenSearch (opensearch.enabled=true), reached at {{ include "graylog.opensearch.hosts" . }}.
+{{- else }}
+  External OpenSearch/Elasticsearch: {{ include "graylog.opensearch.hosts" . }}
+{{- end }}
+  The MongoDB URI, GRAYLOG_PASSWORD_SECRET and the admin password sha256 are injected from a
+  Secret — they never appear in the pod's process arguments.
+
+NOTE: Graylog's first boot starts the JVM, connects to MongoDB + OpenSearch and initialises
+its schema/indices (60-180s); a startup probe gates liveness/readiness until it is serving.
+
+LICENSE: Graylog Server is licensed under the SSPL-1.0 (Server Side Public License) — a
+source-available license that is NOT OSI-approved open source. Review it before production
+or offering Graylog as a service. See the chart README.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

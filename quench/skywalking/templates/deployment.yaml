@@ -1,0 +1,112 @@
+{{/* Liveness watches the gRPC receiver (11800), which OAP binds early in boot — a live JVM.
+     Readiness/startup watch the query port (12800), which opens only after OAP finished its
+     module init against storage, so --wait on readiness is the real integration signal. The
+     kubelet does the TCP checks; the image ships no shell probe client. */}}
+{{- $liveness := dict "tcpSocket" (dict "port" "grpc") "initialDelaySeconds" 40 "periodSeconds" 20 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "tcpSocket" (dict "port" "rest") "initialDelaySeconds" 30 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+{{- $esNodes := include "skywalking.esNodes" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- if include "skywalking.es.manageSecret" . }}
+        # Roll the pod when the managed ES-password Secret changes.
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "skywalking.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: skywalking-oap
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- include "quench-common.args" . | nindent 10 }}
+          env:
+            # OAP is configured entirely from env (application.yml resolves ${SW_*} placeholders).
+            - name: JAVA_OPTS
+              value: {{ .Values.oap.javaOpts | quote }}
+            - name: SW_STORAGE
+              value: {{ .Values.storage.type | quote }}
+            {{- if $esNodes }}
+            - name: SW_STORAGE_ES_CLUSTER_NODES
+              value: {{ $esNodes | quote }}
+            {{- end }}
+            - name: SW_STORAGE_ES_HTTP_PROTOCOL
+              value: {{ .Values.storage.elasticsearch.protocol | quote }}
+            {{- with .Values.storage.elasticsearch.namespace }}
+            - name: SW_NAMESPACE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.storage.elasticsearch.user }}
+            - name: SW_ES_USER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if include "skywalking.es.hasPassword" . }}
+            # Password is sourced from a Secret, never inlined into the pod env / argv.
+            - name: SW_ES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "skywalking.es.secretName" . }}
+                  key: {{ include "skywalking.es.secretPasswordKey" . }}
+            {{- end }}
+            # OAP writes log4j2 files here (read-only rootfs -> writable emptyDir).
+            - name: OAP_LOG_DIR
+              value: /var/lib/skywalking/logs
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.service.grpcPort }}
+              protocol: TCP
+            - name: rest
+              containerPort: {{ .Values.service.restPort }}
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # Writable mounts over the read-only rootfs: OAP logs and JVM temp files.
+            - name: logs
+              mountPath: /var/lib/skywalking
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: logs
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

@@ -1,0 +1,62 @@
+{{/*
+The WordPress image ships NO wp-config.php (with none present it just serves the setup
+wizard). This chart supplies one and mounts it read-only at /var/www/html/wp-config.php
+(subPath, so it doesn't shadow the docroot). It is fully static: every credential is read
+from the pod environment at request time (php-fpm runs with clear_env=no, so the container
+env reaches PHP), so no secret is ever baked into this ConfigMap or the image.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  wp-config.php: |
+    <?php
+    // Managed by the QuenchWorks WordPress Helm chart. DB settings and auth salts are
+    // injected as WORDPRESS_* environment variables from a Secret — never written here.
+
+    $db_host = getenv('WORDPRESS_DB_HOST') ?: 'localhost';
+    $db_port = getenv('WORDPRESS_DB_PORT');
+
+    define('DB_NAME',     getenv('WORDPRESS_DB_NAME'));
+    define('DB_USER',     getenv('WORDPRESS_DB_USER'));
+    define('DB_PASSWORD', getenv('WORDPRESS_DB_PASSWORD'));
+    define('DB_HOST',     $db_port ? $db_host . ':' . $db_port : $db_host);
+    define('DB_CHARSET',  'utf8mb4');
+    define('DB_COLLATE',  '');
+
+    define('AUTH_KEY',         getenv('WORDPRESS_AUTH_KEY'));
+    define('SECURE_AUTH_KEY',  getenv('WORDPRESS_SECURE_AUTH_KEY'));
+    define('LOGGED_IN_KEY',    getenv('WORDPRESS_LOGGED_IN_KEY'));
+    define('NONCE_KEY',        getenv('WORDPRESS_NONCE_KEY'));
+    define('AUTH_SALT',        getenv('WORDPRESS_AUTH_SALT'));
+    define('SECURE_AUTH_SALT', getenv('WORDPRESS_SECURE_AUTH_SALT'));
+    define('LOGGED_IN_SALT',   getenv('WORDPRESS_LOGGED_IN_SALT'));
+    define('NONCE_SALT',       getenv('WORDPRESS_NONCE_SALT'));
+
+    $table_prefix = getenv('WORDPRESS_TABLE_PREFIX') ?: 'wp_';
+
+    // When siteUrl is set, pin the canonical URLs (useful behind an ingress/TLS proxy).
+    if (getenv('WORDPRESS_SITE_URL')) {
+        define('WP_HOME',    getenv('WORDPRESS_SITE_URL'));
+        define('WP_SITEURL', getenv('WORDPRESS_SITE_URL'));
+    }
+
+    // Honor a TLS-terminating ingress/proxy so WordPress builds https:// URLs.
+    if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
+        $_SERVER['HTTPS'] = 'on';
+    }
+
+    // The rootfs is read-only (only wp-content/uploads and /tmp are writable), so in-dashboard
+    // core/plugin/theme edits and updates can't write anyway — disable them cleanly and
+    // rebuild the image to change code.
+    if (!defined('DISALLOW_FILE_MODS')) {
+        define('DISALLOW_FILE_MODS', true);
+    }
+
+    if (!defined('ABSPATH')) {
+        define('ABSPATH', __DIR__ . '/');
+    }
+    require_once ABSPATH . 'wp-settings.php';

@@ -1,0 +1,208 @@
+{{/* Liveness and readiness hit /status.php on the HTTP port: the image's nginx FastCGI-
+     passes it to php-fpm, so a 200 proves BOTH nginx (:8080) and php-fpm (:9000) are up and
+     wired. /status.php is served without a trusted-domain check and reports install state.
+     The install initContainer completes maintenance:install before this container starts, so
+     the instance is already installed by first boot; the startup probe (customStartupProbe)
+     guards the slow first boot. The kubelet performs the GET; the image ships no HTTP client. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/status.php" "port" "http") "initialDelaySeconds" 30 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/status.php" "port" "http") "initialDelaySeconds" 15 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # The data/config PVCs are ReadWriteOnce and held exclusively; Recreate avoids two pods
+  # contending for the volumes during a rollout.
+  strategy:
+    {{- if .Values.updateStrategy }}
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+    {{- else }}
+    type: Recreate
+    {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Roll the pod when the managed Secret (admin/DB passwords) changes.
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "nextcloud.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        # First-run install + trusted-domain overlay.
+        #
+        # This image's entrypoint does NOT self-install (unlike upstream's Debian image) — it
+        # only boots php-fpm + nginx. So before the app container serves, this initContainer
+        # (the SAME image) runs `occ maintenance:install`: it writes config.php into the config
+        # PVC and creates the schema in the database. It is idempotent — skipped once config.php
+        # exists — and retries so the bundled MariaDB has time to come up. It also (re)writes a
+        # trusted_domains overlay on every boot, since Nextcloud 400s "Access through untrusted
+        # domain" for any Host not listed. The DB + admin passwords come from the managed Secret
+        # (via secretKeyRef), so they never land in the pod's argv.
+        - name: install
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+
+              # Trusted-domain overlay (merged over config.php by Nextcloud). Rewritten every
+              # boot so nextcloud.trustedDomains / overwriteProtocol stay in sync.
+              {
+                echo '<?php'
+                echo '$CONFIG = array ('
+                echo "  'trusted_domains' => array ("
+                i=0
+                for d in $NC_TRUSTED_DOMAINS; do
+                  echo "    $i => '$d',"
+                  i=$((i + 1))
+                done
+                echo '  ),'
+                echo "  'overwriteprotocol' => '$NC_OVERWRITE_PROTOCOL',"
+                echo ');'
+              } > /var/www/html/config/trusted.config.php
+
+              # Install once. config.php is the install marker.
+              if [ -f /var/www/html/config/config.php ]; then
+                echo "config.php present; instance already installed"
+                exit 0
+              fi
+              n=0
+              until php /var/www/html/occ maintenance:install \
+                --no-interaction \
+                --database mysql \
+                --database-host "$NC_DB_HOST" \
+                --database-port "$NC_DB_PORT" \
+                --database-name "$NC_DB_NAME" \
+                --database-user "$NC_DB_USER" \
+                --database-pass "$NC_DB_PASS" \
+                --admin-user "$NC_ADMIN_USER" \
+                --admin-pass "$NC_ADMIN_PASS" \
+                --data-dir /var/www/html/data; do
+                n=$((n + 1))
+                if [ "$n" -ge 40 ]; then echo "occ maintenance:install failed after $n attempts"; exit 1; fi
+                echo "install attempt $n failed (database not ready?); retrying in 5s"
+                sleep 5
+              done
+              echo "Nextcloud installed"
+          env:
+            - name: NC_TRUSTED_DOMAINS
+              value: {{ join " " .Values.nextcloud.trustedDomains | quote }}
+            - name: NC_OVERWRITE_PROTOCOL
+              value: {{ .Values.nextcloud.overwriteProtocol | quote }}
+            - name: NC_DB_HOST
+              value: {{ include "nextcloud.db.host" . | quote }}
+            - name: NC_DB_PORT
+              value: {{ include "nextcloud.db.port" . | quote }}
+            - name: NC_DB_NAME
+              value: {{ include "nextcloud.db.name" . | quote }}
+            - name: NC_DB_USER
+              value: {{ include "nextcloud.db.user" . | quote }}
+            - name: NC_DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nextcloud.secretName" . }}
+                  key: {{ include "nextcloud.secretPasswordKey" . }}
+            - name: NC_ADMIN_USER
+              value: {{ .Values.nextcloud.admin.username | quote }}
+            - name: NC_ADMIN_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "quench-common.fullname" . }}
+                  key: admin-password
+          volumeMounts:
+            - name: data
+              mountPath: /var/www/html/data
+            - name: config
+              mountPath: /var/www/html/config
+            - name: custom-apps
+              mountPath: /var/www/html/custom_apps
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: nextcloud
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- include "quench-common.args" . | nindent 10 }}
+          env:
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # User files.
+            - name: data
+              mountPath: /var/www/html/data
+            # config.php + *.config.php overlays.
+            - name: config
+              mountPath: /var/www/html/config
+            # Writable app-store dir (bundled apps under /var/www/html/apps stay read-only).
+            - name: custom-apps
+              mountPath: /var/www/html/custom_apps
+            # supervisord pid/sock, nginx pid + temp, php scratch.
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: custom-apps
+          emptyDir: {}
+        - name: data
+        {{- if not .Values.persistence.data.enabled }}
+          emptyDir: {}
+        {{- else if .Values.persistence.data.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.data.existingClaim }}
+        {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ include "quench-common.fullname" . }}-data
+        {{- end }}
+        - name: config
+        {{- if not .Values.persistence.config.enabled }}
+          emptyDir: {}
+        {{- else if .Values.persistence.config.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.config.existingClaim }}
+        {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ include "quench-common.fullname" . }}-config
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

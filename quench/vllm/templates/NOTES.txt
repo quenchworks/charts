@@ -1,0 +1,53 @@
+Quenchworks vLLM is installed as {{ include "quench-common.fullname" . }}.
+
+{{ if not .Values.model }}
+###############################################################################
+#  ACTION REQUIRED: no model is set. The vLLM server has nothing to serve and #
+#  the pod WILL crash-loop until you set a model. Reinstall/upgrade with:      #
+#                                                                              #
+#    helm upgrade --install {{ .Release.Name }} oci://ghcr.io/quenchworks/charts/vllm \  #
+#      --set model=Qwen/Qwen2.5-0.5B-Instruct                                  #
+#                                                                              #
+#  `model` is a Hugging Face model id or a path to a model mounted into the    #
+#  pod. Start SMALL on CPU: a 7B model in bf16 needs ~16Gi RAM, so raise       #
+#  resources.limits.memory to match, and cap context with                     #
+#  --set-string 'extraArgs[0]=--max-model-len=4096'.                           #
+###############################################################################
+{{ else -}}
+The server runs nonroot with a read-only rootfs and serves an OpenAI-compatible
+API on container port 8000 for model "{{ .Values.model }}"; the Service exposes it
+on port {{ .Values.service.port }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Model load is slow on CPU (weights are downloaded into the persistent cache on
+first boot, then loaded into RAM). The startupProbe waits patiently; watch it:
+
+  kubectl rollout status -n {{ .Release.Namespace }} statefulset/{{ include "quench-common.fullname" . }}
+
+Then query the API over a port-forward:
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://127.0.0.1:{{ .Values.service.port }}/health
+  curl http://127.0.0.1:{{ .Values.service.port }}/v1/models
+  curl http://127.0.0.1:{{ .Values.service.port }}/v1/completions \
+    -H 'Content-Type: application/json' \
+    -d '{"model":"{{ .Values.model }}","prompt":"hello","max_tokens":16}'
+{{- end }}
+
+{{ if .Values.persistence.enabled -}}
+Downloaded model weights persist on a {{ .Values.persistence.size }} PersistentVolume mounted at
+/opt/vllm/.cache (HF_HOME). Gated models need an HF token via extraEnvVars (HF_TOKEN).
+{{- else -}}
+persistence.enabled=false: the HF cache is an emptyDir, so model weights are
+RE-DOWNLOADED on every pod restart. Enable persistence for anything beyond a test.
+{{- end }}
+
+This is the CPU-only image (prefer an avx512f/avx2 host CPU). GPU acceleration is
+out of scope for this chart.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/vllm \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

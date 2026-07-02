@@ -1,0 +1,28 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+# Bundles the Quenchworks MySQL subchart with a small PVC; deterministic shared DB
+# credentials; small resources for the runner. The gate confirms WordPress connects to
+# MySQL through the chart-supplied wp-config.php, the uploads PVC binds, and GET / returns
+# 200/30x (i.e. nginx + php-fpm are serving and the DB is reachable).
+mysql:
+  enabled: true
+  auth:
+    rootPassword: ci-test-root-password
+    username: wordpress
+    password: ci-test-password
+    database: wordpress
+  primary:
+    persistence:
+      enabled: true
+      size: 1Gi
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: "1", memory: 512Mi }
+
+persistence:
+  enabled: true
+  size: 1Gi
+
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits: { cpu: "2", memory: 1Gi }

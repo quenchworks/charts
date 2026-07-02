@@ -1,0 +1,47 @@
+{{/* Standalone PVCs for the two writable, must-survive-restart paths: the user-file data
+     dir (/var/www/html/data) and the instance config (/var/www/html/config). Each is
+     skipped when its persistence is disabled (emptyDir) or an existingClaim is supplied.
+     Not tied to the pod lifecycle, so state survives rollouts. */}}
+{{- if and .Values.persistence.data.enabled (not .Values.persistence.data.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "quench-common.fullname" . }}-data
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.persistence.data.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.data.accessModes | nindent 4 }}
+  {{- if .Values.persistence.data.storageClass }}
+  storageClassName: {{ .Values.persistence.data.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.data.size }}
+{{- end }}
+{{- if and .Values.persistence.config.enabled (not .Values.persistence.config.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "quench-common.fullname" . }}-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.persistence.config.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.config.accessModes | nindent 4 }}
+  {{- if .Values.persistence.config.storageClass }}
+  storageClassName: {{ .Values.persistence.config.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.config.size }}
+{{- end }}

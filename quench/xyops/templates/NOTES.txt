@@ -1,0 +1,39 @@
+Quenchworks xyOps is installed as {{ include "quench-common.fullname" . }}.
+
+The server runs nonroot with a read-only rootfs and serves the web UI + JSON API
+on container port 5522; the Service exposes it on port {{ .Values.service.port }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Open the UI over a port-forward and check the API is live:
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://127.0.0.1:{{ .Values.service.port }}/api/app/ping
+  # then browse http://127.0.0.1:{{ .Values.service.port }}/
+
+{{ if .Values.auth.existingSecret -}}
+The signing secret_key is read from your Secret "{{ .Values.auth.existingSecret }}" (key "{{ .Values.auth.existingSecretKey }}").
+{{- else if .Values.auth.secretKey -}}
+The signing secret_key is taken from auth.secretKey and stored in Secret {{ include "quench-common.fullname" . }}.
+{{- else -}}
+A random signing secret_key was generated and stored in Secret {{ include "quench-common.fullname" . }}
+(key "secret-key"); it is preserved across upgrades. Read it with:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "quench-common.fullname" . }} -o jsonpath='{.data.secret-key}' | base64 -d
+{{- end }}
+
+{{ if .Values.persistence.enabled -}}
+State (the embedded sqlite store) persists on a {{ .Values.persistence.size }} PersistentVolume mounted at /opt/xyops/data.
+{{- else -}}
+persistence.enabled=false: /opt/xyops/data is an emptyDir, so ALL state (jobs, users,
+history) is LOST on pod restart. Enable persistence for anything beyond a smoke test.
+{{- end }}
+
+xyOps uses an embedded better-sqlite3 store, so it is single-instance: the chart runs
+a single replica and scaling out is not supported.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/xyops \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

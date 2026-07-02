@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    # Graylog web UI + REST API (single HTTP port).
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      name: http
+      protocol: TCP
+    {{- range .Values.service.inputs }}
+    # Message input (created at runtime in the Graylog UI).
+    - port: {{ .port }}
+      targetPort: {{ .name }}
+      name: {{ .name }}
+      protocol: {{ .protocol | default "TCP" }}
+    {{- end }}
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

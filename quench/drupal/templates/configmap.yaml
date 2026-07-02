@@ -1,0 +1,53 @@
+{{/*
+The Drupal image ships NO sites/default/settings.php (with none present it redirects "/" to
+the install wizard). This chart supplies one and mounts it read-only at
+/opt/drupal/sites/default/settings.php (subPath, so it doesn't shadow the docroot). It is
+fully static: every credential is read from the pod environment at request time (php-fpm
+runs with clear_env=no, so the container env reaches PHP), so no secret is ever baked into
+this ConfigMap or the image.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  settings.php: |
+    <?php
+    // Managed by the QuenchWorks Drupal Helm chart. Database credentials and the hash salt
+    // are injected as DRUPAL_* environment variables from a Secret — never written here.
+
+    $databases['default']['default'] = [
+      'driver'    => getenv('DRUPAL_DB_DRIVER') ?: 'mysql',
+      'database'  => getenv('DRUPAL_DB_NAME'),
+      'username'  => getenv('DRUPAL_DB_USER'),
+      'password'  => getenv('DRUPAL_DB_PASSWORD'),
+      'host'      => getenv('DRUPAL_DB_HOST') ?: 'localhost',
+      'port'      => getenv('DRUPAL_DB_PORT') ?: '3306',
+      'prefix'    => getenv('DRUPAL_DB_PREFIX') ?: '',
+      'collation' => 'utf8mb4_general_ci',
+    ];
+
+    // Stable across upgrades (persisted in the managed Secret).
+    $settings['hash_salt'] = getenv('DRUPAL_HASH_SALT');
+
+    // The rootfs is read-only; only sites/default/files (a PVC) and /tmp are writable.
+    $settings['file_public_path']      = 'sites/default/files';
+    $settings['file_temp_path']        = '/tmp';
+    $settings['config_sync_directory'] = 'sites/default/files/config/sync';
+
+    // Skip Drupal's attempt to chmod sites/default (read-only). Core and modules are baked
+    // into the signed image and updated by rebuilding it, so the update UI stays closed.
+    $settings['skip_permissions_hardening'] = TRUE;
+    $settings['update_free_access']         = FALSE;
+
+    // Behind a Kubernetes ingress / TLS proxy: trust X-Forwarded-* so Drupal builds https URLs.
+    $settings['reverse_proxy'] = TRUE;
+
+    // Restrict the Host header to known patterns (empty => Drupal serves any host and warns).
+    // DRUPAL_TRUSTED_HOST_PATTERNS is a newline-separated list of PCRE fragments.
+    $__thp = getenv('DRUPAL_TRUSTED_HOST_PATTERNS');
+    if ($__thp) {
+      $settings['trusted_host_patterns'] = array_values(array_filter(array_map('trim', explode("\n", $__thp))));
+    }

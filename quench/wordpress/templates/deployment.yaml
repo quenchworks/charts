@@ -1,0 +1,132 @@
+{{/* Liveness and readiness both hit / on the HTTP port. nginx answers 2xx, or a 30x
+     redirect to the install/login flow, only once php-fpm is up AND WordPress can reach
+     MySQL (a down DB makes WordPress 500) — so --wait on readiness is the real integration
+     test. The startup probe (customStartupProbe) gates these during the DB init window. The
+     kubelet performs the GET; the image ships no HTTP client on PATH. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/" "port" "http") "initialDelaySeconds" 20 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # The uploads PVC is ReadWriteOnce and held exclusively; Recreate avoids two pods
+  # contending for the volume during a rollout.
+  strategy:
+    {{- if .Values.updateStrategy }}
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+    {{- else }}
+    type: Recreate
+    {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Roll the pod when the managed Secret (DB password + salts) or wp-config changes.
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "wordpress.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: wordpress
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- include "quench-common.args" . | nindent 10 }}
+          env:
+            # wp-config.php (mounted from the ConfigMap) reads all of these at request time.
+            - name: WORDPRESS_DB_HOST
+              value: {{ include "wordpress.db.host" . | quote }}
+            - name: WORDPRESS_DB_PORT
+              value: {{ include "wordpress.db.port" . | quote }}
+            - name: WORDPRESS_DB_NAME
+              value: {{ include "wordpress.db.name" . | quote }}
+            - name: WORDPRESS_DB_USER
+              value: {{ include "wordpress.db.user" . | quote }}
+            # Password is sourced from a Secret, never inlined into the pod env / argv.
+            - name: WORDPRESS_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "wordpress.secretName" . }}
+                  key: {{ include "wordpress.secretPasswordKey" . }}
+            - name: WORDPRESS_TABLE_PREFIX
+              value: {{ .Values.wordpress.tablePrefix | quote }}
+            {{- with .Values.wordpress.siteUrl }}
+            - name: WORDPRESS_SITE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- /* auth keys/salts from the managed Secret */}}
+            {{- $secret := include "quench-common.fullname" . }}
+            {{- range $n := splitList " " (include "wordpress.saltNames" .) }}
+            - name: WORDPRESS_{{ $n }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secret }}
+                  key: {{ $n | lower | replace "_" "-" }}
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # The chart-supplied wp-config.php (subPath so it doesn't shadow the docroot).
+            - name: wp-config
+              mountPath: /var/www/html/wp-config.php
+              subPath: wp-config.php
+              readOnly: true
+            # Media uploads — the one writable app path.
+            - name: uploads
+              mountPath: {{ .Values.persistence.mountPath }}
+            # Writable scratch: nginx pid/temp, php sessions/uploads (see the image entrypoint).
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: wp-config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}
+        - name: tmp
+          emptyDir: {}
+        - name: uploads
+        {{- if not .Values.persistence.enabled }}
+          emptyDir: {}
+        {{- else if .Values.persistence.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim }}
+        {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ include "quench-common.fullname" . }}-uploads
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

@@ -1,0 +1,119 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/vllm
+  digest: "sha256:22b64e4c0de8eeaa13b838660d4e014180a7f81f5cef0ba9abe6310f94b24551"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The model vLLM serves. REQUIRED: no model ships with the chart. Set it to a
+# Hugging Face model id (e.g. "Qwen/Qwen2.5-0.5B-Instruct") or a path to a model
+# mounted into the pod. Left empty the server has nothing to serve and the pod
+# will crash-loop -- see NOTES after install.
+model: ""
+
+# Extra flags appended to `vllm serve <model> --host 0.0.0.0 --port 8000`, e.g.
+#   extraArgs:
+#     - --max-model-len=4096      # cap context to fit CPU RAM
+#     - --dtype=bfloat16
+#     - --served-model-name=my-model
+extraArgs: []
+
+# vLLM starts the OpenAI-compatible server via the image entrypoint (`/usr/bin/vllm`);
+# the chart supplies `serve <model> ...` as args. This is a stateful workload: it runs
+# a single-replica StatefulSet behind a ClusterIP Service, with a persistent Hugging
+# Face cache volume so downloaded model weights survive restarts. The image already
+# sets HF_HOME/XDG_CACHE_HOME under /opt/vllm/.cache and VLLM_TARGET_DEVICE=cpu.
+
+# Resources. CPU inference is MEMORY-heavy: the working set is dominated by the model
+# weights (a 7B model in bf16/fp16 needs ~16Gi RAM; even a 0.5-1B model wants a couple
+# of GiB) plus the KV cache, which scales with --max-model-len and concurrency. The
+# defaults below are deliberately modest so the chart schedules on a typical node and
+# the model-less CI gate passes; RAISE requests/limits to fit the model you serve, and
+# prefer an avx512f/avx2 host CPU for acceptable throughput.
+resources:
+  requests: { cpu: 500m, memory: 2Gi }
+  limits: { cpu: "4", memory: 8Gi }
+
+# Persistent storage for the Hugging Face cache (HF_HOME=/opt/vllm/.cache/huggingface).
+# Downloaded model weights land here and must survive restarts. Provisioned per-pod via
+# a volumeClaimTemplate unless you point persistence.existingClaim at a pre-created PVC.
+# Set persistence.enabled=false to back the cache with an emptyDir (ephemeral; weights
+# are re-downloaded on restart).
+persistence:
+  enabled: true
+  size: 30Gi
+  # storageClass: ""          # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""           # bind an existing PVC instead of provisioning one
+
+service:
+  type: ClusterIP
+  # The server listens on 8000; the Service maps the same port.
+  port: 8000
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+# Cache paths (HF_HOME/XDG_CACHE_HOME) and VLLM_TARGET_DEVICE=cpu are baked into the
+# image. Append more here, e.g. HF_TOKEN for gated models, or VLLM_CPU_KVCACHE_SPACE:
+#   extraEnvVars:
+#     - name: HF_TOKEN
+#       value: "hf_..."
+#     - name: VLLM_CPU_KVCACHE_SPACE
+#       value: "4"
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# command/args fully override the entrypoint and the chart's `serve <model> ...` args.
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+# The startupProbe is given a generous failureThreshold: loading a model from the HF
+# cache (or downloading it on first boot) is slow, and liveness/readiness only begin
+# after the startupProbe first succeeds.
+livenessProbe: {}
+readinessProbe: {}
+startupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The inference API is commonly consulted from across the cluster, so allow
+# external ingress by default. Set allowExternal=false to restrict ingress to the
+# namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

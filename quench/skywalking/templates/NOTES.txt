@@ -1,0 +1,41 @@
+Quenchworks Apache SkyWalking OAP is installed as {{ include "quench-common.fullname" . }}.
+
+This chart deploys the OAP SERVER only (the image drops the web UI). It listens in-cluster on:
+
+  gRPC 11800  agents push trace/metric/log data here
+  HTTP 12800  GraphQL query API + health — point a SkyWalking UI / Grafana / clients here
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.grpcPort }}   (agents)
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.restPort }}   (query / UI)
+
+Reach the query API from your machine with a port-forward:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.restPort }}:{{ .Values.service.restPort }}
+  # then query GraphQL at http://localhost:{{ .Values.service.restPort }}/graphql
+
+Storage backend (REQUIRED — SkyWalking 10.2+ removed the embedded H2 store, so OAP will not
+become Ready without one):
+{{- if .Values.elasticsearch.enabled }}
+  Bundled Quenchworks Elasticsearch (elasticsearch.enabled=true).
+    SW_STORAGE                    : {{ .Values.storage.type }}
+    SW_STORAGE_ES_CLUSTER_NODES   : {{ include "skywalking.esNodes" . }}
+{{- else if include "skywalking.esNodes" . }}
+  External Elasticsearch (elasticsearch.enabled=false).
+    SW_STORAGE                    : {{ .Values.storage.type }}
+    SW_STORAGE_ES_CLUSTER_NODES   : {{ include "skywalking.esNodes" . }}
+  Ensure this cluster is reachable and healthy before OAP starts.
+{{- else }}
+  WARNING: no storage backend configured. OAP will fail to reach Ready. Either set
+  elasticsearch.enabled=true to run the bundled Elasticsearch subchart, or point
+  storage.elasticsearch.clusterNodes at an external Elasticsearch/OpenSearch cluster.
+{{- end }}
+
+NOTE: OAP's first boot connects to storage and creates/verifies all indices before the query
+port opens (60-180s on a fresh Elasticsearch); a startup probe gates liveness/readiness until
+it is actually up.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

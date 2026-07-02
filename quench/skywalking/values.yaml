@@ -1,0 +1,126 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/skywalking
+  digest: "sha256:9b14e8630207b5445f28958609c9d9470803fe0e6ed7fb38837cfc6783da1f9d"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# This chart deploys the SkyWalking OAP SERVER only. The Quenchworks image ships the OAP
+# backend (the CVE surface Trivy scans) and deliberately DROPS the Rocketbot web UI to keep
+# that surface minimal, so there is NO UI workload here. OAP exposes gRPC 11800 (agents push
+# trace/metric/log data) and HTTP 12800 (GraphQL query API + health). Point a SkyWalking UI,
+# Grafana, or any GraphQL client at the REST port to read the data. OAP is stateless — all
+# durable state lives in the storage backend — so it runs as a Deployment and scales out.
+replicaCount: 1
+
+# OAP is a JVM app. JAVA_OPTS sets its heap; raise the max for production ingest volume.
+oap:
+  javaOpts: "-Xms256M -Xmx2048M"
+
+# --- Storage backend ---
+# SkyWalking 10.2+ REMOVED the H2 embedded store; OAP has NO built-in storage and REQUIRES
+# an external backend to become Ready. This chart wires Elasticsearch (SW_STORAGE=elasticsearch),
+# the only bundled option. Set elasticsearch.enabled=true to run the Quenchworks Elasticsearch
+# subchart in-cluster (self-contained), or leave it disabled and point storage.elasticsearch.clusterNodes
+# at an external ES/OpenSearch cluster. Other selectors (banyandb, mysql, postgresql) are
+# reachable via storage.type + extraEnvVars, but only Elasticsearch is first-class wired here.
+storage:
+  type: elasticsearch
+  elasticsearch:
+    # host:port (comma-separated) of an EXTERNAL cluster. Used only when elasticsearch.enabled=false.
+    # When elasticsearch.enabled=true the chart wires OAP to the bundled "<release>-elasticsearch:9200".
+    clusterNodes: ""
+    protocol: http
+    namespace: ""
+    # Auth for a secured cluster (the bundled subchart runs with security disabled, so leave blank).
+    user: ""
+    password: ""              # rendered into this chart's managed Secret if set (and no existingSecret)
+    existingSecret: ""        # a Secret already holding the ES password
+    existingSecretPasswordKey: "es-password"
+
+# --- Bundled Elasticsearch storage (OPTIONAL, disabled by default) ---
+# When enabled, the Quenchworks Elasticsearch subchart is deployed and OAP is wired to it.
+# Disabled by default so the default render is dependency-light; production should enable it
+# (or supply an external cluster via storage.elasticsearch.clusterNodes).
+elasticsearch:
+  enabled: false
+
+# Resources. OAP idles ~500MB-1GB heap; grows with ingest volume and query load. Defaults
+# schedule anywhere; the CI gate overrides them smaller.
+resources:
+  requests: { cpu: 500m, memory: 1Gi }
+  limits: { cpu: "2", memory: 2560Mi }
+
+# OAP receiver (gRPC 11800, agent data) + query/GraphQL (HTTP 12800, UI/health).
+service:
+  type: ClusterIP
+  grpcPort: 11800
+  restPort: 12800
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+# Extra env vars (list of {name,value} or {name,valueFrom}). Appended after the chart's own
+# env, so these win on conflict. Use for SW_CLUSTER, SW_RECEIVER_*, alternate SW_STORAGE_* keys, etc.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (nonroot uid 1001,
+# read-only rootfs). OAP writes only logs and JVM temp files, both backed by writable
+# emptyDir mounts, so the read-only rootfs default is kept. Your keys still win on conflict.
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+# Liveness watches the gRPC port (binds early — proves the JVM is alive); readiness watches
+# the query port (opens only after OAP finished module init against storage).
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+# OAP's first boot is slow: JVM start, then connect to storage and create/verify all indices
+# before the query port opens — often 60-180s on a fresh Elasticsearch. A startup probe gates
+# liveness/readiness on the query port until OAP is actually up, so the slow boot isn't killed
+# mid-init. Up to 600s grace (60 x 10s); after it passes, normal probe timing resumes.
+customStartupProbe:
+  tcpSocket:
+    port: rest
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 60
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Ingress opens the agent (gRPC 11800) and query (HTTP 12800) ports. Default restricts them
+# to the release namespace (allowExternal: false); set true when agents/UI live in other
+# namespaces or you front OAP with a gateway. Egress opens DNS + the ES port plus general egress.
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

@@ -1,0 +1,151 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/drupal
+  digest: "sha256:46a64d6707028b23731a9802280fb48eae8d73f844f3a735c7102422b36f8327"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Drupal is served by a hardened PHP-FPM + nginx runtime (supervisord): nginx listens on
+# 8080 (nonroot can't bind <1024) and FastCGI-passes .php to php-fpm on 127.0.0.1:9000, with
+# /opt/drupal as the docroot. All durable relational state — nodes, users, config, fields —
+# lives in an external MySQL, deployed by default via the bundled subchart. Uploaded/public
+# files live on a ReadWriteOnce PVC mounted at sites/default/files (the one writable app
+# path; the rest of the docroot stays on a read-only rootfs). The image ships NO
+# settings.php, so this chart supplies one (a ConfigMap) that reads the DB credentials +
+# hash salt from the pod env; the DB password and hash salt come from a managed Secret and
+# never appear in the pod's argv. Single replica because the files PVC is ReadWriteOnce.
+replicaCount: 1
+
+drupal:
+  # Trusted host patterns Drupal will serve (PCRE fragments without delimiters, e.g.
+  # ^www\.example\.com$). Empty = serve any Host header (Drupal shows a security warning on
+  # the status report). Set your public hostname(s) when fronting Drupal with an ingress/TLS
+  # proxy.
+  trustedHostPatterns: []
+  # Database table prefix. Set to run multiple Drupal installs in one database.
+  tablePrefix: ""
+
+# Resources. PHP-FPM + nginx idle small; memory grows with concurrent requests, enabled
+# modules and image processing (gd). Defaults schedule anywhere and pass the CI gate.
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+# nginx serves the whole site (public + /admin + the installer) on a single HTTP port.
+service:
+  type: ClusterIP
+  port: 8080
+
+# --- Public files volume (PVC) ---
+# Drupal writes uploaded and aggregated assets under sites/default/files — the only writable
+# app path on the read-only rootfs (core, modules and themes stay baked into the image). The
+# volume mounts over that path; it starts empty (files are created on demand), so no seed
+# step is needed. Single replica: ReadWriteOnce.
+persistence:
+  enabled: true
+  size: 10Gi
+  mountPath: /opt/drupal/sites/default/files
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+# --- Bundled database (default) ---
+# mysql.enabled deploys the QuenchWorks MySQL subchart. Its primary Service is
+# "<release>-mysql" (port 3306). Drupal connects with the credentials below. The MySQL image
+# creates auth.database and auth.username/auth.password on first init; Drupal's DB password
+# is read from the chart's managed Secret (never inlined into the pod env).
+mysql:
+  enabled: true
+  auth:
+    # rootPassword is generated into MySQL's own Secret if left empty.
+    rootPassword: ""
+    database: drupal
+    username: drupal
+    password: ""            # generated into this chart's managed Secret if left empty
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- External database (mysql.enabled=false) ---
+# Point Drupal at an existing MySQL/MariaDB. With existingSecret, the referenced Secret must
+# supply the password under existingSecretPasswordKey and this chart renders no managed DB
+# password (the hash salt still comes from this chart's own Secret).
+externalDatabase:
+  host: ""
+  port: 3306
+  database: drupal
+  user: drupal
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: "db-password"
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+# Extra env vars (list of {name,value} or {name,valueFrom}). Appended after the chart's own
+# env, so these win on conflict. Use for SMTP creds, DRUPAL_* overrides, or DRUPAL_DB_DRIVER=pgsql
+# when pointing at an external PostgreSQL.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (nonroot uid 1001,
+# fsGroup 1001 so the files PVC is writable, read-only rootfs). The image is built to run
+# read-only (only sites/default/files and /tmp are writable), so the defaults hold as-is.
+# Your keys still win on conflict.
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+# On a fresh install Drupal can't answer 2xx/3xx until MySQL is reachable (it errors out
+# otherwise). A startup probe tolerates the DB init window (up to 300s: 30 x 10s) before
+# liveness/readiness take over.
+customStartupProbe:
+  httpGet:
+    path: /core/install.php
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 30
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The public site is meant to be reached by readers, but /admin and the installer are
+# password-protected. Default restricts ingress to the release namespace (allowExternal:
+# false); set true (and front it with an ingress/TLS proxy) to expose it. Egress opens the DB
+# port + DNS plus general egress (Drupal fetches update checks, project info, sends mail).
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

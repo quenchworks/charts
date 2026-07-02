@@ -1,0 +1,53 @@
+Quenchworks WordPress is installed as {{ include "quench-common.fullname" . }}.
+
+The public site and /wp-admin are served on port {{ .Values.service.port }} inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Reach it from your machine with a port-forward:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  # then open the site at   http://localhost:{{ .Values.service.port }}/
+  # and finish the install at http://localhost:{{ .Values.service.port }}/wp-admin/install.php
+{{- if .Values.wordpress.siteUrl }}
+
+Public URL:
+
+  WP_HOME/WP_SITEURL are pinned to `wordpress.siteUrl` = {{ .Values.wordpress.siteUrl }}
+{{- end }}
+
+Database:
+{{- if .Values.mysql.enabled }}
+  Bundled Quenchworks MySQL (mysql.enabled=true).
+    host     : {{ include "wordpress.db.host" . }}
+    port     : {{ include "wordpress.db.port" . }}
+    database : {{ include "wordpress.db.name" . }}
+    user     : {{ include "wordpress.db.user" . }}
+  Set mysql.auth.password (and mysql.auth.rootPassword) for a deterministic install.
+{{- else }}
+  External database (mysql.enabled=false).
+    host     : {{ include "wordpress.db.host" . }}
+    port     : {{ include "wordpress.db.port" . }}
+    database : {{ include "wordpress.db.name" . }}
+    user     : {{ include "wordpress.db.user" . }}
+  Ensure this MySQL/MariaDB is reachable and the database/user exist.
+{{- end }}
+  The DB password and WordPress auth salts are injected from a Secret as WORDPRESS_* env
+  vars and read by the chart-supplied wp-config.php — they never appear in the pod's argv.
+
+Media uploads:
+{{- if .Values.persistence.enabled }}
+  PVC mounted at {{ .Values.persistence.mountPath }} ({{ .Values.persistence.size }}).
+{{- else }}
+  emptyDir (NOT persistent). Uploaded media is lost on pod restart — enable persistence for
+  any real use.
+{{- end }}
+  The rootfs is read-only: WordPress core, themes and plugins are baked into the signed
+  image, and in-dashboard file edits/updates are disabled (DISALLOW_FILE_MODS). Rebuild the
+  image to change code.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

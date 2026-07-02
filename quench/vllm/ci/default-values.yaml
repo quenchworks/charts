@@ -1,0 +1,24 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+#
+# vLLM CANNOT `serve` without a model, and pulling a real model is multi-GB -- far too
+# slow/heavy for a CI gate. So the gate proves the chart RENDERS + INSTALLS against the
+# real signed image, not that inference works: it overrides the entrypoint to idle the
+# image's own venv python (no model download, no network), which keeps the pod
+# schedulable and Running. Because /health only answers once a model is served, the
+# HTTP probes are disabled here; the workflow then execs `vllm --version` in the pod to
+# prove the real image binary is healthy. A tiny PVC keeps the cache mount writable.
+command: ["/opt/vllm/venv/bin/python"]
+args: ["-c", "import time; time.sleep(1e9)"]
+livenessProbe:
+  enabled: false
+readinessProbe:
+  enabled: false
+startupProbe:
+  enabled: false
+persistence:
+  enabled: true
+  size: 2Gi
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }

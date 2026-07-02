@@ -1,0 +1,51 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+# Bundles the Quenchworks MariaDB subchart with small PVCs; deterministic shared DB +
+# admin credentials; small resources for the runner. The gate confirms the install
+# initContainer ran occ maintenance:install against MariaDB, the app came up, and
+# /status.php reports installed:true. 127.0.0.1 is trusted so the port-forward smoke
+# test (Host 127.0.0.1) is accepted.
+nextcloud:
+  admin:
+    username: admin
+    password: ci-test-admin-password
+  trustedDomains:
+    - localhost
+    - 127.0.0.1
+
+mariadb:
+  enabled: true
+  auth:
+    rootPassword: ci-test-root-password
+    username: nextcloud
+    password: ci-test-password
+    database: nextcloud
+  primary:
+    persistence:
+      enabled: true
+      size: 1Gi
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: "1", memory: 512Mi }
+
+persistence:
+  data:
+    enabled: true
+    size: 1Gi
+  config:
+    enabled: true
+    size: 1Gi
+
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+# Nextcloud + MariaDB first-run install is slow (schema creation + DB warm-up); a generous
+# startup probe keeps the container from being killed mid-install.
+customStartupProbe:
+  httpGet:
+    path: /status.php
+    port: http
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 60

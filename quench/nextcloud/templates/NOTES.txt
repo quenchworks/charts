@@ -1,0 +1,61 @@
+Quenchworks Nextcloud is installed as {{ include "quench-common.fullname" . }}.
+
+The web UI + sync/WebDAV are served on port {{ .Values.service.port }} inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Reach it from your machine with a port-forward:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  # then open http://localhost:{{ .Values.service.port }}/
+
+Admin account (created on first install):
+
+  user     : {{ .Values.nextcloud.admin.username }}
+  password : kubectl get secret --namespace {{ .Release.Namespace }} {{ include "quench-common.fullname" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+
+Trusted domains:
+
+  Nextcloud rejects any request whose Host is not in `nextcloud.trustedDomains`:
+    {{ join ", " .Values.nextcloud.trustedDomains }}
+  Add the address users actually reach Nextcloud at (behind your ingress/proxy), and set
+  nextcloud.overwriteProtocol=https when a TLS proxy terminates in front of the pod.
+
+Database:
+{{- if .Values.mariadb.enabled }}
+  Bundled Quenchworks MariaDB (mariadb.enabled=true).
+    host     : {{ include "nextcloud.db.host" . }}
+    port     : {{ include "nextcloud.db.port" . }}
+    database : {{ include "nextcloud.db.name" . }}
+    user     : {{ include "nextcloud.db.user" . }}
+  Set mariadb.auth.password (and mariadb.auth.rootPassword) for a deterministic install.
+{{- else }}
+  External database (mariadb.enabled=false).
+    host     : {{ include "nextcloud.db.host" . }}
+    port     : {{ include "nextcloud.db.port" . }}
+    database : {{ include "nextcloud.db.name" . }}
+    user     : {{ include "nextcloud.db.user" . }}
+  Ensure this MySQL/MariaDB is reachable and the database/user exist.
+{{- end }}
+
+Storage:
+{{- if .Values.persistence.data.enabled }}
+  User files: PVC at /var/www/html/data ({{ .Values.persistence.data.size }}).
+{{- else }}
+  User files: emptyDir (NOT persistent) — enable persistence.data for any real use.
+{{- end }}
+{{- if .Values.persistence.config.enabled }}
+  Config:     PVC at /var/www/html/config ({{ .Values.persistence.config.size }}).
+{{- else }}
+  Config:     emptyDir (NOT persistent) — enable persistence.config for any real use.
+{{- end }}
+
+NOTE: the `install` initContainer runs `occ maintenance:install` before the app serves
+(writing config.php + creating the schema). It retries while the bundled MariaDB comes up,
+so first boot can take a couple of minutes; a startup probe gates the container until ready.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
