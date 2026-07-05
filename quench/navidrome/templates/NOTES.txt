@@ -1,0 +1,26 @@
+Quenchworks navidrome is installed as {{ include "quench-common.fullname" . }}.
+
+Reach the web UI / Subsonic API from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Port-forward it to your laptop:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 4533:{{ .Values.service.port }}
+  # then open http://127.0.0.1:4533
+
+Health check:
+
+  curl http://127.0.0.1:4533/ping   # -> HTTP 200
+
+On first visit navidrome walks you through creating the initial admin account.
+
+State (SQLite DB + scan cache + artwork) persists on the PVC at /data. The music
+library is mounted read-only at /music; a default install uses an empty ephemeral
+dir, so point `music.persistence.existingClaim` (or extraVolumes) at your library.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

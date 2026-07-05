@@ -1,0 +1,101 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/navidrome.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/navidrome
+  digest: "sha256:e9d92dc3bbbee2eb9855e8d53e40ace711a456286f20589e93068347f5e5643c"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single-node music server. Navidrome keeps its state in a SQLite DB plus a
+# scan cache under the data dir, so it is not horizontally scalable; keep at 1.
+replicaCount: 1
+
+# The hardened image runs nonroot (uid 1001) and binds this port. Navidrome's
+# own ND_PORT is wired to it so the container and probes stay in sync.
+containerPort: 4533
+
+# Data dir (SQLite DB + cache + artwork). Mounted at ND_DATAFOLDER=/data.
+persistence:
+  enabled: true
+  size: 1Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+# Music library source, mounted read-only at ND_MUSICFOLDER=/music. A default
+# install uses an ephemeral emptyDir (empty library) so the server boots. For a
+# real deployment point existingClaim at a PVC holding your library, or enable a
+# provisioned claim; you can also mount a hostPath/NFS source via extraVolumes.
+music:
+  persistence:
+    enabled: false
+    size: 10Gi
+    storageClass: ""
+    accessModes: ["ReadWriteOnce"]
+    annotations: {}
+    selector: {}
+    existingClaim: ""
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# Extra ND_* configuration (e.g. ND_SCANSCHEDULE, ND_LOGLEVEL, ND_BASEURL) as
+# env vars; better secrets via a Secret referenced by extraEnvVarsSecret.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # Navidrome is usually reached from outside the cluster (browser/Subsonic
+  # clients). Set true to allow ingress from any source; default restricts
+  # client traffic to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
