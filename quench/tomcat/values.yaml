@@ -1,0 +1,81 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/tomcat.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/tomcat
+  digest: "sha256:d12ab5de3901691d8f9bca0d5b23fc455f45fb6bf5fe95500dc2273b5671c2ec"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Apache Tomcat is a stateless servlet container: this chart runs a Deployment
+# (no persistence, no stable identity) and scales horizontally behind the service.
+# Deploy your applications by baking WARs into a derived image or mounting them at
+# the Tomcat webapps dir via extraVolumes/extraVolumeMounts.
+replicaCount: 1
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# Optional horizontal autoscaling on CPU (a stateless web container scales out well).
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+# Probes are tcpSocket on 8080: GET / is 404 by design (empty ROOT webapp), so an
+# httpGet probe would wrongly fail. The startup probe is generous for JVM boot.
+livenessProbe: {}
+readinessProbe: {}
+startupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# A web server commonly wants ingress from outside the namespace (ingress
+# controllers, gateways), so unlike the database charts this defaults to allowing
+# external traffic. Set allowExternal=false to restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
