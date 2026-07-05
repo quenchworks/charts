@@ -1,0 +1,34 @@
+Quenchworks ntfy is installed as {{ include "quench-common.fullname" . }}.
+
+The server runs nonroot and serves HTTP on container port {{ .Values.service.port }}; the
+Service exposes it on port {{ .Values.service.port }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Check health and publish a message over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://127.0.0.1:{{ .Values.service.port }}/v1/health          # -> {"healthy":true}
+  curl -d "hello from ntfy" http://127.0.0.1:{{ .Values.service.port }}/mytopic
+  curl -s http://127.0.0.1:{{ .Values.service.port }}/mytopic/json     # subscribe (streaming)
+
+{{ if or .Values.config.existingConfigMap .Values.config.yaml }}
+Running with a server config mounted at /etc/ntfy/server.yml.
+{{- else }}
+Running with default settings (in-memory message cache, no auth). Set config.yaml
+to a full ntfy server config (base-url, behind-proxy, auth-*, cache-file,
+attachment-cache-dir, ...) to enable persistence, access control, and attachments.
+{{- end }}
+{{- if .Values.persistence.enabled }}
+A PersistentVolumeClaim backs the cache dir at {{ .Values.persistence.mountPath }}. Point
+config.yaml's cache-file / attachment-cache-dir under that path to persist state.
+{{- else }}
+The cache dir at {{ .Values.persistence.mountPath }} is an ephemeral emptyDir. Set
+persistence.enabled=true to back it with a PersistentVolumeClaim.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/ntfy \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

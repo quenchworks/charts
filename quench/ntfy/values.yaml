@@ -1,0 +1,103 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/ntfy
+  digest: "sha256:7259d0fa4a5c4974fedf7bdde3439f2fa93d5436a172a5acf054d86ff2307ae3"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# ntfy is a single stateless Go binary. With the default config it keeps message
+# state in memory, so this chart runs a Deployment behind a ClusterIP Service.
+# Enable persistence (below) if you configure an on-disk message cache or
+# attachments, and keep replicaCount at 1 for a single writer to that store.
+replicaCount: 1
+
+# ntfy server configuration.
+#
+# The container runs `ntfy serve --listen-http :8080`. Set config.yaml to a YAML
+# ntfy server config (base-url, auth, cache-file, attachment-cache-dir, etc.);
+# it is written to a ConfigMap, mounted at /etc/ntfy/server.yml, and passed via
+# `--config`. Point config.existingConfigMap at an externally-managed ConfigMap
+# (key `server.yml`) to use that instead. extraArgs are appended to the command.
+config:
+  yaml: ""
+  existingConfigMap: ""
+extraArgs: []
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # The container serves HTTP on 8080; the Service maps the same port.
+  port: 8080
+
+# Writable cache/attachment directory. The runtime image has a read-only root
+# filesystem, so ntfy always gets a writable volume mounted at mountPath. With
+# enabled=false this is an ephemeral emptyDir; set enabled=true to back it with a
+# PersistentVolumeClaim (point config.yaml's cache-file/attachment-cache-dir
+# under mountPath to persist the message cache and attachments across restarts).
+persistence:
+  enabled: false
+  mountPath: /var/cache/ntfy
+  existingClaim: ""
+  storageClass: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+
+# Optional horizontal autoscaling on CPU. Only meaningful for a stateless
+# (in-memory) deployment; leave disabled when using an on-disk cache.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# ntfy is commonly published to clients across the cluster (and via Ingress), so
+# allow external ingress by default. Set allowExternal=false to restrict ingress
+# to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
