@@ -1,0 +1,99 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/perses
+  digest: "sha256:50b4d02afd3d2048747ace15e2d6225f8c2c2c64b5ebd9bbc0f9d52d945e9436"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Perses runs a Deployment behind a ClusterIP Service. With the default file
+# datastore it keeps state on disk (see persistence) rather than an external DB,
+# so a single replica is the safe default. Scale out only with a shared backend.
+replicaCount: 1
+
+# The container entrypoint is `perses --config=/etc/perses/config.yaml`. The image
+# ships a minimal config (file datastore under /perses), so the chart boots with
+# sane defaults and needs no ConfigMap. extraArgs are appended to that command.
+extraArgs: []
+
+# Perses runs on a read-only root filesystem and writes to two locations, both
+# backed by writable volumes the chart mounts automatically:
+#   - the file datastore at /perses (dashboards, projects) -> `persistence` below
+#   - the plugin cache at /etc/perses/plugins, where the bundled plugin archives
+#     are unpacked on boot -> an always-on emptyDir (ephemeral, rebuilt each start)
+persistence:
+  # Off by default: the datastore uses an emptyDir, so a pod restart loses state.
+  # Enable for a PersistentVolumeClaim to keep dashboards across restarts.
+  enabled: false
+  # existingClaim: ""
+  # Where the file datastore lives; must match the folder in the perses config.
+  path: /perses
+  accessModes:
+    - ReadWriteOnce
+  size: 8Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  # The container serves the UI and API on 8080; the Service maps the same port.
+  port: 8080
+
+# Optional horizontal autoscaling on CPU. Only safe with a shared datastore
+# backend; the default file datastore is per-pod, so leave this off for it.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The dashboard UI/API is commonly reached from across the cluster, so allow
+# external ingress by default. Set allowExternal=false to restrict ingress to the
+# namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
