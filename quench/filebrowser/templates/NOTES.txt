@@ -1,0 +1,28 @@
+Quenchworks filebrowser is installed as {{ include "quench-common.fullname" . }}.
+
+Reach the web UI from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Port-forward it to your laptop:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  # then open http://127.0.0.1:8080
+
+Health check:
+
+  curl http://127.0.0.1:8080/health   # -> {"status":"OK"}
+
+On first boot File Browser creates an 'admin' user with a RANDOMLY generated
+password, printed to the pod logs. Read it and change it after first login:
+
+  kubectl logs {{ include "quench-common.fullname" . }}-0 | grep -i password
+
+Data persists on the PVC: the SQLite DB under /database and the served files
+under /srv (both subpaths of one claim).
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

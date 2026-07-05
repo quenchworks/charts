@@ -1,0 +1,87 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/filebrowser.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/filebrowser
+  digest: "sha256:cea3a11410ba307b8ef123ba80dacb7f5e0615653fe0e8391eac2d53222496a3"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single-node web file manager. File Browser persists a SQLite DB plus the served
+# files directory, so it is not horizontally scalable; keep this at 1.
+replicaCount: 1
+
+# The hardened image runs nonroot (uid 1001) and binds this port on 0.0.0.0. The
+# image's FB_PORT is wired to it so the container and probes stay in sync.
+containerPort: 8080
+
+persistence:
+  enabled: true
+  size: 1Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# On first boot File Browser initializes its DB and creates an 'admin' user with
+# a RANDOMLY generated password, printed to the pod logs. Read it with
+# `kubectl logs <pod>` and change it after first login. Use extraEnvVars (or a
+# Secret via extraEnvVarsSecret) for further FB_* configuration.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # File Browser is often reached from outside the cluster (browser). Set true to
+  # allow ingress from any source; default restricts client traffic to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
