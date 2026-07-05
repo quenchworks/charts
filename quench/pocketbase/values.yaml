@@ -1,0 +1,92 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/pocketbase.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/pocketbase
+  digest: "sha256:4723b19f374064edcafd4e69a0028467dc62b17761960bcfae47cc1f80df5fba"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# PocketBase keeps everything (SQLite DB, uploaded files, migrations, backups)
+# in a single pb_data dir, so it is not horizontally scalable; keep this at 1.
+replicaCount: 1
+
+# The hardened image's entrypoint is baked as
+#   pocketbase serve --http 0.0.0.0:8080 --dir /pb_data
+# so the bind port is fixed at 8080. This value only drives the container port
+# declaration, the Service targetPort and the probes; leave it 8080 to match the
+# baked --http flag (change both together via command/args if you rebuild).
+containerPort: 8080
+
+persistence:
+  enabled: true
+  size: 1Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# Create the first superuser non-interactively on boot with an env pair, e.g.
+#   extraEnvVars:
+#     - name: PB_ADMIN_EMAIL       (any of your own; wire via command/args)
+# PocketBase itself has no built-in bootstrap env; create the admin from the UI
+# on first visit, or run `pocketbase superuser upsert` via a one-off exec.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # PocketBase is typically reached from outside the cluster (browser/apps/SDKs).
+  # Set true to allow ingress from any source; default restricts client traffic
+  # to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

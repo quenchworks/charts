@@ -1,0 +1,28 @@
+Quenchworks pocketbase is installed as {{ include "quench-common.fullname" . }}.
+
+Reach the API / admin UI from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Port-forward it to your laptop:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8090:{{ .Values.service.port }}
+  # then open http://127.0.0.1:8090/_/  for the admin dashboard
+
+Health check:
+
+  curl http://127.0.0.1:8090/api/health   # -> {"code":200,"message":"API is healthy.",...}
+
+On first visit to /_/ you create the initial superuser. Alternatively create one
+non-interactively:
+
+  kubectl exec statefulset/{{ include "quench-common.fullname" . }} -- \
+    pocketbase superuser upsert admin@example.com <password> --dir /pb_data
+
+Data (SQLite DB + uploaded files + migrations + backups) persists on the PVC at /pb_data.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
