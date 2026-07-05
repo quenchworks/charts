@@ -1,0 +1,87 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/gotify.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/gotify
+  digest: "sha256:ecd4ddb3317f43de1b6ac6b2d71b8924a0e5305c7f7bce76eb0c3a371ae16f0e"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single-node push-notification server. Gotify persists to a SQLite DB plus
+# uploaded images/plugins under a data dir, so it is not horizontally scalable;
+# keep this at 1.
+replicaCount: 1
+
+# The hardened image runs nonroot (uid 1001) and binds this port. Gotify's own
+# GOTIFY_SERVER_PORT is wired to it so the container and probes stay in sync.
+containerPort: 8080
+
+persistence:
+  enabled: true
+  size: 1Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# Set the default admin login here (or via a Secret with extraEnvVarsSecret).
+# Gotify creates the admin user on first boot from GOTIFY_DEFAULTUSER_*; change
+# the password after first login. Left empty, the image defaults to admin/admin.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # Gotify is often reached from outside the cluster (browser/apps). Set true to
+  # allow ingress from any source; default restricts client traffic to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

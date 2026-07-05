@@ -1,0 +1,26 @@
+Quenchworks gotify is installed as {{ include "quench-common.fullname" . }}.
+
+Reach the web UI / API from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Port-forward it to your laptop:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  # then open http://127.0.0.1:8080
+
+Health check:
+
+  curl http://127.0.0.1:8080/health   # -> {"health":"green","database":"green"}
+
+Default login is admin / admin unless you set GOTIFY_DEFAULTUSER_NAME /
+GOTIFY_DEFAULTUSER_PASS (via extraEnvVars or a Secret). CHANGE THE PASSWORD
+AFTER FIRST LOGIN under User settings.
+
+Data (SQLite DB + uploaded images + plugins) persists on the PVC at /app/data.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
