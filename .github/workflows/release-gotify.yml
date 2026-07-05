@@ -42,7 +42,20 @@ jobs:
       - name: Install gate (kind)
         run: |
           set -o pipefail
-          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 5m
+          # The image is pinned by digest and lives in a non-public GHCR package,
+          # so give the pod credentials to pull the real, signed artifact. A
+          # pre-created ServiceAccount carries the pull secret from pod-creation
+          # time (patching a chart-created SA would not affect the running pod).
+          kubectl create secret docker-registry ghcr-pull \
+            --docker-server=ghcr.io \
+            --docker-username="${{ github.actor }}" \
+            --docker-password="${{ secrets.GITHUB_TOKEN }}"
+          kubectl create serviceaccount gotify-puller
+          kubectl patch serviceaccount gotify-puller \
+            -p '{"imagePullSecrets":[{"name":"ghcr-pull"}]}'
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set serviceAccount.create=false --set serviceAccount.name=gotify-puller \
+            --wait --timeout 5m
           kubectl rollout status statefulset/rtest-gotify --timeout=300s
           # PVC must be bound
           kubectl get pvc data-rtest-gotify-0 -o jsonpath='{.status.phase}' | grep -q Bound
