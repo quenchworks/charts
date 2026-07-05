@@ -1,0 +1,79 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/httpd.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/httpd
+  digest: "sha256:362a9941a1dc27ac2e4d48c882bb5bac149b99e85c2b5b7e950aceb4f452ba3a"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# httpd is a stateless web server / reverse proxy: this chart runs a Deployment
+# (no persistence, no stable identity) and scales horizontally behind the service.
+replicaCount: 1
+
+resources:
+  requests: { cpu: 50m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 128Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# Optional horizontal autoscaling on CPU (a stateless web server scales out well).
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+# Defaults are tcpSocket checks on 8080 (the from-source image serves no HTTP
+# health endpoint, so a TCP connect is the reliable liveness signal).
+livenessProbe: {}
+readinessProbe: {}
+startupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# A web server commonly wants ingress from outside the namespace (ingress
+# controllers, gateways), so unlike the database charts this defaults to allowing
+# external traffic. Set allowExternal=false to restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

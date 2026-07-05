@@ -1,0 +1,27 @@
+Quenchworks httpd (Apache HTTP Server) is installed as {{ include "quench-common.fullname" . }}.
+
+Reach it from inside the cluster (HTTP on port {{ .Values.service.port }}):
+
+  Endpoint: {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+  kubectl run web-test --rm -it --image=curlimages/curl --restart=Never -- \
+    curl -fsS http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/
+
+Or port-forward from your workstation:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  curl http://127.0.0.1:8080/
+
+The image ships a working default config with an index page at the doc root
+/usr/share/httpd/htdocs, so GET / returns 200 out of the box. To serve your own
+site, mount content over the doc root via extraVolumes/extraVolumeMounts; to add
+config, drop *.conf files into /etc/httpd/conf.d the same way (the shipped
+httpd.conf already does `IncludeOptional /etc/httpd/conf.d/*.conf`).
+
+The image is nonroot (uid 1001), runs on a read-only root filesystem (an emptyDir
+is mounted writable at /tmp for httpd's pid, runtime dir and mutex), listens on
+:8080, pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
