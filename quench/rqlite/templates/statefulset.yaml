@@ -34,13 +34,39 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
-          {{- include "quench-common.command" . | nindent 10 }}
-          {{- include "quench-common.args" . | nindent 10 }}
+          {{- if .Values.command }}
+          command:
+            {{- toYaml .Values.command | nindent 12 }}
+          {{- else }}
+          command: ["/usr/bin/rqlited"]
+          {{- end }}
+          {{- if .Values.args }}
+          args:
+            {{- toYaml .Values.args | nindent 12 }}
+          {{- else }}
+          # Two overrides of the baked entrypoint are required to run hardened:
+          #  1. It advertises 0.0.0.0, which rqlited rejects as non-routable, so
+          #     advertise each node over its stable headless DNS (also lets
+          #     future peers find each other).
+          #  2. The baked data dir /rqlite/data sits under the image's read-only
+          #     WORKDIR /rqlite, so the non-root user cannot create rqlite's
+          #     extension store there. Use /data, a writable mounted volume.
+          args:
+            - -http-addr=0.0.0.0:{{ .Values.service.httpPort }}
+            - -http-adv-addr=$(POD_NAME).{{ include "rqlite.headlessName" . }}.$(POD_NAMESPACE).svc.cluster.local:{{ .Values.service.httpPort }}
+            - -raft-addr=0.0.0.0:{{ .Values.service.raftPort }}
+            - -raft-adv-addr=$(POD_NAME).{{ include "rqlite.headlessName" . }}.$(POD_NAMESPACE).svc.cluster.local:{{ .Values.service.raftPort }}
+            - /data
+          {{- end }}
           env:
             - name: POD_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
@@ -59,7 +85,7 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             - name: data
-              mountPath: /rqlite/data
+              mountPath: /data
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       {{- if or (and .Values.persistence.enabled .Values.persistence.existingClaim) (not .Values.persistence.enabled) .Values.extraVolumes }}
