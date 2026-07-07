@@ -1,0 +1,92 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/nsq.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/nsq
+  digest: "sha256:8fb8a7a72431873e4cf4ecb2272434f13504d88781f5a70d35f0996bde560684"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single nsqd node. nsqd persists its topic/channel disk-queue to a local data
+# dir, so it is not horizontally scalable here; keep this at 1. Multi-node NSQ
+# (nsqlookupd discovery + extra nsqd + the nsqadmin UI) is out of scope for this
+# chart and tracked as a follow-up.
+replicaCount: 1
+
+# The hardened image runs nonroot (uid 1001) and its entrypoint is nsqd. nsqd
+# listens for producers/consumers on the TCP port and serves its HTTP API
+# (including /ping and /pub) on the HTTP port.
+tcpPort: 4150
+httpPort: 4151
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  # Producers/consumers connect on tcpPort; the HTTP API (pub, stats, ping) is
+  # on httpPort. Both target the matching container ports by name.
+  tcpPort: 4150
+  httpPort: 4151
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# command overrides the image entrypoint (default: nsqd). args, when set, fully
+# replaces the default nsqd flags (--data-path=/data --broadcast-address=<pod>).
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # nsq clients often live outside the cluster. Set true to allow ingress from
+  # any source; default restricts producer/consumer traffic to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

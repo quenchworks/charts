@@ -1,0 +1,30 @@
+Quenchworks nsq is installed as {{ include "quench-common.fullname" . }} (single nsqd node).
+
+Reach nsqd from inside the cluster:
+
+  TCP (producers/consumers): {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.tcpPort }}
+  HTTP API:                  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}
+
+Port-forward the HTTP API to your laptop:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.httpPort }}:{{ .Values.service.httpPort }}
+
+Health check:
+
+  curl http://127.0.0.1:{{ .Values.service.httpPort }}/ping   # -> 200 OK
+
+Publish and read a message:
+
+  curl -d 'hello' 'http://127.0.0.1:{{ .Values.service.httpPort }}/pub?topic=test'
+  curl 'http://127.0.0.1:{{ .Values.service.httpPort }}/stats'
+
+The topic/channel disk-queue persists on the PVC at /data (nsqd --data-path).
+
+Scope: this is a single standalone nsqd node. nsqlookupd discovery, additional
+nsqd nodes, and the nsqadmin web UI are out of scope (a follow-up).
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
