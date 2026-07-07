@@ -1,0 +1,37 @@
+Quenchworks MediaMTX is installed as {{ include "quench-common.fullname" . }}.
+
+The server runs nonroot and serves the streaming protocols on:
+
+  RTSP    {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.ports.rtsp }}
+  RTMP    {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.ports.rtmp }}
+  HLS     {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.ports.hls }}
+  WebRTC  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.ports.webrtc }}
+
+Readiness is a TCP check on the RTSP port ({{ .Values.service.ports.rtsp }}); the listener comes up as
+soon as the server is ready.
+
+{{- if .Values.api.enabled }}
+
+The control API is enabled on port {{ .Values.api.port }}, but MediaMTX's default auth only allows
+the API unauthenticated from localhost. A port-forward reaches the pod over its
+loopback, so it works; add auth (authInternalUsers / authHTTPAddress) via
+config.yaml before exposing it more widely:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.api.port }}:{{ .Values.api.port }}
+  curl http://127.0.0.1:{{ .Values.api.port }}/v3/config/global/get
+{{- else }}
+
+The control API is disabled. Enable it with --set api.enabled=true to expose the
+HTTP API on port {{ .Values.api.port }} (add your own auth before relying on it off-pod).
+{{- end }}
+
+Publish a test stream over RTMP, then read it back over RTSP/HLS/WebRTC:
+
+  ffmpeg -re -stream_loop -1 -i input.mp4 -c copy -f flv \
+    rtmp://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.ports.rtmp }}/mystream
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/mediamtx \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

@@ -1,0 +1,21 @@
+{{- if and (not .Values.config.existingConfigMap) (or .Values.config.yaml .Values.api.enabled) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mediamtx.configMapName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # Mounted at /config/mediamtx.yml and passed to mediamtx as its config path.
+  # MediaMTX fills every unset key from its compiled-in defaults, so this minimal
+  # file only flips the control API on to expose an HTTP health endpoint; a
+  # user-supplied config.yaml replaces it wholesale.
+  mediamtx.yml: |-
+    {{- if .Values.config.yaml }}
+    {{- .Values.config.yaml | nindent 4 }}
+    {{- else }}
+    # QuenchWorks: enable the control API so the chart has an HTTP health endpoint.
+    api: yes
+    apiAddress: :{{ .Values.api.port }}
+    {{- end }}
+{{- end }}

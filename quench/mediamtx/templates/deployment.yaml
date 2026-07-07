@@ -1,0 +1,100 @@
+{{/* MediaMTX starts its RTSP listener on :8554 once the server is up, and the port
+     needs no auth -- so a TCP check there is the readiness/liveness signal. (The
+     control API is localhost-authed by default, so an off-pod httpGet probe would
+     be rejected; users enabling the API with their own auth can set a
+     customReadinessProbe.) */}}
+{{- $liveness := dict "tcpSocket" (dict "port" "rtsp") "initialDelaySeconds" 5 "periodSeconds" 15 -}}
+{{- $readiness := dict "tcpSocket" (dict "port" "rtsp") "initialDelaySeconds" 2 "periodSeconds" 10 -}}
+{{- $hasConfig := include "mediamtx.hasConfig" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "mediamtx.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: mediamtx
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          # Run from the writable scratch dir so MediaMTX can persist auto-generated
+          # ephemeral TLS material (e.g. MoQ) without hitting the read-only rootfs.
+          workingDir: /tmp
+          {{- if $hasConfig }}
+          command: ["/usr/bin/mediamtx", "/config/mediamtx.yml"]
+          {{- end }}
+          {{- with .Values.extraEnvVars }}
+          env:
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: rtsp
+              containerPort: {{ .Values.service.ports.rtsp }}
+              protocol: TCP
+            - name: rtmp
+              containerPort: {{ .Values.service.ports.rtmp }}
+              protocol: TCP
+            - name: hls
+              containerPort: {{ .Values.service.ports.hls }}
+              protocol: TCP
+            - name: webrtc
+              containerPort: {{ .Values.service.ports.webrtc }}
+              protocol: TCP
+            {{- if .Values.api.enabled }}
+            - name: api
+              containerPort: {{ .Values.api.port }}
+              protocol: TCP
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: scratch
+              mountPath: /tmp
+            {{- if $hasConfig }}
+            - name: config
+              mountPath: /config
+              readOnly: true
+            {{- end }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: scratch
+          emptyDir: {}
+        {{- if $hasConfig }}
+        - name: config
+          configMap:
+            name: {{ include "mediamtx.mountedConfigMap" . }}
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

@@ -1,0 +1,98 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/mediamtx
+  digest: "sha256:b9e32f74098fa6fa3037a567107e24060ad223d5ca3cf4f6237e64b6b5e037bc"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# MediaMTX holds no persistent state by default (in-memory HLS, no recordings),
+# so this chart runs a stateless Deployment behind a ClusterIP Service.
+replicaCount: 1
+
+# Control API (:9997). MediaMTX ships with the API OFF and, when on, its baked
+# default auth only allows the API unauthenticated from localhost (127.0.0.1) --
+# so it is left OFF here and probes use a TCP check on the RTSP port instead.
+# Set api.enabled=true to turn the API on (via a tiny generated config) and expose
+# it on the Service/NetworkPolicy; add your own auth before relying on it, since
+# kubelet HTTP probes originate off-pod and would be rejected by the default auth.
+api:
+  enabled: false
+  port: 9997
+
+# Full config override. Provide config.yaml to replace the server config entirely
+# (it is written to a ConfigMap, mounted at /config/mediamtx.yml and passed to
+# mediamtx), or point config.existingConfigMap at a ConfigMap carrying key
+# `mediamtx.yml`.
+# When either is set you own the whole config and `api.enabled` no longer injects
+# anything; set a customReadinessProbe if you move the health port.
+config:
+  yaml: ""
+  existingConfigMap: ""
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # Streaming ports served by MediaMTX on its baked defaults. These are the
+  # container listen ports; change them only alongside a matching config.yaml.
+  ports:
+    rtsp: 8554
+    rtmp: 1935
+    hls: 8888
+    webrtc: 8889
+
+# Optional horizontal autoscaling on CPU.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The streaming/API ports are commonly reached from across the cluster, so allow
+# external ingress by default. Set allowExternal=false to restrict to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
