@@ -1,0 +1,64 @@
+{{- $mp := .Values.persistence.mountPath -}}
+{{- $rootUrl := .Values.config.rootUrl | default (printf "http://localhost:%v/" (.Values.containerPort | toString)) -}}
+{{- $disableSsh := ternary "false" "true" .Values.config.ssh.enabled -}}
+{{- $startSsh := ternary "true" "false" .Values.config.ssh.enabled -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "forgejo.configName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # Seeds an install-locked app.ini onto the data PVC on first boot only. The
+  # hardened image has no environment-to-ini step, so FORGEJO__* env vars are NOT
+  # honored; the config file is the supported headless-boot mechanism. Secrets are
+  # produced by the forgejo binary (real signed values) and persist on the PVC, so
+  # nothing is generated into the read-only rootfs and nothing rotates on restart.
+  # Only bash + the forgejo binary are used (the image ships no coreutils).
+  seed.sh: |
+    set -eu
+    CONF="{{ $mp }}/app.ini"
+    if [ -f "$CONF" ]; then
+      echo "forgejo: keeping existing ${CONF}"
+      exit 0
+    fi
+    echo "forgejo: seeding install-locked ${CONF} with fresh secrets"
+    SECRET_KEY="$(/usr/bin/forgejo generate secret SECRET_KEY)"
+    INTERNAL_TOKEN="$(/usr/bin/forgejo generate secret INTERNAL_TOKEN)"
+    JWT_SECRET="$(/usr/bin/forgejo generate secret JWT_SECRET)"
+    printf '%s\n' \
+      'APP_NAME = {{ .Values.config.appName }}' \
+      'RUN_USER = forgejo' \
+      'RUN_MODE = prod' \
+      'WORK_PATH = {{ $mp }}' \
+      '' \
+      '[server]' \
+      'HTTP_ADDR = 0.0.0.0' \
+      'HTTP_PORT = {{ .Values.containerPort }}' \
+      'ROOT_URL = {{ $rootUrl }}' \
+      'APP_DATA_PATH = {{ $mp }}' \
+      'DISABLE_SSH = {{ $disableSsh }}' \
+      'START_SSH_SERVER = {{ $startSsh }}' \
+      'SSH_PORT = {{ .Values.config.ssh.port }}' \
+      'LFS_START_SERVER = false' \
+      '' \
+      '[database]' \
+      'DB_TYPE = sqlite3' \
+      'PATH = {{ $mp }}/forgejo.db' \
+      '' \
+      '[repository]' \
+      'ROOT = {{ $mp }}/git/repositories' \
+      '' \
+      '[security]' \
+      'INSTALL_LOCK = true' \
+      "SECRET_KEY = ${SECRET_KEY}" \
+      "INTERNAL_TOKEN = ${INTERNAL_TOKEN}" \
+      '' \
+      '[oauth2]' \
+      "JWT_SECRET = ${JWT_SECRET}" \
+      '' \
+      '[log]' \
+      'MODE = console' \
+      'LEVEL = {{ .Values.config.logLevel }}' \
+      > "$CONF"
+    echo "forgejo: wrote ${CONF}"

@@ -1,0 +1,108 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/forgejo.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/forgejo
+  digest: "sha256:c94744a2a3393a19413084eb1f4b01144c8c31e53c429681e3e68b102efb0c6d"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single-node Git forge. Forgejo persists repos, its SQLite DB, and generated
+# config/secrets under one data dir, so it is not horizontally scalable; keep
+# this at 1. For HA you would move to an external DB + shared storage (follow-up).
+replicaCount: 1
+
+# The hardened image runs nonroot (uid 1001) and Forgejo binds this HTTP port.
+# It is wired into the generated app.ini (server.HTTP_PORT) and the probes.
+containerPort: 3000
+
+# Headless boot configuration. Forgejo normally shows a web installer on first
+# start; an init container generates an app.ini with INSTALL_LOCK=true plus fresh
+# secrets (SECRET_KEY / INTERNAL_TOKEN / oauth2 JWT_SECRET, produced by the
+# forgejo binary itself) and writes it to the data PVC, so the install page is
+# never served and the secrets persist across restarts. The file is written only
+# if it does not already exist, so your customizations survive.
+config:
+  appName: "Forgejo"
+  # External base URL Forgejo uses to build links/clone URLs. Leave empty to
+  # default to http://localhost:<containerPort>/ (set this behind an Ingress).
+  rootUrl: ""
+  logLevel: info
+  ssh:
+    # Built-in SSH server for git-over-ssh. Off by default (HTTP only); when
+    # enabled you must also expose SSH_PORT via the service/ingress yourself.
+    enabled: false
+    port: 22
+
+persistence:
+  enabled: true
+  # Repos + SQLite DB + generated app.ini + storage all live here.
+  mountPath: /data
+  size: 8Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+# Args appended to the image entrypoint (`forgejo web`). Default points Forgejo
+# at the app.ini seeded on the PVC. Override only if you know what you are doing.
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+startupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # Forgejo is typically reached from outside the cluster (browser + git clients).
+  # Set true to allow ingress from any source; default restricts client traffic
+  # to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
