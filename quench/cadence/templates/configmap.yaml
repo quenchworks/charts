@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cadence.configMapName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # The server reads /etc/cadence/config/<CADENCE_ENVIRONMENT>.yaml. We mount this
+  # ConfigMap at /etc/cadence/config with CADENCE_ENVIRONMENT=config, so config.yaml
+  # is the server config. cadenceConfig is tpl-rendered (Cassandra host/keyspaces,
+  # numHistoryShards flow in); ${POD_IP} is left literal and expanded by Cadence's
+  # own config loader from the downward-API POD_IP env var at start.
+  config.yaml: |
+    {{- tpl .Values.cadenceConfig . | nindent 4 }}
+  # dynamicconfig is referenced at config/dynamicconfig/config.yaml; the file must
+  # exist even when empty. Mounted at /etc/cadence/config/dynamicconfig/config.yaml.
+  dynamicconfig.yaml: |
+    {{- tpl .Values.dynamicConfig . | nindent 4 }}

@@ -1,0 +1,225 @@
+{{/*
+All-in-one Cadence server (frontend + history + matching + worker in one process).
+The image entrypoint is /usr/bin/cadence-server; args are `start --services=<roles>`.
+The server reads config/config.yaml under --root /etc/cadence; the config carries
+${POD_IP} which Cadence's config loader expands from the downward-API POD_IP env.
+
+Schema bootstrap runs as SIX shell-free init containers (the image is distroless —
+no shell), each a single `cadence-cassandra-tool` invocation, per keyspace:
+  1. create-Keyspace  — idempotent (CREATE KEYSPACE IF NOT EXISTS); ALSO the
+     wait-for-Cassandra gate: on a cold start it exits non-zero until Cassandra
+     accepts connections and the kubelet restarts it until it succeeds.
+  2. setup-schema -q  — quiet, so a re-run tolerates already-created version tables.
+  3. update-schema    — applies every migration to the latest; a no-op once current.
+Ordering is guaranteed by init-container order; every step is safe to re-run on pod
+restart / upgrade.
+
+Probes: tcpSocket on the frontend gRPC port (7833). Cassandra + schema + server boot
+is slow, so the startup budget is generous. Override with customStartup/Liveness/
+ReadinessProbe.
+*/}}
+{{- $liveness := dict "tcpSocket" (dict "port" 7833) "initialDelaySeconds" 30 "periodSeconds" 20 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "tcpSocket" (dict "port" 7833) "initialDelaySeconds" 15 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $mainKs := .Values.keyspaces.main -}}
+{{- $visKs := .Values.keyspaces.visibility -}}
+{{- $rf := .Values.schemaSetup.replicationFactor | toString -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "cadence.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        {{- if .Values.schemaSetup.enabled }}
+        # --- main keyspace ---
+        - name: schema-main-keyspace
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/cadence-cassandra-tool"]
+          args: ["create-Keyspace", "-k", {{ $mainKs | quote }}, "--rf", {{ $rf | quote }}]
+          env:
+            {{- include "cadence.schemaConnEnv" . | nindent 12 }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.schemaSetup.resources | nindent 12 }}
+        - name: schema-main-setup
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/cadence-cassandra-tool"]
+          args: ["-q", "-k", {{ $mainKs | quote }}, "setup-schema", "-v", "0.0"]
+          env:
+            {{- include "cadence.schemaConnEnv" . | nindent 12 }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.schemaSetup.resources | nindent 12 }}
+        - name: schema-main-update
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/cadence-cassandra-tool"]
+          args: ["-k", {{ $mainKs | quote }}, "update-schema", "-d", "/etc/cadence/schema/cassandra/cadence/versioned"]
+          env:
+            {{- include "cadence.schemaConnEnv" . | nindent 12 }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.schemaSetup.resources | nindent 12 }}
+        # --- visibility keyspace ---
+        - name: schema-vis-keyspace
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/cadence-cassandra-tool"]
+          args: ["create-Keyspace", "-k", {{ $visKs | quote }}, "--rf", {{ $rf | quote }}]
+          env:
+            {{- include "cadence.schemaConnEnv" . | nindent 12 }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.schemaSetup.resources | nindent 12 }}
+        - name: schema-vis-setup
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/cadence-cassandra-tool"]
+          args: ["-q", "-k", {{ $visKs | quote }}, "setup-schema", "-v", "0.0"]
+          env:
+            {{- include "cadence.schemaConnEnv" . | nindent 12 }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.schemaSetup.resources | nindent 12 }}
+        - name: schema-vis-update
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/cadence-cassandra-tool"]
+          args: ["-k", {{ $visKs | quote }}, "update-schema", "-d", "/etc/cadence/schema/cassandra/visibility/versioned"]
+          env:
+            {{- include "cadence.schemaConnEnv" . | nindent 12 }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.schemaSetup.resources | nindent 12 }}
+        {{- end }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: cadence
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- if .Values.command }}
+          command:
+            {{- toYaml .Values.command | nindent 12 }}
+          {{- end }}
+          args:
+            {{- if .Values.args }}
+            {{- toYaml .Values.args | nindent 12 }}
+            {{- else }}
+            - "start"
+            - "--services={{ .Values.services }}"
+            {{- end }}
+          env:
+            # The pod IP, surfaced to Cadence's config loader as POD_IP. The server
+            # config expands ${POD_IP} for every role's bindOnIP, the ringpop
+            # bootstrapHosts, and the clusterGroup rpcAddress — so the ring advertises
+            # a routable address and the Service/probe can reach the frontend.
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: CADENCE_ROOT
+              value: /etc/cadence
+            - name: CADENCE_CONFIG_DIR
+              value: config
+            - name: CADENCE_ENVIRONMENT
+              value: config
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: grpc
+              containerPort: 7833
+            - name: tchannel
+              containerPort: 7933
+            - name: history
+              containerPort: 7834
+            - name: matching
+              containerPort: 7835
+            - name: worker
+              containerPort: 7939
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- if .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml .Values.customStartupProbe | nindent 12 }}
+          {{- else if .Values.startupProbe }}
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
+          {{- else }}
+          startupProbe:
+            tcpSocket:
+              port: grpc
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 90
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # Server config (config.yaml + dynamicconfig/config.yaml) from the
+            # ConfigMap, read-only. Cadence reads --config config under --root
+            # /etc/cadence, i.e. this directory.
+            - name: config
+              mountPath: /etc/cadence/config
+              readOnly: true
+            # Read-only rootfs: the server writes nothing to the rootfs (state lives
+            # in Cassandra), but it needs a writable /tmp (blobstore output dir etc.).
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "cadence.configMapName" . }}
+            items:
+              - key: config.yaml
+                path: config.yaml
+              - key: dynamicconfig.yaml
+                path: dynamicconfig/config.yaml
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

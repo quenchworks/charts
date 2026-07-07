@@ -1,0 +1,52 @@
+QuenchWorks Cadence is installed as {{ include "quench-common.fullname" . }}.
+
+This is the ALL-IN-ONE server: one process runs all four roles
+(frontend + history + matching + worker), backed by Cassandra.
+
+Frontend gRPC (the main client/worker port) inside the cluster:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.grpcPort }}
+
+Connect a worker or client:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.grpcPort }}:{{ .Values.service.grpcPort }}
+  # point your SDK client / the `cadence` CLI (gRPC transport) at 127.0.0.1:{{ .Values.service.grpcPort }}
+
+The bundled `cadence` CLI defaults to the TChannel transport — pass
+`--transport grpc` when talking to the gRPC port ({{ .Values.service.grpcPort }}):
+
+  kubectl exec -it deploy/{{ include "quench-common.fullname" . }} -- \
+    cadence --transport grpc --address 127.0.0.1:{{ .Values.service.grpcPort }} --domain my-domain domain register --retention 1
+
+A domain is not auto-created — register the domains your workers use.
+
+Schema:
+  Six shell-free init containers run cadence-cassandra-tool to create both keyspaces
+  and bring their schema to the latest version BEFORE the server starts. Cadence uses
+  TWO keyspaces — the main store and the visibility store
+  ({{ .Values.keyspaces.main }} + {{ .Values.keyspaces.visibility }}).
+
+Cassandra:
+{{- if .Values.cassandra.enabled }}
+  Bundled QuenchWorks Cassandra (cassandra.enabled=true).
+    host        : {{ include "cadence.cassandra.host" . }}:{{ include "cadence.cassandra.port" . }}
+    main store  : {{ .Values.keyspaces.main }}
+    visibility  : {{ .Values.keyspaces.visibility }}
+    auth        : {{ if .Values.cassandra.auth.enabled }}enabled{{ else }}disabled (NetworkPolicy is the trust boundary){{ end }}
+{{- else }}
+  External Cassandra (cassandra.enabled=false).
+    host        : {{ include "cadence.cassandra.host" . }}:{{ include "cadence.cassandra.port" . }}
+    main store  : {{ .Values.keyspaces.main }}
+    visibility  : {{ .Values.keyspaces.visibility }}
+  Ensure this Cassandra is reachable and the account can create keyspaces + tables.
+{{- end }}
+
+Scaling:
+  Keep replicaCount at 1 for the all-in-one server. numHistoryShards is FIXED at
+  first schema setup and cannot change without a fresh keyspace.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

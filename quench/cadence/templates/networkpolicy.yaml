@@ -1,0 +1,55 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Frontend gRPC (client/worker port) + TChannel. Cadence's frontend is a backend
+    # service (not a browser endpoint) and has no built-in auth in this config, so
+    # ingress is restricted to the release namespace by default. Set
+    # networkPolicy.allowExternal=true to allow clients from outside the namespace.
+    - ports:
+        - port: grpc
+          protocol: TCP
+        - port: tchannel
+          protocol: TCP
+      {{- if not .Values.networkPolicy.allowExternal }}
+      from:
+        - podSelector: {}
+      {{- end }}
+    # Intra-cluster ringpop membership + inter-role RPC (history/matching/worker
+    # gRPC + TChannel). All-in-one runs these within one pod, but allow same-namespace
+    # peers so a future scale-out (one Deployment per role) keeps working.
+    - ports:
+        - port: history
+          protocol: TCP
+        - port: matching
+          protocol: TCP
+        - port: worker
+          protocol: TCP
+      from:
+        - podSelector: {}
+  egress:
+    # DNS resolution
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Cassandra (the bundled subchart or an external cluster).
+    - ports:
+        - port: {{ include "cadence.cassandra.port" . }}
+          protocol: TCP
+    # Intra-cluster ringpop membership / inter-role RPC to same-namespace peers.
+    - to:
+        - podSelector: {}
+{{- end }}

@@ -1,0 +1,141 @@
+name: release-cadence
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/cadence/**"
+      - ".github/workflows/release-cadence.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/cadence
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # pin actions to SHAs before going public (renovate)
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          # pulls quench-common + the bundled cassandra subchart into charts/
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          # The cadence image is pinned by digest and lives in a non-public GHCR
+          # package, so give the server pod credentials to pull the real, signed
+          # artifact. A pre-created ServiceAccount carries the pull secret from
+          # pod-creation time (patching a chart-created SA would not affect the
+          # running pod). The bundled cassandra image is public and pulls anonymously.
+          kubectl create secret docker-registry ghcr-pull \
+            --docker-server=ghcr.io \
+            --docker-username="${{ github.actor }}" \
+            --docker-password="${{ secrets.GITHUB_TOKEN }}"
+          kubectl create serviceaccount cadence-puller
+          kubectl patch serviceaccount cadence-puller \
+            -p '{"imagePullSecrets":[{"name":"ghcr-pull"}]}'
+
+          # Cassandra boot + two-keyspace schema bootstrap + all-in-one server boot
+          # is slow, so allow a generous timeout.
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set serviceAccount.create=false --set serviceAccount.name=cadence-puller \
+            --wait --timeout 12m
+          kubectl rollout status deployment/rtest-cadence --timeout=720s
+
+          # cassandra StatefulSet must be Ready
+          kubectl rollout status statefulset/rtest-cassandra --timeout=600s
+
+          # schema bootstrap must have completed: both keyspaces populated. Query
+          # Cassandra via the cadence-cassandra-tool from the running cadence pod
+          # (update-schema is a no-op / "zero updates" once current — a clean rc=0).
+          POD="$(kubectl get pod -l app.kubernetes.io/name=cadence -o jsonpath='{.items[0].metadata.name}')"
+          kubectl exec "$POD" -c cadence -- /usr/bin/cadence-cassandra-tool \
+            --ep rtest-cassandra -k cadence update-schema \
+            -d /etc/cadence/schema/cassandra/cadence/versioned
+          kubectl exec "$POD" -c cadence -- /usr/bin/cadence-cassandra-tool \
+            --ep rtest-cassandra -k cadence_visibility update-schema \
+            -d /etc/cadence/schema/cassandra/visibility/versioned
+
+          # --- frontend gRPC on :7833 ---
+          # Every role binds ${POD_IP} (not loopback / not 0.0.0.0), so the frontend
+          # is reachable at the pod IP (the kubelet tcpSocket readiness probe — already
+          # green via --wait / rollout status — dials exactly that). A port-forward /
+          # loopback check would hit 127.0.0.1 inside the pod, where nothing listens.
+          # So resolve the pod IP on the runner and address it directly from the pod.
+          PODIP="$(kubectl get pod "$POD" -o jsonpath='{.status.podIP}')"
+          test -n "$PODIP"
+
+          # bonus: register + describe a domain over the frontend gRPC (the CLI
+          # defaults to TChannel, so force --transport grpc). This exercises the full
+          # frontend -> Cassandra write/read path.
+          for i in $(seq 1 30); do
+            if kubectl exec "$POD" -c cadence -- /usr/bin/cadence \
+                 --transport grpc --address "${PODIP}:7833" \
+                 --domain citest domain register --retention 1 2>/tmp/reg.log; then rok=1; break; fi
+            grep -qi 'already exists\|DomainAlreadyExists' /tmp/reg.log && { rok=1; break; }
+            sleep 4
+          done
+          cat /tmp/reg.log || true
+          test "${rok:-0}" = 1
+          kubectl exec "$POD" -c cadence -- /usr/bin/cadence \
+            --transport grpc --address "${PODIP}:7833" --domain citest domain describe
+
+          # logs show the frontend started (write to a file first: piping kubectl
+          # logs into grep -q SIGPIPE-kills kubectl, which pipefail would surface).
+          kubectl logs "$POD" -c cadence --tail=600 >/tmp/cadence.log 2>&1
+          grep -qi 'frontend started' /tmp/cadence.log
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/cadence-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"   # fail loudly rather than handing cosign an empty ref
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/cadence@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push. Register the ArtifactHub repo and set the ID."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/cadence:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

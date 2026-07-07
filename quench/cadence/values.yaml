@@ -1,0 +1,270 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/cadence.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/cadence
+  digest: "sha256:9a79028c4c81dfb3fa7ccbaf3300adec53a4775fac9405d35ffb45837357ad04"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Cadence runs as the ALL-IN-ONE server: one process runs all four roles
+# (frontend + history + matching + worker), selected by the --services flag. All
+# durable state lives in Cassandra, so the server itself is stateless — but the
+# all-in-one process does not cluster trivially, so keep replicaCount at 1.
+# (Scale-out — one Deployment per role — is a future chart capability.)
+replicaCount: 1
+
+# --services passed to `cadence-server start`. The default runs every role in one
+# process. To split roles into separate Deployments, run multiple releases each
+# with a single service (a future chart capability).
+services: "frontend,history,matching,worker"
+
+# Number of history shards. This is FIXED at first schema setup and CANNOT be
+# changed afterwards without a fresh keyspace. 4 is a small default suited to a
+# single-node bundled Cassandra; raise it (e.g. 512+) for a production ring.
+numHistoryShards: 4
+
+# Bundled in-cluster Cassandra (the QuenchWorks cassandra subchart). Default true:
+# a self-contained install. Set false to point at externalCassandra. Auth is OFF by
+# default (internal deployment, NetworkPolicy is the trust boundary) — matching the
+# cassandra subchart's default. The keys below are forwarded to that subchart.
+cassandra:
+  enabled: true
+  auth:
+    enabled: false
+  config:
+    clusterName: "Cadence Cluster"
+  persistence:
+    enabled: true
+    size: 16Gi
+
+# Keyspaces. Cadence needs TWO: the main store and the visibility store. The
+# schema-bootstrap init containers create both (create-Keyspace) and bring their
+# schema to the latest version (setup-schema + update-schema).
+keyspaces:
+  main: cadence
+  visibility: cadence_visibility
+
+# External Cassandra, used when cassandra.enabled=false. Point at a reachable
+# Cassandra whose account can create keyspaces and tables. Supply the password
+# inline or via an existingSecret. user/password may be empty when the target has
+# authentication disabled.
+externalCassandra:
+  host: ""
+  port: 9042
+  user: ""
+  password: ""
+  existingSecret: ""              # Secret holding the Cassandra password
+  existingSecretPasswordKey: "cassandra-password"
+
+# Schema bootstrap. Six shell-free init containers on the server pod run
+# `cadence-cassandra-tool` against Cassandra BEFORE the server boots, for each
+# keyspace: create-Keyspace (idempotent, also the wait-for-Cassandra gate — the
+# kubelet restarts it until Cassandra accepts connections), setup-schema (quiet, so
+# re-runs tolerate an already-initialised keyspace), and update-schema (idempotent,
+# a no-op once current). Disable only if an external operator manages the schema.
+schemaSetup:
+  enabled: true
+  # Replication factor used by create-Keyspace. 1 suits a single-node Cassandra;
+  # raise it to match a multi-node ring's desired durability.
+  replicationFactor: 1
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 256Mi }
+
+# The server config Cadence reads at /etc/cadence/config/<CADENCE_ENVIRONMENT>.yaml.
+# Rendered through `tpl` so chart values (Cassandra host/keyspaces, numHistoryShards)
+# flow in. This REPLACES the upstream sample the image does NOT ship (the config dir
+# is empty). Edit it and `helm upgrade`; the pod checksum annotation rolls the
+# Deployment.
+#
+# Notes on the bindings (the QuenchWorks clean image does NOT run dockerize, but
+# Cadence's own config loader expands ${ENV} / ${ENV:default} references at load
+# time — so ${POD_IP} below is substituted with the real pod IP, injected via the
+# downward API, WITHOUT any shell/render step):
+#   - Every role binds gRPC + TChannel on the pod IP (${POD_IP}) so the kubelet TCP
+#     probe and the k8s Service (which target the pod IP) can reach the frontend, and
+#     so ringpop advertises a routable address that peers can dial. (Binding 0.0.0.0
+#     makes ringpop advertise an undialable 0.0.0.0 and membership never converges;
+#     binding 127.0.0.1 makes the Service/probe unreachable.)
+#   - ringpop.bootstrapHosts lists every in-process role's membership (TChannel) port
+#     on the pod IP so the all-in-one ring forms.
+#   - clusterGroup rpcAddress points the in-process worker/replicator at the frontend
+#     gRPC (${POD_IP}:7833).
+#   - archival is disabled (it would write to the rootfs/filestore; state is in
+#     Cassandra). blobstore points at the writable /tmp emptyDir just in case.
+cadenceConfig: |
+  persistence:
+    defaultStore: cass-default
+    visibilityStore: cass-visibility
+    numHistoryShards: {{ .Values.numHistoryShards }}
+    datastores:
+      cass-default:
+        nosql:
+          pluginName: "cassandra"
+          hosts: "{{ include "cadence.cassandra.host" . }}"
+          port: {{ include "cadence.cassandra.port" . }}
+          keyspace: "{{ .Values.keyspaces.main }}"
+          user: "{{ include "cadence.cassandra.user" . }}"
+          password: "{{ include "cadence.cassandra.password" . }}"
+          connectTimeout: 2s
+          timeout: 5s
+          consistency: LOCAL_ONE
+          serialConsistency: LOCAL_SERIAL
+      cass-visibility:
+        nosql:
+          pluginName: "cassandra"
+          hosts: "{{ include "cadence.cassandra.host" . }}"
+          port: {{ include "cadence.cassandra.port" . }}
+          keyspace: "{{ .Values.keyspaces.visibility }}"
+          user: "{{ include "cadence.cassandra.user" . }}"
+          password: "{{ include "cadence.cassandra.password" . }}"
+          connectTimeout: 2s
+          timeout: 5s
+          consistency: LOCAL_ONE
+          serialConsistency: LOCAL_SERIAL
+
+  ringpop:
+    name: cadence
+    bootstrapMode: hosts
+    bootstrapHosts:
+      - "${POD_IP}:7933"
+      - "${POD_IP}:7934"
+      - "${POD_IP}:7935"
+      - "${POD_IP}:7939"
+    maxJoinDuration: 120s
+
+  services:
+    frontend:
+      rpc:
+        port: 7933
+        grpcPort: 7833
+        bindOnIP: "${POD_IP}"
+        grpcMaxMsgSize: 33554432
+      pprof:
+        port: 7936
+    matching:
+      rpc:
+        port: 7935
+        grpcPort: 7835
+        bindOnIP: "${POD_IP}"
+        grpcMaxMsgSize: 33554432
+      pprof:
+        port: 7938
+    history:
+      rpc:
+        port: 7934
+        grpcPort: 7834
+        bindOnIP: "${POD_IP}"
+        grpcMaxMsgSize: 33554432
+      pprof:
+        port: 7937
+    worker:
+      rpc:
+        port: 7939
+        bindOnIP: "${POD_IP}"
+      pprof:
+        port: 7940
+
+  clusterGroupMetadata:
+    failoverVersionIncrement: 10
+    primaryClusterName: "cluster0"
+    currentClusterName: "cluster0"
+    clusterGroup:
+      cluster0:
+        enabled: true
+        initialFailoverVersion: 0
+        rpcAddress: "${POD_IP}:7833"
+        rpcTransport: "grpc"
+
+  dcRedirectionPolicy:
+    policy: "noop"
+
+  archival:
+    history:
+      status: "disabled"
+    visibility:
+      status: "disabled"
+
+  domainDefaults:
+    archival:
+      history:
+        status: "disabled"
+      visibility:
+        status: "disabled"
+
+  dynamicconfig:
+    client: filebased
+    filebased:
+      filepath: "config/dynamicconfig/config.yaml"
+      pollInterval: "60s"
+
+  blobstore:
+    filestore:
+      outputDirectory: "/tmp/blobstore"
+
+# Dynamic config (runtime overrides). The server requires the file referenced by
+# dynamicconfig.filebased.filepath to exist; an empty map is valid.
+dynamicConfig: |
+  {}
+
+resources:
+  requests: { cpu: 500m, memory: 512Mi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  grpcPort: 7833                  # frontend gRPC — the main client/worker port
+  tchannelPort: 7933              # frontend TChannel (legacy CLI / internal)
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+startupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Cadence's frontend is a backend service for workers/clients, not a browser
+# endpoint, so ingress is restricted to the release namespace by default. Set
+# allowExternal: true to allow clients from outside the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
