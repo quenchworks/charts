@@ -1,0 +1,26 @@
+Quenchworks Pyroscope is installed as {{ include "quench-common.fullname" . }}.
+
+Reach the HTTP API / web UI from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Port-forward it to your laptop:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 4040:{{ .Values.service.port }}
+  # then open http://127.0.0.1:4040
+
+Health / readiness:
+
+  curl http://127.0.0.1:4040/ready   # -> 200 once metastore + ingester are up
+
+Pyroscope runs monolithic (single-binary, -target=all) and stores its profiling
+blocks and metastore raft state on the PVC at {{ .Values.persistence.mountPath }}.
+It can take up to ~60s after start to report ready on a cold volume.
+
+Point profiling agents / SDKs at the service URL above (default anonymous tenant).
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

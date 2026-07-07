@@ -1,0 +1,93 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/pyroscope.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/pyroscope
+  digest: "sha256:6d5e82289c14875c135ea0c15ddc84fb6fcf6e059a02a682ad567ca96320a06d"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Pyroscope runs monolithic (single-binary, -target=all) and stores its profiling
+# blocks + metastore raft state on a local disk, so it is not horizontally
+# scalable in this chart. Keep this at 1.
+replicaCount: 1
+
+# The hardened image runs nonroot (uid 1001). Pyroscope's HTTP API + web UI bind
+# this port (upstream default 4040). Probes hit /ready on it.
+containerPort: 4040
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # Pyroscope's config uses relative ./data paths (working dir is /), so the
+  # profiling DB (pyroscopedb), v2 storage and metastore raft all land here.
+  # The data-path flag is pinned to this value so the two never drift.
+  mountPath: /data
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 4040
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+# Extra flags appended after the built-in -pyroscopedb.data-path flag. The image
+# entrypoint already passes -config.file=/etc/pyroscope/config.yaml.
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+# Pyroscope can take ~60s to report /ready (metastore + ingester warm-up), so the
+# default startupProbe is deliberately generous.
+livenessProbe: {}
+readinessProbe: {}
+startupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # Pyroscope receives profiles from agents/SDKs and is browsed via its UI. Set
+  # true to allow ingress from any source; default restricts to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
