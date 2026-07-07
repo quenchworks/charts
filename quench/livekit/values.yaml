@@ -1,0 +1,109 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/livekit
+  digest: "sha256:1a4f1ad708c17eb565255953327ae5e417bf5cf8b1ae7fd9a5b36874ec2f81e0"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# This chart runs a single-node LiveKit server (no Redis) as a Deployment behind
+# a Service. LiveKit is horizontally scalable only with Redis and a multi-node
+# RTC/TURN setup; for that, run one replica here and wire Redis + external UDP
+# yourself (see README). Keep replicaCount at 1 for the single-node dev topology.
+replicaCount: 1
+
+# LiveKit server configuration.
+#
+# The container runs `livekit-server --config /config/config.yaml`. LiveKit
+# REQUIRES a config with at least one API key pair, so this chart ships a working
+# single-node default below. The config is written to a ConfigMap, mounted at
+# /config/config.yaml, and passed via `--config`.
+#
+# SECURITY: the default `keys` below are a FIXED DEV KEY PAIR so the server boots
+# deterministically. ROTATE THEM IN PRODUCTION -- generate a fresh pair with
+# `livekit-server generate-keys` and either override config.yaml or point
+# config.existingConfigMap at an externally-managed ConfigMap (key `config.yaml`).
+# For real secret hygiene, drop `keys` from the config and inject them via the
+# LIVEKIT_KEYS env var from a Secret (see extraEnvVars / extraEnvVarsSecret).
+config:
+  yaml: |
+    port: 7880
+    rtc:
+      tcp_port: 7881
+      port_range_start: 50000
+      port_range_end: 50100
+      use_external_ip: false
+    keys:
+      devkey: devsecretdevsecretdevsecretdevsecret32
+    logging:
+      level: info
+  existingConfigMap: ""
+extraArgs: []
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  # HTTP/WebSocket signaling + health API.
+  port: 7880
+  # RTC over TCP fallback (ICE/TCP). Media UDP is not surfaced on the Service:
+  # single-node dev exercises signaling only; production media needs a
+  # LoadBalancer or host networking carrying the RTC UDP port range plus TURN.
+  rtcTcpPort: 7881
+
+# Optional horizontal autoscaling on CPU. Leave disabled for single-node: scaling
+# LiveKit beyond one replica requires Redis-backed routing.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The signaling API is consulted by clients from across (and outside) the
+# cluster, so allow external ingress by default. Set allowExternal=false to
+# restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

@@ -1,0 +1,38 @@
+Quenchworks LiveKit is installed as {{ include "quench-common.fullname" . }}.
+
+The server runs nonroot and serves HTTP/WebSocket signaling + health on container
+port 7880, with RTC/TCP fallback on 7881. The Service exposes:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}   (signaling / health)
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.rtcTcpPort }}   (rtc-tcp)
+
+Check health over a port-forward ("GET /" returns 200 "OK" once the server is up):
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://127.0.0.1:{{ .Values.service.port }}/
+
+{{ if .Values.config.existingConfigMap -}}
+Running with an externally-managed config from ConfigMap "{{ .Values.config.existingConfigMap }}" (key config.yaml).
+{{- else -}}
+!! Running with the built-in single-node config and a FIXED DEV API KEY PAIR. !!
+   Rotate before any real use: generate a fresh pair with
+
+     livekit-server generate-keys
+
+   then override config.yaml (or point config.existingConfigMap at your own
+   ConfigMap). For secret hygiene, drop `keys` from the config and inject
+   LIVEKIT_KEYS via extraEnvVarsSecret.
+{{- end }}
+
+This is a SINGLE-NODE deployment (no Redis). Media flows over WebRTC UDP, which is
+not surfaced on the ClusterIP Service. For production:
+  - add Redis and run multiple replicas for horizontal scale;
+  - expose the RTC UDP port range (and TCP 7881 / a TURN server) via a
+    LoadBalancer or host networking so clients can reach media.
+See https://docs.livekit.io/home/self-hosting/deployment/ for the full topology.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/livekit \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

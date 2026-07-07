@@ -1,0 +1,13 @@
+{{- if not .Values.config.existingConfigMap }}
+{{- if not .Values.config.yaml }}{{ fail "livekit: set config.yaml or config.existingConfigMap -- the server requires a config with API keys" }}{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "livekit.configMapName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # Mounted at /config/config.yaml and passed to `livekit-server` via --config.
+  config.yaml: |-
+    {{- .Values.config.yaml | nindent 4 }}
+{{- end }}
