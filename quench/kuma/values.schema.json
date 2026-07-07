@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Quenchworks kuma values",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "digest"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "nameOverride": { "type": "string" },
+    "replicaCount": { "type": "integer", "minimum": 1, "maximum": 1 },
+    "store": { "type": "string", "enum": ["memory", "postgres"] },
+    "mode": { "type": "string", "enum": ["standalone", "zone", "global"] },
+    "workDir": { "type": "string", "minLength": 1 },
+    "extraArgs": { "type": "array", "items": { "type": "string" } },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "requests": { "type": "object" }, "limits": { "type": "object" } }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+        "ports": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "http": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "https": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "dpServer": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "mads": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          }
+        }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "annotations": { "type": "object" }
+      }
+    },
+    "rbac": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "create": { "type": "boolean" } }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "allowExternal": { "type": "boolean" }
+      }
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minAvailable": { "type": ["integer", "string"] }
+      }
+    }
+  }
+}

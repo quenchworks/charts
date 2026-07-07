@@ -1,0 +1,92 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/kuma
+  digest: "sha256:b6c34027e3216f69b56c6156ddbd61f165cdd82c07599f0fdcc0da747cc62504"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# This chart runs a SINGLE kuma-cp with the in-memory store (KUMA_STORE_TYPE=memory),
+# standalone/universal mode. State is ephemeral and NOT shared, so the control plane
+# is not horizontally scalable here: keep this at 1. Production deployments use the
+# postgres store or the Kubernetes (CRD) deployment for HA and durable state.
+replicaCount: 1
+
+# Kuma control-plane store + mode. memory = ephemeral in-process store (no external
+# DB, no CRDs); standalone/universal = a single self-contained CP. These are wired as
+# KUMA_STORE_TYPE / KUMA_MODE env vars. The work dir (CA certs, signing keys) is
+# redirected to the writable emptyDir at /tmp so the root filesystem stays read-only.
+store: memory
+mode: standalone
+workDir: /tmp
+
+# extraArgs are appended to the `kuma-cp run` command.
+extraArgs: []
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  # Container ports are fixed kuma-cp ports; the Service maps the same numbers.
+  #   http (5681)      REST API + GUI (/gui)
+  #   https (5682)     REST API over TLS
+  #   dp-server (5678) dataplane / xDS gRPC (kuma-dp sidecars connect here)
+  #   mads (5676)      monitoring-assignment gRPC (Prometheus SD)
+  ports:
+    http: 5681
+    https: 5682
+    dpServer: 5678
+    mads: 5676
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# Tune the control plane with KUMA_* env vars here (or via extraEnvVarsCM/Secret).
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # kuma-cp is reached by dataplanes and operators from across the cluster (and its
+  # GUI often from outside). Set true to allow ingress from any source; default
+  # restricts client traffic to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

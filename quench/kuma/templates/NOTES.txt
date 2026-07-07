@@ -1,0 +1,28 @@
+Quenchworks Kuma control plane (kuma-cp) is installed as {{ include "quench-common.fullname" . }}.
+
+It runs nonroot in standalone/universal mode with the in-memory store
+(KUMA_STORE_TYPE={{ .Values.store }}), so it needs no external database and no
+Kubernetes CRDs. State is EPHEMERAL: meshes, policies and tokens are lost on
+restart. For durable state and HA, run kuma-cp with the postgres store or use the
+Kubernetes (CRD) deployment.
+
+The Service exposes:
+
+  http (5681)      REST API + GUI at /gui
+  https (5682)     REST API over TLS
+  dp-server (5678) dataplane / xDS gRPC (kuma-dp sidecars connect here)
+  mads (5676)      monitoring-assignment gRPC (Prometheus service discovery)
+
+Reach the API and GUI over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 5681:{{ .Values.service.ports.http }}
+  curl http://127.0.0.1:5681/           # {"product":"Kuma","version":...}
+  # open http://127.0.0.1:5681/gui in a browser
+
+Liveness/readiness are probed on the diagnostics port 5680 (/healthy and /ready).
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/kuma \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

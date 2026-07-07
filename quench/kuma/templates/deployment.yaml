@@ -1,0 +1,94 @@
+{{/* kuma-cp serves purpose-built health endpoints on the diagnostics port (5680):
+     /healthy for liveness and /ready for readiness, both plain 200s. The API/GUI
+     port 5681 has no dedicated health path, so probes target diagnostics. Startup
+     is generous: the CP generates CAs and signing keys on first boot. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/healthy" "port" "diagnostics") "initialDelaySeconds" 10 "periodSeconds" 15 "timeoutSeconds" 3 "failureThreshold" 3 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/ready" "port" "diagnostics") "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 3 "failureThreshold" 3 -}}
+{{- $startup := dict "httpGet" (dict "path" "/ready" "port" "diagnostics") "initialDelaySeconds" 5 "periodSeconds" 5 "timeoutSeconds" 3 "failureThreshold" 30 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "kuma.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: kuma
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - "run"
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            # In-memory store (no external DB, no k8s CRDs) + standalone/universal CP.
+            - name: KUMA_STORE_TYPE
+              value: {{ .Values.store | quote }}
+            - name: KUMA_MODE
+              value: {{ .Values.mode | quote }}
+            # Redirect the work dir (CA/keys) to the writable emptyDir so the root FS
+            # can stay read-only.
+            - name: KUMA_GENERAL_WORK_DIR
+              value: {{ .Values.workDir | quote }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 5681
+              protocol: TCP
+            - name: https
+              containerPort: 5682
+              protocol: TCP
+            - name: dp-server
+              containerPort: 5678
+              protocol: TCP
+            - name: mads
+              containerPort: 5676
+              protocol: TCP
+            - name: diagnostics
+              containerPort: 5680
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- if .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml .Values.customStartupProbe | nindent 12 }}
+          {{- else }}
+          startupProbe:
+            {{- toYaml $startup | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: work
+              mountPath: {{ .Values.workDir | quote }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: work
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

@@ -1,0 +1,125 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/miniflux.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/miniflux
+  digest: "sha256:5b096e6f159868e6ef87d80e96c3243549692e2bbc23bb1029ba2a6712af646e"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Miniflux itself is stateless (all state lives in PostgreSQL), so the app runs
+# as a plain Deployment and can be scaled horizontally. On first boot it creates
+# its schema (RUN_MIGRATIONS) and, optionally, an admin user (see admin.*).
+replicaCount: 1
+
+# The hardened image runs nonroot (uid 1001) and binds this port. LISTEN_ADDR is
+# wired to it so the container and the /healthcheck probes stay in sync.
+containerPort: 8080
+
+# Run schema migrations on startup (idempotent). Required on first boot.
+runMigrations: true
+
+# Seed an admin user on first boot (only when the database has no users yet, so
+# it is safe to leave on across restarts). Password is taken from a Secret: if
+# admin.password is empty a random one is generated and persisted in the chart's
+# Secret; set it explicitly or point at your own existingSecret for production.
+admin:
+  create: true
+  username: admin
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: admin-password
+
+# --- Database ---------------------------------------------------------------
+# Two mutually exclusive modes:
+#
+#  1. Bundled PostgreSQL (default). postgresql.enabled=true pulls QuenchWorks'
+#     own hardened postgresql subchart. miniflux's DATABASE_URL is built from
+#     postgresql.auth.* and points at the subchart's Service. The password below
+#     is SHARED with the subchart (both read the same value), so set a strong one
+#     for production or switch to externalDatabase.
+#
+#  2. External PostgreSQL. Set postgresql.enabled=false and fill externalDatabase.*
+#     (or supply externalDatabase.existingSecret holding a ready DATABASE_URL).
+externalDatabase:
+  host: ""
+  port: 5432
+  user: miniflux
+  password: ""
+  database: miniflux
+  sslmode: require
+  # Optional: an existing Secret already holding a full connection string.
+  existingSecret: ""
+  existingSecretURLKey: database-url
+
+postgresql:
+  enabled: true
+  auth:
+    # The bundled image's entrypoint only creates the extra database when its name
+    # differs from the user; keep the superuser as the owner of the miniflux DB.
+    username: postgres
+    # SHARED with miniflux's DATABASE_URL. Override for production.
+    password: "miniflux"
+    database: miniflux
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # Miniflux is typically reached from outside the cluster (browser). Set true to
+  # allow ingress from any source; default restricts client traffic to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

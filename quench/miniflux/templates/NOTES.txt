@@ -1,0 +1,40 @@
+Quenchworks miniflux is installed as {{ include "quench-common.fullname" . }}.
+
+Reach the web UI / API from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Port-forward it to your laptop:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  # then open http://127.0.0.1:8080
+
+Health check:
+
+  curl http://127.0.0.1:8080/healthcheck   # -> 200 OK
+
+{{- if .Values.postgresql.enabled }}
+
+Database: bundled PostgreSQL subchart, Service {{ .Release.Name }}-postgresql:5432
+(database "{{ .Values.postgresql.auth.database }}", user "{{ .Values.postgresql.auth.username }}").
+The connection string is stored in Secret {{ include "quench-common.fullname" . }} (key database-url).
+{{- else }}
+
+Database: external PostgreSQL at {{ include "miniflux.dbHost" . }}:{{ .Values.externalDatabase.port }}.
+{{- end }}
+
+{{- if .Values.admin.create }}
+
+Admin user "{{ .Values.admin.username }}" was seeded on first boot. Retrieve its password:
+
+  kubectl get secret {{ include "miniflux.adminSecretName" . }} \
+    -o jsonpath='{.data.{{ include "miniflux.adminPasswordKey" . }}}' | base64 -d ; echo
+
+CHANGE THE PASSWORD AFTER FIRST LOGIN under Settings.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
