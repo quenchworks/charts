@@ -1,0 +1,33 @@
+Quenchworks quickwit is installed as {{ include "quench-common.fullname" . }}.
+
+Reach the REST API + bundled admin UI from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Port-forward it to your laptop:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 7280:{{ .Values.service.port }}
+  # then open http://127.0.0.1:7280/ui   (bundled admin dashboard)
+
+Health checks:
+
+  curl http://127.0.0.1:7280/health/livez   # -> 200 once the server is up
+  curl http://127.0.0.1:7280/health/readyz  # -> 200 once ready to serve
+
+List indexes / create one via the REST API:
+
+  curl http://127.0.0.1:7280/api/v1/indexes
+  curl -XPOST http://127.0.0.1:7280/api/v1/indexes \
+    -H 'content-type: application/yaml' \
+    --data-binary @my-index-config.yaml
+
+Index data + local split cache persist on the PVC at /quickwit/qwdata. This chart
+runs a single-node (standalone) Quickwit with local file storage; for a distributed
+cluster front it with object storage (S3/GCS/Azure) and a shared metastore via
+extraEnvVars (QW_*).
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "headscale.configMapName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # Mounted read-only over /etc/headscale/config.yaml (headscale's default config
+  # path). Rendered through `tpl` so values (serverUrl, ports, data dir) resolve;
+  # edit .Values.config and `helm upgrade` (the pod checksum annotation rolls the
+  # StatefulSet).
+  config.yaml: |-
+    {{- tpl .Values.config . | nindent 4 }}

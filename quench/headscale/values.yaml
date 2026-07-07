@@ -1,0 +1,162 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/headscale.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/headscale
+  digest: "sha256:f72b94abb404cc2a50233b1382efd88f2ccd7b23687feaa49769d8a88886c1a2"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# headscale is a single-writer control server: it owns a SQLite DB plus generated
+# noise/machine keys under one data dir, so it is not horizontally scalable. Keep
+# this at 1 (use an external DB + HA topology upstream if you outgrow it).
+replicaCount: 1
+
+# The hardened image runs nonroot (uid 1001) and `headscale serve` binds the HTTP
+# API/coordination port here. The config below binds listen_addr to this port, so
+# the container, the Service and the probes all stay in sync.
+containerPort: 8080
+
+# Prometheus metrics port (headscale metrics_listen_addr). Exposed on the Service
+# as `metrics` for scraping; not required for the app to run.
+metricsPort: 9090
+
+# The URL clients (tailscale up --login-server=...) use to reach this control
+# server. MUST be reachable by your nodes and MUST NOT be a subdomain of
+# dns.base_domain below. Override for real deployments (e.g. https://hs.example.com).
+serverUrl: "http://127.0.0.1:8080"
+
+# Full headscale config.yaml, rendered through `tpl` (so `{{ .Values.serverUrl }}`
+# and friends resolve) and mounted read-only at /etc/headscale/config.yaml. All
+# state paths point at the PVC data dir (/var/lib/headscale) so, under the
+# read-only root filesystem, headscale can still generate its noise key and write
+# the SQLite DB + unix socket on first boot. Replace freely for production; a
+# `helm upgrade` rolls the pod via the config checksum annotation.
+config: |
+  server_url: {{ .Values.serverUrl }}
+  listen_addr: 0.0.0.0:{{ .Values.containerPort }}
+  metrics_listen_addr: 0.0.0.0:{{ .Values.metricsPort }}
+  # gRPC (remote CLI) stays on loopback unless you deliberately expose it.
+  grpc_listen_addr: 127.0.0.1:50443
+  grpc_allow_insecure: false
+
+  # Generated on first boot into the PVC (root fs is read-only).
+  noise:
+    private_key_path: {{ .Values.persistence.dataDir }}/noise_private.key
+
+  prefixes:
+    v4: 100.64.0.0/10
+    v6: fd7a:115c:a1e0::/48
+    allocation: sequential
+
+  derp:
+    server:
+      enabled: false
+    urls:
+      - https://controlplane.tailscale.com/derpmap/default
+    paths: []
+    auto_update_enabled: true
+    update_frequency: 24h
+
+  disable_check_updates: false
+
+  node:
+    ephemeral:
+      inactivity_timeout: 30m
+
+  database:
+    type: sqlite
+    sqlite:
+      path: {{ .Values.persistence.dataDir }}/db.sqlite
+      write_ahead_log: true
+
+  # Keep the control socket on the writable PVC (default /var/run is read-only here).
+  unix_socket: {{ .Values.persistence.dataDir }}/headscale.sock
+  unix_socket_permission: "0770"
+
+  log:
+    level: info
+    format: text
+
+  dns:
+    magic_dns: true
+    base_domain: headscale.internal
+    nameservers:
+      global:
+        - 1.1.1.1
+        - 1.0.0.1
+
+  policy:
+    mode: file
+    path: ""
+
+persistence:
+  enabled: true
+  size: 1Gi
+  # Mount point of the PVC and the parent of the SQLite DB, noise key and socket.
+  # Must match the paths in the config above (the image WORKDIR is /var/lib/headscale).
+  dataDir: /var/lib/headscale
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+# `headscale serve` is the entrypoint verb; override only for maintenance verbs.
+args: ["serve"]
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # headscale is reached by tailscale clients from outside the cluster. Set true to
+  # allow ingress from any source; default restricts traffic to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

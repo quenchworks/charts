@@ -1,0 +1,91 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/quickwit.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/quickwit
+  digest: "sha256:c4ae313ed9dc0e7539bfc4315779a4cd1baef6878b10f87d0d9da8ecf2da81ba"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single-node (standalone) Quickwit. `quickwit run` writes its index data and local
+# split cache under a data dir; with local (file) storage that state is not shared,
+# so this is not horizontally scalable. Keep this at 1. For a distributed cluster you
+# would front it with object storage (S3/GCS/Azure) and a shared metastore.
+replicaCount: 1
+
+# The hardened image runs nonroot (uid 1001) and binds these ports on 0.0.0.0
+# (QW_LISTEN_ADDRESS). REST/HTTP + bundled admin UI on http, gRPC on grpc.
+containerPort: 7280
+grpcPort: 7281
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 7280
+  grpcPort: 7281
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# Extra QW_* env vars, e.g. QW_METASTORE_URI, QW_DEFAULT_INDEX_ROOT_URI, or object
+# storage credentials. The image already sets QW_CONFIG (baked default config),
+# QW_DATA_DIR and QW_LISTEN_ADDRESS=0.0.0.0.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # Quickwit's REST API + admin UI are often reached from outside the cluster. Set
+  # true to allow ingress from any source; default restricts client traffic to the
+  # namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

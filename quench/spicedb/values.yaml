@@ -1,0 +1,114 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/spicedb
+  digest: "sha256:3adc16ae7e4aae651157cd8bb0a2859efce2bc999db0f192c3d0278cefe7ac0a"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# SpiceDB is stateless when run with the default in-memory datastore: this chart
+# runs a Deployment behind a ClusterIP Service. The in-memory store is NOT
+# persistent and NOT safe to replicate, so keep replicaCount=1 with it.
+#
+# For production, switch datastore.engine to a persistent backend (postgres,
+# cockroachdb, mysql, spanner) and provide its connection URI via datastore.uri
+# (or SPICEDB_DATASTORE_CONN_URI in extraEnvVars); only then is it safe to scale
+# out or enable autoscaling.
+replicaCount: 1
+
+datastore:
+  # --datastore-engine. "memory" is the default and needs no URI.
+  engine: memory
+  # --datastore-conn-uri for a persistent engine (postgres/cockroachdb/mysql/...).
+  # Left empty for the memory engine. Prefer sourcing secrets in the URI via a
+  # Secret + extraEnvVars in production rather than an inline value here.
+  uri: ""
+
+# The SpiceDB gRPC API REQUIRES a preshared key (`--grpc-preshared-key`); the
+# server refuses to serve without one. This chart wires the key into the pod via
+# the SPICEDB_GRPC_PRESHARED_KEY env var, sourced from a Kubernetes Secret.
+#
+# By default the key is generated (32 chars) on first install and preserved
+# across upgrades via a Secret lookup, so nothing sensitive is baked into the
+# chart. In production, rotate it deliberately or point existingSecret at a
+# Secret you manage; treat this key as the root credential to the API.
+grpcPresharedKey:
+  value: ""                       # generated (32 chars) if empty; stored in the managed Secret
+  existingSecret: ""              # use this Secret instead of the managed one
+  existingSecretKey: "preshared-key"
+
+# The HTTP/JSON gateway (spicedb serve --http-enabled) proxies the gRPC API over
+# REST on port 8443. Disabled by default; the native client protocol is gRPC.
+httpGateway:
+  enabled: false
+
+# Appended to the `spicedb serve` command.
+extraArgs: []
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  # gRPC API (native SpiceDB/Authzed protocol).
+  grpcPort: 50051
+  # Prometheus metrics endpoint (/metrics).
+  metricsPort: 9090
+  # HTTP/JSON gateway; only routed when httpGateway.enabled=true.
+  gatewayPort: 8443
+
+# Optional horizontal autoscaling on CPU. Only meaningful with a persistent,
+# shared datastore (the in-memory engine is per-pod and non-shared).
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The authorization API is commonly consulted from across the cluster, so allow
+# external ingress by default. Set allowExternal=false to restrict ingress to the
+# namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

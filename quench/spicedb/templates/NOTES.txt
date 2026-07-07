@@ -1,0 +1,47 @@
+Quenchworks SpiceDB is installed as {{ include "quench-common.fullname" . }}.
+
+The server runs nonroot and serves the gRPC authorization API on container port
+50051; the Service exposes it in-cluster:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.grpcPort }}
+
+Prometheus metrics are on port {{ .Values.service.metricsPort }} at /metrics.
+{{- if .Values.httpGateway.enabled }}
+The HTTP/JSON gateway is enabled on port {{ .Values.service.gatewayPort }}.
+{{- end }}
+
+Retrieve the gRPC preshared key (the root credential to the API):
+
+{{- if .Values.grpcPresharedKey.existingSecret }}
+  kubectl get secret {{ .Values.grpcPresharedKey.existingSecret }} \
+    -o jsonpath='{.data.{{ .Values.grpcPresharedKey.existingSecretKey }}}' | base64 -d
+{{- else }}
+  kubectl get secret {{ include "quench-common.fullname" . }} \
+    -o jsonpath='{.data.preshared-key}' | base64 -d
+{{- end }}
+
+Talk to it with zed or grpcurl over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 50051:{{ .Values.service.grpcPort }}
+  zed context set local localhost:50051 "<preshared-key>" --insecure
+  grpcurl -plaintext -H "authorization: bearer <preshared-key>" \
+    localhost:50051 grpc.health.v1.Health/Check
+
+{{- if eq .Values.datastore.engine "memory" }}
+
+DATASTORE: running with the in-memory engine. Data is NOT persisted and the
+server cannot be safely replicated. For production, set datastore.engine to a
+persistent backend (postgres, cockroachdb, mysql, spanner) and datastore.uri to
+its connection string, then scale out.
+{{- end }}
+
+SECURITY: rotate the gRPC preshared key for production. Set grpcPresharedKey.value
+to a strong secret, or point grpcPresharedKey.existingSecret at a Secret you
+manage. TLS is not enabled by default; terminate TLS at an ingress/gateway or set
+the relevant `spicedb serve` TLS flags via extraArgs.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/spicedb \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

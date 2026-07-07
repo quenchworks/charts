@@ -1,0 +1,40 @@
+Quenchworks headscale is installed as {{ include "quench-common.fullname" . }}.
+
+Reach the control-server API from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Port-forward it to your laptop:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  # then hit http://127.0.0.1:8080
+
+Health check:
+
+  curl http://127.0.0.1:8080/health   # -> 200
+
+Run headscale admin commands inside the pod (the CLI talks to the unix socket on
+the PVC, so pass --config):
+
+  kubectl exec -it {{ include "quench-common.fullname" . }}-0 -- \
+    headscale --config /etc/headscale/config.yaml users create myuser
+  kubectl exec -it {{ include "quench-common.fullname" . }}-0 -- \
+    headscale --config /etc/headscale/config.yaml preauthkeys create --user 1
+
+Point clients at your server_url (currently {{ .Values.serverUrl }}):
+
+  tailscale up --login-server {{ .Values.serverUrl }}
+
+IMPORTANT: set `serverUrl` to a URL your nodes can actually reach (usually an
+HTTPS endpoint via an Ingress/LoadBalancer). The config lives in a ConfigMap and
+is mounted read-only at /etc/headscale/config.yaml; edit `.Values.config` and
+`helm upgrade` to change it.
+
+Data (SQLite DB + generated noise key + control socket) persists on the PVC at
+{{ .Values.persistence.dataDir }}.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
