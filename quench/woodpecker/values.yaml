@@ -1,0 +1,111 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/woodpecker.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/woodpecker
+  digest: "sha256:e3fde93e1cbe870bbcfbfc73db94ab6a5d027e15d2ebeb704b96d44d9a63b2c9"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Woodpecker's server persists to a local SQLite DB by default, so it is not
+# horizontally scalable; keep this at 1. Scale agents separately (not this chart).
+replicaCount: 1
+
+# The hardened image runs nonroot (uid 1001). The server binds HTTP on this port
+# (WOODPECKER_SERVER_ADDR) for the web UI/API, and gRPC on grpcPort for agents.
+containerPort: 8000
+grpcPort: 9000
+
+# --- Woodpecker server config (WOODPECKER_* env) ---
+# Public base URL of the server. REQUIRED for a real deployment; used to build
+# forge OAuth callbacks and links. Set to your externally reachable https URL.
+host: ""
+
+# WOODPECKER_AGENT_SECRET: the shared secret agents authenticate with. Provide a
+# fixed value (creates a Secret) or point at an existing Secret. Leave both empty
+# to let the server auto-generate an ephemeral one (fine for a UI-only smoke test,
+# but agents cannot then connect; set a stable value in production and ROTATE it).
+agentSecret:
+  value: ""
+  existingSecret: ""
+  existingSecretKey: WOODPECKER_AGENT_SECRET
+
+# A forge (github / gitea / gitlab / bitbucket / addon) MUST be configured for the
+# server to start. Wire it through extraEnvVars or a Secret, e.g.:
+#   extraEnvVars:
+#     - name: WOODPECKER_GITHUB
+#       value: "true"
+#     - name: WOODPECKER_GITHUB_CLIENT
+#       value: "<oauth-app-client-id>"
+#   extraEnvVarsSecret: woodpecker-forge   # holds WOODPECKER_GITHUB_SECRET
+
+persistence:
+  enabled: true
+  size: 2Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 80
+  # gRPC port the Service exposes for agent connections.
+  grpcPort: 9000
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# Extra WOODPECKER_* env: put the forge config and any other server tuning here.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # Woodpecker is reached from browsers (web UI) and by agents (gRPC), often from
+  # outside the cluster. Set true to allow ingress from any source; default
+  # restricts traffic to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

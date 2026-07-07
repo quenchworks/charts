@@ -1,0 +1,47 @@
+Quenchworks woodpecker (CI server) is installed as {{ include "quench-common.fullname" . }}.
+
+Reach the web UI / API from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Port-forward it to your laptop:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8000:{{ .Values.service.port }}
+  # then open http://127.0.0.1:8000
+
+Health check:
+
+  curl -i http://127.0.0.1:8000/healthz   # -> HTTP 204 once the server is up
+
+Agents connect over gRPC on the Service's grpc port ({{ .Values.service.grpcPort }}) using
+WOODPECKER_AGENT_SECRET.
+
+{{- if not .Values.host }}
+
+WARNING: .Values.host (WOODPECKER_HOST) is empty. Set it to the server's public
+URL so forge OAuth callbacks and links work.
+{{- end }}
+{{- if not (include "woodpecker.agentSecretEnabled" .) }}
+
+NOTE: no agentSecret configured. The server auto-generates an ephemeral agent
+secret, so agents cannot reliably connect. Set agentSecret.value (or point at an
+existing Secret) and ROTATE it in production.
+{{- end }}
+
+IMPORTANT: Woodpecker requires a forge (github / gitea / gitlab / bitbucket) to
+start. Configure it via extraEnvVars / extraEnvVarsSecret, e.g.:
+
+  extraEnvVars:
+    - name: WOODPECKER_GITHUB
+      value: "true"
+    - name: WOODPECKER_GITHUB_CLIENT
+      value: "<oauth-client-id>"
+  extraEnvVarsSecret: woodpecker-forge   # carries WOODPECKER_GITHUB_SECRET
+
+Data (SQLite DB) persists on the PVC at /var/lib/woodpecker.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

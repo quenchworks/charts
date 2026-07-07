@@ -1,0 +1,24 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+#
+# Persistence stays ON here so the gate proves the PVC binds and Woodpecker writes
+# its SQLite DB to it. Woodpecker refuses to start without a forge, so we wire a
+# dummy GitHub forge (never contacted for a boot/health test) plus a fixed agent
+# secret and host to reach a healthy /healthz. In a real deployment, set a real
+# forge, your public host, and ROTATE the agent secret.
+persistence:
+  enabled: true
+  size: 1Gi
+
+host: http://woodpecker.example.com
+
+agentSecret:
+  value: quench-ci-agent-secret
+
+extraEnvVars:
+  - name: WOODPECKER_GITHUB
+    value: "true"
+  - name: WOODPECKER_GITHUB_CLIENT
+    value: dummy-client-id
+  - name: WOODPECKER_GITHUB_SECRET
+    value: dummy-client-secret
