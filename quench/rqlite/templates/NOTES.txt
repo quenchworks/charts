@@ -1,0 +1,25 @@
+Quenchworks rqlite is installed as {{ include "quench-common.fullname" . }}.
+
+Connect to the HTTP API from inside the cluster:
+
+  Endpoint: http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}
+
+Try it over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.httpPort }}:{{ .Values.service.httpPort }}
+
+  # readiness
+  curl http://127.0.0.1:{{ .Values.service.httpPort }}/readyz
+
+  # a quick SQL round-trip
+  curl -XPOST 'http://127.0.0.1:{{ .Values.service.httpPort }}/db/execute?pretty' \
+    -H 'Content-Type: application/json' \
+    -d '[["CREATE TABLE hello (msg TEXT)"], ["INSERT INTO hello VALUES(\"quench\")"]]'
+  curl -G 'http://127.0.0.1:{{ .Values.service.httpPort }}/db/query?pretty' \
+    --data-urlencode 'q=SELECT * FROM hello'
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

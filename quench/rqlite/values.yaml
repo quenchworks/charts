@@ -1,0 +1,84 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/rqlite.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/rqlite
+  digest: "sha256:7a22d9bdfc32f0844af37c55b8bf8b923997ec5672f6da28cb4468cdb9bdd540"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single-node distributed SQLite for now. The image entrypoint launches rqlited
+# with a fixed HTTP (:4001) and Raft (:4002) address and a /rqlite/data data dir.
+# A multi-node clustered topology is a later addition (it needs -join / static
+# peer discovery over the headless service), so keep this at 1.
+replicaCount: 1
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  httpPort: 4001
+  raftPort: 4002
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Override the image entrypoint to change flags (e.g. clustering, auth). Left
+# empty, the hardened image's baked-in rqlited invocation is used.
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # rqlite's HTTP API is often reached from outside the cluster. Set true to
+  # allow ingress from any source; default restricts HTTP traffic to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
