@@ -1,0 +1,35 @@
+{{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+{{/*
+STEPPATH volume (ca.json + root/intermediate certs & keys + badger db). It is a
+standalone PVC, not a volumeClaimTemplate, so the one-shot pre-install bootstrap
+Job and the long-running StatefulSet pod can mount the SAME volume: the Job
+writes the PKI, the server then reads it. Created before the Job (lower
+hook-weight); kept for the life of the release and re-created fresh on a
+re-install (before-hook-creation).
+*/}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "step-ca.pvcName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation
+    {{- with .Values.persistence.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes: {{ .Values.persistence.accessModes }}
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.persistence.selector }}
+  selector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}

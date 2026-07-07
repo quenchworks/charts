@@ -1,0 +1,81 @@
+{{/*
+One-shot PKI bootstrap. Runs the bundled `step` CLI (the runtime image is
+shell-free, so this is a direct execve, no /bin/sh) to generate the root +
+intermediate CAs, a first JWK provisioner and ca.json into STEPPATH on the shared
+PVC. It is a pre-install hook (weight 0, after the Secret and PVC at -10) so it
+runs EXACTLY ONCE at install, before the StatefulSet: pod restarts, reschedules
+and `helm upgrade` never re-run it, so the CA identity is stable. `step ca init`
+refuses to overwrite an existing CA; before-hook-creation wipes a stale Job (and,
+paired with the PVC's own policy, gives a clean re-bootstrap) on a fresh install.
+*/}}
+{{- $fn := include "quench-common.fullname" . -}}
+{{- $dns := concat (list "localhost" "127.0.0.1" $fn (printf "%s.%s.svc" $fn .Release.Namespace) (printf "%s.%s.svc.cluster.local" $fn .Release.Namespace)) .Values.ca.dnsNames | uniq -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fn }}-init
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  # First-boot PKI generation should be quick; fail loudly rather than hang.
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "step-ca.bootstrapServiceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: init-pki
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: STEPPATH
+              value: /home/step
+          command:
+            - /usr/bin/step
+            - ca
+            - init
+            {{- range $dns }}
+            - --dns={{ . }}
+            {{- end }}
+            - --name={{ .Values.ca.name }}
+            - --address=:{{ .Values.containerPort }}
+            - --provisioner={{ .Values.ca.provisioner }}
+            - --password-file=/pw/password
+            - --provisioner-password-file=/pw/provisioner-password
+            - --deployment-type={{ .Values.ca.deploymentType }}
+          volumeMounts:
+            - name: data
+              mountPath: /home/step
+            - name: pki-password
+              mountPath: /pw
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ include "step-ca.pvcName" . }}
+        - name: pki-password
+          secret:
+            secretName: {{ include "step-ca.secretName" . }}
+            items:
+              - key: password
+                path: password
+              - key: provisioner-password
+                path: provisioner-password
+        - name: tmp
+          emptyDir: {}

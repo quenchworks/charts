@@ -1,0 +1,125 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/step-ca.json after every green image build. It is never a tag.
+# This image ships BOTH /usr/bin/step-ca (server) and /usr/bin/step (CLI), so it
+# can both bootstrap the PKI (step ca init) and serve it (step-ca).
+image:
+  repository: ghcr.io/quenchworks/images/step-ca
+  digest: "sha256:aa3c9c22334a1641bc52eff2892ac5dcf54b946048af5fee8ceb234402fce65c"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# step-ca is a stateful, single-node online CA. Its whole state (ca.json, the
+# root/intermediate certs+keys and the badger db) lives under STEPPATH on one
+# PVC, so it cannot be horizontally scaled; keep this at 1.
+replicaCount: 1
+
+# The hardened image runs nonroot (uid 1001) and step-ca serves HTTPS on this
+# port. It is wired into the CA address (ca.json) at first-boot init and into the
+# probes, so the container, the CA config and the health checks stay in sync.
+containerPort: 9000
+
+# --- Certificate Authority bootstrap (first boot only) ---
+# On first boot an init container runs `step ca init` to generate the PKI
+# (root + intermediate CA, a first JWK provisioner and ca.json) into STEPPATH on
+# the PVC. On subsequent boots the PKI already exists and init is skipped, so the
+# CA identity is stable across restarts. Passwords come from a Secret (see auth).
+ca:
+  # Human-readable name of the PKI / root subject.
+  name: "QuenchWorks CA"
+  # Name (JWK key id) of the first provisioner created at init. An email or any
+  # identifier; you add/rotate provisioners later with `step ca provisioner`.
+  provisioner: "admin@quench-works.com"
+  # Extra DNS names / IPs the CA certificate should be valid for, IN ADDITION to
+  # the in-cluster Service names and "localhost" which the chart always adds.
+  dnsNames: []
+  # Deployment type passed to `step ca init` (standalone = self-managed keys, no
+  # cloud services). Leave as standalone for a self-hosted CA.
+  deploymentType: standalone
+
+# Passwords for the CA. They are only consumed at first-boot init (to encrypt the
+# CA keys and the first provisioner) and at server start (to decrypt the
+# intermediate key). NEVER commit real passwords: set them via an existingSecret
+# in production and rotate after bootstrap.
+auth:
+  # Reference an existing Secret with keys `password` (CA key password) and
+  # `provisioner-password` (first provisioner password). Takes precedence over
+  # the inline values below when set.
+  existingSecret: ""
+  # Inline passwords, rendered into a chart-managed Secret when existingSecret is
+  # empty. Empty here is invalid — you MUST supply passwords (see ci/ for the
+  # test defaults). Change them after first boot.
+  password: ""
+  provisionerPassword: ""
+
+persistence:
+  enabled: true
+  size: 1Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 443
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# Extra env vars for the step-ca container (e.g. tuning). The PKI is driven by
+# ca.json, not env, so most deployments leave this empty.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+# Generous startup budget by default: first boot generates the PKI in the init
+# container, and the server then opens its db before /health goes green.
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # A CA is typically reached cluster-wide (cert-manager, ACME clients, workloads
+  # across namespaces). Set true to allow ingress from any source; default
+  # restricts client traffic to this namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

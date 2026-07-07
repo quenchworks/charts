@@ -1,0 +1,26 @@
+Quenchworks step-ca is installed as {{ include "quench-common.fullname" . }}.
+
+The PKI (root + intermediate CA, first provisioner, ca.json) was generated once
+at install by the {{ include "quench-common.fullname" . }}-init Job and lives on
+the PVC {{ include "step-ca.pvcName" . }}. It is stable across restarts.
+
+Reach the CA over HTTPS from inside the cluster:
+
+  https://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Port-forward it to your laptop:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 9000:{{ .Values.service.port }}
+  # then: curl -k https://127.0.0.1:9000/health   -> {"status":"ok"}
+  #       curl -sk https://127.0.0.1:9000/roots.pem   # the CA root certificate
+
+The first provisioner is "{{ .Values.ca.provisioner }}". Its password and the CA
+key password come from Secret {{ include "step-ca.secretName" . }}
+({{ if .Values.auth.existingSecret }}your existingSecret{{ else }}chart-managed{{ end }}).
+CHANGE THEM AFTER BOOTSTRAP and manage provisioners with `step ca provisioner`.
+
+The image is pinned by digest and cosign-signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
