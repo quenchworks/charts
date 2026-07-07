@@ -1,0 +1,96 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/jaeger
+  digest: "sha256:01d30b12ac6e9b36a632b3a84baa8bc118ec33066ebd4f5f57c0ad7847533c82"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Jaeger v2 all-in-one (collector + query + UI in one process). With the default
+# in-memory storage it holds spans in RAM only, so a single replica cannot share
+# state and MUST NOT be scaled: each replica would keep its own disjoint traces
+# and lose them on restart. For a scalable, durable deployment, configure a real
+# storage backend (badger/elasticsearch/cassandra) via config.yaml below.
+replicaCount: 1
+
+# Jaeger v2 server configuration.
+#
+# Left empty, the container boots the baked-in default All-in-One config with
+# in-memory storage (no config file, no flags). Set config.yaml to a full Jaeger
+# v2 (OpenTelemetry-collector) YAML config to run a production storage backend;
+# it is written to a ConfigMap, mounted at /etc/jaeger/config.yaml, and passed via
+# `--config`. Point config.existingConfigMap at an externally-managed ConfigMap
+# (key `config.yaml`) to use that instead. extraArgs are appended to the command.
+config:
+  yaml: ""
+  existingConfigMap: ""
+extraArgs: []
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+# The container exposes the query UI/API, both OTLP receivers, and the
+# healthcheck extension on fixed ports. The Service publishes the first three;
+# the health port (13133) is used only for probes and is not exposed.
+service:
+  type: ClusterIP
+  ports:
+    # Query UI + HTTP API (also serves the web UI).
+    query: 16686
+    # OTLP gRPC receiver.
+    otlpGrpc: 4317
+    # OTLP HTTP receiver.
+    otlpHttp: 4318
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+# The default is nonroot uid 1001 with a read-only root filesystem; a writable
+# emptyDir is mounted at /tmp for scratch.
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Jaeger receives spans from workloads across the cluster and its UI is often
+# reached from outside, so allow external ingress by default. Set
+# allowExternal=false to restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
