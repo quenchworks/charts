@@ -1,0 +1,31 @@
+Quenchworks descheduler is installed as {{ include "quench-common.fullname" . }}.
+
+It runs nonroot as a Deployment, executing its descheduling loop every
+{{ .Values.deschedulingInterval }} and evicting pods that violate the configured
+DeschedulerPolicy so the scheduler can place them on more suitable nodes.
+
+Watch it work:
+
+  kubectl logs -l app.kubernetes.io/instance={{ .Release.Name }} -f
+
+{{ if .Values.policy.existingConfigMap -}}
+Using an externally-managed policy from ConfigMap {{ .Values.policy.existingConfigMap }} (key policy.yaml).
+{{- else -}}
+Using the chart's default DeschedulerPolicy (RemoveDuplicates, LowNodeUtilization,
+topology-spread balancing, plus node-taint/affinity/anti-affinity and
+too-many-restarts descheduling). Override policy.config to change it.
+{{- end }}
+
+Health and metrics are served over HTTPS on container port {{ .Values.metricsPort }}
+({{ include "quench-common.fullname" . }}:/healthz and /metrics).
+{{- if .Values.service.enabled }} The Service exposes them on port {{ .Values.service.port }}:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl -k https://127.0.0.1:{{ .Values.service.port }}/healthz
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/descheduler \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

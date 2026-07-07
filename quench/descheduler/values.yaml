@@ -1,0 +1,141 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/descheduler
+  digest: "sha256:668db70ed1718ad6ac3b5ac1d545b97e973e5855047329a4479df48fe843f287"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The descheduler runs as a long-lived Deployment, executing its descheduling
+# loop every deschedulingInterval. Keep replicaCount at 1: only one instance may
+# run the loop at a time. For HA set replicaCount > 1 AND leaderElection.enabled=true
+# so exactly one replica (the leader) is active while the others stand by.
+replicaCount: 1
+deschedulingInterval: 5m
+
+# Leader election. Required when replicaCount > 1. Adds coordination.k8s.io/leases
+# rules to the ClusterRole so the leader can hold the lease.
+leaderElection:
+  enabled: false
+  resourceName: descheduler
+  resourceNamespace: kube-system
+
+# DeschedulerPolicy (descheduler/v1alpha2). Rendered to a ConfigMap, mounted at
+# /policy/policy.yaml and passed via --policy-config-file. The default below is a
+# sane, conservative starting policy: it balances load (RemoveDuplicates,
+# LowNodeUtilization, topology-spread) and corrects scheduling drift (node
+# taints/affinity, anti-affinity, crash-looping pods). Point policy.existingConfigMap
+# at an externally-managed ConfigMap (key policy.yaml) to use that instead.
+policy:
+  existingConfigMap: ""
+  config: |
+    apiVersion: "descheduler/v1alpha2"
+    kind: "DeschedulerPolicy"
+    profiles:
+      - name: default
+        pluginConfig:
+          - name: DefaultEvictor
+            args:
+              evictLocalStoragePods: false
+              ignorePvcPods: true
+          - name: RemoveDuplicates
+          - name: RemovePodsHavingTooManyRestarts
+            args:
+              podRestartThreshold: 100
+              includingInitContainers: true
+          - name: RemovePodsViolatingNodeAffinity
+            args:
+              nodeAffinityType:
+                - requiredDuringSchedulingIgnoredDuringExecution
+          - name: RemovePodsViolatingNodeTaints
+          - name: RemovePodsViolatingInterPodAntiAffinity
+          - name: RemovePodsViolatingTopologySpreadConstraint
+          - name: LowNodeUtilization
+            args:
+              thresholds:
+                cpu: 20
+                memory: 20
+                pods: 20
+              targetThresholds:
+                cpu: 50
+                memory: 50
+                pods: 50
+        plugins:
+          balance:
+            enabled:
+              - RemoveDuplicates
+              - RemovePodsViolatingTopologySpreadConstraint
+              - LowNodeUtilization
+          deschedule:
+            enabled:
+              - RemovePodsHavingTooManyRestarts
+              - RemovePodsViolatingNodeTaints
+              - RemovePodsViolatingNodeAffinity
+              - RemovePodsViolatingInterPodAntiAffinity
+
+# Log verbosity (--v). extraArgs are appended verbatim to the descheduler command.
+verbosity: 3
+extraArgs: []
+
+# The descheduler serves /healthz and /metrics over HTTPS on this secure port.
+metricsPort: 10258
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+# Optional ClusterIP Service exposing the HTTPS metrics/health port for scraping.
+service:
+  enabled: true
+  type: ClusterIP
+  port: 10258
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# The descheduler needs cluster-scoped read access plus pod-eviction rights, so
+# the chart ships a real ClusterRole/ClusterRoleBinding by default.
+rbac:
+  create: true
+
+# The descheduler only talks to the API server and exposes a metrics/health
+# endpoint; restrict ingress to the namespace by default.
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+# A single-replica descheduler must be evictable during node drains, so the PDB
+# is off by default. Enable it alongside HA (replicaCount > 1 + leaderElection).
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
