@@ -1,0 +1,41 @@
+Quenchworks Tyk Gateway is installed as {{ include "quench-common.fullname" . }}.
+
+Reach the gateway from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Port-forward it to your laptop:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  # then: curl http://127.0.0.1:8080/hello   -> 200 (JSON status)
+
+{{- if .Values.redis.enabled }}
+
+Storage: bundled Redis subchart, Service {{ .Release.Name }}-redis:6379.
+{{- if .Values.redis.auth.enabled }}
+The Redis password is shared with the gateway and stored in Secret
+{{ include "quench-common.fullname" . }} (key redis-password).
+{{- end }}
+{{- else }}
+
+Storage: external Redis at {{ include "tyk.redisHost" . }}:{{ include "tyk.redisPort" . }}.
+{{- end }}
+
+The gateway control-API secret (X-Tyk-Authorization header) is stored in
+Secret {{ include "tyk.apiSecretName" . }} (key {{ include "tyk.apiSecretKey" . }}). Retrieve it:
+
+  kubectl get secret {{ include "tyk.apiSecretName" . }} \
+    -o jsonpath='{.data.{{ include "tyk.apiSecretKey" . }}}' | base64 -d ; echo
+
+Publish an API by writing its definition into the gateway's app_path
+(/opt/tyk-gateway/apps) via an extraVolume, then hot-reload:
+
+  curl -H "X-Tyk-Authorization: <secret>" http://127.0.0.1:8080/tyk/reload/group
+
+ROTATE the secret and node_secret (and the Redis password) before production.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

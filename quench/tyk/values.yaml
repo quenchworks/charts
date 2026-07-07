@@ -1,0 +1,129 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/tyk.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/tyk
+  digest: "sha256:3a68366c7151bfe0fedf125db369d2c0fc030ac16a49cdf4640b0d226d965c64"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Tyk Gateway is stateless (all runtime state lives in Redis), so it runs as a
+# plain Deployment and can be scaled horizontally.
+replicaCount: 1
+
+# The hardened image runs nonroot (uid 1001) and the gateway binds this port.
+# tyk.conf listen_port is wired to it so the container and /hello probe stay in sync.
+containerPort: 8080
+
+# --- Gateway secrets --------------------------------------------------------
+# secret     : the X-Tyk-Authorization value for the Gateway control API.
+# nodeSecret  : shared secret used to secure inter-node/pump traffic (node_secret).
+# Both are injected via a Secret and TYK_GW_* env overrides (never written to the
+# tyk.conf ConfigMap). Leave empty to auto-generate and persist random values in
+# the chart's Secret; set explicitly or point at an existingSecret for production.
+gateway:
+  secret: ""
+  nodeSecret: ""
+  # Optional: an existing Secret holding the gateway secrets.
+  existingSecret: ""
+  existingSecretApiKey: api-secret
+  existingSecretNodeKey: node-secret
+
+# Extra tyk.conf keys merged over the chart's baseline config (your keys win).
+# Use this to enable features without templating a whole config, e.g.:
+#   extraConfig:
+#     enable_jsvm: true
+#     log_level: debug
+extraConfig: {}
+
+# --- Redis ------------------------------------------------------------------
+# Two mutually exclusive modes:
+#
+#  1. Bundled Redis (default). redis.enabled=true pulls QuenchWorks' own hardened
+#     redis subchart. tyk.conf storage.* points at the subchart's Service and the
+#     Redis password below is SHARED with the subchart (both read the same value),
+#     injected into the gateway via TYK_GW_STORAGE_PASSWORD. Set a strong one for
+#     production or switch to externalRedis.
+#
+#  2. External Redis. Set redis.enabled=false and fill externalRedis.* (or supply
+#     externalRedis.existingSecret holding the password).
+externalRedis:
+  host: ""
+  port: 6379
+  password: ""
+  database: 0
+  enableCluster: false
+  useSSL: false
+  # Optional: an existing Secret already holding the Redis password.
+  existingSecret: ""
+  existingSecretPasswordKey: redis-password
+
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: true
+    # SHARED with tyk's storage.password. Override for production.
+    password: "tyk-redis"
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { cpu: 1000m, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # Tyk is typically reached from outside the cluster (API clients). Set true to
+  # allow ingress from any source; default restricts client traffic to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

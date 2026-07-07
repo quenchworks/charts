@@ -1,0 +1,39 @@
+{{/*
+tyk.conf for the open-source Gateway. Non-secret settings only: the control-API
+secret, node_secret and Redis password are injected at runtime via TYK_GW_* env
+vars (see the Deployment), which take precedence over these file values, so no
+credentials are ever written to this ConfigMap.
+*/}}
+{{- $storage := dict
+    "type" "redis"
+    "host" (include "tyk.redisHost" .)
+    "port" (int (include "tyk.redisPort" .))
+    "database" (int (ternary .Values.externalRedis.database 0 (not .Values.redis.enabled)))
+    "enable_cluster" (ternary .Values.externalRedis.enableCluster false (not .Values.redis.enabled))
+    "use_ssl" (ternary .Values.externalRedis.useSSL false (not .Values.redis.enabled))
+    "password" ""
+-}}
+{{- $conf := dict
+    "listen_port" (int .Values.containerPort)
+    "template_path" "/opt/tyk-gateway/templates"
+    "app_path" "/opt/tyk-gateway/apps/"
+    "middleware_path" "/opt/tyk-gateway/middleware/"
+    "use_db_app_configs" false
+    "storage" $storage
+    "enable_analytics" false
+    "policies" (dict "policy_source" "file")
+    "allow_insecure_configs" true
+    "hash_keys" true
+    "secret" ""
+    "node_secret" ""
+-}}
+{{- $conf = mergeOverwrite $conf (deepCopy .Values.extraConfig) -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  tyk.conf: |
+    {{- $conf | toPrettyJson | nindent 4 }}
