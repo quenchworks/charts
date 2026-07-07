@@ -1,0 +1,87 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/vikunja.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/vikunja
+  digest: "sha256:af5707d2cb8a8ca71322f5923d3d0d4c0ca3ff6bd903790f89a5e2cfa6c6f3d3"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single-node to-do / project-management server. Vikunja persists to a SQLite DB
+# plus an attachments/files dir, so it is not horizontally scalable; keep at 1.
+replicaCount: 1
+
+# The hardened image runs nonroot (uid 1001) and binds this port. Vikunja's own
+# VIKUNJA_SERVICE_INTERFACE is wired to it so the container and probes stay in sync.
+containerPort: 3456
+
+persistence:
+  enabled: true
+  size: 1Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# Vikunja signs session JWTs with VIKUNJA_SERVICE_JWTSECRET. If unset the image
+# generates a random secret on every boot, which invalidates all sessions on
+# restart. Set a fixed, strong secret in production -- ideally via a Secret
+# referenced by extraEnvVarsSecret -- and rotate it deliberately.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # Vikunja is often reached from outside the cluster (browser/apps). Set true to
+  # allow ingress from any source; default restricts client traffic to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

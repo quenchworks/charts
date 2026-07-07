@@ -1,0 +1,32 @@
+Quenchworks vikunja is installed as {{ include "quench-common.fullname" . }}.
+
+Reach the web UI / API from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Port-forward it to your laptop:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 3456:{{ .Values.service.port }}
+  # then open http://127.0.0.1:3456
+
+Health check:
+
+  curl http://127.0.0.1:3456/api/v1/info   # -> 200 {"version":"...", ...}
+
+On first boot, register the initial account through the web UI (registration is
+open by default; set VIKUNJA_SERVICE_ENABLEREGISTRATION=false via extraEnvVars
+once your users exist).
+
+Session JWTs are signed with VIKUNJA_SERVICE_JWTSECRET. If you did not set one,
+the server generated a random secret at boot and every restart will log all
+users out. Set a fixed, strong secret in production (ideally via a Secret
+referenced by extraEnvVarsSecret) and rotate it deliberately.
+
+Data (SQLite DB + uploaded attachments) persists on the PVC: the DB at /db and
+uploaded files at /files.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
