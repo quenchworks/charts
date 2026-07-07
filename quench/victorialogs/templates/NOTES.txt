@@ -1,0 +1,32 @@
+Quenchworks victorialogs is installed as {{ include "quench-common.fullname" . }}.
+
+Reach the HTTP API from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Port-forward it to your laptop:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 9428:{{ .Values.service.port }}
+  # then open http://127.0.0.1:9428/select/vmui  (built-in query UI)
+
+Health check:
+
+  curl http://127.0.0.1:9428/health   # -> 200 OK
+
+Ingest logs (JSON stream example):
+
+  echo '{"_msg":"hello from quench","level":"info"}' | \
+    curl -X POST -H 'Content-Type: application/stream+json' --data-binary @- \
+    'http://127.0.0.1:9428/insert/jsonline?_stream_fields=level'
+
+Query them with LogsQL:
+
+  curl 'http://127.0.0.1:9428/select/logsql/query' --data-urlencode 'query=*'
+
+Log data persists on the PVC at {{ .Values.storagePath }} (-storageDataPath).
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

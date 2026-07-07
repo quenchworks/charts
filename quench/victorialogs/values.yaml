@@ -1,0 +1,91 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/victorialogs.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/victorialogs
+  digest: "sha256:c96cfb283a3f23093ed0a242ab2fac59ae4eb02228747a96a8e9b94daf004b7b"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single-node log database. VictoriaLogs stores its data in one storage dir and
+# is not designed to be horizontally scaled by simply adding replicas (each pod
+# would own its own PVC and its own disjoint dataset); keep this at 1.
+replicaCount: 1
+
+# The hardened image runs nonroot (uid 1001) and binds this port. VictoriaLogs'
+# -httpListenAddr is wired to it (via VL_HTTP_LISTEN) so container and probes
+# stay in sync.
+containerPort: 9428
+
+# Filesystem path VictoriaLogs persists to (-storageDataPath, via VL_STORAGE).
+# The PVC is mounted here, so all log data lives on persistent storage.
+storagePath: /victoria-logs-data
+
+persistence:
+  enabled: true
+  size: 10Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 9428
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# Extra flags are passed straight to victoria-logs after the storage/listen
+# flags (e.g. args: ["-retentionPeriod=30d"]).
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # VictoriaLogs is reached by log shippers and query clients. Set true to allow
+  # ingress from any source; default restricts traffic to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
