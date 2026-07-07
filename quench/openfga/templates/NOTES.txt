@@ -1,0 +1,30 @@
+Quenchworks OpenFGA is installed as {{ include "quench-common.fullname" . }}.
+
+The server runs nonroot and serves the HTTP API on container port 8080 and the
+gRPC API on 8081; the Service exposes them at:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}  (HTTP)
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.grpcPort }}  (gRPC)
+
+Check health and call the HTTP API over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.httpPort }}:{{ .Values.service.httpPort }}
+  curl http://127.0.0.1:{{ .Values.service.httpPort }}/healthz
+  curl http://127.0.0.1:{{ .Values.service.httpPort }}/stores
+
+{{ if eq .Values.datastore.engine "memory" }}
+Running with the in-memory datastore: state is NOT persisted and is lost on pod
+restart, and it is not shared across replicas. For production, set
+datastore.engine to postgres/mysql and provide datastore.uri (or wire
+OPENFGA_DATASTORE_URI via extraEnvVarsSecret), then run `openfga migrate` against
+the database before first start.
+{{- else }}
+Running with the {{ .Values.datastore.engine }} datastore. Ensure the database has been
+migrated (`openfga migrate --datastore-engine {{ .Values.datastore.engine }} ...`) before use.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/openfga \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

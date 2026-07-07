@@ -1,0 +1,99 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/openfga
+  digest: "sha256:b4f599ed4c1f84c658bd93c6d4b74ee4b57453c6ceaac770bbb12e2c01eedfd3"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# OpenFGA is stateless when run with the default in-memory datastore: this chart
+# runs a Deployment behind a ClusterIP Service. Note the memory datastore is
+# per-pod and lost on restart, so it is NOT shared across replicas — keep this at
+# 1 unless you configure a shared database (see datastore below).
+replicaCount: 1
+
+# OpenFGA datastore.
+#
+# The container runs `openfga run`. With engine `memory` (default) it boots fully
+# stateless with no database. For production set engine to `postgres` or `mysql`
+# and provide the connection URI. To keep credentials out of values, leave uri
+# empty and wire OPENFGA_DATASTORE_URI (and any OPENFGA_DATASTORE_* tuning) via
+# extraEnvVars / extraEnvVarsSecret instead. A shared database lets you raise
+# replicaCount or enable autoscaling. Remember to run `openfga migrate` against a
+# fresh SQL database before first start.
+datastore:
+  engine: memory
+  uri: ""
+
+# The bundled developer playground (port 3000) is disabled by default: it is
+# unauthenticated and intended only for local experimentation.
+playground:
+  enabled: false
+
+# extraArgs are appended to the `openfga run` command.
+extraArgs: []
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # The container serves the HTTP API on 8080 and the gRPC API on 8081; the
+  # Service maps both to the same ports.
+  httpPort: 8080
+  grpcPort: 8081
+
+# Optional horizontal autoscaling on CPU (only meaningful with a shared datastore).
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The authorization API is commonly consulted from across the cluster, so allow
+# external ingress by default. Set allowExternal=false to restrict ingress to the
+# namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
