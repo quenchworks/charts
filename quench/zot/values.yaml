@@ -1,0 +1,99 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/zot
+  digest: "sha256:00c6f5c0bed920018f51a5a442dd6107ed5ac5d5529402e75b15a23623e50ab1"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# A single registry runs as a StatefulSet so its blob store has a stable identity
+# and a persistent volume. Scale-out needs shared storage (S3) configured in
+# config.configJson; the default is filesystem on the PVC, so keep replicaCount 1.
+replicaCount: 1
+
+# zot configuration. The configJson below is written to a ConfigMap and mounted
+# over the image default at /etc/zot/config.json (the image runs
+# `zot serve /etc/zot/config.json`). The default stores blobs on the filesystem
+# under /var/lib/registry (the PVC) and serves the API on 0.0.0.0:5000.
+# Point config.existingConfigMap at an externally-managed ConfigMap (key config.json)
+# to manage it yourself (e.g. S3 storage, auth, TLS).
+config:
+  configJson: |
+    {
+      "distSpecVersion": "1.1.1",
+      "storage": {
+        "rootDirectory": "/var/lib/registry"
+      },
+      "http": {
+        "address": "0.0.0.0",
+        "port": "5000"
+      },
+      "log": {
+        "level": "info"
+      }
+    }
+  existingConfigMap: ""
+
+# Blob storage volume mounted at /var/lib/registry.
+persistence:
+  enabled: true
+  size: 10Gi
+  # storageClass: ""           # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 5000                   # the registry HTTP API
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# A registry is commonly pulled/pushed from across the cluster, so allow external
+# ingress by default. Set allowExternal=false to restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

@@ -1,0 +1,27 @@
+Quenchworks zot (OCI-native registry) is installed as {{ include "quench-common.fullname" . }}.
+
+The registry runs nonroot and serves the OCI Distribution API on container port
+5000; the Service exposes it on port {{ .Values.service.port }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Check the API base and push/pull over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://127.0.0.1:{{ .Values.service.port }}/v2/          # returns 200 once ready
+  curl http://127.0.0.1:{{ .Values.service.port }}/v2/_catalog  # list repositories
+
+{{ if .Values.config.existingConfigMap }}
+Running with an externally-managed config from ConfigMap
+"{{ .Values.config.existingConfigMap }}" (key config.json), mounted at /etc/zot.
+{{- else }}
+Running with the chart-rendered config from a ConfigMap mounted at /etc/zot.
+Blobs are stored on the filesystem under /var/lib/registry (the PVC). Edit
+config.configJson to enable auth, TLS, or S3-backed storage.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/zot \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
