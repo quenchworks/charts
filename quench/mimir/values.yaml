@@ -1,0 +1,158 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/mimir.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/mimir
+  digest: "sha256:70ca1a439edf381c0afda680b9a47bb61c05bb937599fe9db8a4ca8d65191aef"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single-process (monolithic) mode: one process runs every Mimir component
+# (-target=all). Mimir keeps local state (the TSDB, the filesystem object store,
+# compactor working dir) under /data, so this chart ships a StatefulSet. Monolithic
+# mode is the recommended topology for a single node; the microservices split with
+# an external object store (S3/GCS) is a tracked follow-up. replicaCount > 1 in
+# monolithic mode also needs a shared object store and a real ring -- keep it at 1.
+replicaCount: 1
+
+# Mimir configuration. The image entrypoint is the binary directly; the chart
+# passes -config.file=/etc/mimir/mimir.yaml and -target=all. The config below is
+# rendered into a ConfigMap and mounted at that path. Replace mimirConfig wholesale
+# to bring your own config (it is templated, so you may use Helm values inside it).
+#
+# Defaults: single-tenant (multitenancy_enabled: false), filesystem object storage
+# for blocks/ruler/alertmanager under /data (the writable PVC), single-node rings
+# over memberlist with replication_factor 1. NOT for production.
+mimirConfig: |
+  # Do not use this configuration in production. It runs Mimir as a single node
+  # with a local filesystem object store and replication_factor 1.
+  multitenancy_enabled: false
+
+  server:
+    http_listen_port: {{ .Values.service.port }}
+    grpc_listen_port: {{ .Values.service.grpcPort }}
+    log_level: info
+
+  # Object storage (blocks, ruler, alertmanager) on the local filesystem, under the
+  # PVC at /data. Each object-storage client gets a distinct prefix so they do not
+  # collide inside the shared directory.
+  common:
+    storage:
+      backend: filesystem
+      filesystem:
+        dir: /data/storage
+
+  blocks_storage:
+    storage_prefix: blocks
+    tsdb:
+      dir: /data/tsdb
+    bucket_store:
+      sync_dir: /data/tsdb-sync
+
+  ruler_storage:
+    storage_prefix: ruler
+
+  alertmanager_storage:
+    storage_prefix: alertmanager
+
+  compactor:
+    data_dir: /data/compactor
+    sharding_ring:
+      kvstore:
+        store: memberlist
+
+  # Single-node rings over memberlist; only one ingester, so replication_factor 1.
+  distributor:
+    ring:
+      kvstore:
+        store: memberlist
+
+  ingester:
+    ring:
+      replication_factor: 1
+      kvstore:
+        store: memberlist
+
+  store_gateway:
+    sharding_ring:
+      replication_factor: 1
+      kvstore:
+        store: memberlist
+
+  ruler:
+    rule_path: /data/ruler-tmp
+
+  # The activity tracker would otherwise write to the read-only working dir.
+  activity_tracker:
+    filepath: /data/metrics-activity.log
+
+# Extra raw flags appended verbatim after -config.file/-target (entrypoint passes
+# them to the binary), e.g. ["-log.level=debug"].
+extraArgs: []
+
+persistence:
+  enabled: true
+  size: 16Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "1", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  # HTTP API: remote-write (/api/v1/push), query, /ready, /metrics, config.
+  port: 8080
+  # gRPC (inter-component / future scale-out).
+  grpcPort: 9095
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

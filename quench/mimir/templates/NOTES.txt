@@ -1,0 +1,48 @@
+Quenchworks Mimir is installed as {{ include "quench-common.fullname" . }} (single-process / monolithic mode, -target=all).
+
+The HTTP API is reachable inside the cluster at:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Readiness / health:
+
+  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/ready                     # -> 200 "ready"
+  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/api/v1/status/config      # -> 200 (effective config)
+  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/metrics                   # -> 200
+
+Monolithic startup (open the TSDB, join the ring, start the compactor) takes
+~30-60s before /ready returns 200 -- give it a moment after install.
+
+Send metrics (Prometheus remote-write; Mimir has no scraper of its own -- point
+Prometheus / Grafana Alloy / the OTel collector at the push endpoint):
+
+  remote_write:
+    - url: http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/api/v1/push
+
+Query (this instance runs single-tenant, multitenancy_enabled: false):
+
+  curl -G 'http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/prometheus/api/v1/query' \
+    --data-urlencode 'query=up'
+
+Use as a Grafana datasource (add a "Prometheus" datasource):
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/prometheus
+
+Custom config:
+
+  Edit `mimirConfig` in your values and `helm upgrade` (the pod rolls on the config
+  checksum). The value is templated, so Helm values render inside it.
+
+NOTE: this chart runs Mimir with `multitenancy_enabled: false`. This is for
+internal use behind the NetworkPolicy, which is the trust boundary. There is no
+Secret to manage.
+
+This chart runs Mimir in single-process (monolithic) mode (all components in one
+process, filesystem object storage on the PVC). It scales vertically; the
+microservices split with an external object store (S3/GCS) is a tracked follow-up.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
