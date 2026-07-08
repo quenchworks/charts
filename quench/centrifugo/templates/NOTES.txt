@@ -1,0 +1,43 @@
+Quenchworks Centrifugo is installed as {{ include "quench-common.fullname" . }}.
+
+The server runs nonroot with the {{ .Values.engine.type }} engine and serves the
+WebSocket/SSE client endpoints, the HTTP API, {{ if .Values.admin.enabled }}the admin UI, {{ end }}and /health on
+container port {{ .Values.service.port }}; the Service exposes it on the same port:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Port-forward and check health:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://127.0.0.1:{{ .Values.service.port }}/health
+{{ if .Values.admin.enabled }}
+Open the admin UI at http://127.0.0.1:{{ .Values.service.port }}/ and log in with the
+admin password from the Secret:
+
+  kubectl get secret {{ include "centrifugo.secretName" . }} \
+    -o jsonpath='{.data.{{ include "centrifugo.adminPasswordKey" . }}}' | base64 -d; echo
+{{- end }}
+
+Call the server HTTP API with the API key (X-API-Key header):
+
+  key=$(kubectl get secret {{ include "centrifugo.secretName" . }} \
+    -o jsonpath='{.data.{{ include "centrifugo.apiKeyKey" . }}}' | base64 -d)
+  curl -H "X-API-Key: $key" -X POST http://127.0.0.1:{{ .Values.service.port }}/api/info
+
+{{- if not .Values.secrets.existingSecret }}
+
+The token HMAC secret, API key, admin password and admin secret were generated and
+stored in the Secret {{ include "quench-common.fullname" . }}. They are preserved
+across `helm upgrade`. To rotate, set secrets.* explicitly and upgrade.
+{{- end }}
+{{- if eq .Values.engine.type "memory" }}
+
+Running the in-memory engine (single node, no Redis). For horizontal scale-out set
+engine.type=redis and provide CENTRIFUGO_ENGINE_REDIS_ADDRESS via extraEnvVars.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/centrifugo \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

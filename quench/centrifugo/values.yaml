@@ -1,0 +1,127 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/centrifugo
+  digest: "sha256:2c747b13d92d872a3055052028c72d7cb1a6126dd635bdda73b324b3fc7aa717"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Centrifugo is stateless with the default in-memory engine: this chart runs a
+# Deployment behind a ClusterIP Service. A single node needs no external store.
+# Scale-out (multiple replicas / cross-node message fan-out) requires the Redis
+# engine, opt in via engine.type=redis plus the Redis address env (see below).
+replicaCount: 1
+
+# Messaging engine. "memory" (default) keeps everything in-process: perfect for a
+# single node, no Redis required, but presence/history/PUB-SUB are NOT shared
+# across replicas. For horizontal scale-out set type=redis and supply the Redis
+# connection via extraEnvVars, e.g.:
+#   engine:
+#     type: redis
+#   extraEnvVars:
+#     - name: CENTRIFUGO_ENGINE_REDIS_ADDRESS
+#       value: "redis://redis-master.default.svc.cluster.local:6379"
+# When running the memory engine keep replicaCount at 1.
+engine:
+  type: memory
+
+# Admin web UI (served at "/"). When enabled, adminPassword + adminSecret from the
+# managed Secret gate access. Turn off to serve only the client/API endpoints.
+admin:
+  enabled: true
+
+# Secrets Centrifugo needs at boot. Each value is generated (40 chars) if left
+# empty and preserved across upgrades via a helm lookup of the managed Secret, so
+# re-running `helm upgrade` never rotates a live deployment's credentials. Set a
+# value explicitly to control it (rotate in production by updating these and
+# upgrading). Point existingSecret at a Secret you manage to own them yourself.
+#   - tokenHmacSecretKey -> CENTRIFUGO_CLIENT_TOKEN_HMAC_SECRET_KEY (verifies client JWTs)
+#   - apiKey             -> CENTRIFUGO_HTTP_API_KEY                 (gates the server HTTP API)
+#   - adminPassword      -> CENTRIFUGO_ADMIN_PASSWORD              (admin UI login)
+#   - adminSecret        -> CENTRIFUGO_ADMIN_SECRET                (admin UI session signing)
+secrets:
+  tokenHmacSecretKey: ""
+  apiKey: ""
+  adminPassword: ""
+  adminSecret: ""
+  # Bring your own Secret. When set, the chart creates no Secret and reads the
+  # keys below from it instead.
+  existingSecret: ""
+  keys:
+    tokenHmacSecretKey: token-hmac-secret-key
+    apiKey: http-api-key
+    adminPassword: admin-password
+    adminSecret: admin-secret
+
+# Origins allowed for cross-origin client connections and the admin UI (maps to
+# CENTRIFUGO_CLIENT_ALLOWED_ORIGINS). Space-joined; empty means same-origin only.
+# Example: ["https://app.example.com"] or ["*"] to allow any (not recommended).
+allowedOrigins: []
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # Centrifugo serves WebSocket/SSE client endpoints, the admin UI, /health and the
+  # HTTP API on container port 8000; the Service maps the same port.
+  port: 8000
+
+# Optional horizontal autoscaling on CPU. Only meaningful with engine.type=redis
+# (the memory engine does not share state across replicas).
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# extraEnvVars is the seam for any other CENTRIFUGO_* setting (Redis engine, TLS,
+# proxies, channel namespaces, ...). See `centrifugo defaultenv` for the full list.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraArgs: []
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Client endpoints are typically reached from across the cluster (and, via an
+# Ingress, from outside), so allow external ingress by default. Set
+# allowExternal=false to restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
