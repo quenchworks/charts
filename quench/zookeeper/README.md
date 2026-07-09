@@ -41,7 +41,6 @@ cosign verify ghcr.io/quenchworks/images/zookeeper \
 | `service.clientPort` | `2181` | Client connections. |
 | `service.peerPort` | `2888` | Ensemble peer (headless). |
 | `service.electionPort` | `3888` | Leader election (headless). |
-| `service.adminPort` | `8080` | AdminServer HTTP. |
 | `networkPolicy.enabled` | `true` | Restricts ingress to the release namespace. |
 | `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
 
@@ -52,8 +51,9 @@ env/volumes, security contexts).
 
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
 dropped. Only `/data`, `/conf`, and the log dir are writable. The readiness probe
-uses the `ruok` four-letter word; the 4lw allowlist is restricted to read-only
-commands.
+uses the `ruok` four-letter word over the client port; the 4lw allowlist is
+restricted to read-only commands. The Jetty-backed AdminServer is absent from the
+image (removed to clear the jetty 9.4 CVEs), so no HTTP admin port is exposed.
 
 ## Notes
 

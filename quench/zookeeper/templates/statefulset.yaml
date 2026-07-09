@@ -1,6 +1,10 @@
 {{- $liveness := dict "tcpSocket" (dict "port" "client") "initialDelaySeconds" 15 "periodSeconds" 15 -}}
-{{/* readiness via the AdminServer HTTP probe; the runtime image ships no shell client */}}
-{{- $readiness := dict "httpGet" (dict "path" "/commands/ruok" "port" "admin") "initialDelaySeconds" 10 "periodSeconds" 10 -}}
+{{/* The image drops the Jetty-backed AdminServer (its entrypoint forces
+     admin.enableServer=false), so readiness sends the `ruok` four-letter word over
+     the client port with bash builtins (/dev/tcp) — no HTTP endpoint, no JVM spawn
+     per probe. The server answers `imok` when it is serving. */}}
+{{- $ruok := printf "exec 3<>/dev/tcp/127.0.0.1/%d && printf ruok >&3 && IFS= read -r -t 3 -n 4 resp <&3 && [ \"$resp\" = imok ]" (int .Values.service.clientPort) -}}
+{{- $readiness := dict "exec" (dict "command" (list "/bin/bash" "-ec" $ruok)) "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -52,8 +56,6 @@ spec:
               value: /data/log
             - name: ZOO_CLIENT_PORT
               value: {{ .Values.service.clientPort | quote }}
-            - name: ZOO_ADMIN_SERVER_PORT
-              value: {{ .Values.service.adminPort | quote }}
             - name: ZOO_4LW_COMMANDS_WHITELIST
               value: "srvr,mntr,ruok,conf,stat,isro"
             - name: ZOO_TICK_TIME
@@ -73,8 +75,6 @@ spec:
               containerPort: {{ .Values.service.peerPort }}
             - name: election
               containerPort: {{ .Values.service.electionPort }}
-            - name: admin
-              containerPort: {{ .Values.service.adminPort }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}

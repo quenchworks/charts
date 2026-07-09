@@ -46,12 +46,15 @@ jobs:
         run: |
           helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 5m
           kubectl rollout status statefulset/rtest-zookeeper --timeout=180s
-          # the runtime image has no shell client, so probe the AdminServer over a
-          # port-forward. ruok/srvr return error:null when the server is healthy.
-          kubectl port-forward rtest-zookeeper-0 8080:8080 >/tmp/pf.log 2>&1 &
-          pf=$!; trap 'kill $pf' EXIT; sleep 5
-          curl -fsS http://127.0.0.1:8080/commands/ruok | grep -q '"error" : null'
-          curl -fsS http://127.0.0.1:8080/commands/srvr | grep -q '"error" : null'
+          # The image drops the Jetty AdminServer (jetty 9.4 CVEs), so there is no
+          # HTTP command surface. It ships bash + the dist's zkCli.sh instead, so
+          # exercise a real client round-trip over the client port (mirrors
+          # apps/zookeeper/test.sh in the images repo).
+          kubectl exec rtest-zookeeper-0 -- zkCli.sh -server 127.0.0.1:2181 create /rtest ok
+          kubectl exec rtest-zookeeper-0 -- zkCli.sh -server 127.0.0.1:2181 get /rtest | grep -qx ok
+          # 4lw health check: ruok answers imok when the server is serving.
+          kubectl exec rtest-zookeeper-0 -- bash -ec \
+            'exec 3<>/dev/tcp/127.0.0.1/2181 && printf ruok >&3 && IFS= read -r -t 3 -n 4 resp <&3 && [ "$resp" = imok ]'
 
       - name: Package and push (OCI)
         id: push
