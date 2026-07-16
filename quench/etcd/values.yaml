@@ -7,9 +7,20 @@ image:
 
 nameOverride: ""
 
-# Single-node coordination store for now. A multi-node clustered topology is a
-# later addition (it needs static peer discovery over the headless service).
-replicaCount: 1
+# HA Raft cluster. Use an ODD count so a quorum majority exists (3 tolerates 1
+# loss, 5 tolerates 2). 1 is single-node (no fault tolerance). Peers discover
+# each other statically over the headless Service DNS; leader election and
+# failover are native to etcd (Raft) — no sidecar. Scaling this value up after
+# the initial bootstrap does NOT auto-add members (etcd forbids that for
+# split-brain safety) — see README "Growing / re-adding members".
+replicaCount: 3
+
+# initialClusterState is only honored on a member's FIRST boot with an empty
+# data dir. On restart etcd reads its WAL and rejoins regardless, so pod/node
+# loss with the PVC intact self-heals with this left at "new". Set "existing"
+# only when manually re-adding a member whose data was wiped (after
+# `etcdctl member add`).
+initialClusterState: new
 
 persistence:
   enabled: true
@@ -81,6 +92,8 @@ networkPolicy:
   enabled: true
   allowExternal: false
 
+# Quorum of a 3-node cluster: a voluntary drain can never take more than one
+# member at a time. Raise to match (N/2)+1 if you run a larger cluster.
 podDisruptionBudget:
   enabled: true
-  minAvailable: 1
+  minAvailable: 2

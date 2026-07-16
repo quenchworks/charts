@@ -1,5 +1,13 @@
 {{- $liveness := dict "tcpSocket" (dict "port" "client") "initialDelaySeconds" 15 "periodSeconds" 15 -}}
 {{- $readiness := dict "exec" (dict "command" (list "etcdctl" "endpoint" "health")) "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+{{/* Static peer list for Raft bootstrap: every ordinal's stable headless DNS name. */}}
+{{- $fullname := include "quench-common.fullname" . -}}
+{{- $headless := include "etcd.headlessName" . -}}
+{{- $peerPort := .Values.service.peerPort -}}
+{{- $peers := list -}}
+{{- range $i := until (int .Values.replicaCount) -}}
+{{- $peers = append $peers (printf "%s-%d=http://%s-%d.%s:%v" $fullname $i $fullname $i $headless $peerPort) -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -9,6 +17,9 @@ metadata:
 spec:
   serviceName: {{ include "etcd.headlessName" . }}
   replicas: {{ .Values.replicaCount }}
+  # Members must come up together to form the initial quorum; OrderedReady would
+  # deadlock (pod-0 can't be Ready until its peers exist).
+  podManagementPolicy: Parallel
   {{- with .Values.updateStrategy }}
   updateStrategy:
     {{- toYaml . | nindent 4 }}
@@ -27,6 +38,19 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if and (not .Values.affinity) (gt (int .Values.replicaCount) 1) }}
+      # Default: spread members across nodes (soft, so a single-node cluster
+      # still schedules). Set .Values.affinity to override entirely.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "quench-common.selectorLabels" . | nindent 20 }}
+      {{- end }}
       {{- include "quench-common.initContainers" . | nindent 6 }}
       containers:
         - name: etcd
@@ -54,9 +78,9 @@ spec:
             - name: ETCD_INITIAL_ADVERTISE_PEER_URLS
               value: "http://$(POD_NAME).{{ include "etcd.headlessName" . }}:{{ .Values.service.peerPort }}"
             - name: ETCD_INITIAL_CLUSTER
-              value: "$(POD_NAME)=http://$(POD_NAME).{{ include "etcd.headlessName" . }}:{{ .Values.service.peerPort }}"
+              value: {{ join "," $peers | quote }}
             - name: ETCD_INITIAL_CLUSTER_STATE
-              value: "new"
+              value: {{ .Values.initialClusterState | quote }}
             - name: ETCD_INITIAL_CLUSTER_TOKEN
               value: {{ include "quench-common.fullname" . | quote }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
