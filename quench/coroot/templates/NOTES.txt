@@ -1,0 +1,24 @@
+Quenchworks coroot is installed as {{ include "quench-common.fullname" . }}.
+
+Open the UI over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.httpPort }}:{{ .Values.service.httpPort }}
+  # then browse http://127.0.0.1:{{ .Values.service.httpPort }}
+
+In-cluster endpoints:
+
+  UI / API:  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}
+  OTLP gRPC: {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.otlpPort }}
+
+Coroot needs a Prometheus (metrics) and, for logs/traces, a ClickHouse backend.
+Point it at yours through extraEnvVars, for example:
+
+  extraEnvVars:
+    - name: BOOTSTRAP_PROMETHEUS_URL
+      value: http://prometheus.monitoring.svc:9090
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

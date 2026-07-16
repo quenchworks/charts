@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Quenchworks velero values",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "digest"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "nameOverride": { "type": "string" },
+    "replicaCount": { "type": "integer", "minimum": 1, "maximum": 1 },
+    "extraArgs": { "type": "array", "items": { "type": "string" } },
+    "uploaderType": { "type": "string", "enum": ["kopia", "restic"] },
+    "features": { "type": "string" },
+    "backupStorageLocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string", "minLength": 1 },
+        "default": { "type": "boolean" },
+        "provider": { "type": "string" },
+        "bucket": { "type": "string" },
+        "prefix": { "type": "string" },
+        "config": { "type": "object" }
+      }
+    },
+    "credentials": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "existingSecret": { "type": "string" },
+        "secretKey": { "type": "string", "minLength": 1 }
+      }
+    },
+    "initContainers": { "type": "array", "items": { "type": "object" } },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "requests": { "type": "object" }, "limits": { "type": "object" } }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+            "annotations": { "type": "object" }
+          }
+        }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "annotations": { "type": "object" }
+      }
+    },
+    "rbac": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "clusterRole": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "rules": { "type": "array", "items": { "type": "object" } }
+          }
+        }
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" }
+      }
+    }
+  }
+}

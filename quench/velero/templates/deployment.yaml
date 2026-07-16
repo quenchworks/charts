@@ -1,0 +1,103 @@
+{{/* The server exposes Prometheus metrics on the metrics port at /metrics; it
+     answers 200 as soon as the process is serving, so it doubles as the health
+     signal. There is no separate /healthz on the server. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/metrics" "port" "metrics") "initialDelaySeconds" 10 "periodSeconds" 30 "timeoutSeconds" 5 "failureThreshold" 5 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/metrics" "port" "metrics") "initialDelaySeconds" 5 "periodSeconds" 15 "timeoutSeconds" 5 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "velero.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: velero
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/velero"]
+          args:
+            - "server"
+            - "--metrics-address=:{{ .Values.metrics.port }}"
+            - "--uploader-type={{ .Values.uploaderType }}"
+            {{- if .Values.features }}
+            - "--features={{ .Values.features }}"
+            {{- end }}
+            {{- if and .Values.backupStorageLocation.create .Values.backupStorageLocation.default }}
+            - "--default-backup-storage-location={{ .Values.backupStorageLocation.name }}"
+            {{- end }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            {{/* Namespace Velero watches for Backup/Restore/Schedule CRs and its
+                 own Secrets: always its own pod namespace. */}}
+            - name: VELERO_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{/* Staging area for backup tarballs (read-only rootfs friendly). */}}
+            - name: VELERO_SCRATCH_DIR
+              value: /scratch
+            {{/* Some provider plugins ship shared libraries alongside the binary. */}}
+            - name: LD_LIBRARY_PATH
+              value: /plugins
+            - name: TMPDIR
+              value: /tmp
+            {{- with .Values.extraEnvVars }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+            {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: plugins
+              mountPath: /plugins
+            - name: scratch
+              mountPath: /scratch
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        {{/* Provider plugin binaries land here; a plugin initContainer copies
+             into this same volume mounted at /target. */}}
+        - name: plugins
+          emptyDir: {}
+        - name: scratch
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

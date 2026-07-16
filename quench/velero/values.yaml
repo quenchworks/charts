@@ -1,0 +1,145 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/velero
+  digest: "sha256:9a59509862a9c1830f63b0f19575a445b41f5042b4b8fce0c30244294a6dfc4a"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The velero server is a singleton controller: it takes no leader election and
+# there is nothing to scale horizontally. Keep this at 1.
+replicaCount: 1
+
+# Extra flags appended to `velero server`. Common ones: --log-level=debug,
+# --default-item-operation-timeout=4h, --client-qps / --client-burst.
+extraArgs: []
+
+# Kopia is the default uploader for filesystem/CSI data movement. Set to
+# "restic" only for legacy environments.
+uploaderType: kopia
+
+# Optional Velero feature gates (EnableCSI, EnableAPIGroupVersions, ...), passed
+# as a single comma-separated --features flag when non-empty.
+features: ""
+
+# --- Object storage: BackupStorageLocation (BSL) -----------------------------
+# Leave create=false to install Velero idle: the server boots and reconciles
+# nothing until a BSL exists. This is the safe first-install state and is what
+# the CI gate uses (no cloud creds required to reach Ready). Create the BSL here
+# once you have a bucket and credentials, or apply your own BSL manifest later.
+backupStorageLocation:
+  create: false
+  # Name of the BSL. The server treats `default` as its default target unless
+  # overridden; keep this in sync with `default` below.
+  name: default
+  # true marks this BSL as the server's default backup target.
+  default: true
+  # Object-store provider plugin name: aws | gcp | azure | <community provider>.
+  # Must match a plugin delivered via initContainers below.
+  provider: ""
+  # Bucket (and optional key prefix) the backups are written under.
+  bucket: ""
+  prefix: ""
+  # Provider-specific object-storage config, passed through verbatim to
+  # spec.config. For AWS S3-compatible stores this is where region / s3Url /
+  # s3ForcePathStyle go. See the README for a worked S3 example.
+  config: {}
+
+# Cloud credentials for the object store. The Secret is referenced by the BSL
+# through spec.credential, so Velero mounts just the one key it needs into the
+# provider plugin — no cluster-wide credential env vars. Create the Secret out
+# of band (kubectl create secret generic ...). Leave existingSecret empty to run
+# without credentials (idle install / IRSA / workload-identity setups).
+credentials:
+  existingSecret: ""
+  # Key within the Secret holding the credentials file (e.g. an AWS credentials
+  # file, a GCP service-account JSON, an Azure credentials file).
+  secretKey: cloud
+
+# --- Provider plugins --------------------------------------------------------
+# Velero object-store and volume-snapshot plugins ship as their own images and
+# are delivered as initContainers that copy their binary into a shared emptyDir.
+# The chart always creates that volume (named "plugins", mounted at /plugins in
+# the server). A plugin initContainer must mount the same volume at /target:
+#
+#   initContainers:
+#     - name: velero-plugin-for-aws
+#       image: velero/velero-plugin-for-aws:v1.12.0
+#       imagePullPolicy: IfNotPresent
+#       volumeMounts:
+#         - name: plugins
+#           mountPath: /target
+#
+# initContainers, sidecars, extraVolumes and extraVolumeMounts are all wired
+# through quench-common, so anything valid there works here too.
+initContainers: []
+
+# --- Volume snapshots --------------------------------------------------------
+# Volume snapshots are driven by CSI or a provider snapshot plugin; this chart
+# does not create a VolumeSnapshotLocation. Add one with your BSL, or use
+# extraArgs/features (EnableCSI) as your setup requires.
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: 1000m, memory: 512Mi }
+
+# --- Metrics -----------------------------------------------------------------
+# The server exposes Prometheus metrics on this port at /metrics. There is no
+# application service port: Velero is a controller, not a request-serving app.
+metrics:
+  port: 8085
+  service:
+    enabled: false
+    type: ClusterIP
+    annotations: {}
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 3600
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Velero backs up and restores arbitrary cluster resources, so it needs
+# cluster-wide access. rbac.create installs a ClusterRole + ClusterRoleBinding
+# bound to the ServiceAccount. The default rule set is full access (mirrors the
+# upstream cluster-admin binding); narrow clusterRole.rules if your policy
+# requires it, but a restore of an arbitrary resource type will then fail unless
+# that type is covered.
+rbac:
+  create: true
+  clusterRole:
+    rules:
+      - apiGroups: ["*"]
+        resources: ["*"]
+        verbs: ["*"]
+      - nonResourceURLs: ["*"]
+        verbs: ["*"]
+
+networkPolicy:
+  enabled: false

@@ -1,0 +1,63 @@
+Quenchworks n8n is installed as {{ include "quench-common.fullname" . }}.
+
+The editor UI + REST API + webhooks are served on port {{ .Values.service.port }}:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Reach the UI from your machine over a port-forward:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 5678:{{ .Values.service.port }}
+  # then open http://127.0.0.1:5678/  (n8n prompts you to create the owner account on first visit)
+
+Health check:
+
+  curl -fsS http://127.0.0.1:5678/healthz
+  # -> {"status":"ok"}
+
+Database:
+{{- if eq .Values.database.type "postgresdb" }}
+  External PostgreSQL (database.type=postgresdb).
+    host     : {{ .Values.database.postgresql.host }}:{{ .Values.database.postgresql.port }}
+    database : {{ .Values.database.postgresql.database }}
+    user     : {{ .Values.database.postgresql.user }}
+  Ensure this PostgreSQL is reachable and the credentials are valid.
+{{- else }}
+  SQLite on the persistent volume (database.type=sqlite): ~/.n8n/database.sqlite.
+  For production, switch to an external PostgreSQL:
+
+    database:
+      type: postgresdb
+      postgresql:
+        host: pg.example.com
+        database: n8n
+        user: n8n
+        password: <password>   # or existingSecret + existingSecretPasswordKey
+{{- end }}
+
+Encryption key:
+  N8N_ENCRYPTION_KEY protects stored credentials and MUST stay stable for the life of
+  the instance. It is held in a Secret (generated once if you did not supply one):
+
+    kubectl get secret --namespace {{ .Release.Namespace }} {{ include "n8n.encryptionSecretName" . }} \
+      -o jsonpath="{.data.{{ include "n8n.encryptionSecretKey" . }}}" | base64 -d
+
+  Back this value up. Losing it makes every stored credential undecryptable.
+
+Production hardening:
+  Set the public host so n8n builds correct editor/webhook/OAuth-callback URLs:
+
+    n8n:
+      host: n8n.example.com
+      protocol: https
+{{- if .Values.taskRunners.enabled }}
+
+Task runners:
+  The external task-runner sidecar (n8n-runners) is enabled and executes Code nodes
+  (JS/Python) in an isolated process, connected to the in-process broker on localhost.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

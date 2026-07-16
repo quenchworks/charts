@@ -1,0 +1,131 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/n8n.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/n8n
+  digest: "sha256:88a03dddc89a894d74a4e53ce542af84ce64282595d6381dcaff731b280067f2"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# n8n keeps its config, encryption key and (in the default SQLite mode) the workflow
+# database in ~/.n8n on disk, so it runs as a single-replica StatefulSet. Scaling out
+# needs queue mode (external Postgres + Redis + worker pods), which is out of scope here.
+replicaCount: 1
+
+# Server config. host/protocol/port feed the N8N_* env n8n uses to build the editor and
+# webhook URLs. Set host to the externally reachable hostname behind your ingress/proxy;
+# without it, generated webhook/OAuth callback URLs point at "localhost".
+n8n:
+  host: "localhost"          # N8N_HOST
+  protocol: http             # N8N_PROTOCOL (http | https)
+  # Public webhook base URL. Leave empty to let n8n derive it from host/protocol/port;
+  # set it when a reverse proxy terminates TLS or rewrites the path.
+  webhookUrl: ""             # WEBHOOK_URL
+  # Encryption key protecting stored credentials in the database. Generated once
+  # (48 chars) and preserved across upgrades when left empty. It MUST stay stable for
+  # the life of the instance — changing it makes every stored credential undecryptable.
+  encryptionKey: ""          # N8N_ENCRYPTION_KEY
+  existingSecret: ""         # Secret holding the encryption key instead of the managed one
+  existingSecretKey: "encryption-key"
+
+# Workflow state store.
+#   sqlite     : default. n8n writes ~/.n8n/database.sqlite onto the persistent volume.
+#   postgresdb : point at any reachable external PostgreSQL (recommended for production).
+database:
+  type: sqlite
+  postgresql:
+    host: ""
+    port: 5432
+    database: n8n
+    user: n8n
+    password: ""             # inline, or supply via existingSecret
+    schema: public
+    existingSecret: ""            # Secret holding the DB password
+    existingSecretPasswordKey: "password"
+
+# Optional external task-runner sidecar (image ghcr.io/quenchworks/images/n8n-runners).
+# When enabled, n8n runs its task broker in-process and the sidecar connects to it over
+# localhost to execute workflow Code nodes (JS/Python) in an isolated process. Disabled
+# by default; the auth token shared between n8n and the runner is generated and persisted.
+taskRunners:
+  enabled: false
+  image:
+    repository: ghcr.io/quenchworks/images/n8n-runners
+    digest: "sha256:e2aa10949dd811520f6eb7eb6417c490dcca903801f04a351babc2f5bfc7ce07"
+  brokerPort: 5679
+  authToken: ""              # generated (48 chars) if empty; stored in the managed Secret
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+# Persistent storage for ~/.n8n (/home/node/.n8n): the encryption key material n8n
+# writes, per-node config, binary data, and the SQLite database when database.type=sqlite.
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""         # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""          # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 5678                 # HTTP: editor UI + REST API + webhooks
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Override the image entrypoint to change flags. Left empty, the hardened image's baked-in
+# `node /opt/n8n/bin/n8n start` invocation is used.
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# n8n's UI/API/webhooks are commonly reached from outside the cluster (browsers, webhook
+# senders), so external ingress is allowed by default. Set allowExternal: false to
+# restrict ingress to the release namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

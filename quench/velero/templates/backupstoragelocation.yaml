@@ -1,0 +1,29 @@
+{{- if .Values.backupStorageLocation.create }}
+{{- $bsl := .Values.backupStorageLocation }}
+apiVersion: velero.io/v1
+kind: BackupStorageLocation
+metadata:
+  name: {{ $bsl.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  provider: {{ required "backupStorageLocation.provider is required when create=true" $bsl.provider }}
+  {{- if $bsl.default }}
+  default: true
+  {{- end }}
+  objectStorage:
+    bucket: {{ required "backupStorageLocation.bucket is required when create=true" $bsl.bucket | quote }}
+    {{- with $bsl.prefix }}
+    prefix: {{ . | quote }}
+    {{- end }}
+  {{- with $bsl.config }}
+  config:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.credentials.existingSecret }}
+  credential:
+    name: {{ . }}
+    key: {{ $.Values.credentials.secretKey }}
+  {{- end }}
+{{- end }}

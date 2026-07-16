@@ -1,0 +1,89 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/coroot.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/coroot
+  digest: "sha256:64d067ca22237cd6a785cbcd969bb3f286fa3b7be2576ce6de664da4ef94907c"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Community edition is a single Go server with an embedded SQLite store, so it is
+# single-node by design: one process owns the data dir. Do not raise this above 1
+# (multiple replicas would fight over the same DB / cache). Keep it at 1.
+replicaCount: 1
+
+persistence:
+  enabled: true
+  size: 10Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 200m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  # HTTP serves the embedded Vue UI + the JSON API. OTLP is coroot's built-in
+  # gRPC collector for ingesting traces/metrics/logs.
+  httpPort: 8080
+  otlpPort: 4317
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+# Coroot reads all settings from flags or matching env vars (kingpin). DATA_DIR
+# (/data) and LISTEN (:8080) are already baked into the image; use extraEnvVars to
+# point it at Prometheus/ClickHouse, enable auth, disable the update check, etc.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Override the image entrypoint / flags. Empty uses the hardened image's baked-in
+# invocation (binds :8080, DATA_DIR=/data).
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # Coroot's UI/API is usually reached from outside the cluster (a browser) and it
+  # ingests telemetry from agents. Set true to allow ingress from any source;
+  # default restricts traffic to the release namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

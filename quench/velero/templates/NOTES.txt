@@ -1,0 +1,33 @@
+Quenchworks Velero is installed as {{ include "quench-common.fullname" . }} in namespace {{ .Release.Namespace }}.
+
+The velero server runs nonroot as a single-replica Deployment and exposes
+Prometheus metrics on container port {{ .Values.metrics.port }} at /metrics.
+
+Install the CLI (matching v{{ .Chart.AppVersion }}) and point it at this namespace:
+
+  velero --namespace {{ .Release.Namespace }} version
+
+{{ if .Values.backupStorageLocation.create }}
+A BackupStorageLocation named "{{ .Values.backupStorageLocation.name }}" (provider
+{{ .Values.backupStorageLocation.provider }}) was created. Confirm it goes Available:
+
+  kubectl -n {{ .Release.Namespace }} get backupstoragelocation {{ .Values.backupStorageLocation.name }}
+
+Then take a backup:
+
+  velero --namespace {{ .Release.Namespace }} backup create demo --include-namespaces default
+{{- else }}
+No BackupStorageLocation was created, so the server is idle: it will not back up
+anything until one exists. Wire object storage by re-installing with
+backupStorageLocation.create=true (plus a plugin initContainer and credentials),
+or apply your own BackupStorageLocation manifest.
+{{- end }}
+{{ if not .Values.initContainers }}
+No provider plugin initContainer is configured. Velero cannot talk to an object
+store or take snapshots without one. See the README for the plugin pattern.
+{{- end }}
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/velero \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
