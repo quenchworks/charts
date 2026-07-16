@@ -2,8 +2,8 @@
 
 Hardened [Vector](https://github.com/vectordotdev/vector) (high-performance
 observability data pipeline for logs and metrics) on a minimal, nonroot, 0-CVE
-image pinned by digest. Built from source on Wolfi from the upstream `v0.56.0`
-git tag with a curated, CVE-light feature set.
+image pinned by digest, cosign-signed (keyless / Sigstore). Built from source on
+Wolfi from the upstream `v0.56.0` git tag with a curated, CVE-light feature set.
 
 Ships in **aggregator mode**: a standalone Deployment that receives/scrapes
 telemetry, transforms it (VRL), and forwards it. A per-node `agent` DaemonSet
@@ -17,7 +17,7 @@ helm install vector oci://ghcr.io/quenchworks/charts/vector
 
 ## The default sink is `console` (logs, does not forward)
 
-Out of the box the pipeline generates demo log events (`demo_logs` source) and
+By default the pipeline generates demo log events (`demo_logs` source) and
 writes them to the `console` sink, which **logs** to Vector's stdout and forwards
 nowhere:
 
@@ -90,6 +90,9 @@ cosign verify ghcr.io/quenchworks/images/vector \
   --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/vector --owner quenchworks`.
 
 ## Values
 

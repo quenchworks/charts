@@ -1,13 +1,14 @@
 # Quenchworks Thanos
 
 Hardened [Thanos](https://github.com/thanos-io/thanos) on a minimal, nonroot,
-0-CVE image, built from source and pinned by digest.
+0-CVE image, built from source, cosign-signed (keyless / Sigstore) and pinned by
+digest.
 
 Thanos is a single static Go binary that runs every component via a subcommand
 (`query`, `receive`, `store`, `compact`, `rule`, `sidecar`). This chart deploys
 each component as a separate, individually toggleable workload from that one
 image. By default it ships a **self-contained query + receive pair** that needs
-no object storage, so it installs and reaches Ready out of the box.
+no object storage, so it installs and reaches Ready on a fresh cluster.
 
 ## Install
 
@@ -39,6 +40,74 @@ Point Prometheus remote_write at receive:
 remote_write:
   - url: http://metrics-thanos-receive.<ns>.svc.cluster.local:19291/api/v1/receive
 ```
+
+## Verify the image
+
+```bash
+cosign verify ghcr.io/quenchworks/images/thanos \
+  --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/thanos --owner quenchworks`.
+
+## Values
+
+The `image` and the security/scheduling knobs are shared across every component;
+each component (`query`, `receive`, `store`, `compact`, `rule`, `sidecar`) has
+its own block.
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `image.repository` | `ghcr.io/quenchworks/images/thanos` | |
+| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
+| `image.pullPolicy` | `IfNotPresent` | |
+| `nameOverride` | `""` | Override the chart name in resource names. |
+| `objstoreConfig.yaml` | `""` | Inline objstore config, written to a Secret and passed via `--objstore.config-file`. |
+| `objstoreConfig.existingSecret` | `""` | Externally-managed objstore Secret (key `objstore.yml`). |
+| `query.enabled` | `true` | PromQL UI/API entry point (Deployment). |
+| `query.replicaCount` | `1` | Stateless. |
+| `query.stores` | `[]` | Static stores to also query (each becomes `--endpoint`). |
+| `query.extraEndpoints` | `[]` | Extra `--endpoint`/`--endpoint-group` targets. |
+| `query.extraArgs` | `[]` | Extra flags. |
+| `query.service.httpPort` | `10902` | PromQL UI/API. |
+| `query.service.grpcPort` | `10901` | Store API. |
+| `query.podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| `receive.enabled` | `true` | Local-TSDB remote-write target (StatefulSet). |
+| `receive.replicaCount` | `1` | |
+| `receive.replicaLabel` | `"0"` | Value written into ingested series. |
+| `receive.retention` | `15d` | Local TSDB retention. |
+| `receive.persistence.enabled` | `true` | Writable PVC at `/var/thanos/receive`. |
+| `receive.persistence.size` | `8Gi` | |
+| `receive.persistence.storageClass` | `""` | Default class if unset. |
+| `receive.persistence.accessModes` | `["ReadWriteOnce"]` | |
+| `receive.objstore.enabled` | `false` | Also upload blocks to object storage (needs `objstoreConfig`). |
+| `receive.service.remoteWritePort` | `19291` | Prometheus remote-write receiver. |
+| `store.enabled` | `false` | Store Gateway over object storage (needs `objstoreConfig`). |
+| `store.persistence.size` | `8Gi` | Local index/chunk cache at `/var/thanos/store`. |
+| `compact.enabled` | `false` | Single-replica compactor (needs `objstoreConfig`). |
+| `compact.persistence.size` | `8Gi` | Working dir at `/var/thanos/compact`. |
+| `rule.enabled` | `false` | Rule evaluation + alerting (StatefulSet). |
+| `rule.ruleFiles` | `{}` | Inline rule files (filename -> rule YAML). |
+| `rule.alertmanagers` | `[]` | Alertmanager URLs. |
+| `rule.persistence.size` | `8Gi` | TSDB at `/var/thanos/rule`. |
+| `sidecar.enabled` | `false` | Not deployed by this chart; runs inside Prometheus. |
+| `serviceAccount.create` | `true` | Token automount is off. |
+| `serviceAccount.name` | `""` | Use an existing ServiceAccount. |
+| `rbac.create` | `false` | Minimal Role/RoleBinding. |
+| `networkPolicy.enabled` | `true` | Restricts ingress. |
+| `networkPolicy.allowExternal` | `true` | query UI/API is user-facing; set `false` to restrict to the namespace. |
+
+Each component also takes `resources` (requests/limits). Plus the shared
+`quench-common` knobs across every workload: `podLabels`, `podAnnotations`,
+`nodeSelector`, `affinity`, `tolerations`, `topologySpreadConstraints`,
+`priorityClassName`, `schedulerName`, `terminationGracePeriodSeconds`,
+`updateStrategy`, `extraEnvVars`, `extraEnvVarsCM`, `extraEnvVarsSecret`,
+`extraVolumes`, `extraVolumeMounts`, `initContainers`, `sidecars`,
+`lifecycleHooks`, `podSecurityContext`, `containerSecurityContext`, and the
+probe overrides (`livenessProbe`, `readinessProbe`,
+`customLivenessProbe`/`customReadinessProbe`/`customStartupProbe`).
 
 ## Components
 

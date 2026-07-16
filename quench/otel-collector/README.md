@@ -28,7 +28,7 @@ e.g. `OTEL_EXPORTER_OTLP_ENDPOINT=http://otelcol-otel-collector:4318`.
 
 ## The default exporter is `debug` (logs, does not forward)
 
-Out of the box the pipelines export to the `debug` exporter, which **logs**
+By default the pipelines export to the `debug` exporter, which logs
 received telemetry to the collector's stdout and forwards it nowhere:
 
 ```bash
@@ -37,7 +37,7 @@ kubectl logs deploy/otelcol-otel-collector
 
 This keeps the chart self-contained. Add a real exporter before production use.
 
-## Override the config
+## Configuration examples
 
 The entire collector config lives in the `config` value, is rendered into a
 ConfigMap, mounted at `/etc/otelcol/config.yaml`, and passed as `--config`. The
@@ -93,6 +93,9 @@ cosign verify ghcr.io/quenchworks/images/otel-collector \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/otel-collector --owner quenchworks`.
+
 ## Values
 
 | Key | Default | Notes |
@@ -114,6 +117,20 @@ cosign verify ghcr.io/quenchworks/images/otel-collector \
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
 env/volumes, security contexts).
 
+## Architecture
+
+Gateway mode is a stateless Deployment behind a ClusterIP Service. The default
+pipeline keeps no state, so scale for ingest throughput with `replicaCount` (or
+wire your own HPA); the replicas need no coordination. The `config` value renders
+to a ConfigMap mounted read-only at `/etc/otelcol/config.yaml` and passed as
+`--config`; the image bakes in no config, so that value is the entire
+configuration, and `helm upgrade` rolls the pod on its checksum.
+
+Liveness and readiness both probe the `health_check` extension on container port
+13133, so that extension has to stay in the config for the pod to go ready. The
+Service optionally publishes the metrics (:8888) and health (:13133) ports; the
+probes reach the container directly whether or not those are exposed.
+
 ## Security
 
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
@@ -121,6 +138,14 @@ dropped; `/tmp` is a writable emptyDir. The collector has **no built-in
 authentication** — the NetworkPolicy is the trust boundary. Front the OTLP
 endpoints with an authenticating proxy or mTLS if you expose them beyond the
 cluster.
+
+## Uninstall
+
+```bash
+helm uninstall otelcol
+```
+
+Nothing persists — the workload is stateless and holds no PVCs.
 
 ## Notes
 

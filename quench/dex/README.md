@@ -32,6 +32,17 @@ curl http://127.0.0.1:5558/healthz
 curl http://127.0.0.1:5556/dex/.well-known/openid-configuration
 ```
 
+## Verify the image
+
+```sh
+cosign verify ghcr.io/quenchworks/images/dex \
+  --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/dex --owner quenchworks`.
+
 ## Configuration
 
 Dex is configured entirely through a single YAML config file. Set `config.yaml`
@@ -45,18 +56,18 @@ band (e.g. to keep connector secrets separate); when set it wins over
 ### Production note: default storage is in-memory
 
 The default config uses `storage: { type: memory }` so the chart boots on a
-read-only root filesystem with no volume. **In-memory storage loses all clients,
-refresh tokens, and signing keys on every restart and cannot be scaled out** — it
+read-only root filesystem with no volume. In-memory storage loses all clients,
+refresh tokens, and signing keys on every restart and cannot be scaled out, so it
 is for evaluation only. The default also ships a static example user
 (`admin@example.com` / `password`) and binds the issuer to `0.0.0.0`.
 
 For production:
 
-- Set a stable, externally reachable **issuer** URL (e.g. `https://dex.example.com`).
-- Switch **storage** to a shared backend: `postgres`, `etcd`, or `kubernetes`
+- Set a stable, externally reachable issuer URL (e.g. `https://dex.example.com`).
+- Switch storage to a shared backend: `postgres`, `etcd`, or `kubernetes`
   (CRDs). For `sqlite3`, add a writable volume via `extraVolumes`/`extraVolumeMounts`
   and point `storage.config.file` at it (read-only rootfs blocks writes elsewhere).
-- Replace `staticPasswords` with a real **connector** (LDAP, SAML, OIDC, GitHub,
+- Replace `staticPasswords` with a real connector (LDAP, SAML, OIDC, GitHub,
   Google, etc.).
 
 | Value | Default | Notes |

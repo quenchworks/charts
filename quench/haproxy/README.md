@@ -33,6 +33,14 @@ cosign verify ghcr.io/quenchworks/images/haproxy \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+Each image also ships an SPDX SBOM and SLSA build provenance as attestations.
+Verify them with the GitHub CLI:
+
+```bash
+gh attestation verify oci://ghcr.io/quenchworks/images/haproxy \
+  --owner quenchworks
+```
+
 ## Configuration
 
 The entire HAProxy config is driven by `config.haproxyConfig`, rendered verbatim into a

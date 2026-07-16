@@ -1,6 +1,6 @@
 # Quenchworks Gitea
 
-Hardened [Gitea](https://about.gitea.com/) — a lightweight self-hosted Git service —
+Hardened [Gitea](https://about.gitea.com/), a lightweight self-hosted Git service,
 on a minimal, nonroot, 0-CVE image pinned by digest. The Go backend is built from
 the official release source (the prebuilt Vue web assets ship inside it, so no Node
 build), and runs on a read-only root filesystem as a StatefulSet. The web UI + API +
@@ -51,7 +51,7 @@ curl -fsS http://127.0.0.1:3000/api/healthz
 # over HTTP
 git clone http://127.0.0.1:3000/gitea_admin/<repo>.git
 
-# over SSH (port 2222 — uid 1001 cannot bind the privileged port 22)
+# over SSH (port 2222, since uid 1001 cannot bind the privileged port 22)
 git clone ssh://git@<host>:2222/gitea_admin/<repo>.git
 ```
 
@@ -67,7 +67,7 @@ connection is derived from the subchart's service automatically:
 postgresql:
   enabled: true
   auth:
-    # username and database MUST differ — the bundled PG seeds the app database only
+    # username and database MUST differ; the bundled PG seeds the app database only
     # when it differs from both "postgres" and the superuser name.
     username: gitea
     password: gitea
@@ -121,3 +121,6 @@ cosign verify ghcr.io/quenchworks/images/gitea \
   --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/gitea --owner quenchworks`.

@@ -20,6 +20,17 @@ It runs nonroot as a Deployment and executes its descheduling loop every
 kubectl logs -l app.kubernetes.io/instance=descheduler -f
 ```
 
+## Verify the image
+
+```sh
+cosign verify ghcr.io/quenchworks/images/descheduler \
+  --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/descheduler --owner quenchworks`.
+
 ## Configuration
 
 The chart ships a real cluster-scoped `ClusterRole`/`ClusterRoleBinding`

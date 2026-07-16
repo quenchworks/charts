@@ -1,7 +1,8 @@
 # Quenchworks Temporal
 
 Hardened [Temporal](https://temporal.io/) — a durable workflow execution engine —
-on a minimal, nonroot, 0-CVE image pinned by digest. This chart runs the
+on a minimal, nonroot, 0-CVE image, cosign-signed (keyless / Sigstore) and pinned
+by digest. This chart runs the
 **single-binary all-in-one** server: one `temporal-server` process hosting all four
 roles (frontend + history + matching + worker), backed by **PostgreSQL**.
 
@@ -42,6 +43,68 @@ Metrics (Prometheus, tally) are on `:8000/metrics`:
 kubectl port-forward svc/wf-temporal 8000:8000
 curl -fsS http://127.0.0.1:8000/metrics
 ```
+
+## Verify the image
+
+```bash
+cosign verify ghcr.io/quenchworks/images/temporal \
+  --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/temporal --owner quenchworks`.
+
+## Values
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `image.repository` | `ghcr.io/quenchworks/images/temporal` | |
+| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
+| `image.pullPolicy` | `IfNotPresent` | |
+| `nameOverride` | `""` | Override the chart name in resource names. |
+| `replicaCount` | `1` | Keep at 1 for the all-in-one server. |
+| `numHistoryShards` | `512` | Fixed at first schema setup; cannot change later without a fresh database. |
+| `postgresql.enabled` | `true` | Bundle the Quenchworks PostgreSQL subchart. Set `false` for `externalDatabase`. |
+| `postgresql.auth.username` | `temporal_user` | Bundled PG superuser/owner; must differ from the database name. |
+| `postgresql.auth.password` | `temporal` | Deterministic shared DB password. |
+| `postgresql.auth.database` | `temporal` | Main store database, created by the bundled PG at init. |
+| `postgresql.primary.persistence.size` | `8Gi` | Bundled PG data volume. |
+| `databases.main` | `temporal` | Main store database name. |
+| `databases.visibility` | `temporal_visibility` | Visibility store; created by the schema-setup Job. |
+| `externalDatabase.host` | `""` | Used when `postgresql.enabled=false`. |
+| `externalDatabase.port` | `5432` | |
+| `externalDatabase.user` | `temporal_user` | Must be able to create databases and schemas. |
+| `externalDatabase.password` | `""` | Inline password, or use `existingSecret`. |
+| `externalDatabase.existingSecret` | `""` | Secret holding the DB password. |
+| `externalDatabase.existingSecretPasswordKey` | `password` | Key within `existingSecret`. |
+| `schemaSetup.enabled` | `true` | Run the schema-setup Job (pre-install/pre-upgrade hook). |
+| `schemaSetup.retries` | `60` | Attempts while waiting for PostgreSQL to accept connections. |
+| `schemaSetup.retryInterval` | `5` | Seconds slept between attempts. |
+| `temporalConfig` | (Postgres-backed default) | Server config rendered through `tpl`, mounted at `/etc/temporal/config/production.yaml`. |
+| `dynamicConfig` | `{}` | Runtime dynamic-config overrides; empty map is valid. |
+| `resources.requests` | `cpu 500m / mem 512Mi` | |
+| `resources.limits` | `cpu 2 / mem 2Gi` | |
+| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
+| `service.grpcPort` | `7233` | Frontend gRPC (main client/worker port). |
+| `service.httpPort` | `7243` | Frontend HTTP API. |
+| `service.metricsPort` | `8000` | Prometheus metrics (tally). |
+| `serviceAccount.create` | `true` | Token automount is off. |
+| `serviceAccount.name` | `""` | Use an existing ServiceAccount. |
+| `rbac.create` | `false` | Minimal Role/RoleBinding. |
+| `networkPolicy.enabled` | `true` | Restricts ingress. |
+| `networkPolicy.allowExternal` | `false` | Set `true` to allow frontend ingress from outside the namespace. |
+| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+
+Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
+`nodeSelector`, `affinity`, `tolerations`, `topologySpreadConstraints`,
+`priorityClassName`, `schedulerName`, `terminationGracePeriodSeconds`,
+`updateStrategy`, `extraEnvVars`, `extraEnvVarsCM`, `extraEnvVarsSecret`,
+`extraVolumes`, `extraVolumeMounts`, `initContainers`, `sidecars`,
+`lifecycleHooks`, `command`, `args`, `podSecurityContext`,
+`containerSecurityContext`, and the probe overrides (`livenessProbe`,
+`readinessProbe`,
+`customLivenessProbe`/`customReadinessProbe`/`customStartupProbe`).
 
 ## Database
 
@@ -103,10 +166,4 @@ future chart capability.
 ## Security
 
 - Runs as nonroot (uid 1001), read-only root filesystem, all capabilities dropped.
-- Image pinned by digest and cosign-signed (keyless):
-
-```bash
-cosign verify ghcr.io/quenchworks/images/temporal \
-  --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
-  --certificate-oidc-issuer https://token.actions.githubusercontent.com
-```
+- Image pinned by digest and cosign-signed (keyless); see [Verify the image](#verify-the-image).

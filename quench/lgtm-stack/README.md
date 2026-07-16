@@ -8,7 +8,7 @@ single pane over **metrics, logs, and traces**:
 - **T**empo — distributed tracing
 - **M**etrics — **VictoriaMetrics** (Prometheus-compatible TSDB)
 
-plus the glue that makes it work out of the box: an **OpenTelemetry Collector** (OTLP
+plus the glue that wires it together: an **OpenTelemetry Collector** (OTLP
 trace ingest), **Vector** (log shipper), **Alertmanager** (alert routing),
 **kube-state-metrics** and **node-exporter** (so the metrics dashboards populate). No
 operator, no CRDs. Every component image is QuenchWorks-hardened: built from source on
@@ -136,6 +136,38 @@ kubectl port-forward svc/lgtm-grafana 3000:3000
 
 In Explore, switch between the three datasources; the bundled dashboards appear under
 Dashboards on first boot.
+
+## Verify the images
+
+Every component image is cosign-signed (keyless / Sigstore) and pinned by digest.
+Verify all bundled images:
+
+```sh
+for img in victoriametrics loki grafana tempo alertmanager \
+           otel-collector vector kube-state-metrics node-exporter; do
+  cosign verify ghcr.io/quenchworks/images/$img \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
+done
+```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation; verify with
+`gh attestation verify oci://ghcr.io/quenchworks/images/<name> --owner quenchworks`.
+See each `quench/*` component chart for per-component detail.
+
+## Uninstall
+
+```sh
+helm uninstall lgtm
+```
+
+No CRDs are installed, so there is nothing to clean up afterwards. The
+Loki/Tempo/Grafana/Alertmanager/VictoriaMetrics PVCs are retained by Helm
+convention; delete them by hand if you want the data gone:
+
+```sh
+kubectl delete pvc -l app.kubernetes.io/instance=lgtm
+```
 
 ## Dashboards
 

@@ -55,18 +55,21 @@ curl http://127.0.0.1:18083/status      # node health
 
 ### Production notes
 
-- **Set a dashboard password** (`dashboardPassword` or `existingSecret`) — the
+- Set a dashboard password (`dashboardPassword` or `existingSecret`); the
   upstream default is `admin`/`public`.
 - The chart injects a single-node `EMQX_NODE__NAME` bound to the pod IP. For
   clustering (commercial license), use upstream's EMQX Operator or extend this
-  chart with EMQX's cluster discovery — the BSL terms apply.
+  chart with EMQX's cluster discovery. The BSL terms apply.
 - Tune EMQX via `extraEnvVars` using the `EMQX_*` env override convention
   (e.g. `EMQX_LISTENERS__TCP__DEFAULT__MAX_CONNECTIONS`).
 
-## Verify
+## Verify the image
 
 ```sh
 cosign verify ghcr.io/quenchworks/images/emqx \
   --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/emqx --owner quenchworks`.

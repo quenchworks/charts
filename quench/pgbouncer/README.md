@@ -114,6 +114,9 @@ cosign verify ghcr.io/quenchworks/images/pgbouncer \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/pgbouncer --owner quenchworks`.
+
 ## Values
 
 | Key | Default | Notes |
@@ -148,6 +151,20 @@ only writable paths are emptyDir mounts at `/var/run/pgbouncer` (socket + pidfil
 `/tmp`. The `pgbouncer.ini` ConfigMap and `userlist.txt` Secret are mounted read-only under
 `/etc/pgbouncer`. Credentials live in a Kubernetes Secret. A tcpSocket probe on 6432 gates
 readiness and liveness.
+
+## Uninstall
+
+```bash
+helm uninstall pool
+```
+
+The pooler itself is stateless and holds no PVCs. When the bundled PostgreSQL
+subchart is enabled, its PVC is retained by Kubernetes on uninstall — delete it
+explicitly if you want the data gone:
+
+```bash
+kubectl delete pvc -l app.kubernetes.io/instance=pool
+```
 
 ## Notes
 

@@ -99,10 +99,41 @@ siteUrl: https://chat.example.com
 | `networkPolicy.enabled` | `true` | Restrict traffic; egress opened to the DB port |
 | `podDisruptionBudget.enabled` | `true` | `minAvailable: 1` |
 
-The image is pinned by digest and cosign-signed:
+## Verify the image
 
 ```bash
 cosign verify ghcr.io/quenchworks/images/mattermost \
   --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
+
+The bundled PostgreSQL image (`ghcr.io/quenchworks/images/postgresql`) verifies
+the same way. Each build also ships an SPDX SBOM and SLSA provenance attestation;
+verify them with the GitHub CLI:
+
+```bash
+gh attestation verify oci://ghcr.io/quenchworks/images/mattermost --owner quenchworks
+gh attestation verify oci://ghcr.io/quenchworks/images/postgresql --owner quenchworks
+```
+
+## Uninstall
+
+```bash
+helm uninstall chat
+```
+
+The PVC provisioned for `/opt/mattermost/data` is retained by Kubernetes on
+uninstall, as is the bundled PostgreSQL PVC. Delete them explicitly if you want
+the data gone:
+
+```bash
+kubectl delete pvc -l app.kubernetes.io/instance=chat
+```
+
+## Notes
+
+Team Edition is single-node (HA/clustering is an Enterprise feature), so
+`replicaCount` stays at 1. Depends on the `quench-common` library chart and the
+Quenchworks `postgresql` chart, both pulled from
+`oci://ghcr.io/quenchworks/charts`. The container runs as nonroot (uid 1001) on a
+read-only root filesystem, and the image is pinned by digest.

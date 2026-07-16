@@ -1,8 +1,8 @@
 # Quenchworks step-ca
 
 Hardened [step-ca](https://smallstep.com/docs/step-ca/) — the Smallstep online
-certificate authority — on a minimal, nonroot, 0-CVE image pinned by digest.
-Serves an ACME / step CA over HTTPS. Single node; the PKI (root + intermediate
+certificate authority — on a minimal, nonroot, 0-CVE image, cosign-signed
+(keyless / Sigstore) and pinned by digest. Serves an ACME / step CA over HTTPS. Single node; the PKI (root + intermediate
 CA, provisioners, ca.json and the badger db) persists to a PVC.
 
 ## Install
@@ -48,6 +48,9 @@ cosign verify ghcr.io/quenchworks/images/step-ca \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/step-ca --owner quenchworks`.
+
 ## Values
 
 | Key | Default | Notes |
@@ -71,6 +74,9 @@ cosign verify ghcr.io/quenchworks/images/step-ca \
 | `rbac.create` | `false` | Minimal empty Role/RoleBinding when enabled. |
 | `networkPolicy.enabled` | `true` | Client ingress from the namespace; set `allowExternal: true` to open it. |
 | `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+
+Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
+containers, extra env/volumes, security contexts, update strategy).
 
 ## Security
 

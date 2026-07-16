@@ -26,6 +26,9 @@ cosign verify ghcr.io/quenchworks/images/nginx \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/nginx --owner quenchworks`.
+
 ## Custom configuration
 
 The image ships a working default page on `8080` with `/stub_status` enabled, so no

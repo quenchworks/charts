@@ -1,8 +1,11 @@
 # Quenchworks Kuma
 
 Hardened [Kuma](https://github.com/kumahq/kuma) service mesh control plane
-(`kuma-cp`) on a minimal, nonroot, 0-CVE image, built from source and pinned by
-digest.
+(`kuma-cp`) on a minimal, nonroot, 0-CVE image, built from source, cosign-signed
+and pinned by digest. This chart runs a single `kuma-cp` in standalone/universal
+mode with the in-memory store (`KUMA_STORE_TYPE=memory`), so it needs no external
+database and no Kubernetes CRDs. The container runs nonroot on a read-only root
+filesystem with all capabilities dropped.
 
 ## Install
 
@@ -10,9 +13,7 @@ digest.
 helm install mesh oci://ghcr.io/quenchworks/charts/kuma
 ```
 
-This chart runs a single `kuma-cp` in standalone/universal mode with the
-**in-memory store** (`KUMA_STORE_TYPE=memory`), so it needs no external database
-and no Kubernetes CRDs. Reach the API and GUI over a port-forward:
+Reach the API and GUI over a port-forward:
 
 ```sh
 kubectl port-forward svc/mesh-kuma 5681:5681
@@ -20,42 +21,102 @@ curl http://127.0.0.1:5681/       # {"product":"Kuma","version":...}
 # open http://127.0.0.1:5681/gui
 ```
 
-## Store & mode (ephemeral by design)
+## Verify the image
 
-The in-memory store keeps all mesh state in process: meshes, policies and tokens
-are **lost on restart**, and the control plane cannot be scaled beyond one replica
-(each replica has its own private store). This is ideal for demos, evaluation and
-small universal-mode setups.
+```sh
+cosign verify ghcr.io/quenchworks/images/kuma \
+  --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
 
-For durable state and HA, run `kuma-cp` with the **postgres** store
-(`store: postgres` plus the relevant `KUMA_STORE_POSTGRES_*` env vars via
-`extraEnvVars`) or use the upstream Kubernetes (CRD) deployment.
+Each image also ships an SPDX SBOM and SLSA build provenance as attestations.
+Verify them with the GitHub CLI:
 
-The control plane runs with a read-only root filesystem; its work directory (CA
-and signing keys) is redirected to a writable `emptyDir` at `/tmp` via
-`KUMA_GENERAL_WORK_DIR`.
+```sh
+gh attestation verify oci://ghcr.io/quenchworks/images/kuma --owner quenchworks
+```
 
-## Ports
+## Values
 
-| Port | Name | Purpose |
-|------|------|---------|
-| 5681 | `http` | REST API + GUI (`/gui`) |
-| 5682 | `https` | REST API over TLS |
-| 5678 | `dp-server` | dataplane / xDS gRPC (kuma-dp sidecars connect here) |
-| 5676 | `mads` | monitoring-assignment gRPC (Prometheus service discovery) |
-| 5680 | `diagnostics` | health endpoints `/healthy` (liveness) and `/ready` (readiness); not exposed on the Service |
-
-## Configuration
-
-| Value | Default | Notes |
-|-------|---------|-------|
+| Key | Default | Notes |
+|-----|---------|-------|
 | `image.repository` | `ghcr.io/quenchworks/images/kuma` | |
-| `image.digest` | (CI-maintained) | signed multi-arch index |
-| `replicaCount` | `1` | in-memory store is single-node; keep at 1 |
-| `store` | `memory` | wired to `KUMA_STORE_TYPE` |
-| `mode` | `standalone` | wired to `KUMA_MODE` (universal single CP) |
-| `workDir` | `/tmp` | wired to `KUMA_GENERAL_WORK_DIR`; writable emptyDir |
-| `extraArgs` | `[]` | appended to `kuma-cp run` |
-| `extraEnvVars` | `[]` | extra `KUMA_*` env (e.g. postgres store settings) |
-| `service.type` | `ClusterIP` | |
-| `service.ports.*` | `5681/5682/5678/5676` | http / https / dp-server / mads |
+| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
+| `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
+| `nameOverride` | `""` | Override the chart name in resource names. |
+| `replicaCount` | `1` | Fixed at 1: the in-memory store is single-node. |
+| `store` | `memory` | Wired to `KUMA_STORE_TYPE` (`memory` or `postgres`). |
+| `mode` | `standalone` | Wired to `KUMA_MODE` (`standalone`, `zone`, or `global`). |
+| `workDir` | `/tmp` | Wired to `KUMA_GENERAL_WORK_DIR`; a writable emptyDir holding the CA and signing keys. |
+| `extraArgs` | `[]` | Appended to `kuma-cp run`. |
+| `extraEnvVars` | `[]` | Extra `KUMA_*` env (for example postgres store settings). |
+| `resources.requests` | `cpu 100m / mem 128Mi` | |
+| `resources.limits` | `cpu 1 / mem 512Mi` | |
+| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
+| `service.ports.http` | `5681` | REST API + GUI. |
+| `service.ports.https` | `5682` | REST API over TLS. |
+| `service.ports.dpServer` | `5678` | Dataplane / xDS gRPC. |
+| `service.ports.mads` | `5676` | Monitoring-assignment gRPC (Prometheus SD). |
+| `serviceAccount.create` | `true` | Token automount is off. |
+| `rbac.create` | `false` | Minimal Role/RoleBinding. |
+| `networkPolicy.enabled` | `true` | Restricts ingress. |
+| `networkPolicy.allowExternal` | `false` | Set `true` to allow ingress from any source. |
+| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+
+Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
+containers, extra env/volumes, security contexts, update strategy).
+
+## Architecture
+
+A single `kuma-cp` runs as a Deployment behind a Service. Five ports are used:
+`5681` (REST API + `/gui`), `5682` (REST API over TLS), `5678` (dataplane / xDS
+gRPC that kuma-dp sidecars connect to) and `5676` (monitoring-assignment gRPC for
+Prometheus service discovery) are published on the Service; `5680` (diagnostics)
+serves the health endpoints `/healthy` (liveness) and `/ready` (readiness) and is
+not exposed.
+
+The in-memory store keeps all mesh state in the process: meshes, policies and
+tokens are lost on restart, and the control plane cannot be scaled beyond one
+replica because each replica has its own private store. This fits demos,
+evaluation and small universal-mode setups. The control plane runs with a
+read-only root filesystem, so its work directory (CA and signing keys) is
+redirected to a writable `emptyDir` at `/tmp` via `KUMA_GENERAL_WORK_DIR`.
+
+## Configuration examples
+
+Durable state with an external PostgreSQL store:
+
+```yaml
+store: postgres
+extraEnvVars:
+  - name: KUMA_STORE_POSTGRES_HOST
+    value: pg.example.com
+  - name: KUMA_STORE_POSTGRES_PORT
+    value: "5432"
+  - name: KUMA_STORE_POSTGRES_DB_NAME
+    value: kuma
+  - name: KUMA_STORE_POSTGRES_USER
+    value: kuma
+  - name: KUMA_STORE_POSTGRES_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: kuma-postgres
+        key: password
+```
+
+## Uninstall
+
+```sh
+helm uninstall mesh
+```
+
+The in-memory store holds no PVCs, so nothing persists.
+
+## Notes
+
+The in-memory topology is single-node and ephemeral. For durable state and HA,
+run `kuma-cp` with the postgres store (shown above) or use the upstream
+Kubernetes (CRD) deployment. The chart depends on the `quench-common` library
+chart, pulled from `oci://ghcr.io/quenchworks/charts/quench-common`. The
+container runs as nonroot on a read-only root filesystem with all capabilities
+dropped, and the image is pinned by digest.

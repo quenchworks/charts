@@ -140,6 +140,9 @@ cosign verify ghcr.io/quenchworks/images/meilisearch \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/meilisearch --owner quenchworks`.
+
 ### Web dashboard (bundled, hermetically)
 
 The image **bundles Meilisearch's `mini-dashboard` web UI**. Meilisearch serves it at

@@ -2,7 +2,7 @@
 
 A hardened, **operator-free** Kubernetes logging bundle: Loki, Grafana and Vector
 wired together into end-to-end log aggregation, with a ready-made logs dashboard
-loaded out of the box. Vector tails every pod's logs on every node and ships them
+loaded on first boot. Vector tails every pod's logs on every node and ships them
 to Loki; Grafana queries Loki through a pre-provisioned datasource.
 
 It delivers the everyday value of a Loki/Promtail/Grafana ("LPG") stack — collect,
@@ -71,6 +71,23 @@ helm upgrade logs oci://ghcr.io/quenchworks/charts/logging-stack
 
 There are no CRDs, so upgrades never require a separate CRD apply step. A major chart
 version bump signals a breaking values change; check the release notes.
+
+### Verify the images
+
+Every component image is cosign-signed (keyless / Sigstore) and pinned by digest.
+Verify the three bundled images:
+
+```sh
+for img in loki grafana vector; do
+  cosign verify ghcr.io/quenchworks/images/$img \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
+done
+```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation; verify with
+`gh attestation verify oci://ghcr.io/quenchworks/images/<name> --owner quenchworks`.
+See the `quench/loki` and `quench/grafana` component charts for per-component detail.
 
 ## How it's wired
 

@@ -49,6 +49,9 @@ cosign verify ghcr.io/quenchworks/images/mongodb \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/mongodb --owner quenchworks`.
+
 ## Values
 
 | Key | Default | Notes |

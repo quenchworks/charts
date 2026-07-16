@@ -1,13 +1,13 @@
 # Quenchworks OpenBao
 
 Hardened [OpenBao](https://github.com/openbao/openbao) secrets-management server on
-a minimal, nonroot, 0-CVE image pinned by digest. OpenBao is the truly-open
-**MPL-2.0** fork of HashiCorp Vault (which moved to the BUSL license) — a clean,
-OSI-licensed alternative. The `bao` server + Vault-compatible CLI are built from
-source on Wolfi. Single-node **raft integrated storage**; the HTTP API is on 8200,
-cluster traffic on 8201.
+a minimal, nonroot, 0-CVE image, built from source on Wolfi, cosign-signed and
+pinned by digest. OpenBao is the MPL-2.0 fork of HashiCorp Vault (which moved to
+the BUSL license), an OSI-licensed alternative. The `bao` server and the
+Vault-compatible CLI both ship in the image. Single-node raft integrated storage;
+the HTTP API is on 8200, cluster traffic on 8201.
 
-> **A real node boots SEALED and UNINITIALIZED — this is expected.** It does not
+> Note: a real node boots sealed and uninitialized, which is expected. It does not
 > serve secrets until you initialize it (`bao operator init`) and unseal it. See
 > [Initialize & unseal](#initialize--unseal). For a one-command quick start, use
 > [dev mode](#dev-mode-quick-start).
@@ -18,7 +18,7 @@ cluster traffic on 8201.
 helm install bao oci://ghcr.io/quenchworks/charts/openbao
 ```
 
-This installs the **default real raft server**. The pod becomes Ready while still
+This installs the default real raft server. The pod becomes Ready while still
 sealed (the readiness probe accepts sealed/uninit), so you can run the operator
 steps against it.
 
@@ -28,7 +28,7 @@ Do this once per cluster (init), then unseal after each start (until you wire
 auto-unseal). The `bao` CLI ships in the image.
 
 ```bash
-# 1) Initialize ONCE. Prints the unseal key(s) + initial root token. SAVE THEM —
+# 1) Initialize ONCE. Prints the unseal key(s) + initial root token. SAVE THEM;
 #    they cannot be recovered.
 kubectl exec bao-openbao-0 -- sh -c \
   "BAO_ADDR=http://127.0.0.1:8200 bao operator init -key-shares=1 -key-threshold=1"
@@ -44,13 +44,14 @@ kubectl exec bao-openbao-0 -- sh -c \
   "BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=<ROOT_TOKEN> bao kv get secret/hello"
 ```
 
-For production, set up **shamir or auto-unseal (transit/KMS)** and **TLS** — both
-are tracked follow-ups (see [Notes](#notes)).
+For production, set up shamir or auto-unseal (transit/KMS) and TLS; both are
+tracked follow-ups (see [Notes](#notes)).
 
 ## Dev mode (quick start)
 
-For local testing only — an **auto-unsealed, in-memory** server with a fixed root
-token. Data is **not** persisted; the token is well-known. **Never for production.**
+For local testing only: an auto-unsealed, in-memory server with a fixed root
+token. Data is not persisted and the token is well-known. Never use it for
+production.
 
 ```bash
 helm install bao oci://ghcr.io/quenchworks/charts/openbao --set dev.enabled=true
@@ -68,6 +69,9 @@ cosign verify ghcr.io/quenchworks/images/openbao \
   --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/openbao --owner quenchworks`.
 
 ## Values
 
@@ -88,20 +92,75 @@ Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
 env/volumes, security contexts). Use `extraEnvVars` / `extraVolumes` to wire a
 `seal` block, telemetry, or TLS materials for production.
 
+## Architecture
+
+OpenBao runs as a **StatefulSet** so the node keeps a stable network identity and
+its own persistent volume. The default is a real single node backed by raft
+integrated storage on a PVC mounted at `/openbao/data`; with
+`persistence.enabled=false` that path is an `emptyDir` and does not survive a
+restart. Each node advertises its API and cluster addresses over a headless
+service (`<pod>.<headless>`), which is the basis for a future multi-node HA
+topology.
+
+Two ports are exposed: HTTP (8200) for the API and CLI, and cluster (8201) for
+raft server-to-server traffic. A real node boots sealed and uninitialized, and
+OpenBao's `/v1/sys/health` returns 503 (sealed) or 501 (uninitialized) in that
+state. Gating readiness on a plain 200 would leave the pod NotReady forever, so
+the probes ask the health endpoint to return 200 for standby, sealed, and
+uninitialized; the pod is reachable before you init and unseal it. Liveness is a
+TCP check on the API port. In dev mode the node auto-unseals and the same endpoint
+returns 200 anyway.
+
+The default topology is single-node (`replicaCount: 1`). A multi-node HA raft
+cluster over the headless service is a tracked follow-up; keep `replicaCount` at 1.
+
 ## Security
 
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
 dropped. Raft state lives on the writable `/openbao/data` PVC; the seeded `bao.hcl`
 config and the CLI token-helper's `HOME` live on a writable emptyDir
 (`/openbao/config`); `/tmp` is a writable emptyDir. `disable_mlock=true` because a
-cap-dropped nonroot container cannot hold `CAP_IPC_LOCK`. **TLS is off by default**
-(a follow-up) — the NetworkPolicy is the trust boundary; keep it enabled and front
+cap-dropped nonroot container cannot hold `CAP_IPC_LOCK`. TLS is off by default (a
+follow-up); the NetworkPolicy is the trust boundary, so keep it enabled and front
 the service with TLS termination if you expose it.
+
+## Configuration examples
+
+Size the data volume on a named storage class:
+
+```yaml
+persistence:
+  enabled: true
+  size: 20Gi
+  storageClass: fast-ssd
+```
+
+Repeatable local testing with a pinned dev root token (dev mode only, never for
+production):
+
+```yaml
+dev:
+  enabled: true
+  rootToken: dev-root
+```
+
+## Uninstall
+
+```bash
+helm uninstall bao
+```
+
+PVCs provisioned by the `volumeClaimTemplate` are retained by Kubernetes on
+uninstall. Delete them explicitly if you want the raft data gone:
+
+```bash
+kubectl delete pvc -l app.kubernetes.io/instance=bao
+```
 
 ## Notes
 
 Single node with raft integrated storage. A multi-node HA raft cluster (over the
 headless service on 8201), TLS listeners, and auto-unseal (transit/KMS) are tracked
-follow-ups. OpenBao is the MPL-2.0 fork of Vault — a clean-room, OSI-licensed
-choice. Depends on the `quench-common` library chart, pulled from
+follow-ups. OpenBao is the MPL-2.0, clean-room, OSI-licensed fork of Vault. Depends
+on the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`.

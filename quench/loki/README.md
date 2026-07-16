@@ -84,6 +84,9 @@ cosign verify ghcr.io/quenchworks/images/loki \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/loki --owner quenchworks`.
+
 ## Values
 
 | Key | Default | Notes |
@@ -110,6 +113,19 @@ compactor/rules) and a `/tmp` emptyDir. Loki has **no built-in authentication**
 (`auth_enabled: false`) — there is no Secret to manage. The NetworkPolicy is the
 trust boundary; keep it enabled, and front the service with an authenticating
 proxy if you must expose it beyond the cluster.
+
+## Uninstall
+
+```bash
+helm uninstall loki
+```
+
+The PVC provisioned by the `volumeClaimTemplate` is retained by Kubernetes on
+uninstall. Delete it explicitly if you want the log data gone:
+
+```bash
+kubectl delete pvc -l app.kubernetes.io/instance=loki
+```
 
 ## Notes
 

@@ -76,6 +76,14 @@ cosign verify ghcr.io/quenchworks/images/weaviate \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+Each image also ships an SPDX SBOM and SLSA build provenance as attestations.
+Verify them with the GitHub CLI:
+
+```bash
+gh attestation verify oci://ghcr.io/quenchworks/images/weaviate \
+  --owner quenchworks
+```
+
 ## Notes
 
 Single node for now. A clustered (sharded/replicated) topology over the headless

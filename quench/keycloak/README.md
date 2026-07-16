@@ -107,6 +107,15 @@ cosign verify ghcr.io/quenchworks/images/keycloak \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+The bundled PostgreSQL image (`ghcr.io/quenchworks/images/postgresql`) verifies
+the same way. Each build also ships an SPDX SBOM and SLSA provenance attestation;
+verify them with the GitHub CLI:
+
+```bash
+gh attestation verify oci://ghcr.io/quenchworks/images/keycloak --owner quenchworks
+gh attestation verify oci://ghcr.io/quenchworks/images/postgresql --owner quenchworks
+```
+
 ## Values
 
 | Key | Default | Notes |
@@ -141,6 +150,20 @@ dropped. The writable paths Keycloak needs — `/conf` (seeded from the shipped 
 the Keycloak pod (state lives in PostgreSQL). Admin and database credentials live in
 Kubernetes Secrets. Probes hit `/health/ready` and `/health/live` on the management
 port.
+
+## Uninstall
+
+```bash
+helm uninstall sso
+```
+
+The Keycloak pod holds no PVC (state lives in PostgreSQL). When the bundled
+PostgreSQL is used, its PVC is retained by Kubernetes on uninstall; delete it
+explicitly if you want the identity data gone:
+
+```bash
+kubectl delete pvc -l app.kubernetes.io/instance=sso
+```
 
 ## Notes
 

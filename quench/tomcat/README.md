@@ -1,11 +1,12 @@
 # Quenchworks Apache Tomcat
 
 Hardened [Apache Tomcat](https://tomcat.apache.org) servlet container / Jakarta EE
-web server on a minimal, nonroot, read-only-rootfs, 0-CVE image pinned by digest.
+web server on a minimal, nonroot, read-only-rootfs, 0-CVE image, cosign-signed (keyless / Sigstore) and pinned by
+digest.
 Built from source on Wolfi (`openjdk-21-jre`, no upstream distro binaries). Listens
 on `8080` (http). Stateless: this chart runs a `Deployment` and scales horizontally.
 
-The default `ROOT` webapp is emptied, so `GET /` returns **404** out of the box —
+The default `ROOT` webapp is emptied, so `GET /` returns **404** on a fresh install —
 that is expected and healthy (Coyote is up and answering; there is just no app to
 serve). Deploy your own WAR to change this.
 
@@ -29,6 +30,9 @@ cosign verify ghcr.io/quenchworks/images/tomcat \
   --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/tomcat --owner quenchworks`.
 
 ## Deploying applications
 

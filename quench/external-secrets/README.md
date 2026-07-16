@@ -12,6 +12,17 @@ helm install eso oci://ghcr.io/quenchworks/charts/external-secrets \
   -n external-secrets --create-namespace
 ```
 
+## Verify the image
+
+```sh
+cosign verify ghcr.io/quenchworks/images/external-secrets \
+  --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/external-secrets --owner quenchworks`.
+
 ## Architecture
 
 ESO is a single binary. This chart runs it as three Deployments that share one
@@ -23,8 +34,8 @@ ServiceAccount and differ only by their subcommand:
 | `<release>-webhook` | `external-secrets webhook` | validating-admission webhook (Service `:443` -> container `10250`) |
 | `<release>-cert-controller` | `external-secrets certcontroller` | generates the webhook's self-signed CA, stores it in a Secret, and injects the caBundle into the ValidatingWebhookConfigurations |
 
-Because the cert-controller manages the webhook CA, **no cert-manager dependency
-is required**. The CRDs are installed from the chart's `crds/` directory (Helm
+Because the cert-controller manages the webhook CA, no cert-manager dependency
+is required. The CRDs are installed from the chart's `crds/` directory (Helm
 applies them before the templates).
 
 ## Smoke test (fake provider)

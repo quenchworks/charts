@@ -74,6 +74,9 @@ cosign verify ghcr.io/quenchworks/images/mlflow \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/mlflow --owner quenchworks`.
+
 ## Key values
 
 | Key | Default | Description |

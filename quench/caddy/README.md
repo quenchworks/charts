@@ -29,6 +29,9 @@ cosign verify ghcr.io/quenchworks/images/caddy \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/caddy --owner quenchworks`.
+
 ## Configuration
 
 The chart serves a Caddyfile written to a ConfigMap and mounted read-only at

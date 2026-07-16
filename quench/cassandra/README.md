@@ -37,6 +37,9 @@ cosign verify ghcr.io/quenchworks/images/cassandra \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/cassandra --owner quenchworks`.
+
 ## Authentication
 
 Auth is **off by default** (`AllowAllAuthenticator`) — this is an internal

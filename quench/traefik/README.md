@@ -2,8 +2,9 @@
 
 Hardened [Traefik](https://github.com/traefik/traefik) cloud-native edge router /
 reverse proxy and Kubernetes ingress controller on a minimal, nonroot,
-read-only-rootfs, 0-CVE image pinned by digest. Built on Wolfi. Deployed as a
-cluster ingress controller that watches the Kubernetes API and routes traffic.
+read-only-rootfs, 0-CVE image pinned by digest, cosign-signed (keyless /
+Sigstore). Built on Wolfi. Deployed as a cluster ingress controller that watches
+the Kubernetes API and routes traffic.
 
 ## Port mapping
 
@@ -98,6 +99,9 @@ cosign verify ghcr.io/quenchworks/images/traefik \
   --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/traefik --owner quenchworks`.
 
 ## Values
 

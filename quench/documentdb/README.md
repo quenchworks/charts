@@ -1,9 +1,9 @@
 # Quenchworks DocumentDB
 
-A self-contained **MongoDB-compatible** server: PostgreSQL 17 + the
-[DocumentDB](https://github.com/documentdb/documentdb) extension + the Rust
+A self-contained MongoDB-compatible server: PostgreSQL 17, the
+[DocumentDB](https://github.com/documentdb/documentdb) extension, and the Rust
 `pg_documentdb_gw` gateway, all in one nonroot, 0-CVE container pinned by digest.
-A mongo client connects **directly** to it — no FerretDB, no separate backend.
+A mongo client connects directly to it, with no FerretDB and no separate backend.
 
 On first boot the image runs `initdb`, `CREATE EXTENSION documentdb CASCADE`, and
 creates the Mongo admin user via `documentdb_api.create_user`. Clients then speak
@@ -35,6 +35,9 @@ cosign verify ghcr.io/quenchworks/images/documentdb \
   --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/documentdb --owner quenchworks`.
 
 ## Values
 

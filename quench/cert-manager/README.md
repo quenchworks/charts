@@ -73,5 +73,18 @@ kubectl get secret example-tls -n cert-manager   # populated tls.crt / tls.key
 | `rbac.create` | `true` | required: cluster-wide cert-management + webhook injection |
 | `serviceAccount.create` | `true` | one SA per component |
 
-The images are pinned by digest and cosign-signed; verify with the command in the
-post-install notes.
+## Verify the image
+
+All four images are pinned by digest and cosign-signed (keyless). The same
+identity applies to each component (`cert-manager-controller`,
+`cert-manager-webhook`, `cert-manager-cainjector`, `cert-manager-acmesolver`);
+swap the repository to verify the others:
+
+```sh
+cosign verify ghcr.io/quenchworks/images/cert-manager-controller \
+  --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/cert-manager-controller --owner quenchworks`.

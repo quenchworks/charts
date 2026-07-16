@@ -73,10 +73,27 @@ Configuration-as-Code) and persist on the volume.
   `extraVolumes` / `extraVolumeMounts` if a plugin needs them.
 - Tune the JVM (heap, GC) via `JAVA_OPTS` in `extraEnvVars`.
 
-## Verify
+## Verify the image
 
 ```sh
 cosign verify ghcr.io/quenchworks/images/jenkins \
   --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/jenkins --owner quenchworks`.
+
+## Uninstall
+
+```sh
+helm uninstall jenkins
+```
+
+The PVC provisioned by the `volumeClaimTemplate` (holding `JENKINS_HOME`) is
+retained by Kubernetes on uninstall. Delete it explicitly if you want all Jenkins
+state gone:
+
+```sh
+kubectl delete pvc -l app.kubernetes.io/instance=jenkins
 ```

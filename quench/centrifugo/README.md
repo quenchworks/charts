@@ -20,6 +20,17 @@ kubectl port-forward svc/messaging-centrifugo 8000:8000
 curl http://127.0.0.1:8000/health
 ```
 
+## Verify the image
+
+```sh
+cosign verify ghcr.io/quenchworks/images/centrifugo \
+  --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/centrifugo --owner quenchworks`.
+
 ## Engine (stateless vs scale-out)
 
 By default the chart runs a single-replica `Deployment` with the **in-memory**

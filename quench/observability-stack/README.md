@@ -2,7 +2,7 @@
 
 A hardened, **operator-free** Kubernetes monitoring bundle: Prometheus, Grafana,
 Alertmanager, kube-state-metrics and node-exporter wired together into end-to-end
-cluster monitoring, with curated Grafana dashboards loaded out of the box.
+cluster monitoring, with curated Grafana dashboards provisioned automatically.
 
 It delivers the everyday value of the [kube-prometheus-stack][kps] — metrics,
 alerting and the standard Kubernetes dashboards — **without the Prometheus
@@ -237,6 +237,23 @@ helm show values oci://ghcr.io/quenchworks/charts/observability-stack
 All component-chart values pass through under their block (`prometheus:`,
 `grafana:`, `alertmanager:`); see each component chart's `values.yaml` for the full
 surface.
+
+## Verify the images
+
+Every bundled component image is cosign-signed (keyless / Sigstore) and pinned by
+digest. Verify all five:
+
+```sh
+for img in prometheus grafana alertmanager kube-state-metrics node-exporter; do
+  cosign verify ghcr.io/quenchworks/images/$img \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
+done
+```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/<component> --owner quenchworks`
+(same component names as above).
 
 ## Security posture
 

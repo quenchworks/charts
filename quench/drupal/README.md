@@ -1,14 +1,14 @@
 # Quenchworks Drupal
 
-Hardened [Drupal](https://www.drupal.org/) — the PHP content-management system — on a
-minimal, nonroot, **read-only-rootfs** 0-CVE image pinned by digest and cosign-signed. Drupal
-is served by a Wolfi **PHP-FPM + nginx** runtime (supervisord): nginx listens on `8080`
+Hardened [Drupal](https://www.drupal.org/), the PHP content-management system, on a
+minimal, nonroot, read-only-rootfs 0-CVE image pinned by digest and cosign-signed. Drupal
+is served by a Wolfi PHP-FPM + nginx runtime (supervisord): nginx listens on `8080`
 (nonroot can't bind `<1024`) and FastCGI-passes `.php` to php-fpm on `127.0.0.1:9000`, with
 `/opt/drupal` as the docroot. It runs as uid `1001`.
 
-Drupal needs an external **MySQL/MariaDB**. This chart bundles the Quenchworks MySQL chart by
+Drupal needs an external MySQL/MariaDB. This chart bundles the Quenchworks MySQL chart by
 default, provisions a public-files PVC at `sites/default/files`, and supplies the
-`settings.php` the image intentionally omits — that config reads every DB setting and the
+`settings.php` the image intentionally omits. That config reads every DB setting and the
 hash salt from environment variables injected from a managed Secret, so no secret is ever
 baked into the image or written to disk.
 
@@ -48,14 +48,14 @@ also set `extraEnvVars: [{name: DRUPAL_DB_DRIVER, value: pgsql}]` (the image shi
 
 ## settings.php & the read-only rootfs
 
-The image ships **no** `sites/default/settings.php` (with none present it redirects `/` to
+The image ships no `sites/default/settings.php` (with none present it redirects `/` to
 the installer). The chart mounts one from a ConfigMap at
 `/opt/drupal/sites/default/settings.php` (read-only, subPath). It resolves the DB connection
 and the hash salt from the pod environment at request time (php-fpm runs with `clear_env=no`).
 
-The rootfs is **read-only**: Drupal core, modules and themes are baked into the signed image,
+The rootfs is read-only: Drupal core, modules and themes are baked into the signed image,
 and only `sites/default/files` (a PVC) and `/tmp` (emptyDir) are writable. In-place UI updates
-are therefore closed — rebuild the image to change code. The hash salt is generated once and
+are therefore closed; rebuild the image to change code. The hash salt is generated once and
 persisted in the Secret, so upgrades don't invalidate sessions.
 
 ## Security
@@ -74,6 +74,9 @@ cosign verify ghcr.io/quenchworks/images/drupal \
   --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/drupal --owner quenchworks`.
 
 ## Key values
 

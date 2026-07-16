@@ -3,8 +3,7 @@
 A hardened, **operator-free** self-hosted single sign-on bundle: **Keycloak**
 (OIDC/SAML identity provider), **PostgreSQL** (Keycloak's database) and
 **oauth2-proxy** (the authenticating reverse proxy you place in front of your
-apps), wired together so you get working SSO in front of your workloads out of
-the box.
+apps), wired together so you get working SSO in front of your workloads.
 
 It gives you the everyday value of a managed identity platform — a real OIDC
 provider, a user/role store, and a drop-in auth gateway for apps that have no
@@ -77,6 +76,31 @@ helm upgrade id oci://ghcr.io/quenchworks/charts/identity-stack
 
 There are no CRDs, so upgrades never require a separate CRD apply step. A major
 chart version bump signals a breaking values change; check the release notes.
+
+## Verify the images
+
+Every component image is cosign-signed (keyless / Sigstore) and pinned by digest.
+Verify the three bundled images:
+
+```sh
+for img in keycloak postgresql oauth2-proxy; do
+  cosign verify ghcr.io/quenchworks/images/$img \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
+done
+```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation; verify them
+with the GitHub CLI:
+
+```sh
+for img in keycloak postgresql oauth2-proxy; do
+  gh attestation verify oci://ghcr.io/quenchworks/images/$img --owner quenchworks
+done
+```
+
+See the `quench/keycloak` and `quench/oauth2-proxy` component charts for
+per-component detail.
 
 ## The SSO flow
 

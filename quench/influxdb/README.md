@@ -43,6 +43,14 @@ cosign verify ghcr.io/quenchworks/images/influxdb \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
+Each image also ships an SPDX SBOM and SLSA build provenance as attestations.
+Verify them with the GitHub CLI:
+
+```bash
+gh attestation verify oci://ghcr.io/quenchworks/images/influxdb \
+  --owner quenchworks
+```
+
 ## Values
 
 | Key | Default | Notes |

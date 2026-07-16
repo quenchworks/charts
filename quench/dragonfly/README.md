@@ -22,7 +22,7 @@ Prefer the open-source option instead:
 helm install my-valkey oci://ghcr.io/quenchworks/charts/valkey
 ```
 
-Auth is **off by default** (matching the image — Dragonfly is open on the wire, so the
+Auth is off by default (matching the image; Dragonfly is open on the wire, so the
 NetworkPolicy is the security boundary). To require a password:
 
 ```bash
@@ -48,6 +48,9 @@ cosign verify ghcr.io/quenchworks/images/dragonfly \
   --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/dragonfly --owner quenchworks`.
 
 ## Memory contract (important)
 
