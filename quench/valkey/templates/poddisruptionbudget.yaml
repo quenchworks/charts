@@ -11,3 +11,20 @@ spec:
     matchLabels:
       {{- include "quench-common.selectorLabels" . | nindent 6 }}
 {{- end }}
+{{- if and (eq .Values.architecture "replication") .Values.sentinel.enabled .Values.podDisruptionBudget.enabled }}
+---
+# Keep the Sentinel quorum intact through voluntary disruptions (drains).
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "valkey.sentinel.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sentinel
+spec:
+  minAvailable: {{ .Values.sentinel.quorum }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: sentinel
+{{- end }}

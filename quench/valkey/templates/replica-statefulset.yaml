@@ -32,9 +32,21 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if not .Values.affinity }}
+      affinity:
+        {{- include "valkey.defaultAntiAffinity" (dict "root" . "component" "replica") | nindent 8 }}
+      {{- end }}
+      {{- if .Values.sentinel.enabled }}
+      initContainers:
+        {{- include "valkey.discoverInitContainer" (dict "root" . "isPrimary" false) | nindent 8 }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- else }}
       {{- include "quench-common.initContainers" . | nindent 6 }}
+      {{- end }}
       containers:
-        {{- include "valkey.serverContainer" (dict "root" . "replicaof" (printf "%s 6379" $primaryHost) "resources" .Values.replica.resources) | nindent 8 }}
+        {{- include "valkey.serverContainer" (dict "root" . "replicaof" (printf "%s 6379" $primaryHost) "isPrimary" false "resources" .Values.replica.resources) | nindent 8 }}
         {{- if .Values.metrics.enabled }}
         {{- include "valkey.metricsContainer" (dict "root" .) | nindent 8 }}
         {{- end }}

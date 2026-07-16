@@ -20,6 +20,17 @@ Then:
 WARNING: auth is disabled. Anyone with network access to the service can use this instance.
 {{- end }}
 
+{{- if and (eq .Values.architecture "replication") .Values.sentinel.enabled }}
+
+High availability is on ({{ .Values.sentinel.replicaCount }} Sentinels, quorum {{ .Values.sentinel.quorum }}).
+Discover the current master (it changes on failover) instead of hardcoding a host:
+
+  MASTER=$(kubectl exec -n {{ .Release.Namespace }} {{ include "valkey.sentinel.fullname" . }}-0 -c sentinel -- \
+    valkey-cli -p {{ .Values.sentinel.port }} sentinel get-master-addr-by-name {{ .Values.sentinel.masterSet }})
+
+Write to $MASTER; read from {{ include "valkey.replica.fullname" . }} (replicas).
+{{- end }}
+
 The image is pinned by digest and signed. Verify it:
 
   cosign verify {{ .Values.image.repository }} \

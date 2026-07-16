@@ -1,0 +1,84 @@
+{{- if and (eq .Values.architecture "replication") .Values.sentinel.enabled }}
+{{- $s := .Values.sentinel }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-scripts" (include "valkey.sentinel.fullname" .) }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sentinel
+data:
+  # Sentinel exits on a read-only config file and rewrites it as it discovers
+  # replicas / fails over, so we generate it on a writable volume at start. We
+  # resolve the bootstrap primary to an IP (Sentinel tracks members by IP; a
+  # per-pod hostname that stops resolving after a pod dies drives Sentinel into
+  # TILT mode and blocks failover). The master password is read from the
+  # injected env, never baked into this ConfigMap.
+  init-sentinel.sh: |
+    #!/bin/sh
+    CONF=/sentinel/sentinel.conf
+    IP=""
+    i=0
+    while [ "$i" -lt 30 ]; do
+      IP=$(nslookup "$PRIMARY_HOST" 2>/dev/null | awk '/^Name:/{f=1;next} f&&/Address/{print $NF; exit}')
+      if [ -n "$IP" ]; then break; fi
+      i=$((i + 1)); sleep 2
+    done
+    {
+      {{- if .Values.tls.enabled }}
+      echo "port 0"
+      echo "tls-port $SENTINEL_PORT"
+      echo "tls-cert-file /etc/valkey/tls/{{ .Values.tls.certFilename }}"
+      echo "tls-key-file /etc/valkey/tls/{{ .Values.tls.keyFilename }}"
+      echo "tls-ca-cert-file /etc/valkey/tls/{{ .Values.tls.caFilename }}"
+      echo "tls-replication yes"
+      {{- else }}
+      echo "port $SENTINEL_PORT"
+      {{- end }}
+      if [ -n "$IP" ]; then
+        echo "sentinel monitor $MASTER_SET $IP 6379 $QUORUM"
+      else
+        echo "sentinel resolve-hostnames yes"
+        echo "sentinel monitor $MASTER_SET $PRIMARY_HOST 6379 $QUORUM"
+      fi
+      echo "sentinel down-after-milliseconds $MASTER_SET $DOWN_AFTER"
+      echo "sentinel failover-timeout $MASTER_SET $FAILOVER_TIMEOUT"
+      echo "sentinel parallel-syncs $MASTER_SET $PARALLEL_SYNCS"
+      if [ -n "${VALKEY_PASSWORD:-}" ]; then
+        echo "sentinel auth-pass $MASTER_SET $VALKEY_PASSWORD"
+      fi
+    } > "$CONF"
+  # Boot-time role discovery for data pods. Runs in the busybox init container and
+  # writes the runtime valkey.conf (base config + a discovered `replicaof`) that the
+  # shell-free valkey container then loads. Talking to Sentinel over RESP with `nc`
+  # keeps valkey-cli (and any shell) out of the valkey image. Only ever replicate
+  # from a master Sentinel reports AND that answers on the wire, so a fast-restarting
+  # old primary can't latch onto the dead pre-failover master and orphan itself.
+  start-node.sh: |
+    #!/bin/sh
+    cp /seed/valkey.conf /etc/valkey/valkey.conf
+    REPLICAOF=""
+    tries=0
+    while [ "$tries" -lt 30 ]; do
+      ADDR=$(printf 'sentinel get-master-addr-by-name %s\r\n' "$MASTER_SET" \
+        | nc -w 3 "$SENTINEL_SVC" "$SENTINEL_PORT" 2>/dev/null \
+        | tr -d '\r' | grep -vE '^[*$]')
+      MH=$(printf '%s\n' "$ADDR" | sed -n '1p')
+      MP=$(printf '%s\n' "$ADDR" | sed -n '2p')
+      if [ -n "$MH" ]; then
+        if [ "$MH" = "$MY_POD_IP" ]; then break; fi          # Sentinel elected me
+        # Any reply (+PONG or -NOAUTH) proves the candidate master is alive.
+        REPLY=$(printf 'ping\r\n' | nc -w 3 "$MH" "$MP" 2>/dev/null)
+        if [ -n "$REPLY" ]; then REPLICAOF="$MH $MP"; break; fi
+      else
+        break                                                # master unknown -> bootstrap
+      fi
+      tries=$((tries + 1)); sleep 2
+    done
+    if [ -z "$REPLICAOF" ] && [ "${IS_PRIMARY:-false}" != "true" ]; then
+      REPLICAOF="$BOOTSTRAP_HOST 6379"
+    fi
+    if [ -n "$REPLICAOF" ]; then
+      printf 'replicaof %s\n' "$REPLICAOF" >> /etc/valkey/valkey.conf
+    fi
+{{- end }}

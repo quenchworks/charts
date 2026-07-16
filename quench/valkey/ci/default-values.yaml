@@ -1,8 +1,18 @@
-# Standalone install gate. No image override: the install uses the chart's real,
-# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
-architecture: standalone
+# HA install gate: 1 primary + 2 replicas + a 3-node Sentinel quorum with
+# automatic failover. No image override: the gate pulls the chart's real,
+# CI-maintained digests (valkey + busybox helper) from values.yaml.
+architecture: replication
 auth:
   enabled: true
 primary:
   persistence:
     enabled: false
+replica:
+  replicaCount: 2
+  persistence:
+    enabled: false
+sentinel:
+  enabled: true
+  # Snappy retries for the gate; production keeps the safe values.yaml default.
+  downAfterMilliseconds: 3000
+  failoverTimeout: 10000
