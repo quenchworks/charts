@@ -1,8 +1,14 @@
-Quenchworks Kafka (KRaft, single node) is installed as {{ include "quench-common.fullname" . }}.
+Quenchworks Kafka (KRaft) is installed as {{ include "quench-common.fullname" . }}:
+a {{ .Values.replicaCount }}-broker HA cluster (combined controller + broker quorum).
 
-Connect from inside the cluster (PLAINTEXT, namespace-internal):
+Connect from inside the cluster (PLAINTEXT, namespace-internal). The client Service
+fronts all brokers as the bootstrap endpoint:
 
   bootstrap.servers = {{ include "kafka.advertisedHost" . }}:{{ .Values.service.port }}
+
+Watch all brokers become Ready:
+
+  kubectl -n {{ .Release.Namespace }} rollout status statefulset/{{ include "quench-common.fullname" . }}
 
 Quick check from a client pod in this namespace:
 
@@ -10,9 +16,14 @@ Quick check from a client pod in this namespace:
     --image {{ .Values.image.repository }}@{{ .Values.image.digest }} -- \
     /opt/kafka/bin/kafka-topics.sh --bootstrap-server {{ include "quench-common.fullname" . }}:{{ .Values.service.port }} --list
 
-The listener is PLAINTEXT and reachable only inside the cluster (the NetworkPolicy
-restricts ingress to this namespace). SASL/TLS auth and multi-node clustering are
-tracked follow-ups.
+Create a replicated, HA topic (survives one broker loss):
+
+  /opt/kafka/bin/kafka-topics.sh --bootstrap-server {{ include "quench-common.fullname" . }}:{{ .Values.service.port }} \
+    --create --topic my-topic --partitions 3 --replication-factor 3
+
+The listeners are PLAINTEXT and reachable only inside the cluster (the NetworkPolicy
+restricts client ingress to this namespace and allows the KRaft controller port only
+between brokers). SASL/TLS auth is a tracked follow-up.
 
 The image is pinned by digest and signed. Verify it:
 

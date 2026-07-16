@@ -12,7 +12,8 @@ metadata:
     app.kubernetes.io/component: primary
 spec:
   serviceName: {{ include "kafka.headlessName" . }}
-  replicas: 1
+  replicas: {{ .Values.replicaCount }}
+  podManagementPolicy: Parallel
   {{- with .Values.updateStrategy }}
   updateStrategy:
     {{- toYaml . | nindent 4 }}
@@ -33,6 +34,18 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if not .Values.affinity }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "quench-common.selectorLabels" . | nindent 20 }}
+                    app.kubernetes.io/component: primary
+      {{- end }}
       {{- include "quench-common.initContainers" . | nindent 6 }}
       containers:
         - name: kafka
@@ -40,30 +53,40 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
-          {{- include "quench-common.command" . | nindent 10 }}
-          {{- include "quench-common.args" . | nindent 10 }}
+          # Derive node.id from the pod ordinal and advertise this pod's own headless
+          # DNS name, then hand off to the image's KRaft entrypoint (format + boot).
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              export KAFKA_NODE_ID="${HOSTNAME##*-}"
+              export KAFKA_ADVERTISED_LISTENERS="PLAINTEXT://${HOSTNAME}.{{ include "kafka.podDomain" . }}:{{ .Values.service.port }}"
+              exec /usr/bin/docker-entrypoint.sh
           env:
             - name: KAFKA_HEAP_OPTS
               value: {{ .Values.kraft.heapOpts | quote }}
-            - name: KAFKA_NODE_ID
-              value: {{ .Values.kraft.nodeId | quote }}
-            # advertise the in-cluster service address so clients can reach the broker
-            - name: KAFKA_ADVERTISED_LISTENERS
-              value: "PLAINTEXT://{{ include "kafka.advertisedHost" . }}:{{ .Values.service.port }}"
+            - name: KAFKA_PROCESS_ROLES
+              value: {{ .Values.kraft.processRoles | quote }}
+            - name: KAFKA_CONTROLLER_QUORUM_VOTERS
+              value: {{ include "kafka.controllerQuorumVoters" . | quote }}
+            - name: KAFKA_CLUSTER_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "quench-common.fullname" . }}-cluster-id
+                  key: cluster-id
             - name: KAFKA_AUTO_CREATE_TOPICS_ENABLE
               value: {{ .Values.kraft.autoCreateTopics | quote }}
             - name: KAFKA_NUM_PARTITIONS
               value: {{ .Values.kraft.numPartitions | quote }}
+            - name: KAFKA_DEFAULT_REPLICATION_FACTOR
+              value: {{ .Values.kraft.defaultReplicationFactor | quote }}
+            - name: KAFKA_MIN_INSYNC_REPLICAS
+              value: {{ .Values.kraft.minInsyncReplicas | quote }}
             - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
               value: {{ .Values.kraft.offsetsTopicReplicationFactor | quote }}
             - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
               value: {{ .Values.kraft.transactionStateLogReplicationFactor | quote }}
             - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
               value: {{ .Values.kraft.transactionStateLogMinIsr | quote }}
-            {{- with .Values.kraft.clusterId }}
-            - name: KAFKA_CLUSTER_ID
-              value: {{ . | quote }}
-            {{- end }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
@@ -71,9 +94,6 @@ spec:
               containerPort: 9092
             - name: controller
               containerPort: 9093
-          # liveness is a cheap TCP check; readiness asks the broker for API versions,
-          # which only answers once it is actually serving (the JVM probe is heavier,
-          # hence the longer period).
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}

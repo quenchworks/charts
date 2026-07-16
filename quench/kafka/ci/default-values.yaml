@@ -1,5 +1,16 @@
 # Standalone install gate. No image override: the install uses the chart's real,
 # CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+#
+# Brings up the full 3-broker KRaft HA cluster. Heaps and resource requests are shrunk
+# so all three brokers fit on a single kind node; persistence uses kind's default
+# (local-path) storage class with a tiny PVC per broker.
+replicaCount: 3
+kraft:
+  heapOpts: "-Xmx512m -Xms512m"
 primary:
   persistence:
-    enabled: false
+    enabled: true
+    size: 1Gi
+  resources:
+    requests: { cpu: 100m, memory: 640Mi }
+    limits: { cpu: "1", memory: 1Gi }

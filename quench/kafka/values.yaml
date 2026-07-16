@@ -2,24 +2,37 @@
 # image-published dispatch after every green image build. It is never a tag.
 image:
   repository: ghcr.io/quenchworks/images/kafka
-  digest: "sha256:2554148a801aff5690a2d21a79cf00c38c557095cce7956d645e7246a8e310de"
+  digest: "sha256:c5d2088c4538c1ea12fc422fa3026290b93a04f5a26357cd31e1efa615c2d4e0"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
 
-# Single-node KRaft broker (combined controller + broker, no Zookeeper). The image
-# builds server.properties from these at boot. The listener is PLAINTEXT and reachable
-# only inside the cluster (the NetworkPolicy restricts ingress to the namespace);
-# SASL/TLS auth and multi-node clustering are tracked follow-ups.
+# Number of brokers. KRaft runs each pod as a combined controller+broker, so this
+# is both the broker count and the controller quorum size. Use an odd number (3 or 5)
+# so the controller quorum has a clear majority; 3 is the smallest HA cluster.
+replicaCount: 3
+
+# Multi-broker KRaft cluster (combined controller + broker, no Zookeeper). The image
+# builds server.properties from these at boot and formats KRaft storage. Each pod
+# derives its node.id from its StatefulSet ordinal and advertises its own headless
+# DNS name; the controller quorum voters are the full set of pods. The listener is
+# PLAINTEXT and reachable only inside the cluster (the NetworkPolicy restricts ingress
+# to the namespace); SASL/TLS auth is a tracked follow-up.
 kraft:
-  nodeId: 1
+  # combined roles keep 3 nodes simple: every pod is both a controller and a broker
+  processRoles: "broker,controller"
   autoCreateTopics: true
-  numPartitions: 1
-  # single node, so the internal topics replicate once
-  offsetsTopicReplicationFactor: 1
-  transactionStateLogReplicationFactor: 1
-  transactionStateLogMinIsr: 1
-  # set a fixed cluster id for reproducibility, or leave empty to generate + persist
+  numPartitions: 3
+  # HA replication defaults: survive one broker loss without data loss.
+  defaultReplicationFactor: 3
+  minInsyncReplicas: 2
+  offsetsTopicReplicationFactor: 3
+  transactionStateLogReplicationFactor: 3
+  transactionStateLogMinIsr: 2
+  # Cluster id shared by all brokers. Left empty, the chart generates one on first
+  # install and stores it in a Secret, so upgrades keep the same id (a changed id
+  # would refuse to start against already-formatted log dirs). Set a fixed value to
+  # pin it.
   clusterId: ""
   heapOpts: "-Xmx1G -Xms1G"
 
@@ -44,6 +57,9 @@ service:
 podLabels: {}
 podAnnotations: {}
 nodeSelector: {}
+# Left empty, the chart applies a soft podAntiAffinity so brokers spread across
+# nodes when possible (works on a single-node kind cluster too). Set this to a full
+# affinity block to override, e.g. a required anti-affinity for a real multi-node cluster.
 affinity: {}
 tolerations: []
 topologySpreadConstraints: []
@@ -59,8 +75,6 @@ extraVolumeMounts: []
 initContainers: []
 sidecars: []
 lifecycleHooks: {}
-command: []
-args: []
 # Security contexts merge over the hardened quench-common defaults (your keys win).
 podSecurityContext: {}
 containerSecurityContext: {}
@@ -84,6 +98,8 @@ networkPolicy:
   enabled: true
   allowExternal: false
 
+# Keep the controller quorum above majority during a voluntary drain: with 3 brokers
+# minAvailable 2 permits one at a time.
 podDisruptionBudget:
   enabled: true
-  minAvailable: 1
+  minAvailable: 2

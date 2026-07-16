@@ -13,6 +13,7 @@ spec:
   policyTypes:
     - Ingress
   ingress:
+    # client + inter-broker replication on the client listener (9092)
     - ports:
         - port: kafka
           protocol: TCP
@@ -20,4 +21,14 @@ spec:
       from:
         - podSelector: {}
       {{- end }}
+    # KRaft controller quorum between brokers (9093) — always namespace-internal,
+    # restricted to the broker pods. Without this the quorum can't form.
+    - ports:
+        - port: controller
+          protocol: TCP
+      from:
+        - podSelector:
+            matchLabels:
+              {{- include "quench-common.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: primary
 {{- end }}
