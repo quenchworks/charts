@@ -1,14 +1,28 @@
-Quenchworks OpenSearch is installed as {{ include "quench-common.fullname" . }}.
+Quenchworks OpenSearch is installed as {{ include "quench-common.fullname" . }}
+{{- if eq .Values.mode "ha" }} in HA mode: {{ .Values.master.replicaCount }} cluster-manager node(s) + {{ .Values.data.replicaCount }} data node(s).{{ else }} in single-node mode (no fault tolerance).{{ end }}
 
 Query the HTTP API from inside the cluster:
 
-  curl http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}/
   curl http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}/_cluster/health
+
+{{- if eq .Values.mode "ha" }}
+
+Wait for the cluster to form, then check it is green/yellow with all nodes joined:
+
+  curl '.../_cluster/health?pretty'          # status + number_of_nodes
+  curl '.../_cat/nodes?v&h=name,node.role,cluster_manager'
+
+New indices default to 1 replica, so with >= 2 data nodes a shard's replica lives
+on a different node and survives one data-node loss. Cluster-manager election is
+native: lose a master and the remaining {{ sub (int .Values.master.replicaCount) 1 }} re-elect a leader as long as a
+quorum ({{ add (div (int .Values.master.replicaCount) 2) 1 }}) survives. Losing the master quorum is NOT auto-recovered
+(split-brain guard) -- restore the failed masters and they rejoin.
+{{- end }}
 
 {{- if .Values.config.securityDisabled }}
 
 NOTE: the security plugin is disabled (no TLS/auth). This is for internal use behind
-the NetworkPolicy. Set config.securityDisabled=false and configure TLS to expose it.
+the NetworkPolicy. The hardened image does not bundle the security plugin.
 {{- end }}
 
 The image is pinned by digest and signed. Verify it:

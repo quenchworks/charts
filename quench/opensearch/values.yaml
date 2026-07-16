@@ -7,31 +7,81 @@ image:
 
 nameOverride: ""
 
-# Single node for now. A multi-node cluster (seed hosts + cluster.initial_master_nodes
-# over the headless service) is a later addition.
-replicaCount: 1
+# Topology mode:
+#   ha     (default) a real cluster: dedicated cluster-manager (master-eligible)
+#          nodes + data nodes as two StatefulSets. Master election and shard
+#          reallocation are native to OpenSearch, so node loss fails over with no
+#          sidecar. Needs the vm.max_map_count init (below) since the multi-node
+#          bootstrap checks are enforced.
+#   single one node, discovery.type=single-node. No fault tolerance; dev/test or
+#          a deliberately tiny deployment. This is the pre-0.1 layout, unchanged.
+mode: ha
 
-# OpenSearch config knobs (the image writes opensearch.yml from these).
+# OpenSearch config shared by every node (the image writes opensearch.yml from these).
 config:
   clusterName: quench-opensearch
-  discoveryType: single-node
-  # security plugin off by default: this is an internal deployment and the
-  # NetworkPolicy is the trust boundary. Enable + configure TLS for exposed clusters.
+  # security plugin is NOT in the hardened image (its opensaml jar shades a
+  # vulnerable jackson we cannot patch), so it is off by construction and the
+  # NetworkPolicy is the trust boundary. This flag is kept for parity/telemetry.
   securityDisabled: true
-  heapSize: 512m
+  # Appended verbatim to opensearch.yml on every node (OPENSEARCH_CONFIG_EXTRA).
+  # e.g. "action.auto_create_index: false". One setting per line.
+  extraConfig: ""
 
-persistence:
+# vm.max_map_count on the host node must be >= 262144 or the multi-node bootstrap
+# check fails the boot. A short privileged init raises it (only raises, never
+# lowers). Disable if your nodes are pre-tuned or you set the sysctl elsewhere.
+# HA mode only -- single-node skips the bootstrap checks.
+sysctls:
   enabled: true
-  size: 16Gi
-  # storageClass: ""        # default class if unset
-  accessModes: ["ReadWriteOnce"]
-  annotations: {}
-  selector: {}
-  existingClaim: ""         # bind an existing PVC instead of provisioning one
+  vmMaxMapCount: 262144
 
-resources:
-  requests: { cpu: 500m, memory: 1Gi }
-  limits: { cpu: "2", memory: 2Gi }
+# --- HA pools (mode: ha) ---
+# cluster-manager pool: master-eligible only, holds cluster state and elects the
+# leader. Use an ODD count so a quorum majority exists: 3 tolerates 1 loss, 5
+# tolerates 2. Below 3 there is no fault tolerance.
+master:
+  replicaCount: 3
+  heapSize: 256m
+  persistence:
+    enabled: true
+    size: 8Gi
+    accessModes: ["ReadWriteOnce"]
+    # storageClass: ""      # default class if unset
+    annotations: {}
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+# data pool: holds shards and their replicas, runs ingest. Use >= 2 so a shard's
+# replica has a home on a different node (green, and readable through a loss).
+data:
+  replicaCount: 2
+  heapSize: 512m
+  persistence:
+    enabled: true
+    size: 16Gi
+    accessModes: ["ReadWriteOnce"]
+    # storageClass: ""
+    annotations: {}
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: "2", memory: 2Gi }
+
+# --- single-node pool (mode: single) ---
+single:
+  heapSize: 512m
+  persistence:
+    enabled: true
+    size: 16Gi
+    accessModes: ["ReadWriteOnce"]
+    # storageClass: ""
+    annotations: {}
+    selector: {}
+    existingClaim: ""         # bind an existing PVC instead of provisioning one
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { cpu: "2", memory: 2Gi }
 
 service:
   type: ClusterIP
@@ -70,9 +120,6 @@ customLivenessProbe: {}
 customReadinessProbe: {}
 customStartupProbe: {}
 
-# ZooKeeper has no native Prometheus endpoint by default (it ships an optional
-# metrics provider); wiring it is a tracked follow-up.
-
 serviceAccount:
   create: true
   name: ""
@@ -87,4 +134,7 @@ networkPolicy:
 
 podDisruptionBudget:
   enabled: true
+  # HA mode ignores minAvailable and pins the cluster-manager pool at quorum
+  # (floor(N/2)+1) so a drain can never take masters below majority. single mode
+  # uses this value as-is.
   minAvailable: 1

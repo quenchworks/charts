@@ -1,4 +1,21 @@
 {{- if .Values.podDisruptionBudget.enabled }}
+{{- if eq .Values.mode "ha" }}
+{{/* Keep the cluster-manager pool at quorum (floor(N/2)+1) so a voluntary
+     disruption (drain/upgrade) can never take masters below majority. */}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "quench-common.fullname" . }}-master
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: master
+spec:
+  minAvailable: {{ add (div (int .Values.master.replicaCount) 2) 1 }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: master
+{{- else }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
@@ -10,4 +27,5 @@ spec:
   selector:
     matchLabels:
       {{- include "quench-common.selectorLabels" . | nindent 6 }}
+{{- end }}
 {{- end }}

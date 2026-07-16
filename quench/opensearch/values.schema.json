@@ -1,21 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft-07/schema#",
-  "title": "Quenchworks etcd values",
+  "title": "Quenchworks opensearch values",
   "type": "object",
   "additionalProperties": true,
-  "properties": {
-    "image": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["repository", "digest"],
-      "properties": {
-        "repository": { "type": "string", "minLength": 1 },
-        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
-        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
-      }
-    },
-    "nameOverride": { "type": "string" },
-    "replicaCount": { "type": "integer", "minimum": 1 },
+  "definitions": {
     "persistence": {
       "type": "object",
       "additionalProperties": false,
@@ -33,15 +21,65 @@
       "type": "object",
       "additionalProperties": false,
       "properties": { "requests": { "type": "object" }, "limits": { "type": "object" } }
+    }
+  },
+  "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "digest"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      }
     },
+    "nameOverride": { "type": "string" },
+    "mode": { "type": "string", "enum": ["ha", "single"] },
     "config": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "clusterName": { "type": "string" },
-        "discoveryType": { "type": "string" },
         "securityDisabled": { "type": "boolean" },
-        "heapSize": { "type": "string" }
+        "extraConfig": { "type": "string" }
+      }
+    },
+    "sysctls": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "vmMaxMapCount": { "type": "integer", "minimum": 262144 }
+      }
+    },
+    "master": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "heapSize": { "type": "string" },
+        "persistence": { "$ref": "#/definitions/persistence" },
+        "resources": { "$ref": "#/definitions/resources" }
+      }
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "heapSize": { "type": "string" },
+        "persistence": { "$ref": "#/definitions/persistence" },
+        "resources": { "$ref": "#/definitions/resources" }
+      }
+    },
+    "single": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "heapSize": { "type": "string" },
+        "persistence": { "$ref": "#/definitions/persistence" },
+        "resources": { "$ref": "#/definitions/resources" }
       }
     },
     "service": {

@@ -1,5 +1,22 @@
-# Standalone install gate. No image override: uses the chart's real CI-maintained digest.
-persistence:
-  enabled: false
-config:
-  heapSize: 512m
+# CI install gate: brings up the full HA cluster (3 cluster-manager + 2 data) on
+# kind. No image override -- uses the chart's real CI-maintained digest. Heaps and
+# disks kept tiny so it fits kind's memory; ephemeral storage for a fast teardown.
+mode: ha
+sysctls:
+  enabled: true
+master:
+  replicaCount: 3
+  heapSize: 256m
+  persistence:
+    enabled: false
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { cpu: "1", memory: 768Mi }
+data:
+  replicaCount: 2
+  heapSize: 256m
+  persistence:
+    enabled: false
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { cpu: "1", memory: 768Mi }

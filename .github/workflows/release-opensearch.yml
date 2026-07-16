@@ -45,9 +45,11 @@ jobs:
       - name: Install gate (kind)
         run: |
           helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
-          kubectl rollout status statefulset/rtest-opensearch --timeout=420s
+          # ci/default-values enables HA: split cluster-manager + data pools, not a single rtest-opensearch.
+          kubectl rollout status statefulset/rtest-opensearch-master --timeout=420s
+          kubectl rollout status statefulset/rtest-opensearch-data --timeout=420s
           # probe the REST API over a port-forward (the runtime image has no HTTP client)
-          kubectl port-forward rtest-opensearch-0 9200:9200 >/tmp/pf.log 2>&1 &
+          kubectl port-forward rtest-opensearch-master-0 9200:9200 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           curl -fsS http://127.0.0.1:9200/ | grep -q '"cluster_name"'
           curl -fsS http://127.0.0.1:9200/_cluster/health | grep -qE '"status":"(green|yellow)"'
