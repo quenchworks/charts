@@ -20,7 +20,7 @@ data:
     IP=""
     i=0
     while [ "$i" -lt 30 ]; do
-      IP=$(nslookup "$PRIMARY_HOST" 2>/dev/null | awk '/^Name:/{f=1;next} f&&/Address/{print $NF; exit}')
+      IP=$(timeout 3 nslookup "$PRIMARY_HOST" 2>/dev/null | awk '/^Name:/{f=1;next} f&&/Address/{print $NF; exit}')
       if [ -n "$IP" ]; then break; fi
       i=$((i + 1)); sleep 2
     done
@@ -57,23 +57,24 @@ data:
   start-node.sh: |
     #!/bin/sh
     cp /seed/valkey.conf /etc/valkey/valkey.conf
+    # `timeout` hard-caps each nc: Sentinel/Valkey hold the connection open after
+    # replying and busybox `nc -w` does not reliably time out the read, so a bare
+    # nc can hang forever (init never finishes). timeout guarantees each call ends.
     REPLICAOF=""
     tries=0
-    while [ "$tries" -lt 30 ]; do
+    while [ "$tries" -lt 15 ]; do
       ADDR=$(printf 'sentinel get-master-addr-by-name %s\r\n' "$MASTER_SET" \
-        | nc -w 3 "$SENTINEL_SVC" "$SENTINEL_PORT" 2>/dev/null \
+        | timeout 3 nc "$SENTINEL_SVC" "$SENTINEL_PORT" 2>/dev/null \
         | tr -d '\r' | grep -vE '^[*$]')
       MH=$(printf '%s\n' "$ADDR" | sed -n '1p')
       MP=$(printf '%s\n' "$ADDR" | sed -n '2p')
       if [ -n "$MH" ]; then
         if [ "$MH" = "$MY_POD_IP" ]; then break; fi          # Sentinel elected me
         # Any reply (+PONG or -NOAUTH) proves the candidate master is alive.
-        REPLY=$(printf 'ping\r\n' | nc -w 3 "$MH" "$MP" 2>/dev/null)
+        REPLY=$(printf 'ping\r\n' | timeout 3 nc "$MH" "$MP" 2>/dev/null)
         if [ -n "$REPLY" ]; then REPLICAOF="$MH $MP"; break; fi
-      else
-        break                                                # master unknown -> bootstrap
       fi
-      tries=$((tries + 1)); sleep 2
+      tries=$((tries + 1)); sleep 1
     done
     if [ -z "$REPLICAOF" ] && [ "${IS_PRIMARY:-false}" != "true" ]; then
       REPLICAOF="$BOOTSTRAP_HOST 6379"
