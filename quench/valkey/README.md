@@ -16,6 +16,25 @@ helm install my-valkey oci://ghcr.io/quenchworks/charts/valkey \
   --set auth.password='change-me'
 ```
 
+## Standalone vs HA
+
+Standalone is the default: a single primary, no failover. For automatic failover,
+switch to replication with Sentinel:
+
+```bash
+# Standalone (default): 1 primary, no failover, smallest footprint
+helm install my-valkey oci://ghcr.io/quenchworks/charts/valkey
+
+# HA: 1 primary + N replicas + a 3-node Sentinel quorum with automatic failover
+helm install my-valkey oci://ghcr.io/quenchworks/charts/valkey \
+  --set architecture=replication --set sentinel.enabled=true
+```
+
+Standalone is one pod, so its loss is downtime until it restarts. HA promotes a
+replica to primary automatically when the primary is lost, at the cost of extra
+replica and Sentinel pods. See [Architecture](#architecture) for the Sentinel
+topology, the client read/write paths, and the failover boundaries.
+
 ## Verify the image
 
 ```bash

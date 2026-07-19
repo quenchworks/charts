@@ -10,6 +10,26 @@ through `ETCD_*` env vars.
 helm install my-etcd oci://ghcr.io/quenchworks/charts/etcd
 ```
 
+## Standalone vs HA
+
+The chart ships an HA 3-node Raft cluster by default. For dev/test or a small
+footprint, run a single node instead:
+
+```bash
+# Standalone: 1 node, no fault tolerance, smallest footprint
+helm install my-etcd oci://ghcr.io/quenchworks/charts/etcd \
+  --set replicaCount=1
+
+# HA (default): 3-node Raft cluster with automatic leader election and failover
+helm install my-etcd oci://ghcr.io/quenchworks/charts/etcd
+```
+
+Standalone is one pod with a single PVC and no quorum, so a pod or node loss is
+downtime until it restarts. HA runs 3 members (keep the count odd) and survives
+one member down with zero-touch recovery, at the cost of 3x the pods and storage.
+See [High availability](#high-availability) for the failover behavior and its
+boundaries.
+
 ## High availability
 
 The chart deploys a 3-node etcd cluster (a `StatefulSet` + headless `Service`)

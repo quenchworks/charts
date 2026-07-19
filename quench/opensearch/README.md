@@ -21,6 +21,25 @@ kubectl run q --rm -it --image=curlimages/curl --restart=Never -- \
   curl http://os-opensearch:9200/_cluster/health?pretty
 ```
 
+## Standalone vs HA
+
+HA is the default: dedicated cluster-manager and data pools with node-loss
+failover. For dev/test or a small footprint, run a single node instead:
+
+```bash
+# Standalone: 1 node (discovery.type=single-node), no fault tolerance
+helm install os oci://ghcr.io/quenchworks/charts/opensearch \
+  --set mode=single
+
+# HA (default): 3 cluster-managers + 2 data nodes, shard replicas, auto failover
+helm install os oci://ghcr.io/quenchworks/charts/opensearch
+```
+
+single mode is one pod with no shard replicas, so a node loss is downtime. HA
+keeps reads and writes serving through a data-node loss and re-elects the manager
+on manager loss, at the cost of running 5 nodes. See [Topology](#topology) for the
+node pools, the failover table, and the quorum boundary.
+
 ## Topology
 
 ### HA mode (default)

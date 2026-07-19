@@ -32,6 +32,32 @@ helm install my-kafka oci://ghcr.io/quenchworks/charts/kafka \
   --set 'extraEnvVars[0].value=24'
 ```
 
+## Standalone vs HA
+
+The default install is a 3-broker HA cluster. For dev/test or a small footprint,
+run a single broker instead:
+
+```bash
+# Standalone: 1 broker, no replication or failover, smallest footprint
+helm install my-kafka oci://ghcr.io/quenchworks/charts/kafka \
+  --set replicaCount=1 \
+  --set kraft.defaultReplicationFactor=1 --set kraft.minInsyncReplicas=1 \
+  --set kraft.offsetsTopicReplicationFactor=1 \
+  --set kraft.transactionStateLogReplicationFactor=1 \
+  --set kraft.transactionStateLogMinIsr=1
+
+# HA (default): 3-broker KRaft cluster, RF=3 / min.insync.replicas=2
+helm install my-kafka oci://ghcr.io/quenchworks/charts/kafka
+```
+
+A single broker is its own controller quorum with no partition replication, so a
+broker or node loss is downtime with no data redundancy. It also needs the
+replication factors dropped to 1 (above), since the default RF=3 can't be met by
+one broker and topic creation would fail. HA runs 3 brokers (keep the count odd),
+replicates partitions and the internal topics 3x, and keeps `acks=all` writes
+serving while two replicas stay in sync. See [High availability](#high-availability)
+for the failover behavior and its boundaries.
+
 ## High availability
 
 - **Topology**: a StatefulSet of `replicaCount` brokers (default 3), each running
