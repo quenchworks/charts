@@ -25,10 +25,25 @@ metadata:
 spec:
   type: ClusterIP
   clusterIP: None
+  # Publish DNS for not-yet-Ready pods so a joining Galera node is resolvable by
+  # its donor during SST/IST — a joiner is not Ready until it has finished syncing,
+  # and without this the donor cannot connect back to it (state transfer deadlocks).
+  publishNotReadyAddresses: true
   ports:
     - port: {{ .Values.service.port }}
       targetPort: mariadb
       name: mariadb
+    {{- if eq .Values.architecture "galera" }}
+    - port: 4567
+      targetPort: galera
+      name: galera
+    - port: 4568
+      targetPort: ist
+      name: ist
+    - port: 4444
+      targetPort: sst
+      name: sst
+    {{- end }}
   selector:
     {{- include "quench-common.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: primary

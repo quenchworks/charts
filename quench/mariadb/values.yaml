@@ -2,10 +2,29 @@
 # manifests/mariadb.json after every green image build. It is never a tag.
 image:
   repository: ghcr.io/quenchworks/images/mariadb
-  digest: "sha256:3851e39ebd378bcd1deb4eafbff8ac887d27c677bb65848dd24b7d7d2265befe"
+  digest: "sha256:45a1d20926bde15a076b0de0d2bc12b6fb3202b6ba2a49db896a8903a29fbb3f"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
+
+# Topology.
+#   standalone (default) — a single primary. Backward compatible; unchanged.
+#   galera               — a synchronous multi-primary Galera cluster. Every node
+#                          accepts writes; a write is committed only once a quorum
+#                          of nodes has certified it, so there is no failover gap
+#                          and no primary election. Needs galera.replicaCount nodes
+#                          (odd, >=3) so a surviving majority keeps quorum.
+architecture: standalone
+
+galera:
+  # Node count. Keep it ODD (3, 5, ...) so quorum is unambiguous. 3 tolerates the
+  # loss of 1 node while staying writable.
+  replicaCount: 3
+  clusterName: quench-galera
+  # SST (state snapshot transfer) seeds a joining node from a live donor. mariabackup
+  # is the hot, non-blocking method (the donor keeps serving during the copy). It
+  # authenticates to the donor as root, using the root password from the auth Secret.
+  sstMethod: mariabackup
 
 # Authentication. MariaDB requires a root password to initialize. A random one is
 # generated if you do not set it. Optionally create an application user + database.

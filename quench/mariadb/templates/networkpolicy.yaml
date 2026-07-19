@@ -20,4 +20,20 @@ spec:
       from:
         - podSelector: {}
       {{- end }}
+    {{- if eq .Values.architecture "galera" }}
+    # Galera intra-cluster traffic: 4567 gcomm replication, 4568 IST, 4444 SST.
+    # Always restricted to same-namespace pods regardless of allowExternal.
+    - ports:
+        - port: galera
+          protocol: TCP
+        - port: ist
+          protocol: TCP
+        - port: sst
+          protocol: TCP
+      from:
+        - podSelector:
+            matchLabels:
+              {{- include "quench-common.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: primary
+    {{- end }}
 {{- end }}

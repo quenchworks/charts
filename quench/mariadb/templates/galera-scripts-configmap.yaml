@@ -1,0 +1,111 @@
+{{- if eq .Values.architecture "galera" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-galera
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: primary
+data:
+  # ---------------------------------------------------------------------------
+  # Galera entrypoint: decide bootstrap-vs-join, then hand off to mariadbd with
+  # the wsrep flags. The image's own docker-entrypoint.sh is bypassed because it
+  # execs a fixed single-node mariadbd; this script drives the cluster instead.
+  # ---------------------------------------------------------------------------
+  galera-entrypoint.sh: |
+    #!/bin/bash
+    set -eu
+    export PATH="/usr/scripts:/usr/bin:/usr/sbin:$PATH"
+
+    DATADIR=/var/lib/mysql
+    SOCK=/run/mysqld/mysqld.sock
+    PROVIDER=/usr/lib/galera/libgalera_smm.so
+    ORD="${HOSTNAME##*-}"
+    NODE_ADDR="${HOSTNAME}.{{ include "mariadb.podDomain" . }}"
+    REPLICAS={{ .Values.galera.replicaCount }}
+
+    # First boot of an empty datadir: lay down the system tables so mariadbd can
+    # start. On a joiner these get replaced wholesale by the SST snapshot; that is
+    # expected and harmless.
+    FRESH=0
+    if [ ! -d "$DATADIR/mysql" ]; then
+      FRESH=1
+      mariadb-install-db --datadir="$DATADIR" \
+        --auth-root-authentication-method=normal --skip-test-db >/dev/null
+    fi
+
+    # Bootstrap only when this is node-0 AND no other member is already live. A
+    # reachable peer on the gcomm port (4567) means the cluster exists, so node-0
+    # must JOIN it (rejoin after a restart) rather than form a second one — that is
+    # the split-brain guard. Any non-zero ordinal always joins.
+    BOOTSTRAP=0
+    if [ "$ORD" = "0" ]; then
+      live=0
+      i=1
+      while [ "$i" -lt "$REPLICAS" ]; do
+        peer="{{ include "quench-common.fullname" . }}-${i}.{{ include "mariadb.podDomain" . }}"
+        if timeout 2 bash -c "echo > /dev/tcp/${peer}/4567" 2>/dev/null; then live=1; break; fi
+        i=$((i+1))
+      done
+      [ "$live" = "0" ] && BOOTSTRAP=1
+    fi
+
+    # Seed auth users on a fresh bootstrap node before it forms the cluster, so the
+    # first SST hands them to every joiner. wsrep is OFF for this throwaway server.
+    if [ "$FRESH" = "1" ] && [ "$BOOTSTRAP" = "1" ]; then
+      mariadbd --datadir="$DATADIR" --socket="$SOCK" --skip-networking --wsrep-on=OFF \
+        >/tmp/mdb-init.log 2>&1 &
+      pid=$!
+      for _ in $(seq 1 30); do
+        mariadb-admin --socket="$SOCK" -uroot ping >/dev/null 2>&1 && break
+        sleep 1
+      done
+      SQL="$(mktemp)"
+      {
+        printf "ALTER USER 'root'@'localhost' IDENTIFIED BY '%s';\n" "$MARIADB_ROOT_PASSWORD"
+        printf "CREATE USER IF NOT EXISTS 'root'@'%%' IDENTIFIED BY '%s';\n" "$MARIADB_ROOT_PASSWORD"
+        printf "GRANT ALL PRIVILEGES ON *.* TO 'root'@'%%' WITH GRANT OPTION;\n"
+        [ -n "${MARIADB_DATABASE:-}" ] && printf "CREATE DATABASE IF NOT EXISTS \`%s\`;\n" "$MARIADB_DATABASE"
+        if [ -n "${MARIADB_USER:-}" ]; then
+          printf "CREATE USER IF NOT EXISTS '%s'@'%%' IDENTIFIED BY '%s';\n" "$MARIADB_USER" "${MARIADB_PASSWORD:-}"
+          printf "GRANT ALL PRIVILEGES ON \`%s\`.* TO '%s'@'%%';\n" "${MARIADB_DATABASE:-*}" "$MARIADB_USER"
+        fi
+        printf "FLUSH PRIVILEGES;\n"
+      } > "$SQL"
+      mariadb --socket="$SOCK" -uroot < "$SQL"
+      rm -f "$SQL"
+      mariadb-admin --socket="$SOCK" -uroot -p"$MARIADB_ROOT_PASSWORD" shutdown
+      wait "$pid" 2>/dev/null || true
+    fi
+
+    set -- mariadbd \
+      --datadir="$DATADIR" --socket="$SOCK" \
+      --bind-address=0.0.0.0 \
+      --wsrep_on=ON \
+      --wsrep_provider="$PROVIDER" \
+      --wsrep_cluster_name={{ .Values.galera.clusterName | quote }} \
+      --wsrep_cluster_address={{ include "mariadb.galeraClusterAddress" . | quote }} \
+      --wsrep_node_address="$NODE_ADDR" \
+      --wsrep_node_name="$HOSTNAME" \
+      --wsrep_sst_method={{ .Values.galera.sstMethod }} \
+      --wsrep_sst_auth="root:${MARIADB_ROOT_PASSWORD}" \
+      --binlog_format=ROW \
+      --default_storage_engine=InnoDB \
+      --innodb_autoinc_lock_mode=2
+
+    if [ "$BOOTSTRAP" = "1" ]; then
+      echo "galera: node-0 forming a NEW cluster (--wsrep-new-cluster)"
+      exec "$@" --wsrep-new-cluster
+    fi
+    echo "galera: joining existing cluster via {{ include "mariadb.galeraClusterAddress" . }}"
+    exec "$@"
+
+  # Readiness: only route client traffic to a node that is fully Synced. A node
+  # mid-SST is up but NOT Synced, so it stays out of the Service until caught up.
+  galera-readiness.sh: |
+    #!/bin/bash
+    set -eu
+    state="$(mariadb --socket=/run/mysqld/mysqld.sock -uroot -p"$MARIADB_ROOT_PASSWORD" -N -B \
+      -e "SHOW STATUS LIKE 'wsrep_local_state_comment'" 2>/dev/null | awk '{print $2}')"
+    [ "$state" = "Synced" ]
+{{- end }}

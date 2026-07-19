@@ -50,15 +50,50 @@ gh attestation verify oci://ghcr.io/quenchworks/images/mariadb \
 | `serviceAccount.create` | `true` | Token automount is off. |
 | `rbac.create` | `false` | Minimal Role/RoleBinding. |
 | `networkPolicy.enabled` | `true` | Restricts ingress to the release namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1` standalone; quorum (2 of 3) in Galera mode. |
+| `architecture` | `standalone` | Set to `galera` for the HA cluster. |
+| `galera.replicaCount` | `3` | Node count. Keep it odd (3, 5, ...). |
+| `galera.clusterName` | `quench-galera` | wsrep cluster name. |
+| `galera.sstMethod` | `mariabackup` | Hot state-snapshot transfer method. |
 
 ## Security
 
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities dropped.
 Only `/var/lib/mysql`, the socket dir, and `/tmp` are writable.
 
-## Notes
+## High availability (Galera)
 
-Single primary for now. Galera/replication topologies, a metrics exporter sidecar, and
-custom `my.cnf` tuning are tracked as follow-ups. Depends on the `quench-common` library
-chart, pulled from `oci://ghcr.io/quenchworks/charts/quench-common`.
+Set `architecture: galera` for a synchronous multi-primary cluster:
+
+```bash
+helm install my-mariadb oci://ghcr.io/quenchworks/charts/mariadb \
+  --set architecture=galera \
+  --set auth.rootPassword='change-me' --set auth.database='myapp'
+```
+
+**Topology.** Three nodes (odd count for a clear quorum) run as a StatefulSet behind a
+headless Service for stable per-pod DNS, each with its own PVC. Every node is a primary:
+any node accepts writes, and Galera certifies each transaction across the cluster before
+commit, so replication is synchronous and there is no failover gap or promotion step. The
+client Service load-balances across all Ready nodes.
+
+**Bootstrap vs. join.** Galera's cold-start hazard is that every node waits for the
+others. The entrypoint breaks the tie: node-0 forms a new cluster (`--wsrep-new-cluster`)
+only when no other member is already reachable on the gcomm port; otherwise it — and every
+other ordinal — joins the existing cluster and pulls a state snapshot. That same
+"is a peer live?" check is the split-brain guard when node-0 restarts: it rejoins rather
+than starting a second cluster.
+
+**SST.** A joining node is seeded from a live donor with `mariabackup` (a hot, physical
+snapshot — the donor keeps serving during the copy). Readiness gates on
+`wsrep_local_state_comment = Synced`, so a node mid-transfer is kept out of the Service
+until it has caught up.
+
+**Quorum boundary.** The PodDisruptionBudget holds `minAvailable` at the majority (2 of
+3). Losing one node keeps the cluster writable and the node rejoins automatically (IST if
+its gcache still has the writesets, otherwise a full SST). Losing the majority is **not**
+auto-recovered — that is a deliberate split-brain stop that needs a human to pick the most
+advanced survivor and bootstrap from it.
+
+Depends on the `quench-common` library chart, pulled from
+`oci://ghcr.io/quenchworks/charts/quench-common`.

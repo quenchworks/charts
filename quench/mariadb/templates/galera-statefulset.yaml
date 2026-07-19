@@ -1,6 +1,10 @@
-{{- if ne .Values.architecture "galera" }}
-{{- $liveness := dict "tcpSocket" (dict "port" "mariadb") "initialDelaySeconds" 30 "periodSeconds" 15 -}}
-{{- $readiness := dict "exec" (dict "command" (list "mariadb-admin" "--socket=/run/mysqld/mysqld.sock" "ping")) "initialDelaySeconds" 15 "periodSeconds" 10 -}}
+{{- if eq .Values.architecture "galera" }}
+{{- /* liveness: the galera replication port (4567) is bound early and held for the
+       node's life, so it is a cheap "provider is alive" signal.
+       readiness: gates the client Service on wsrep_local_state_comment=Synced, so a
+       node mid-SST is never handed traffic. */ -}}
+{{- $liveness := dict "tcpSocket" (dict "port" "galera") "initialDelaySeconds" 60 "periodSeconds" 15 "failureThreshold" 6 -}}
+{{- $readiness := dict "exec" (dict "command" (list "/bin/bash" "/scripts/galera-readiness.sh")) "initialDelaySeconds" 30 "periodSeconds" 10 "failureThreshold" 30 -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -10,7 +14,9 @@ metadata:
     app.kubernetes.io/component: primary
 spec:
   serviceName: {{ include "mariadb.headlessName" . }}
-  replicas: 1
+  replicas: {{ .Values.galera.replicaCount }}
+  {{- /* OrderedReady (the default): node-0 forms the cluster and becomes Ready, then
+         each higher ordinal joins via SST one at a time. Avoids a cold-start race. */}}
   {{- with .Values.updateStrategy }}
   updateStrategy:
     {{- toYaml . | nindent 4 }}
@@ -31,6 +37,18 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if not .Values.affinity }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "quench-common.selectorLabels" . | nindent 20 }}
+                    app.kubernetes.io/component: primary
+      {{- end }}
       {{- include "quench-common.initContainers" . | nindent 6 }}
       containers:
         - name: mariadb
@@ -38,8 +56,7 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
-          {{- include "quench-common.command" . | nindent 10 }}
-          {{- include "quench-common.args" . | nindent 10 }}
+          command: ["/bin/bash", "/scripts/galera-entrypoint.sh"]
           env:
             - name: MARIADB_ROOT_PASSWORD
               valueFrom:
@@ -64,6 +81,12 @@ spec:
           ports:
             - name: mariadb
               containerPort: 3306
+            - name: galera
+              containerPort: 4567
+            - name: ist
+              containerPort: 4568
+            - name: sst
+              containerPort: 4444
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}
@@ -80,6 +103,9 @@ spec:
               mountPath: /run/mysqld
             - name: tmp
               mountPath: /tmp
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -87,16 +113,16 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
-        {{- if and .Values.primary.persistence.enabled .Values.primary.persistence.existingClaim }}
-        - name: data
-          persistentVolumeClaim:
-            claimName: {{ .Values.primary.persistence.existingClaim }}
-        {{- else if not .Values.primary.persistence.enabled }}
+        - name: scripts
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-galera
+            defaultMode: 0o755
+        {{- if not .Values.primary.persistence.enabled }}
         - name: data
           emptyDir: {}
         {{- end }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
-  {{- if and .Values.primary.persistence.enabled (not .Values.primary.persistence.existingClaim) }}
+  {{- if .Values.primary.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -108,10 +134,6 @@ spec:
         accessModes: {{ .Values.primary.persistence.accessModes }}
         {{- with .Values.primary.persistence.storageClass }}
         storageClassName: {{ . }}
-        {{- end }}
-        {{- with .Values.primary.persistence.selector }}
-        selector:
-          {{- toYaml . | nindent 10 }}
         {{- end }}
         resources:
           requests:
