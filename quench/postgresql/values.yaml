@@ -2,10 +2,45 @@
 # manifests/postgresql.json after every green image build. It is never a tag.
 image:
   repository: ghcr.io/quenchworks/images/postgresql
-  digest: "sha256:2097c93c488cdf0a6e189e4758586ee6fb2caff5fc9a2870d8a95d84fc921ed2"
+  digest: "sha256:8c1e9fc6e846ed9c2a9ed9698a06464f3aa543ef10313573a212e5bb1e84cbb8"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
+
+# Topology.
+#   standalone  — one postgres pod (the backward-compatible default).
+#   replication — a Patroni-managed HA cluster: N pods in one StatefulSet, each
+#                 running `patroni` (which supervises postgres). Patroni elects a
+#                 leader through the Kubernetes API (no external etcd), drives
+#                 streaming replication, and rejoins a demoted node with pg_rewind.
+#                 The <fullname>/<fullname>-primary Services follow the elected
+#                 leader (role=master label); <fullname>-replica fans out reads.
+architecture: standalone
+
+# Patroni HA settings — only used when architecture: replication.
+ha:
+  # Cluster members. 3 is the smallest quorum-safe size (tolerates 1 loss).
+  # Use an odd count so a majority is unambiguous.
+  replicaCount: 3
+  # Streaming-replication role Patroni creates and uses to clone/stream.
+  replicationUsername: replicator
+  persistence:
+    enabled: true
+    size: 8Gi
+    # storageClass: ""
+    accessModes: ["ReadWriteOnce"]
+    annotations: {}
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  # Extra postgresql.parameters merged into Patroni's bootstrap DCS config (applied
+  # cluster-wide, e.g. { max_connections: "200", shared_buffers: "256MB" }).
+  extraParameters: {}
+  # PodDisruptionBudget for the cluster. minAvailable: 2 keeps a 3-node cluster
+  # above quorum during a voluntary drain (never let a drain break the majority).
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
 
 # Authentication. On by default; PostgreSQL requires a superuser password to initialize.
 # A random password is generated if you do not set one.

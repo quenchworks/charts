@@ -1,3 +1,4 @@
+{{- if ne .Values.architecture "replication" }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -32,3 +33,82 @@ spec:
   selector:
     {{- include "quench-common.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: primary
+{{- else }}
+{{/*
+HA (Patroni) services. Patroni maintains a role=master|replica label on each pod:
+  <fullname> / <fullname>-primary  -> read/write, selects the current leader.
+  <fullname>-replica               -> read-only, selects the streaming standbys.
+  <fullname>-headless              -> all members, for stable per-pod DNS + peering.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: primary
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: postgresql
+      name: postgresql
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    role: master
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "postgresql.primaryName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: primary
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: postgresql
+      name: postgresql
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    role: master
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "postgresql.replicaName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: replica
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: postgresql
+      name: postgresql
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    role: replica
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "postgresql.headlessName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  # members must resolve before they are Ready (Patroni peers over pod DNS at boot)
+  publishNotReadyAddresses: true
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: postgresql
+      name: postgresql
+    - port: 8008
+      targetPort: patroni
+      name: patroni
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+{{- end }}

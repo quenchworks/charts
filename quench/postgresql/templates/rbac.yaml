@@ -1,4 +1,49 @@
-{{- if .Values.rbac.create }}
+{{- if eq .Values.architecture "replication" }}
+{{/*
+Patroni RBAC. Patroni uses the Kubernetes API as its DCS: it stores cluster state
+in ConfigMaps under the scope, patches each pod's role label so the Services can
+select the leader, and reads pods/endpoints/services to locate members. This Role
+is namespaced (no cluster-wide access).
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "get", "list", "patch", "update", "watch", "delete", "deletecollection"]
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "list", "patch", "update", "create", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "patch", "update", "watch"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list"]
+  # Patroni emits Events (bootstrap, failover, promote) for observability.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "postgresql.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- else if .Values.rbac.create }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

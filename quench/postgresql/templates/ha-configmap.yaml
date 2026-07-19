@@ -1,0 +1,94 @@
+{{- if eq .Values.architecture "replication" }}
+{{- $scope := include "postgresql.scope" . -}}
+{{/*
+Static Patroni config. Per-pod values (name, pod IP, namespace, passwords) are NOT
+here — Patroni reads them from PATRONI_* env vars (downward API + Secret) which
+override this file. Only the cluster-wide, bootstrap-once settings live here.
+The DCS is the Kubernetes API (ConfigMaps under this scope); Patroni maintains a
+`role=master|replica` label on each pod that the primary/replica Services select.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-patroni" (include "quench-common.fullname" .) }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  patroni.yml: |
+    scope: {{ $scope }}
+    restapi:
+      listen: 0.0.0.0:8008
+    kubernetes:
+      use_endpoints: false
+      scope_label: cluster-name
+      role_label: role
+      leader_label_value: master
+      follower_label_value: replica
+      # Talk to members by pod IP, so Patroni does not need to read a k8s Service.
+      bypass_api_service: true
+      ports:
+        - name: postgresql
+          port: 5432
+    bootstrap:
+      {{- if .Values.auth.database }}
+      # Create the application database once, right after initdb, on the bootstrapping
+      # leader (Patroni has no native database-create, so a tiny post_init script does it).
+      post_init: /etc/patroni/post_init.sh
+      {{- end }}
+      # `dcs` seeds the cluster-wide config the FIRST time the cluster bootstraps;
+      # thereafter it is managed live via `patronictl edit-config`.
+      dcs:
+        ttl: 30
+        loop_wait: 10
+        retry_timeout: 10
+        maximum_lag_on_failover: 1048576
+        postgresql:
+          use_pg_rewind: true
+          use_slots: true
+          parameters:
+            wal_level: replica
+            hot_standby: "on"
+            max_wal_senders: 10
+            max_replication_slots: 10
+            wal_keep_size: 128MB
+            {{- range $k, $v := .Values.ha.extraParameters }}
+            {{ $k }}: {{ $v | quote }}
+            {{- end }}
+      initdb:
+        - encoding: UTF8
+        - data-checksums
+      pg_hba:
+        - local all all trust
+        - host all all 0.0.0.0/0 scram-sha-256
+        - host all all ::/0 scram-sha-256
+        - host replication {{ .Values.ha.replicationUsername }} 0.0.0.0/0 scram-sha-256
+        - host replication {{ .Values.ha.replicationUsername }} ::/0 scram-sha-256
+    postgresql:
+      listen: 0.0.0.0:5432
+      data_dir: /var/lib/postgresql/data/pgdata
+      bin_dir: /usr/bin
+      pgpass: /tmp/pgpass
+      parameters:
+        unix_socket_directories: /var/run/postgresql
+      authentication:
+        superuser:
+          username: {{ .Values.auth.username }}
+        replication:
+          username: {{ .Values.ha.replicationUsername }}
+    watchdog:
+      mode: "off"
+    tags:
+      noloadbalance: false
+      clonefrom: false
+      nosync: false
+{{- if .Values.auth.database }}
+  post_init.sh: |
+    #!/bin/sh
+    # Patroni runs this once after initdb, passing the superuser connection string.
+    set -eu
+    DB={{ .Values.auth.database | quote }}
+    if ! psql "$1" -tqAc "SELECT 1 FROM pg_database WHERE datname = '${DB}'" | grep -q 1; then
+      psql "$1" -c "CREATE DATABASE \"${DB}\""
+    fi
+{{- end }}
+{{- end }}

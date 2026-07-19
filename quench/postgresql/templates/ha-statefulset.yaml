@@ -1,0 +1,169 @@
+{{- if eq .Values.architecture "replication" }}
+{{- $scope := include "postgresql.scope" . -}}
+{{- $liveness := dict "httpGet" (dict "path" "/liveness" "port" "patroni") "initialDelaySeconds" 30 "periodSeconds" 15 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/readiness" "port" "patroni") "initialDelaySeconds" 15 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "postgresql.headlessName" . }}
+  replicas: {{ .Values.ha.replicaCount }}
+  # Patroni coordinates bootstrap + role via the DCS (leader lock), so pods need no
+  # ordinal ordering — bring them up in parallel. The pod that wins the lock
+  # bootstraps; the rest clone from it.
+  podManagementPolicy: Parallel
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        # Patroni identifies the cluster's pods by this label and stamps role= on them.
+        cluster-name: {{ $scope }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "postgresql.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if not .Values.affinity }}
+      affinity:
+        {{- include "postgresql.haAntiAffinity" . | nindent 8 }}
+      {{- end }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: postgresql
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["patroni", "/etc/patroni/patroni.yml"]
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: PATRONI_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: PATRONI_KUBERNETES_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: PATRONI_KUBERNETES_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: PATRONI_KUBERNETES_LABELS
+              value: '{cluster-name: {{ $scope }}}'
+            - name: PATRONI_SCOPE
+              value: {{ $scope }}
+            - name: PATRONI_POSTGRESQL_CONNECT_ADDRESS
+              value: $(POD_IP):5432
+            - name: PATRONI_RESTAPI_CONNECT_ADDRESS
+              value: $(POD_IP):8008
+            - name: PATRONI_POSTGRESQL_DATA_DIR
+              value: /var/lib/postgresql/data/pgdata
+            - name: PATRONI_POSTGRESQL_PGPASS
+              value: /tmp/pgpass
+            - name: PATRONI_SUPERUSER_USERNAME
+              value: {{ .Values.auth.username | quote }}
+            - name: PATRONI_SUPERUSER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "postgresql.secretName" . }}
+                  key: {{ include "postgresql.secretPasswordKey" . }}
+            - name: PATRONI_REPLICATION_USERNAME
+              value: {{ .Values.ha.replicationUsername | quote }}
+            - name: PATRONI_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "postgresql.secretName" . }}
+                  key: replication-password
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: postgresql
+              containerPort: 5432
+            - name: patroni
+              containerPort: 8008
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          startupProbe:
+            {{- if .Values.customStartupProbe }}
+            {{- toYaml .Values.customStartupProbe | nindent 12 }}
+            {{- else }}
+            # Generous window for the first bootstrap / basebackup clone of a new member.
+            httpGet:
+              path: /readiness
+              port: patroni
+            periodSeconds: 10
+            failureThreshold: 60
+            {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.ha.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+            - name: patroni-config
+              mountPath: /etc/patroni
+              readOnly: true
+            {{- if .Values.primary.shmVolume.enabled }}
+            - name: dshm
+              mountPath: /dev/shm
+            {{- end }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: patroni-config
+          configMap:
+            name: {{ printf "%s-patroni" (include "quench-common.fullname" .) }}
+            # 0555 so the optional post_init.sh (app-DB bootstrap) is executable.
+            defaultMode: 0555
+        {{- if .Values.primary.shmVolume.enabled }}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+        {{- end }}
+        {{- if not .Values.ha.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
+  {{- if .Values.ha.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        {{- with .Values.ha.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes: {{ .Values.ha.persistence.accessModes }}
+        {{- with .Values.ha.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.ha.persistence.size }}
+  {{- end }}
+{{- end }}

@@ -1,11 +1,16 @@
-# Standalone install gate. No image override: the install uses the chart's real,
-# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+# HA install gate: 1 elected leader + 2 streaming replicas via Patroni, reaching
+# Ready in kind. No image override — the gate uses the chart's real, CI-maintained
+# digest, so it exercises the actual signed Patroni-enabled image. (Requires the
+# postgresql image built WITH Patroni; the repin lands after that image publishes.)
+architecture: replication
+ha:
+  replicaCount: 3
+  persistence:
+    enabled: false
 auth:
   enabled: true
   database: qwapp
-primary:
-  persistence:
-    enabled: false
-# exercise the metrics sidecar in the gate (uses the chart's real exporter digest)
+
+# metrics exporter on so the release gate's pg_up scrape works in HA mode
 metrics:
   enabled: true
