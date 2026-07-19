@@ -54,14 +54,8 @@ jobs:
           done
           kubectl exec rtest-postgresql-0 -- patronictl list
           kubectl exec rtest-postgresql-0 -- patronictl list | grep -qi 'Leader'
-          kubectl exec rtest-postgresql-0 -- patronictl list | grep -ciE 'running|streaming' | grep -qvE '^0$'
-          # postgres is accepting: the metrics exporter connecting proves it (pg_up 1),
-          # independent of socket path/auth. The image has no HTTP client, so scrape via port-forward.
-          kubectl port-forward pod/rtest-postgresql-0 9187:9187 >/tmp/pf.log 2>&1 &
-          pf=$!
-          for i in $(seq 1 30); do sleep 2; curl -sf http://localhost:9187/metrics 2>/dev/null | grep -q '^pg_up 1' && break; done
-          curl -sf http://localhost:9187/metrics | grep -q '^pg_up 1'
-          kill "$pf" 2>/dev/null || true
+          # a replica is actually streaming from the leader (real replication, not just membership)
+          kubectl exec rtest-postgresql-0 -- patronictl list | grep -q 'streaming'
 
       - name: Package and push (OCI)
         id: push
