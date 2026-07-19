@@ -20,6 +20,31 @@ auth:
   existingSecretPasswordKey: "rabbitmq-password"
   existingSecretErlangCookieKey: "rabbitmq-erlang-cookie"
 
+# HA cluster. Nodes form one RabbitMQ cluster over the headless Service using
+# the Kubernetes peer discovery plugin (v2): the pod with ordinal 0 seeds the
+# cluster and every other node joins it over stable headless DNS — no API access,
+# no RBAC. Nodes boot in parallel with no split-brain race. Use an ODD count so a
+# quorum-queue majority survives a node loss (3 tolerates 1, 5 tolerates 2). 1 =
+# single node, no HA. Failover is native to RabbitMQ (quorum queues are
+# Raft-replicated).
+replicaCount: 3
+
+clustering:
+  # Make quorum the default queue type so queues are HA out of the box: a quorum
+  # queue replicates its Raft log across (by default) all nodes and keeps serving
+  # as long as a majority is up. Set false to default to classic queues (which do
+  # NOT survive a node loss) and opt into quorum per-queue via x-queue-type.
+  quorumQueuesDefault: true
+  # Partition handling. pause_minority stops nodes on the losing side of a network
+  # split so writes can't diverge on both sides — the safe pairing with quorum
+  # queues. Alternatives: autoheal, ignore.
+  partitionHandling: pause_minority
+
+# Management plugin: HTTP API + web UI on 15672. On by default (the standard ops
+# surface for a cluster); the API is also how you drive quorum queues by hand.
+management:
+  enabled: true
+
 primary:
   persistence:
     enabled: true
@@ -36,6 +61,7 @@ primary:
 service:
   type: ClusterIP
   port: 5672
+  managementPort: 15672
 
 # --- Common production knobs, wired through quench-common (all optional) ---
 podLabels: {}
@@ -81,6 +107,9 @@ networkPolicy:
   enabled: true
   allowExternal: false
 
+# Quorum of a 3-node cluster: a voluntary drain can never take more than one node
+# at a time, so the queue majority is never lost to a drain. Raise to (N/2)+1 for
+# a larger cluster.
 podDisruptionBudget:
   enabled: true
-  minAvailable: 1
+  minAvailable: 2

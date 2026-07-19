@@ -1,0 +1,35 @@
+{{- $fullname := include "quench-common.fullname" . -}}
+{{- $headless := include "rabbitmq.headlessName" . -}}
+{{- $seed := printf "rabbit@%s-0.%s.%s.svc.cluster.local" $fullname $headless .Release.Namespace -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # Mounted at /etc/rabbitmq (the image's default config dir), so no CONFIG_FILE
+  # env is needed. The config loader appends .conf to /etc/rabbitmq/rabbitmq.
+  rabbitmq.conf: |
+    # Cluster formation via the Kubernetes peer discovery plugin (v2). Every node
+    # derives its StatefulSet ordinal from its hostname; ordinal 0 is the seed and
+    # forms the cluster, all others join the seed. That makes the seed unambiguous,
+    # so nodes boot in parallel with no split-brain race — and unlike classic_config
+    # (which deadlocks on a cold start with no elected seed) it needs no API access,
+    # no RBAC, and no token: the seed is just a stable headless-DNS name.
+    cluster_formation.peer_discovery_backend = rabbit_peer_discovery_k8s
+    cluster_formation.k8s.seed_node = {{ $seed }}
+    cluster_partition_handling = {{ .Values.clustering.partitionHandling }}
+    {{- if .Values.clustering.quorumQueuesDefault }}
+    # Quorum queues are Raft-replicated and survive a node loss.
+    default_queue_type = quorum
+    {{- end }}
+    listeners.tcp.default = {{ .Values.service.port }}
+    {{- if .Values.management.enabled }}
+    management.tcp.port = {{ .Values.service.managementPort }}
+    management.tcp.ip = 0.0.0.0
+    {{- end }}
+  # Enabled plugins (Erlang term). k8s peer discovery is required for clustering;
+  # management adds the HTTP API + UI on 15672.
+  enabled_plugins: |
+    [rabbitmq_peer_discovery_k8s{{ if .Values.management.enabled }},rabbitmq_management{{ end }}].

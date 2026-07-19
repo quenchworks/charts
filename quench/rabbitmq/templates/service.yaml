@@ -11,6 +11,11 @@ spec:
     - port: {{ .Values.service.port }}
       targetPort: amqp
       name: amqp
+    {{- if .Values.management.enabled }}
+    - port: {{ .Values.service.managementPort }}
+      targetPort: management
+      name: management
+    {{- end }}
   selector:
     {{- include "quench-common.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: primary
@@ -35,6 +40,14 @@ spec:
     - port: 25672
       targetPort: dist
       name: dist
+    {{- if .Values.management.enabled }}
+    - port: {{ .Values.service.managementPort }}
+      targetPort: management
+      name: management
+    {{- end }}
+  # publishNotReadyAddresses so a booting node can resolve its peers' DNS before
+  # any of them is Ready — required for cluster formation on a cold start.
+  publishNotReadyAddresses: true
   selector:
     {{- include "quench-common.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: primary

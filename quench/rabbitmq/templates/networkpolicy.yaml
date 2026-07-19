@@ -13,11 +13,29 @@ spec:
   policyTypes:
     - Ingress
   ingress:
+    # Client traffic: AMQP (and the management API/UI when enabled).
     - ports:
         - port: amqp
           protocol: TCP
+        {{- if .Values.management.enabled }}
+        - port: management
+          protocol: TCP
+        {{- end }}
       {{- if not .Values.networkPolicy.allowExternal }}
       from:
         - podSelector: {}
       {{- end }}
+    # Intra-cluster: epmd + Erlang distribution between the broker's own nodes.
+    # Without this the nodes can't form a cluster (peer discovery reports "no
+    # nodes available") and quorum queues can't replicate.
+    - ports:
+        - port: epmd
+          protocol: TCP
+        - port: dist
+          protocol: TCP
+      from:
+        - podSelector:
+            matchLabels:
+              {{- include "quench-common.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: primary
 {{- end }}
