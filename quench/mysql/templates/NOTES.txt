@@ -16,6 +16,18 @@ Get the root password:
 Then, from a client pod:
 
   mysql -h {{ include "quench-common.fullname" . }} -uroot -p"<root-password>"
+{{- if eq .Values.architecture "group-replication" }}
+
+High availability: MySQL Group Replication, single-primary ({{ .Values.ha.replicaCount }} members).
+  Read/write (primary): {{ include "quench-common.fullname" . }}
+  Read-only (secondaries): {{ include "mysql.readonlyName" . }}
+
+Inspect the group from any member:
+
+  kubectl exec {{ include "quench-common.fullname" . }}-0 --namespace {{ .Release.Namespace }} -- \
+    mysql -uroot -p"<root-password>" \
+    -e "SELECT MEMBER_HOST, MEMBER_STATE, MEMBER_ROLE FROM performance_schema.replication_group_members"
+{{- end }}
 
 The image is pinned by digest and signed. Verify it:
 

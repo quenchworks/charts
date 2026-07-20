@@ -7,6 +7,28 @@ image:
 
 nameOverride: ""
 
+# Topology.
+#   standalone       — a single primary (the backward-compatible default; unchanged).
+#   group-replication — a self-managed HA cluster using MySQL Group Replication in
+#                       single-primary mode: one PRIMARY (read/write) + N-1 SECONDARY
+#                       (read-only), with automatic primary election on failure via
+#                       the built-in group_replication plugin. Needs ha.replicaCount
+#                       nodes (odd, >=3) so a surviving majority keeps quorum.
+architecture: standalone
+
+# Group Replication settings — only used when architecture: group-replication.
+ha:
+  # Node count. Keep it ODD (3, 5, ...) so the group has an unambiguous majority.
+  # 3 tolerates the loss of 1 node while staying writable.
+  replicaCount: 3
+  # Fixed group UUID shared by every member (must be a valid UUID and must not
+  # collide with any server_uuid — random server_uuids make that effectively
+  # impossible). Change it only to run two independent groups off one image.
+  groupName: "6ea2c9b8-1b2c-4f3d-8e5a-000000000001"
+  # Distributed-recovery user GR creates on every node to catch a joiner up from a
+  # donor. Its password is generated into the auth Secret (key mysql-replication-password).
+  replicationUsername: replicator
+
 # Authentication. MySQL requires a root password to initialize. A random one is
 # generated if you do not set it. Optionally create an application user + database.
 auth:

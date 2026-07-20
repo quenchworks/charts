@@ -1,4 +1,35 @@
-{{- if .Values.rbac.create }}
+{{- if eq .Values.architecture "group-replication" }}
+{{/*
+Group Replication RBAC. Each pod patches its own role label (primary|secondary)
+so the rw/ro Services follow primary elections. Namespaced, minimal: read pods,
+patch pods (own labels only in practice). No cluster-wide access.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "mysql.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- else if .Values.rbac.create }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:

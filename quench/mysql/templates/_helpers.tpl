@@ -17,3 +17,29 @@
 {{- define "mysql.headlessName" -}}
 {{- printf "%s-headless" (include "quench-common.fullname" .) -}}
 {{- end -}}
+
+{{/* Read-only Service name (Group Replication: selects the SECONDARY members). */}}
+{{- define "mysql.readonlyName" -}}
+{{- printf "%s-readonly" (include "quench-common.fullname" .) -}}
+{{- end -}}
+
+{{/* Per-pod stable FQDN suffix under the headless Service. */}}
+{{- define "mysql.podDomain" -}}
+{{- printf "%s.%s.svc.cluster.local" (include "mysql.headlessName" .) .Release.Namespace -}}
+{{- end -}}
+
+{{/* group_replication_group_seeds — every pod's stable FQDN:33061, comma-separated. */}}
+{{- define "mysql.groupSeeds" -}}
+{{- $full := include "quench-common.fullname" . -}}
+{{- $domain := include "mysql.podDomain" . -}}
+{{- $members := list -}}
+{{- range $i := until (int .Values.ha.replicaCount) -}}
+{{- $members = append $members (printf "%s-%d.%s:33061" $full $i $domain) -}}
+{{- end -}}
+{{- join "," $members -}}
+{{- end -}}
+
+{{/* PDB quorum floor: majority of the group size (N/2 + 1). */}}
+{{- define "mysql.haQuorum" -}}
+{{- add (div (int .Values.ha.replicaCount) 2) 1 -}}
+{{- end -}}

@@ -1,6 +1,9 @@
-{{- if ne .Values.architecture "group-replication" }}
-{{- $liveness := dict "tcpSocket" (dict "port" "mysql") "initialDelaySeconds" 30 "periodSeconds" 15 -}}
-{{- $readiness := dict "exec" (dict "command" (list "mysqladmin" "--socket=/run/mysqld/mysqld.sock" "ping")) "initialDelaySeconds" 15 "periodSeconds" 10 -}}
+{{- if eq .Values.architecture "group-replication" }}
+{{- /* liveness: the mysql port is bound for the server's life, a cheap "process alive"
+       signal. readiness: gates the Services on GR MEMBER_STATE=ONLINE, so a node mid
+       distributed-recovery is never handed traffic. */ -}}
+{{- $liveness := dict "tcpSocket" (dict "port" "mysql") "initialDelaySeconds" 60 "periodSeconds" 15 "failureThreshold" 6 -}}
+{{- $readiness := dict "exec" (dict "command" (list "/bin/sh" "/scripts/gr-readiness.sh")) "initialDelaySeconds" 30 "periodSeconds" 10 "failureThreshold" 30 -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -10,7 +13,9 @@ metadata:
     app.kubernetes.io/component: primary
 spec:
   serviceName: {{ include "mysql.headlessName" . }}
-  replicas: 1
+  replicas: {{ .Values.ha.replicaCount }}
+  {{- /* OrderedReady (the default): node-0 forms the group and becomes ONLINE/Ready,
+         then each higher ordinal joins via distributed recovery one at a time. */}}
   {{- with .Values.updateStrategy }}
   updateStrategy:
     {{- toYaml . | nindent 4 }}
@@ -31,6 +36,18 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if not .Values.affinity }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "quench-common.selectorLabels" . | nindent 20 }}
+                    app.kubernetes.io/component: primary
+      {{- end }}
       {{- include "quench-common.initContainers" . | nindent 6 }}
       containers:
         - name: mysql
@@ -38,14 +55,22 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
-          {{- include "quench-common.command" . | nindent 10 }}
-          {{- include "quench-common.args" . | nindent 10 }}
+          command: ["/bin/sh", "/scripts/gr-entrypoint.sh"]
           env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             - name: MYSQL_ROOT_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "mysql.secretName" . }}
                   key: {{ include "mysql.rootPasswordKey" . }}
+            - name: MYSQL_REPLICATION_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mysql.secretName" . }}
+                  key: mysql-replication-password
             {{- if .Values.auth.database }}
             - name: MYSQL_DATABASE
               value: {{ .Values.auth.database | quote }}
@@ -64,6 +89,8 @@ spec:
           ports:
             - name: mysql
               containerPort: 3306
+            - name: gr
+              containerPort: 33061
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}
@@ -80,6 +107,9 @@ spec:
               mountPath: /run/mysqld
             - name: tmp
               mountPath: /tmp
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -87,16 +117,16 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
-        {{- if and .Values.primary.persistence.enabled .Values.primary.persistence.existingClaim }}
-        - name: data
-          persistentVolumeClaim:
-            claimName: {{ .Values.primary.persistence.existingClaim }}
-        {{- else if not .Values.primary.persistence.enabled }}
+        - name: scripts
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-gr
+            defaultMode: 0o755
+        {{- if not .Values.primary.persistence.enabled }}
         - name: data
           emptyDir: {}
         {{- end }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
-  {{- if and .Values.primary.persistence.enabled (not .Values.primary.persistence.existingClaim) }}
+  {{- if .Values.primary.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:
         name: data
@@ -108,10 +138,6 @@ spec:
         accessModes: {{ .Values.primary.persistence.accessModes }}
         {{- with .Values.primary.persistence.storageClass }}
         storageClassName: {{ . }}
-        {{- end }}
-        {{- with .Values.primary.persistence.selector }}
-        selector:
-          {{- toYaml . | nindent 10 }}
         {{- end }}
         resources:
           requests:

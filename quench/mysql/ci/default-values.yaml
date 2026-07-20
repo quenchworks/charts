@@ -1,8 +1,16 @@
-# Standalone install gate. No image override: the install uses the chart's real,
-# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+# HA install gate: brings up the full 3-node Group Replication cluster (single
+# primary) on kind. No image override -- the gate pulls the chart's real,
+# CI-maintained digest from values.yaml. Ephemeral per-pod storage for a fast
+# teardown; resources shrunk so all three nodes fit a single kind node.
+architecture: group-replication
 auth:
   enabled: true
   database: qwapp
+ha:
+  replicaCount: 3
 primary:
   persistence:
     enabled: false
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }

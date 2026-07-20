@@ -1,3 +1,4 @@
+{{- if ne .Values.architecture "group-replication" }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -32,3 +33,70 @@ spec:
   selector:
     {{- include "quench-common.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: primary
+{{- else }}
+{{/*
+Group Replication Services. The entrypoint stamps a mysql.quench-works.com/role
+label (primary|secondary) on each pod as it queries its own GR role, so:
+  <fullname>          -> read/write, selects the current PRIMARY.
+  <fullname>-readonly -> read-only, fans out over the SECONDARY members.
+  <fullname>-headless -> all members, for stable per-pod DNS + intra-group peering.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: primary
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: mysql
+      name: mysql
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    mysql.quench-works.com/role: primary
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mysql.readonlyName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: secondary
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: mysql
+      name: mysql
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    mysql.quench-works.com/role: secondary
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mysql.headlessName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: primary
+spec:
+  type: ClusterIP
+  clusterIP: None
+  # Publish DNS for not-yet-Ready pods so a joining member is resolvable by its
+  # recovery donor before it is Ready — a joiner is not Ready until it is ONLINE,
+  # and without this the donor cannot connect back to it (recovery stalls).
+  publishNotReadyAddresses: true
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: mysql
+      name: mysql
+    - port: 33061
+      targetPort: gr
+      name: gr
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: primary
+{{- end }}

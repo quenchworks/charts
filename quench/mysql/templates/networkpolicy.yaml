@@ -20,4 +20,17 @@ spec:
       from:
         - podSelector: {}
       {{- end }}
+    {{- if eq .Values.architecture "group-replication" }}
+    # Group Replication intra-group traffic: 33061 is the XCom group-communication
+    # port. Recovery reuses 3306 (mysql, already open). Always restricted to
+    # same-namespace pods regardless of allowExternal.
+    - ports:
+        - port: gr
+          protocol: TCP
+      from:
+        - podSelector:
+            matchLabels:
+              {{- include "quench-common.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: primary
+    {{- end }}
 {{- end }}

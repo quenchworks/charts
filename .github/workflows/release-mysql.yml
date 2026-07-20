@@ -39,15 +39,32 @@ jobs:
       - name: Lint and template
         run: |
           helm dependency build "${CHART_DIR}"
+          # lint + template BOTH topologies
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/standalone-values.yaml"
           helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/standalone-values.yaml" >/dev/null
           helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
 
       - name: Install gate (kind)
         run: |
-          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 6m
-          kubectl rollout status statefulset/rtest-mysql --timeout=240s
+          # default-values.yaml is the 3-node Group Replication (single-primary) HA gate.
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          # 3-node OrderedReady: node-0 bootstraps, then nodes 1 and 2 join via distributed
+          # recovery one at a time, so allow ample time for the sequential join.
+          kubectl rollout status statefulset/rtest-mysql --timeout=420s
           pw=$(kubectl get secret rtest-mysql -o jsonpath='{.data.mysql-root-password}' | base64 -d)
-          # authenticated ping prints "mysqld is alive"; an unauthenticated ping only proves the server is up
+          Q="SELECT MEMBER_STATE, MEMBER_ROLE FROM performance_schema.replication_group_members"
+          # prove a real single-primary group: 3 ONLINE members with exactly 1 PRIMARY.
+          for i in $(seq 1 30); do
+            online=$(kubectl exec rtest-mysql-0 -- mysql --socket=/run/mysqld/mysqld.sock -uroot -p"$pw" -N -B -e "$Q" 2>/dev/null | grep -c ONLINE || true)
+            [ "$online" = "3" ] && break
+            sleep 6
+          done
+          out=$(kubectl exec rtest-mysql-0 -- mysql --socket=/run/mysqld/mysqld.sock -uroot -p"$pw" -N -B -e "$Q")
+          echo "$out"
+          [ "$(echo "$out" | grep -c ONLINE)" = "3" ]
+          [ "$(echo "$out" | grep -c PRIMARY)" = "1" ]
+          # authenticated ping + a write on the primary Service
           kubectl exec rtest-mysql-0 -- mysqladmin --socket=/run/mysqld/mysqld.sock -uroot -p"$pw" ping | grep -q "mysqld is alive"
           kubectl exec rtest-mysql-0 -- mysql --socket=/run/mysqld/mysqld.sock -uroot -p"$pw" qwapp -e "select 1" | grep -q 1
 

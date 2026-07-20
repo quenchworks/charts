@@ -6,7 +6,11 @@ metadata:
   labels:
     {{- include "quench-common.labels" . | nindent 4 }}
 spec:
+  {{- if eq .Values.architecture "group-replication" }}
+  minAvailable: {{ include "mysql.haQuorum" . }}   {{/* quorum majority, e.g. 2 of 3 */}}
+  {{- else }}
   minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "quench-common.selectorLabels" . | nindent 6 }}

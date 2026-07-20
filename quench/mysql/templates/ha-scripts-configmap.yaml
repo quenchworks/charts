@@ -1,0 +1,173 @@
+{{- if eq .Values.architecture "group-replication" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-gr
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: primary
+data:
+  # ---------------------------------------------------------------------------
+  # Group Replication entrypoint (POSIX sh; the image ships busybox, not bash).
+  # The image's own docker-entrypoint.sh is bypassed: it execs a fixed single-node
+  # mysqld. This drives a single-primary GR group instead — decide bootstrap-vs-join,
+  # start mysqld in the foreground (PID 1), and let a background job issue the GR
+  # runtime SQL against the live server and keep the pod's role label current.
+  # ---------------------------------------------------------------------------
+  gr-entrypoint.sh: |
+    #!/bin/sh
+    set -eu
+    export PATH="/usr/sbin:/usr/bin:/usr/local/bin:$PATH"
+
+    DATADIR=/var/lib/mysql
+    SOCK=/run/mysqld/mysqld.sock
+    ORD="${HOSTNAME##*-}"
+    SERVER_ID=$((ORD + 1))
+    NODE_ADDR="${HOSTNAME}.{{ include "mysql.podDomain" . }}"
+    REPLICAS={{ .Values.ha.replicaCount }}
+    GROUP_NAME={{ .Values.ha.groupName | quote }}
+    REPL_USER={{ .Values.ha.replicationUsername | quote }}
+    SEEDS={{ include "mysql.groupSeeds" . | quote }}
+    FULL={{ include "quench-common.fullname" . | quote }}
+    DOMAIN={{ include "mysql.podDomain" . | quote }}
+
+    mysql_local() { mysql --protocol=socket --socket="$SOCK" -uroot -p"$MYSQL_ROOT_PASSWORD" "$@"; }
+
+    # Patch this pod's role label so the primary (rw) and readonly (ro) Services
+    # follow the current election. Best-effort — never blocks the DB.
+    label_role() {
+      _tok="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token 2>/dev/null || true)"
+      [ -n "$_tok" ] || return 0
+      _ns="${POD_NAMESPACE:-$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace 2>/dev/null || true)}"
+      curl -sS --max-time 5 \
+        --cacert /var/run/secrets/kubernetes.io/serviceaccount/ca.crt \
+        -H "Authorization: Bearer $_tok" \
+        -H "Content-Type: application/strategic-merge-patch+json" \
+        -X PATCH \
+        --data "{\"metadata\":{\"labels\":{\"mysql.quench-works.com/role\":\"$1\"}}}" \
+        "https://kubernetes.default.svc/api/v1/namespaces/${_ns}/pods/${HOSTNAME}" >/dev/null 2>&1 || true
+    }
+
+    gr_manage() {
+      set +e
+      # Wait for the foreground mysqld to accept authenticated socket connections.
+      for _ in $(seq 1 120); do
+        mysql_local -e "SELECT 1" >/dev/null 2>&1 && break
+        sleep 1
+      done
+
+      # Bootstrap-vs-join (also the split-brain guard on restart): node-0 forms a
+      # NEW group ONLY when no peer currently reports an ONLINE member. A reachable
+      # ONLINE peer means the group already exists, so node-0 must JOIN (rejoin)
+      # rather than form a second one. Any non-zero ordinal always joins.
+      BOOTSTRAP=0
+      if [ "$ORD" = "0" ]; then
+        live=0; i=1
+        while [ "$i" -lt "$REPLICAS" ]; do
+          peer="${FULL}-${i}.${DOMAIN}"
+          online="$(mysql --connect-timeout=3 -h "$peer" -uroot -p"$MYSQL_ROOT_PASSWORD" -N -B \
+            -e "SELECT COUNT(*) FROM performance_schema.replication_group_members WHERE MEMBER_STATE='ONLINE'" 2>/dev/null)"
+          if [ -n "$online" ] && [ "$online" -gt 0 ] 2>/dev/null; then live=1; break; fi
+          i=$((i+1))
+        done
+        [ "$live" = "0" ] && BOOTSTRAP=1
+      fi
+
+      if [ "$BOOTSTRAP" = "1" ]; then
+        echo "gr: node-0 BOOTSTRAPPING a new single-primary group"
+        mysql_local -e "SET GLOBAL group_replication_bootstrap_group=ON; START GROUP_REPLICATION; SET GLOBAL group_replication_bootstrap_group=OFF;"
+      else
+        echo "gr: joining the existing group via distributed recovery"
+        for _ in $(seq 1 90); do
+          state="$(mysql_local -N -B -e "SELECT MEMBER_STATE FROM performance_schema.replication_group_members WHERE MEMBER_ID=@@server_uuid" 2>/dev/null)"
+          [ "$state" = "ONLINE" ] && break
+          mysql_local -e "START GROUP_REPLICATION USER='${REPL_USER}', PASSWORD='${MYSQL_REPLICATION_PASSWORD}';" >/dev/null 2>&1
+          sleep 3
+        done
+      fi
+
+      # Reconcile the role label forever so the Services follow primary elections.
+      while true; do
+        role="$(mysql_local -N -B -e "SELECT MEMBER_ROLE FROM performance_schema.replication_group_members WHERE MEMBER_ID=@@server_uuid" 2>/dev/null)"
+        case "$role" in
+          PRIMARY)   label_role primary ;;
+          SECONDARY) label_role secondary ;;
+        esac
+        sleep 5
+      done
+    }
+
+    # First boot of an empty datadir: initialize, then seed accounts on a throwaway
+    # binlog-off server so the real server starts with an EMPTY gtid_executed — the
+    # clean precondition for joining a group. root/repl/app are created identically
+    # on every node with SQL_LOG_BIN=0 (so they are not group transactions); actual
+    # application data written on the primary later replicates via GR as normal.
+    if [ ! -d "$DATADIR/mysql" ]; then
+      mysqld --initialize-insecure --datadir="$DATADIR"
+
+      mysqld --datadir="$DATADIR" --socket="$SOCK" --skip-networking --skip-log-bin \
+        --pid-file=/run/mysqld/init.pid >/tmp/mysql-init.log 2>&1 &
+      pid=$!
+      for i in $(seq 1 60); do
+        mysqladmin --socket="$SOCK" -uroot ping >/dev/null 2>&1 && break
+        [ "$i" = 60 ] && { echo "init server did not start" >&2; cat /tmp/mysql-init.log >&2; exit 1; }
+        sleep 1
+      done
+
+      SQL="$(mktemp)"
+      {
+        echo "SET SQL_LOG_BIN=0;"
+        printf "CREATE USER IF NOT EXISTS '%s'@'%%' IDENTIFIED BY '%s';\n" "$REPL_USER" "$MYSQL_REPLICATION_PASSWORD"
+        printf "GRANT REPLICATION SLAVE, BACKUP_ADMIN, GROUP_REPLICATION_STREAM ON *.* TO '%s'@'%%';\n" "$REPL_USER"
+        {{- if .Values.auth.database }}
+        printf "CREATE DATABASE IF NOT EXISTS \`%s\`;\n" "$MYSQL_DATABASE"
+        {{- end }}
+        {{- if .Values.auth.username }}
+        printf "CREATE USER IF NOT EXISTS '%s'@'%%' IDENTIFIED BY '%s';\n" "$MYSQL_USER" "${MYSQL_PASSWORD:-}"
+        printf "GRANT ALL PRIVILEGES ON \`%s\`.* TO '%s'@'%%';\n" "${MYSQL_DATABASE:-*}" "$MYSQL_USER"
+        {{- end }}
+        printf "CREATE USER IF NOT EXISTS 'root'@'%%' IDENTIFIED BY '%s';\n" "$MYSQL_ROOT_PASSWORD"
+        echo "GRANT ALL PRIVILEGES ON *.* TO 'root'@'%' WITH GRANT OPTION;"
+        printf "ALTER USER 'root'@'localhost' IDENTIFIED BY '%s';\n" "$MYSQL_ROOT_PASSWORD"
+        echo "SET SQL_LOG_BIN=1;"
+        echo "FLUSH PRIVILEGES;"
+      } > "$SQL"
+      mysql --socket="$SOCK" -uroot < "$SQL"
+      rm -f "$SQL"
+
+      mysqladmin --socket="$SOCK" -uroot -p"$MYSQL_ROOT_PASSWORD" shutdown
+      wait "$pid" 2>/dev/null || true
+    fi
+
+    gr_manage &
+
+    echo "gr: starting mysqld (server_id=$SERVER_ID, local_address=${NODE_ADDR}:33061)"
+    exec mysqld \
+      --datadir="$DATADIR" --socket="$SOCK" \
+      --bind-address=0.0.0.0 \
+      --server-id="$SERVER_ID" \
+      --report-host="$NODE_ADDR" \
+      --log-bin=mysql-bin \
+      --log-replica-updates=ON \
+      --gtid-mode=ON \
+      --enforce-gtid-consistency=ON \
+      --binlog-checksum=NONE \
+      --plugin-load-add=group_replication.so \
+      --group-replication-group-name="$GROUP_NAME" \
+      --group-replication-local-address="${NODE_ADDR}:33061" \
+      --group-replication-group-seeds="$SEEDS" \
+      --group-replication-ip-allowlist="10.0.0.0/8,172.16.0.0/12,192.168.0.0/16" \
+      --group-replication-start-on-boot=OFF \
+      --group-replication-single-primary-mode=ON \
+      --group-replication-enforce-update-everywhere-checks=OFF \
+      --group-replication-bootstrap-group=OFF
+
+  # Readiness: only route client traffic to a member whose GR state is ONLINE. A
+  # node mid-recovery is up but NOT ONLINE, so it stays out of the Services.
+  gr-readiness.sh: |
+    #!/bin/sh
+    set -eu
+    state="$(mysql --protocol=socket --socket=/run/mysqld/mysqld.sock -uroot -p"$MYSQL_ROOT_PASSWORD" -N -B \
+      -e "SELECT MEMBER_STATE FROM performance_schema.replication_group_members WHERE MEMBER_ID=@@server_uuid" 2>/dev/null)"
+    [ "$state" = "ONLINE" ]
+{{- end }}
