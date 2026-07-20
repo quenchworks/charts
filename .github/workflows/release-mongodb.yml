@@ -90,11 +90,14 @@ jobs:
           # Poll rs.status() on pod-0 until the set reports exactly 1 PRIMARY + 2 SECONDARY.
           ok=""
           for i in $(seq 1 40); do
+            # HOME=/tmp: mongosh's history dir (~/.mongodb) is unwritable on the read-only
+            # rootfs and its ENOENT warning otherwise leaks onto stdout into $states.
             states="$(kubectl exec rtestha-mongodb-0 -- \
-              mongosh "mongodb://root:${PW}@localhost:27017/admin" --quiet \
+              env HOME=/tmp mongosh "mongodb://root:${PW}@localhost:27017/admin" --quiet \
               --eval 'rs.status().members.map(m => m.stateStr).sort().join(",")' 2>/dev/null | tr -d '\r' || true)"
             echo "attempt $i: members=[$states]"
-            if [ "$states" = "PRIMARY,SECONDARY,SECONDARY" ]; then ok=1; echo "replica set healthy: 1 PRIMARY + 2 SECONDARY"; break; fi
+            # grep -qx isolates the exact state line, robust to any residual mongosh chatter
+            if printf '%s\n' "$states" | grep -qx 'PRIMARY,SECONDARY,SECONDARY'; then ok=1; echo "replica set healthy: 1 PRIMARY + 2 SECONDARY"; break; fi
             sleep 6
           done
           if [ -z "$ok" ]; then
@@ -106,7 +109,7 @@ jobs:
           # write-through the replica set (driver routes to the PRIMARY)
           MEMBERS="rtestha-mongodb-0.rtestha-mongodb-headless.default.svc.cluster.local:27017,rtestha-mongodb-1.rtestha-mongodb-headless.default.svc.cluster.local:27017,rtestha-mongodb-2.rtestha-mongodb-headless.default.svc.cluster.local:27017"
           out="$(kubectl exec rtestha-mongodb-0 -- \
-            mongosh "mongodb://root:${PW}@${MEMBERS}/admin?replicaSet=rs0" --quiet \
+            env HOME=/tmp mongosh "mongodb://root:${PW}@${MEMBERS}/admin?replicaSet=rs0" --quiet \
             --eval 'db.getSiblingDB("quench").gate.insertOne({k:"quench"}); print(db.getSiblingDB("quench").gate.findOne().k)' 2>/tmp/ha.err || true)"
           if ! printf '%s' "$out" | grep -q quench; then
             echo "::error::HA replica-set write/read did not return 'quench'"
