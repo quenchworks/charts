@@ -16,6 +16,32 @@
 {{- printf "%s-replica" (include "quench-common.fullname" .) -}}
 {{- end -}}
 
+{{- define "redis.sentinel.fullname" -}}
+{{- printf "%s-sentinel" (include "quench-common.fullname" .) -}}
+{{- end -}}
+
+{{/* Stable DNS of the bootstrap primary (ordinal 0) that Sentinel first monitors. */}}
+{{- define "redis.primary.bootstrapHost" -}}
+{{- $primary := include "redis.primary.fullname" . -}}
+{{- printf "%s-0.%s-headless.%s.svc.cluster.local" $primary $primary .Release.Namespace -}}
+{{- end -}}
+
+{{/* Soft pod anti-affinity spreading a component's pods across nodes. Only used
+     when the caller has not supplied its own .Values.affinity. Call with a dict:
+     (dict "root" . "component" "sentinel"). */}}
+{{- define "redis.defaultAntiAffinity" -}}
+{{- $ := .root -}}
+podAntiAffinity:
+  preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        topologyKey: kubernetes.io/hostname
+        labelSelector:
+          matchLabels:
+            {{- include "quench-common.selectorLabels" $ | nindent 12 }}
+            app.kubernetes.io/component: {{ .component }}
+{{- end -}}
+
 {{- define "redis.configmapName" -}}
 {{- if .Values.existingConfigmap -}}{{ .Values.existingConfigmap }}{{- else -}}{{ printf "%s-config" (include "quench-common.fullname" .) }}{{- end -}}
 {{- end -}}
@@ -28,12 +54,62 @@
 {{- .Values.tls.existingSecret -}}
 {{- end -}}
 
+{{/* Hardened busybox helper image (init containers only), pinned by digest. */}}
+{{- define "redis.busyboxImage" -}}
+{{- $repo := required "busybox.repository is required" .Values.busybox.repository -}}
+{{- $digest := required "busybox.digest is required (pinned by digest, never a tag)" .Values.busybox.digest -}}
+{{- printf "%s@%s" $repo $digest -}}
+{{- end -}}
+
+{{/*
+Master-discovery init container (busybox image). Resolves the current master from
+Sentinel and writes a runtime redis.conf (base + replicaof) into an emptyDir the
+shell-free redis container then loads. Call: (dict "root" . "isPrimary" bool).
+*/}}
+{{- define "redis.discoverInitContainer" -}}
+{{- $ := .root -}}
+- name: discover-master
+  image: {{ include "redis.busyboxImage" $ }}
+  imagePullPolicy: {{ $.Values.busybox.pullPolicy }}
+  securityContext:
+    {{- include "quench-common.containerSecurityContext" $ | nindent 4 }}
+  command: ["sh", "/scripts/start-node.sh"]
+  env:
+    - name: MY_POD_IP
+      valueFrom:
+        fieldRef:
+          fieldPath: status.podIP
+    - name: SENTINEL_SVC
+      value: {{ include "redis.sentinel.fullname" $ | quote }}
+    - name: SENTINEL_PORT
+      value: {{ $.Values.sentinel.port | quote }}
+    - name: MASTER_SET
+      value: {{ $.Values.sentinel.masterSet | quote }}
+    - name: BOOTSTRAP_HOST
+      value: {{ include "redis.primary.bootstrapHost" $ | quote }}
+    - name: IS_PRIMARY
+      value: {{ .isPrimary | ternary "true" "false" | quote }}
+  volumeMounts:
+    - name: scripts
+      mountPath: /scripts
+      readOnly: true
+    - name: config
+      mountPath: /seed
+      readOnly: true
+    - name: runtime-config
+      mountPath: /etc/redis
+{{- end -}}
+
 {{/*
 Shared server container. Call with a dict:
-  (dict "root" . "replicaof" "<host>")   replicaof empty for a primary.
+  (dict "root" . "replicaof" "<host>" "isPrimary" true "resources" ...)
+When sentinel HA is on, the pod discovers its master from Sentinel at boot
+(start-node.sh) instead of using a static --replicaof, so a promoted replica
+keeps its role and a restarted old primary rejoins as a replica.
 */}}
 {{- define "redis.serverContainer" -}}
 {{- $ := .root -}}
+{{- $ha := and (eq $.Values.architecture "replication") $.Values.sentinel.enabled -}}
 {{- $liveness := dict "tcpSocket" (dict "port" "redis") "initialDelaySeconds" 10 "periodSeconds" 15 -}}
 {{- $readiness := dict "exec" (dict "command" (list "redis-cli" "ping")) "initialDelaySeconds" 5 "periodSeconds" 10 -}}
 {{- if $.Values.tls.enabled -}}
@@ -69,13 +145,13 @@ Shared server container. Call with a dict:
     - "--requirepass"
     - "$(REDIS_PASSWORD)"
     {{- end }}
-    {{- if .replicaof }}
+    {{- if and .replicaof (not $ha) }}
     - "--replicaof"
     - {{ .replicaof | quote }}
-    {{- if $.Values.auth.enabled }}
+    {{- end }}
+    {{- if and $.Values.auth.enabled (or .replicaof $ha) }}
     - "--masterauth"
     - "$(REDIS_PASSWORD)"
-    {{- end }}
     {{- end }}
     {{- if $.Values.tls.enabled }}
     - "--port"
@@ -111,9 +187,16 @@ Shared server container. Call with a dict:
       mountPath: /data
     - name: tmp
       mountPath: /tmp
+    {{- if $ha }}
+    # Runtime config written by the discover-master init container (base + replicaof).
+    - name: runtime-config
+      mountPath: /etc/redis
+      readOnly: true
+    {{- else }}
     - name: config
       mountPath: /etc/redis
       readOnly: true
+    {{- end }}
     {{- if $.Values.tls.enabled }}
     - name: tls
       mountPath: /etc/redis/tls
@@ -159,6 +242,14 @@ Shared server container. Call with a dict:
 - name: config
   configMap:
     name: {{ include "redis.configmapName" $ }}
+{{- if and (eq $.Values.architecture "replication") $.Values.sentinel.enabled }}
+- name: scripts
+  configMap:
+    name: {{ printf "%s-scripts" (include "redis.sentinel.fullname" $) }}
+    defaultMode: 0555
+- name: runtime-config
+  emptyDir: {}
+{{- end }}
 {{- if $.Values.tls.enabled }}
 - name: tls
   secret:

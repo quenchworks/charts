@@ -7,8 +7,39 @@ image:
 
 nameOverride: ""
 
+# Hardened busybox helper image, used ONLY by init containers in HA mode (to seed
+# Sentinel's writable config and run boot-time master discovery). This keeps the
+# redis image itself shell-free. Pinned by digest, never a tag.
+busybox:
+  repository: ghcr.io/quenchworks/images/busybox
+  digest: "sha256:379b162cd4794ee14c63fec0cc501b855b804f33f824c4e46ced6183f644adfe"
+  pullPolicy: IfNotPresent
+
 # standalone: one server. replication: one primary plus N read replicas (replicaof).
 architecture: standalone
+
+# HA / automatic failover via a Redis Sentinel quorum. Requires
+# architecture: replication. When enabled, 3 Sentinels monitor the primary and
+# auto-promote a replica on primary loss; clients discover the current master
+# with `SENTINEL get-master-addr-by-name <masterSet>` against the sentinel Service.
+# The redis containers stay shell-free: config seeding + master discovery run in
+# init containers on the `busybox` helper image (above), writing into an emptyDir.
+sentinel:
+  enabled: false
+  replicaCount: 3
+  masterSet: mymaster
+  # Sentinels agreeing the primary is down before failover. Keep a strict
+  # majority of replicaCount (2 of 3).
+  quorum: 2
+  port: 26379
+  downAfterMilliseconds: 5000
+  failoverTimeout: 180000
+  parallelSyncs: 1
+  service:
+    type: ClusterIP
+  resources:
+    requests: { cpu: 50m, memory: 32Mi }
+    limits: { cpu: 200m, memory: 64Mi }
 
 # Authentication. On by default. A random password is generated if you do not set one.
 auth:
