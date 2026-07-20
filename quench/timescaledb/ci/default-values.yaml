@@ -1,13 +1,12 @@
-# Standalone install gate. No image override: the install uses the chart's real,
-# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+# HA install gate: 1 elected leader + 2 streaming replicas via Patroni, reaching
+# Ready in kind. No image override — the gate uses the chart's real, CI-maintained
+# digest, so it exercises the actual signed Patroni-enabled image. (Requires the
+# timescaledb image built WITH Patroni; the repin lands after that image publishes.)
+architecture: replication
+ha:
+  replicaCount: 3
+  persistence:
+    enabled: false
 auth:
   enabled: true
-  password: ci-timescaledb-pass
   database: qwapp
-primary:
-  persistence:
-    enabled: true
-    size: 1Gi
-# exercise the metrics sidecar in the gate (uses the chart's real exporter digest)
-metrics:
-  enabled: true

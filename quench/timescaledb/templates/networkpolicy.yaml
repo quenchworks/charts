@@ -9,13 +9,20 @@ spec:
   podSelector:
     matchLabels:
       {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      {{- if ne .Values.architecture "replication" }}
       app.kubernetes.io/component: primary
+      {{- end }}
   policyTypes:
     - Ingress
   ingress:
     - ports:
         - port: timescaledb
           protocol: TCP
+        {{- if eq .Values.architecture "replication" }}
+        # Patroni REST API — peers exchange health + failover state on 8008.
+        - port: patroni
+          protocol: TCP
+        {{- end }}
       {{- if not .Values.networkPolicy.allowExternal }}
       from:
         - podSelector: {}

@@ -9,6 +9,43 @@ image:
 
 nameOverride: ""
 
+# Topology.
+#   standalone  — one timescaledb pod (the backward-compatible default).
+#   replication — a Patroni-managed HA cluster: N pods in one StatefulSet, each
+#                 running `patroni` (which supervises postgres). Patroni elects a
+#                 leader through the Kubernetes API (no external etcd), drives
+#                 streaming replication, and rejoins a demoted node with pg_rewind.
+#                 shared_preload_libraries=timescaledb is set cluster-wide and the
+#                 extension is created on bootstrap, so hypertables survive failover.
+#                 The <fullname>/<fullname>-primary Services follow the elected
+#                 leader (role=master label); <fullname>-replica fans out reads.
+architecture: standalone
+
+# Patroni HA settings — only used when architecture: replication.
+ha:
+  # Cluster members. 3 is the smallest quorum-safe size (tolerates 1 loss).
+  # Use an odd count so a majority is unambiguous.
+  replicaCount: 3
+  # Streaming-replication role Patroni creates and uses to clone/stream.
+  replicationUsername: replicator
+  persistence:
+    enabled: true
+    size: 8Gi
+    # storageClass: ""
+    accessModes: ["ReadWriteOnce"]
+    annotations: {}
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  # Extra postgresql.parameters merged into Patroni's bootstrap DCS config (applied
+  # cluster-wide, e.g. { max_connections: "200", shared_buffers: "256MB" }).
+  extraParameters: {}
+  # PodDisruptionBudget for the cluster. minAvailable: 2 keeps a 3-node cluster
+  # above quorum during a voluntary drain (never let a drain break the majority).
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
 # Authentication. On by default; PostgreSQL requires a superuser password to initialize.
 # A random password is generated if you do not set one.
 auth:

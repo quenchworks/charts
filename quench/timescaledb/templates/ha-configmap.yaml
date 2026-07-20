@@ -1,0 +1,106 @@
+{{- if eq .Values.architecture "replication" }}
+{{- $scope := include "timescaledb.scope" . -}}
+{{/*
+Static Patroni config. Per-pod values (name, pod IP, namespace, passwords) are NOT
+here — Patroni reads them from PATRONI_* env vars (downward API + Secret) which
+override this file. Only the cluster-wide, bootstrap-once settings live here.
+The DCS is the Kubernetes API (ConfigMaps under this scope); Patroni maintains a
+`role=master|replica` label on each pod that the primary/replica Services select.
+shared_preload_libraries=timescaledb is set cluster-wide so the extension loads on
+every member, and a post_init script runs CREATE EXTENSION on the bootstrapping leader.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ printf "%s-patroni" (include "quench-common.fullname" .) }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  patroni.yml: |
+    scope: {{ $scope }}
+    restapi:
+      listen: 0.0.0.0:8008
+    kubernetes:
+      use_endpoints: false
+      scope_label: cluster-name
+      role_label: role
+      leader_label_value: master
+      follower_label_value: replica
+      # Talk to members by pod IP, so Patroni does not need to read a k8s Service.
+      bypass_api_service: true
+      ports:
+        - name: postgresql
+          port: 5432
+    bootstrap:
+      # Patroni has no native database-create or extension-create, so a tiny post_init
+      # script (run once on the bootstrapping leader after initdb) creates the optional
+      # application database and runs CREATE EXTENSION timescaledb.
+      post_init: /etc/patroni/post_init.sh
+      # `dcs` seeds the cluster-wide config the FIRST time the cluster bootstraps;
+      # thereafter it is managed live via `patronictl edit-config`.
+      dcs:
+        ttl: 30
+        loop_wait: 10
+        retry_timeout: 10
+        maximum_lag_on_failover: 1048576
+        postgresql:
+          use_pg_rewind: true
+          use_slots: true
+          parameters:
+            # TimescaleDB must be preloaded on every member for CREATE EXTENSION to
+            # succeed and for hypertables to work after a failover.
+            shared_preload_libraries: timescaledb
+            wal_level: replica
+            hot_standby: "on"
+            max_wal_senders: 10
+            max_replication_slots: 10
+            wal_keep_size: 128MB
+            {{- range $k, $v := .Values.ha.extraParameters }}
+            {{ $k }}: {{ $v | quote }}
+            {{- end }}
+      initdb:
+        - encoding: UTF8
+        - data-checksums
+      pg_hba:
+        - local all all trust
+        - host all all 0.0.0.0/0 scram-sha-256
+        - host all all ::/0 scram-sha-256
+        - host replication {{ .Values.ha.replicationUsername }} 0.0.0.0/0 scram-sha-256
+        - host replication {{ .Values.ha.replicationUsername }} ::/0 scram-sha-256
+    postgresql:
+      listen: 0.0.0.0:5432
+      data_dir: /var/lib/postgresql/data/pgdata
+      bin_dir: /usr/bin
+      pgpass: /tmp/pgpass
+      parameters:
+        unix_socket_directories: /var/run/postgresql
+      authentication:
+        superuser:
+          username: {{ .Values.auth.username }}
+        replication:
+          username: {{ .Values.ha.replicationUsername }}
+    watchdog:
+      mode: "off"
+    tags:
+      noloadbalance: false
+      clonefrom: false
+      nosync: false
+  post_init.sh: |
+    #!/bin/sh
+    # Runs once on the bootstrapping leader after initdb. Connects over the local
+    # socket (pg_hba `local all all trust`), so no password is needed. Creates the
+    # optional application database, then CREATE EXTENSION timescaledb in the target
+    # database (replicas inherit it via streaming replication).
+    set -eu
+    PSQL="psql -h /var/run/postgresql -U {{ .Values.auth.username }} -v ON_ERROR_STOP=1"
+    {{- if .Values.auth.database }}
+    DB={{ .Values.auth.database | quote }}
+    if ! $PSQL -d postgres -tqAc "SELECT 1 FROM pg_database WHERE datname = '${DB}'" | grep -q 1; then
+      $PSQL -d postgres -c "CREATE DATABASE \"${DB}\""
+    fi
+    TARGET="$DB"
+    {{- else }}
+    TARGET=postgres
+    {{- end }}
+    $PSQL -d "$TARGET" -c "CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE"
+{{- end }}

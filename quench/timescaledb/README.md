@@ -21,6 +21,48 @@ helm install my-tsdb oci://ghcr.io/quenchworks/charts/timescaledb \
   --set auth.database='myapp'
 ```
 
+## Standalone vs HA
+
+The chart ships two topologies, selected by `architecture`:
+
+- **`standalone`** (default) — a single TimescaleDB pod. Backward compatible; the
+  image runs `initdb` + `CREATE EXTENSION timescaledb` on first boot.
+- **`replication`** — a self-managed HA cluster of `ha.replicaCount` pods (default 3:
+  **1 leader + 2 replicas**) in one StatefulSet, each running
+  [Patroni](https://patroni.readthedocs.io/). Patroni elects a leader through the
+  **Kubernetes API as its DCS** (no external etcd), drives PostgreSQL streaming
+  replication, and rejoins a demoted node with `pg_rewind`. `shared_preload_libraries`
+  is set to `timescaledb` cluster-wide and the extension is created on bootstrap, so
+  hypertables and continuous aggregates keep working across a failover.
+
+```bash
+helm install my-tsdb oci://ghcr.io/quenchworks/charts/timescaledb \
+  --set architecture=replication \
+  --set auth.database=myapp
+```
+
+Services follow the elected leader via a `role=master|replica` pod label Patroni
+maintains:
+
+| Service | Selects | Use for |
+|---------|---------|---------|
+| `<release>-timescaledb` / `<release>-timescaledb-primary` | current leader | reads + writes |
+| `<release>-timescaledb-replica` | streaming standbys | read-only fan-out |
+| `<release>-timescaledb-headless` | all members | stable per-pod DNS |
+
+Inspect the cluster and watch failover:
+
+```bash
+kubectl exec <release>-timescaledb-0 -- patronictl list
+```
+
+Shows one `Leader` and the replicas as `streaming`. Kill the leader pod and Patroni
+promotes a replica within a few seconds; the primary Service repoints automatically
+and the old node rejoins as a replica. A `PodDisruptionBudget` (`minAvailable: 2` of
+3) keeps voluntary drains from breaking quorum. HA adds a namespaced Patroni Role
+(configmaps/endpoints/pods/services/events), ServiceAccount token automount, and a
+NetworkPolicy port for the Patroni REST API (8008).
+
 ## Verify the image
 
 ```bash
@@ -49,6 +91,12 @@ psql ... -tAc "SELECT extversion FROM pg_extension WHERE extname='timescaledb'"
 |-----|---------|-------|
 | `image.repository` | `ghcr.io/quenchworks/images/timescaledb` | |
 | `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
+| `architecture` | `standalone` | `standalone` (1 pod) or `replication` (Patroni HA). |
+| `ha.replicaCount` | `3` | HA cluster members (odd count; 1 leader + N-1 replicas). |
+| `ha.replicationUsername` | `replicator` | Streaming-replication role Patroni creates. |
+| `ha.persistence.enabled` | `true` | Per-member 8Gi PVC in HA mode. |
+| `ha.extraParameters` | `{}` | Extra `postgresql.parameters` merged into Patroni's bootstrap config. |
+| `ha.podDisruptionBudget.minAvailable` | `2` | Keeps a 3-node cluster above quorum on drains. |
 | `auth.enabled` | `true` | PostgreSQL needs a superuser password to initialize. |
 | `auth.username` | `postgres` | Superuser created by initdb. |
 | `auth.password` | `""` | Generated into a Secret if empty. |
@@ -69,7 +117,8 @@ dropped. PGDATA, the socket dir, `/tmp`, and `/dev/shm` are the only writable mo
 
 ## Notes
 
-Single primary for now. The TimescaleDB extension is loaded automatically on first
-init, so the chart does not run `CREATE EXTENSION`. Streaming replication and custom
-`postgresql.conf` tuning are tracked as follow-ups. The chart depends on the
-`quench-common` library chart, pulled from `oci://ghcr.io/quenchworks/charts/quench-common`.
+Standalone by default; set `architecture: replication` for the self-managed Patroni
+HA cluster (see above). In standalone the image loads the TimescaleDB extension on
+first init; in HA the chart's Patroni bootstrap preloads it cluster-wide and creates
+it on the leader. The chart depends on the `quench-common` library chart, pulled from
+`oci://ghcr.io/quenchworks/charts/quench-common`.

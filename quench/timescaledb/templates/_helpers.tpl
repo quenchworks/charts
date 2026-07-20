@@ -15,3 +15,29 @@
 {{- define "timescaledb.headlessName" -}}
 {{- printf "%s-headless" (include "quench-common.fullname" .) -}}
 {{- end -}}
+
+{{/* Patroni cluster scope = the DCS key namespace (and cluster-name pod label). */}}
+{{- define "timescaledb.scope" -}}
+{{- include "quench-common.fullname" . -}}
+{{- end -}}
+
+{{/* HA service names */}}
+{{- define "timescaledb.primaryName" -}}
+{{- printf "%s-primary" (include "quench-common.fullname" .) -}}
+{{- end -}}
+{{- define "timescaledb.replicaName" -}}
+{{- printf "%s-replica" (include "quench-common.fullname" .) -}}
+{{- end -}}
+
+{{/* Soft pod anti-affinity spreading the Patroni members across nodes. Used only
+     when the caller has not supplied its own .Values.affinity. */}}
+{{- define "timescaledb.haAntiAffinity" -}}
+podAntiAffinity:
+  preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        topologyKey: kubernetes.io/hostname
+        labelSelector:
+          matchLabels:
+            {{- include "quench-common.selectorLabels" . | nindent 12 }}
+{{- end -}}
