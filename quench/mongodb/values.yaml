@@ -15,6 +15,47 @@ image:
 
 nameOverride: ""
 
+# Topology.
+#   standalone (default) — a single mongod pod. Backward compatible; unchanged.
+#   replicaset           — a MongoDB replica set: ha.replicaCount members in one
+#                          StatefulSet. mongod runs the election itself (no external
+#                          failover brain): the set elects 1 PRIMARY + N-1 SECONDARY
+#                          and fails over automatically when the primary is lost, as
+#                          long as a majority survives. Intra-member auth uses a
+#                          shared keyFile. Needs an ODD count (>=3) so quorum is
+#                          unambiguous; 3 tolerates the loss of 1 member.
+architecture: standalone
+
+# Replica-set settings — only used when architecture: replicaset.
+ha:
+  # Members. 3 is the smallest quorum-safe size (tolerates 1 loss). Keep it ODD.
+  replicaCount: 3
+  # Replica-set name; part of the connection string (?replicaSet=<name>).
+  replicaSetName: rs0
+  # Shared keyFile for intra-member (internal) auth. mongod requires this whenever
+  # a replica set enforces access control. Generated (random) into a Secret if
+  # neither keyFile nor existingKeyFileSecret is set.
+  keyFile: ""
+  existingKeyFileSecret: ""       # a Secret carrying the keyFile
+  existingKeyFileSecretKey: "mongodb-keyfile"
+  persistence:
+    # Persistence is recommended for HA: on pod deletion the member reuses its PVC
+    # and rejoins with its data intact (clean failover/rejoin). With it disabled a
+    # deleted member re-syncs from scratch.
+    enabled: true
+    size: 8Gi
+    # storageClass: ""
+    accessModes: ["ReadWriteOnce"]
+    annotations: {}
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  # Keep the set above quorum during voluntary disruptions (node drains): a 3-member
+  # set must never drop below 2 Ready members or it loses its writable majority.
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 2
+
 # Authentication. On by default. On first boot (fresh dbpath) the entrypoint
 # bootstraps a root user in the admin db, then restarts mongod with --auth.
 # A random root password is generated into a Secret if you do not set one.

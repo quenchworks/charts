@@ -1,3 +1,4 @@
+{{- if eq .Values.architecture "standalone" }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -32,3 +33,50 @@ spec:
   selector:
     {{- include "quench-common.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: primary
+{{- else }}
+{{/*
+Replica-set services. MongoDB does its own primary election, so there is no
+"primary-only" L4 endpoint here: clients connect with the replica-set connection
+string (?replicaSet=<name>) and the driver discovers the current PRIMARY itself.
+  <fullname>          -> a ClusterIP seed (any member) for driver topology discovery.
+  <fullname>-headless -> stable per-pod DNS + intra-member replication traffic.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: primary
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: mongodb
+      name: mongodb
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: primary
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mongodb.headlessName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: primary
+spec:
+  type: ClusterIP
+  clusterIP: None
+  # Publish DNS for not-yet-Ready members so a joining member is resolvable while it
+  # is still doing initial sync (a member is not Ready until mongod is listening, but
+  # the primary must reach it by FQDN to add/heartbeat it).
+  publishNotReadyAddresses: true
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: mongodb
+      name: mongodb
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: primary
+{{- end }}

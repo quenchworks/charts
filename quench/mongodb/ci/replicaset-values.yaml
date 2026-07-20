@@ -1,0 +1,16 @@
+# HA replica-set install gate. No image override: uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+architecture: replicaset
+auth:
+  rootPassword: gatepw          # known root password so the gate can authenticate
+ha:
+  replicaCount: 3
+  replicaSetName: rs0
+  persistence:
+    # 1Gi PVCs (kind's default local-path storageclass provisions them) so a deleted
+    # member reuses its data and rejoins cleanly — the failover path the gate tests.
+    enabled: true
+    size: 1Gi
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 1Gi }

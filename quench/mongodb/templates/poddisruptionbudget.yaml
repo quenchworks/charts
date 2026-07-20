@@ -1,4 +1,20 @@
-{{- if .Values.podDisruptionBudget.enabled }}
+{{- if eq .Values.architecture "replicaset" }}
+{{- if .Values.ha.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  # Keep the set above its writable majority during voluntary disruptions (drains).
+  minAvailable: {{ .Values.ha.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: primary
+{{- end }}
+{{- else if .Values.podDisruptionBudget.enabled }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

@@ -7,6 +7,23 @@
 ============================================================================
 
 Quenchworks MongoDB Community Server is installed as {{ include "quench-common.fullname" . }}.
+{{- if eq .Values.architecture "replicaset" }}
+
+Topology: REPLICA SET "{{ .Values.ha.replicaSetName }}" — {{ .Values.ha.replicaCount }} members (1 PRIMARY + {{ sub (int .Values.ha.replicaCount) 1 }} SECONDARY). mongod
+elects the primary itself and fails over automatically when the primary is lost,
+as long as a majority survives.
+
+Connect with the replica-set connection string (the driver finds the PRIMARY):
+
+  PW=$(kubectl get secret --namespace {{ .Release.Namespace }} {{ include "mongodb.secretName" . }} -o jsonpath="{.data.{{ include "mongodb.secretPasswordKey" . }}}" | base64 -d)
+  mongosh "mongodb://{{ .Values.auth.rootUsername }}:${PW}@{{ include "mongodb.replicaSetMembers" . }}/admin?replicaSet={{ .Values.ha.replicaSetName }}"
+
+Inspect the set (roles + health):
+
+  kubectl exec -it --namespace {{ .Release.Namespace }} {{ include "quench-common.fullname" . }}-0 -- \
+    mongosh "mongodb://{{ .Values.auth.rootUsername }}:${PW}@localhost:{{ .Values.service.port }}/admin" \
+    --quiet --eval 'rs.status().members.forEach(m => print(m.name, m.stateStr))'
+{{- else }}
 
 Connect from inside the cluster:
 
@@ -36,6 +53,7 @@ is the only security boundary. Enable auth (auth.enabled=true) for any real use.
 
   kubectl exec -it --namespace {{ .Release.Namespace }} {{ include "quench-common.fullname" . }}-0 -- \
     mongosh "mongodb://localhost:{{ .Values.service.port }}/admin"
+{{- end }}
 {{- end }}
 
 The image is pinned by digest and signed. Verify it:

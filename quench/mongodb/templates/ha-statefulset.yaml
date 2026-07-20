@@ -1,17 +1,11 @@
-{{/*
-LICENSE: MongoDB Community Server is SSPL-1.0 — NOT OSI-approved, NOT open source.
-Clean alternative: QuenchWorks FerretDB + documentdb (MongoDB-wire-compatible,
-truly open). Caution tier.
-
-On a FRESH dbpath with auth enabled, the entrypoint first starts mongod no-auth to
-create the root user in the admin db, then restarts mongod with --auth. That
-bootstrap restart races readiness, so probes are tcpSocket on 27017 with generous
-initial delays. mongod also relocates its unix socket + mongosh HOME under the
-writable log dir, so the read-only rootfs is satisfied by the single /data mount.
-*/}}
-{{- if eq .Values.architecture "standalone" }}
+{{- if eq .Values.architecture "replicaset" }}
+{{- /* liveness/readiness: tcpSocket on 27017 — a member is "up" once mongod listens.
+       We deliberately do NOT gate readiness on PRIMARY: MongoDB elects internally and
+       clients use the replica-set connection string, so a SECONDARY is legitimately
+       Ready. Parallel podManagementPolicy brings all members up together so the
+       ordinal-0 pod's rs.initiate() quorum check can see a majority. */ -}}
 {{- $liveness := dict "tcpSocket" (dict "port" "mongodb") "initialDelaySeconds" 40 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
-{{- $readiness := dict "tcpSocket" (dict "port" "mongodb") "initialDelaySeconds" 30 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+{{- $readiness := dict "tcpSocket" (dict "port" "mongodb") "initialDelaySeconds" 20 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -21,7 +15,8 @@ metadata:
     app.kubernetes.io/component: primary
 spec:
   serviceName: {{ include "mongodb.headlessName" . }}
-  replicas: 1
+  replicas: {{ .Values.ha.replicaCount }}
+  podManagementPolicy: Parallel
   {{- with .Values.updateStrategy }}
   updateStrategy:
     {{- toYaml . | nindent 4 }}
@@ -42,6 +37,18 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if not .Values.affinity }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    {{- include "quench-common.selectorLabels" . | nindent 20 }}
+                    app.kubernetes.io/component: primary
+      {{- end }}
       {{- include "quench-common.initContainers" . | nindent 6 }}
       containers:
         - name: mongodb
@@ -49,19 +56,10 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
-          {{- include "quench-common.command" . | nindent 10 }}
-          {{- include "quench-common.args" . | nindent 10 }}
+          command: ["/bin/bash", "/scripts/mongodb-ha-entrypoint.sh"]
           env:
-            # dbpath + log/socket/HOME live under the single writable /data mount.
-            - name: MONGO_DATA_DIR
-              value: /data/db
-            - name: MONGO_LOG_DIR
-              value: /data/log
-            - name: MONGO_PORT
-              value: {{ .Values.service.port | quote }}
-            {{- if .Values.auth.enabled }}
-            # Setting both root env vars makes the entrypoint bootstrap the root
-            # user on first boot and restart mongod with --auth.
+            # keyFile enforces access control set-wide, so HA is always authenticated:
+            # the ordinal-0 pod creates this root user via the localhost exception.
             - name: MONGO_INITDB_ROOT_USERNAME
               value: {{ .Values.auth.rootUsername | quote }}
             - name: MONGO_INITDB_ROOT_PASSWORD
@@ -69,7 +67,6 @@ spec:
                 secretKeyRef:
                   name: {{ include "mongodb.secretName" . }}
                   key: {{ include "mongodb.secretPasswordKey" . }}
-            {{- end }}
             {{- if .Values.auth.database }}
             - name: MONGO_INITDB_DATABASE
               value: {{ .Values.auth.database | quote }}
@@ -77,7 +74,6 @@ spec:
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            # MongoDB wire protocol.
             - name: mongodb
               containerPort: {{ .Values.service.port }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
@@ -88,42 +84,49 @@ spec:
           {{- end }}
           {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
           resources:
-            {{- toYaml .Values.primary.resources | nindent 12 }}
+            {{- toYaml .Values.ha.resources | nindent 12 }}
           volumeMounts:
-            # Single writable mount: dbpath (/data/db) + log/socket/HOME (/data/log).
             - name: data
               mountPath: /data
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: keyfile
+              mountPath: /secrets
+              readOnly: true
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
-        {{- if and .Values.primary.persistence.enabled .Values.primary.persistence.existingClaim }}
-        - name: data
-          persistentVolumeClaim:
-            claimName: {{ .Values.primary.persistence.existingClaim }}
-        {{- else if not .Values.primary.persistence.enabled }}
+        - name: scripts
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-ha
+            defaultMode: 0o755
+        - name: keyfile
+          secret:
+            secretName: {{ include "mongodb.keyFileSecretName" . }}
+            items:
+              - key: {{ include "mongodb.keyFileSecretKey" . }}
+                path: mongodb-keyfile
+        {{- if not .Values.ha.persistence.enabled }}
         - name: data
           emptyDir: {}
         {{- end }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
-  {{- if and .Values.primary.persistence.enabled (not .Values.primary.persistence.existingClaim) }}
+  {{- if .Values.ha.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:
         name: data
-        {{- with .Values.primary.persistence.annotations }}
+        {{- with .Values.ha.persistence.annotations }}
         annotations:
           {{- toYaml . | nindent 10 }}
         {{- end }}
       spec:
-        accessModes: {{ .Values.primary.persistence.accessModes }}
-        {{- with .Values.primary.persistence.storageClass }}
+        accessModes: {{ .Values.ha.persistence.accessModes }}
+        {{- with .Values.ha.persistence.storageClass }}
         storageClassName: {{ . }}
-        {{- end }}
-        {{- with .Values.primary.persistence.selector }}
-        selector:
-          {{- toYaml . | nindent 10 }}
         {{- end }}
         resources:
           requests:
-            storage: {{ .Values.primary.persistence.size }}
+            storage: {{ .Values.ha.persistence.size }}
   {{- end }}
 {{- end }}

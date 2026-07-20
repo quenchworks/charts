@@ -41,6 +41,63 @@ db.gate.insertOne({ k: "quench" })
 db.gate.findOne()
 ```
 
+## Standalone vs HA (replica set)
+
+The chart ships two topologies, chosen with `architecture`:
+
+| `architecture` | What you get |
+|----------------|--------------|
+| `standalone` (default) | A single `mongod` pod. Unchanged, backward compatible. |
+| `replicaset` | A MongoDB **replica set**: `ha.replicaCount` members (default **3**) in one StatefulSet — **1 PRIMARY + 2 SECONDARY**. |
+
+MongoDB runs the election **itself** — there is no external failover brain. A
+3-member set keeps a writable majority as long as 2 members are up: if the
+PRIMARY dies, the survivors elect a new PRIMARY within seconds and the old member
+rejoins as a SECONDARY when it returns. Intra-member (internal) auth uses a shared
+**keyFile** (generated into a Secret if you do not supply one), which also forces
+client auth on — HA is always authenticated. The ordinal-0 pod runs `rs.initiate()`
+once (idempotently) and creates the root user via the localhost exception.
+
+```bash
+helm install mongo oci://ghcr.io/quenchworks/charts/mongodb \
+  --set architecture=replicaset \
+  --set auth.rootPassword='change-me'
+```
+
+Connect with the **replica-set connection string** so the driver discovers the
+current PRIMARY (do not put a plain ClusterIP in front of the set for writes):
+
+```bash
+PW=$(kubectl get secret mongo-mongodb -o jsonpath='{.data.mongodb-root-password}' | base64 -d)
+mongosh "mongodb://root:${PW}@mongo-mongodb-0.mongo-mongodb-headless.default.svc.cluster.local:27017,mongo-mongodb-1.mongo-mongodb-headless.default.svc.cluster.local:27017,mongo-mongodb-2.mongo-mongodb-headless.default.svc.cluster.local:27017/admin?replicaSet=rs0"
+```
+
+Inspect roles and health:
+
+```bash
+kubectl exec -it mongo-mongodb-0 -- \
+  mongosh "mongodb://root:${PW}@localhost:27017/admin" --quiet \
+  --eval 'rs.status().members.forEach(m => print(m.name, m.stateStr))'
+```
+
+A headless Service (`<release>-mongodb-headless`, `publishNotReadyAddresses: true`)
+gives each member stable DNS and carries replication traffic. A
+PodDisruptionBudget with `minAvailable: 2` keeps a 3-member set above quorum during
+voluntary disruptions. Persistence is recommended in HA so a deleted member reuses
+its PVC and rejoins with its data intact (clean failover/rejoin).
+
+### HA values
+
+| Key | Default | Notes |
+|-----|---------|-------|
+| `architecture` | `standalone` | Set to `replicaset` for HA. |
+| `ha.replicaCount` | `3` | Members. Keep it **odd** so quorum is unambiguous. |
+| `ha.replicaSetName` | `rs0` | Replica-set name (`?replicaSet=<name>`). |
+| `ha.keyFile` | `""` | Shared internal-auth keyFile; generated into a Secret if empty. |
+| `ha.existingKeyFileSecret` | `""` | Use an existing keyFile Secret instead. |
+| `ha.persistence.enabled` | `true` | Per-member PVC (recommended for clean rejoin). |
+| `ha.podDisruptionBudget.minAvailable` | `2` | Quorum floor for a 3-member set. |
+
 ## Verify the image
 
 ```bash
@@ -81,7 +138,8 @@ is the only boundary.
 
 ## Notes
 
-Single replica. `mongos` and the MongoDB database tools are deliberately not
-shipped; `mongosh` (Apache-2.0) is in-image as a client/bootstrap shell. Replica
-sets / sharding are a tracked follow-up. Depends on the `quench-common` library
-chart, pulled from `oci://ghcr.io/quenchworks/charts/quench-common`.
+Standalone (single `mongod`) by default, or a replica set with
+`architecture=replicaset` (see above). `mongos` and the MongoDB database tools are
+deliberately not shipped; `mongosh` (Apache-2.0) is in-image as a client/bootstrap
+shell. Sharding is out of scope. Depends on the `quench-common` library chart,
+pulled from `oci://ghcr.io/quenchworks/charts/quench-common`.

@@ -43,8 +43,11 @@ jobs:
         run: |
           set -o pipefail
           helm dependency build "${CHART_DIR}"
+          # both topologies: standalone (default) and the HA replica set
           helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/replicaset-values.yaml"
           helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/replicaset-values.yaml" >/dev/null
 
       - name: Install gate (kind, MongoDB wire-protocol roundtrip)
         run: |
@@ -73,6 +76,45 @@ jobs:
             cat /tmp/mongosh.err || true
             exit 1
           fi
+
+      - name: HA gate (kind, 3-member replica set — 1 PRIMARY + 2 SECONDARY)
+        run: |
+          set -o pipefail
+          # Same fullname pattern, different release: StatefulSet rtestha-mongodb,
+          # pod-0 rtestha-mongodb-0. HA is always authenticated (keyFile forces it).
+          helm install rtestha "${CHART_DIR}" -f "${CHART_DIR}/ci/replicaset-values.yaml" --wait --timeout 10m
+          kubectl rollout status statefulset/rtestha-mongodb --timeout=540s
+
+          PW="$(kubectl get secret rtestha-mongodb -o jsonpath='{.data.mongodb-root-password}' | base64 -d)"
+
+          # Poll rs.status() on pod-0 until the set reports exactly 1 PRIMARY + 2 SECONDARY.
+          ok=""
+          for i in $(seq 1 40); do
+            states="$(kubectl exec rtestha-mongodb-0 -- \
+              mongosh "mongodb://root:${PW}@localhost:27017/admin" --quiet \
+              --eval 'rs.status().members.map(m => m.stateStr).sort().join(",")' 2>/dev/null || true)"
+            echo "attempt $i: members=[$states]"
+            if [ "$states" = "PRIMARY,SECONDARY,SECONDARY" ]; then ok=1; echo "replica set healthy: 1 PRIMARY + 2 SECONDARY"; break; fi
+            sleep 6
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::replica set did not reach 1 PRIMARY + 2 SECONDARY"
+            kubectl logs rtestha-mongodb-0 --tail=120 || true
+            exit 1
+          fi
+
+          # write-through the replica set (driver routes to the PRIMARY)
+          MEMBERS="rtestha-mongodb-0.rtestha-mongodb-headless.default.svc.cluster.local:27017,rtestha-mongodb-1.rtestha-mongodb-headless.default.svc.cluster.local:27017,rtestha-mongodb-2.rtestha-mongodb-headless.default.svc.cluster.local:27017"
+          out="$(kubectl exec rtestha-mongodb-0 -- \
+            mongosh "mongodb://root:${PW}@${MEMBERS}/admin?replicaSet=rs0" --quiet \
+            --eval 'db.getSiblingDB("quench").gate.insertOne({k:"quench"}); print(db.getSiblingDB("quench").gate.findOne().k)' 2>/tmp/ha.err || true)"
+          if ! printf '%s' "$out" | grep -q quench; then
+            echo "::error::HA replica-set write/read did not return 'quench'"
+            cat /tmp/ha.err || true
+            exit 1
+          fi
+          echo "HA replica-set write/read OK: $out"
+          helm uninstall rtestha --wait || true
 
       - name: Package and push (OCI)
         id: push

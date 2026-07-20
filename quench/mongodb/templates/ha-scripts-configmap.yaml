@@ -1,0 +1,110 @@
+{{- if eq .Values.architecture "replicaset" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-ha
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: primary
+data:
+  # ---------------------------------------------------------------------------
+  # Replica-set entrypoint. Bypasses the image's docker-entrypoint.sh (which does
+  # a single-node auth bootstrap) and instead runs mongod with --replSet/--keyFile.
+  # mongod does its OWN election: this script only bootstraps the set once, on the
+  # ordinal-0 pod, idempotently. Every member's mongod handles PRIMARY election and
+  # failover internally — there is no external failover brain.
+  # ---------------------------------------------------------------------------
+  mongodb-ha-entrypoint.sh: |
+    #!/bin/bash
+    set -eu
+
+    PORT={{ .Values.service.port }}
+    DBPATH=/data/db
+    LOGDIR=/data/log
+    KEYFILE=/data/keyfile
+    RS={{ .Values.ha.replicaSetName | quote }}
+    ORD="${HOSTNAME##*-}"
+    # double-quoted so the single-quoted JS host strings survive into the value
+    MEMBERS_JS="{{ include "mongodb.replicaSetMembersJS" . }}"
+    PEERS='{{ include "mongodb.replicaSetMembers" . }}'
+
+    mkdir -p "$DBPATH" "$LOGDIR"
+
+    # read-only rootfs: mongosh writes under $HOME and mongod opens a unix socket;
+    # keep both under the writable log dir. Expose mongosh's companion crypto lib.
+    export HOME="$LOGDIR"
+    export LD_LIBRARY_PATH="/usr/lib/mongosh${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+
+    # mongod refuses a keyFile that is group/world readable, and the Secret mount is
+    # root-owned + read-only. Copy it into the writable data dir and lock it to 0600;
+    # the copy is owned by the mongod uid (we run as it), so mongod accepts it.
+    cp /secrets/mongodb-keyfile "$KEYFILE"
+    chmod 0600 "$KEYFILE"
+
+    m() { mongosh --quiet --host 127.0.0.1 --port "$PORT" "$@"; }
+
+    # Start mongod in the background so the ordinal-0 pod can initiate the set while
+    # mongod runs. Keep this script as PID 1 and forward SIGTERM so mongod stops cleanly.
+    mongod --dbpath "$DBPATH" --bind_ip_all --port "$PORT" \
+      --replSet {{ .Values.ha.replicaSetName | quote }} --keyFile "$KEYFILE" \
+      --unixSocketPrefix "$LOGDIR" \
+      --logpath "$LOGDIR/mongod.log" --logappend &
+    MONGO_PID=$!
+    trap 'echo "[ha] SIGTERM -> mongod"; kill -TERM "$MONGO_PID" 2>/dev/null || true' TERM INT
+
+    if [ "$ORD" = "0" ]; then
+      # wait for the local mongod to answer (hello is allowed pre-auth)
+      for i in $(seq 1 120); do
+        m --eval 'db.hello().ok' 2>/dev/null | grep -q 1 && break
+        [ "$i" = 120 ] && { echo "[ha] FATAL: local mongod never came up"; exit 1; }
+        sleep 2
+      done
+
+      # Already configured locally (restart with intact data)? setName is loaded from
+      # the on-disk rs config and readable pre-auth. Non-empty => just serve.
+      INITIATED="$(m --eval 'print(db.hello().setName || "")' 2>/dev/null || true)"
+
+      # Split-brain guard: if this pod is fresh but the set already lives on a peer
+      # (e.g. pod-0 lost its data), do NOT form a second set — let it rejoin.
+      PEER_SET=""
+      if [ -z "$INITIATED" ]; then
+        for peer in ${PEERS//,/ }; do
+          host="${peer%%:*}"
+          s="$(mongosh --quiet --host "$host" --port "$PORT" --eval 'print(db.hello().setName || "")' 2>/dev/null || true)"
+          [ -n "$s" ] && { PEER_SET="$s"; break; }
+        done
+      fi
+
+      if [ -z "$INITIATED" ] && [ -z "$PEER_SET" ]; then
+        echo "[ha] initiating replica set $RS"
+        # rs.initiate() runs a quorum check, so wait until each member's port is open.
+        for peer in ${PEERS//,/ }; do
+          host="${peer%%:*}"
+          for i in $(seq 1 120); do
+            timeout 2 bash -c "echo > /dev/tcp/${host}/${PORT}" 2>/dev/null && break
+            sleep 2
+          done
+        done
+        m --eval "rs.initiate({_id: '$RS', members: [ $MEMBERS_JS ]})" \
+          || echo "[ha] rs.initiate returned non-zero (set may already exist)"
+        # wait to be elected PRIMARY (needs a live majority)
+        for i in $(seq 1 120); do
+          [ "$(m --eval 'print(db.hello().isWritablePrimary)' 2>/dev/null)" = "true" ] && break
+          sleep 2
+        done
+        # Create the root user via the localhost exception (first user, on the PRIMARY).
+        # Creds come from the container env (from the Secret).
+        m admin --eval 'db.createUser({user: process.env.MONGO_INITDB_ROOT_USERNAME, pwd: process.env.MONGO_INITDB_ROOT_PASSWORD, roles: [{role:"root", db:"admin"}]})' \
+          || echo "[ha] root user already present / not created"
+        if [ -n "${MONGO_INITDB_DATABASE:-}" ]; then
+          mongosh --quiet "mongodb://${MONGO_INITDB_ROOT_USERNAME}:${MONGO_INITDB_ROOT_PASSWORD}@127.0.0.1:${PORT}/${MONGO_INITDB_DATABASE}?authSource=admin" \
+            --eval 'db.createCollection("quench_init")' || true
+        fi
+        echo "[ha] replica set $RS ready"
+      else
+        echo "[ha] set already initiated (local='$INITIATED' peer='$PEER_SET'); serving"
+      fi
+    fi
+
+    wait "$MONGO_PID"
+{{- end }}
