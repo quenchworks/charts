@@ -92,7 +92,7 @@ jobs:
           for i in $(seq 1 40); do
             states="$(kubectl exec rtestha-mongodb-0 -- \
               mongosh "mongodb://root:${PW}@localhost:27017/admin" --quiet \
-              --eval 'rs.status().members.map(m => m.stateStr).sort().join(",")' 2>/dev/null || true)"
+              --eval 'rs.status().members.map(m => m.stateStr).sort().join(",")' 2>/dev/null | tr -d '\r' || true)"
             echo "attempt $i: members=[$states]"
             if [ "$states" = "PRIMARY,SECONDARY,SECONDARY" ]; then ok=1; echo "replica set healthy: 1 PRIMARY + 2 SECONDARY"; break; fi
             sleep 6
