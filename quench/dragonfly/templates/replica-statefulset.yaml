@@ -1,0 +1,60 @@
+{{- if eq .Values.architecture "replication" }}
+{{- $primaryHost := include "dragonfly.primary.bootstrapHost" . }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "dragonfly.replica.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: replica
+spec:
+  serviceName: {{ printf "%s-headless" (include "dragonfly.replica.fullname" .) }}
+  {{- if .Values.sentinel.enabled }}
+  # Replicas discover their master independently (no ordinal dependency), so bring
+  # them up in parallel — OrderedReady serializes startup and misses tight gates.
+  podManagementPolicy: Parallel
+  {{- end }}
+  replicas: {{ .Values.replica.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: replica
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: replica
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "dragonfly.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if not .Values.affinity }}
+      affinity:
+        {{- include "dragonfly.defaultAntiAffinity" (dict "root" . "component" "replica") | nindent 8 }}
+      {{- end }}
+      {{- if .Values.sentinel.enabled }}
+      initContainers:
+        {{- include "dragonfly.discoverInitContainer" (dict "root" . "isPrimary" false) | nindent 8 }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- else }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      {{- end }}
+      containers:
+        {{- include "dragonfly.serverContainer" (dict "root" . "replicaof" (printf "%s:6379" $primaryHost) "isPrimary" false "resources" .Values.replica.resources) | nindent 8 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        {{- include "dragonfly.podVolumes" (dict "root" . "persistence" .Values.replica.persistence) | nindent 8 }}
+  {{- if and .Values.replica.persistence.enabled (not .Values.replica.persistence.existingClaim) }}
+  volumeClaimTemplates:
+    {{- include "dragonfly.volumeClaimTemplate" (dict "root" . "persistence" .Values.replica.persistence) | nindent 4 }}
+  {{- end }}
+{{- end }}

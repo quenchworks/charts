@@ -1,0 +1,114 @@
+{{- if and (eq .Values.architecture "replication") .Values.sentinel.enabled }}
+{{- $s := .Values.sentinel }}
+# Sentinels run valkey-sentinel (from the QuenchWorks Valkey image) monitoring the
+# Dragonfly primary. Dragonfly ships no sentinel binary; Valkey Sentinel speaks the
+# same RESP + Sentinel API and drives Dragonfly failover (SLAVEOF NO ONE), verified
+# on kind. Config is seeded by a busybox init container into a writable emptyDir.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "dragonfly.sentinel.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sentinel
+spec:
+  serviceName: {{ printf "%s-headless" (include "dragonfly.sentinel.fullname" .) }}
+  replicas: {{ $s.replicaCount }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: sentinel
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: sentinel
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "dragonfly.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if not .Values.affinity }}
+      affinity:
+        {{- include "dragonfly.defaultAntiAffinity" (dict "root" . "component" "sentinel") | nindent 8 }}
+      {{- end }}
+      initContainers:
+        # Generate the (writable) sentinel config: resolve the bootstrap primary to
+        # an IP, seed the monitor + auth. Runs in the busybox helper image.
+        - name: init-config
+          image: {{ include "dragonfly.busyboxImage" . }}
+          imagePullPolicy: {{ .Values.busybox.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["sh", "/scripts/init-sentinel.sh"]
+          env:
+            - name: PRIMARY_HOST
+              value: {{ include "dragonfly.primary.bootstrapHost" . | quote }}
+            - name: SENTINEL_PORT
+              value: {{ $s.port | quote }}
+            - name: MASTER_SET
+              value: {{ $s.masterSet | quote }}
+            - name: QUORUM
+              value: {{ $s.quorum | quote }}
+            - name: DOWN_AFTER
+              value: {{ $s.downAfterMilliseconds | quote }}
+            - name: FAILOVER_TIMEOUT
+              value: {{ $s.failoverTimeout | quote }}
+            - name: PARALLEL_SYNCS
+              value: {{ $s.parallelSyncs | quote }}
+            {{- if .Values.auth.enabled }}
+            - name: DRAGONFLY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "dragonfly.secretName" . }}
+                  key: {{ include "dragonfly.secretPasswordKey" . }}
+            {{- end }}
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+              readOnly: true
+            - name: sentinel-data
+              mountPath: /sentinel
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: sentinel
+          image: {{ include "dragonfly.sentinelImage" . }}
+          imagePullPolicy: {{ $s.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["valkey-sentinel", "/sentinel/sentinel.conf"]
+          ports:
+            - name: sentinel
+              containerPort: {{ $s.port }}
+          livenessProbe:
+            tcpSocket:
+              port: sentinel
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            exec:
+              command: ["valkey-cli", "-p", "{{ $s.port }}", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml $s.resources | nindent 12 }}
+          volumeMounts:
+            - name: sentinel-data
+              mountPath: /sentinel
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: scripts
+          configMap:
+            name: {{ printf "%s-scripts" (include "dragonfly.sentinel.fullname" .) }}
+            defaultMode: 0555
+        - name: sentinel-data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+{{- end }}

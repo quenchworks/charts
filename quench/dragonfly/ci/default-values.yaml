@@ -1,12 +1,24 @@
-# Install gate. No image override: the install uses the chart's real, CI-maintained
-# digest from values.yaml, so the gate pulls the actual signed image.
-# Keep threads/maxmemory self-consistent: maxmemory (512mb) >= threads(2) * 256MiB.
-persistence:
-  enabled: false
+# HA install gate: 1 primary + 2 replicas + a 3-node Sentinel quorum with automatic
+# failover (valkey-sentinel monitoring the Dragonfly primary). No image override: the
+# gate pulls the chart's real, CI-maintained digests (dragonfly + valkey-sentinel +
+# busybox helper) from values.yaml. Keep threads/maxmemory self-consistent:
+# maxmemory (512mb) >= threads(2) * 256MiB.
+architecture: replication
+auth:
+  enabled: true
 config:
   threads: 2
   maxmemory: 512mb
   forceEpoll: true
-resources:
-  requests: { cpu: 100m, memory: 256Mi }
-  limits: { cpu: 500m, memory: 1Gi }
+primary:
+  persistence:
+    enabled: false
+replica:
+  replicaCount: 2
+  persistence:
+    enabled: false
+sentinel:
+  enabled: true
+  # Snappy retries for the gate; production keeps the safe values.yaml default.
+  downAfterMilliseconds: 3000
+  failoverTimeout: 10000

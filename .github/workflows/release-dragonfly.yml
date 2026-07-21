@@ -49,14 +49,28 @@ jobs:
         run: |
           set -o pipefail
           helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 6m
-          kubectl rollout status statefulset/rtest-dragonfly --timeout=300s
-          # Redis RESP round-trip against Dragonfly (no redis-cli in-image; use a throwaway pod).
-          kubectl run rediscli --rm -i --restart=Never --image=redis:7-alpine -- \
-            redis-cli -h rtest-dragonfly -p 6379 SET gate quench
-          out="$(kubectl run rediscli --rm -i --restart=Never --image=redis:7-alpine -- \
-            redis-cli -h rtest-dragonfly -p 6379 GET gate)"
-          echo "GET gate -> ${out}"
-          echo "${out}" | grep -q quench || { echo "::error::Dragonfly RESP round-trip failed (expected 'quench')"; exit 1; }
+          # ci/default-values enables HA (replication + Sentinel auto-failover): the
+          # workloads are rtest-dragonfly-{primary,replica,sentinel}, 1 primary + 2
+          # replicas + a 3-node Sentinel quorum (valkey-sentinel monitoring Dragonfly).
+          kubectl rollout status statefulset/rtest-dragonfly-primary  --timeout=300s
+          kubectl rollout status statefulset/rtest-dragonfly-replica  --timeout=300s
+          kubectl rollout status statefulset/rtest-dragonfly-sentinel --timeout=300s
+
+          # auth is on in ci-values; read the generated password for the redis-cli pods.
+          PW="$(kubectl get secret rtest-dragonfly -o jsonpath='{.data.dragonfly-password}' | base64 -d)"
+          rc() { kubectl run "rc$RANDOM" --rm -i --restart=Never --image=redis:7-alpine --command -- \
+                   redis-cli --no-auth-warning -a "$PW" "$@"; }
+
+          # Sentinel must have discovered the primary + both replicas + the other 2 sentinels.
+          rc -h rtest-dragonfly-sentinel -p 26379 SENTINEL master mymaster | tr '\n' ' ' | tee sm.txt
+          grep -q 'num-slaves 2' sm.txt || { echo "::error::Sentinel did not discover 2 replicas"; exit 1; }
+          grep -q 'num-other-sentinels 2' sm.txt || { echo "::error::Sentinel quorum incomplete"; exit 1; }
+
+          # Replication works: write to the primary Service, read it back off a replica.
+          rc -h rtest-dragonfly SET gate quench
+          out="$(rc -h rtest-dragonfly-replica-0.rtest-dragonfly-replica-headless GET gate)"
+          echo "replica GET gate -> ${out}"
+          echo "${out}" | grep -q quench || { echo "::error::Dragonfly replication round-trip failed (expected 'quench')"; exit 1; }
 
       - name: Package and push (OCI)
         id: push

@@ -14,6 +14,30 @@ redis-cli works against port {{ .Values.service.port }}):
 
   Host: {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
   Port: {{ .Values.service.port }}
+{{- if eq .Values.architecture "replication" }}
+
+Architecture: replication ({{ .Values.primary.replicaCount }} primary + {{ .Values.replica.replicaCount }} read replicas).
+Read-scale against the replica Service:
+
+  {{ include "dragonfly.replica.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+{{- if .Values.sentinel.enabled }}
+
+HA with automatic failover is ON ({{ .Values.sentinel.replicaCount }} Sentinels, quorum {{ .Values.sentinel.quorum }}).
+Sentinels run valkey-sentinel (Dragonfly ships no sentinel binary) and auto-promote a
+replica if the primary is lost. A Sentinel-aware client should discover the current
+master rather than hard-coding a host:
+
+  SENTINEL get-master-addr-by-name {{ .Values.sentinel.masterSet }}
+    against {{ include "dragonfly.sentinel.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.sentinel.port }}
+
+The primary Service ({{ include "quench-common.fullname" . }}) always tracks the node
+currently labelled primary, so plain (non-Sentinel) clients can still write to it.
+{{- else }}
+
+Sentinel is OFF, so failover is MANUAL/operator-driven: promote a replica with
+`REPLICAOF NO ONE` against it, then point the others at the new primary.
+{{- end }}
+{{- end }}
 
 {{- if .Values.auth.enabled }}
 

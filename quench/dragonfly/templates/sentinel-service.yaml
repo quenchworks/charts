@@ -1,0 +1,40 @@
+{{- if and (eq .Values.architecture "replication") .Values.sentinel.enabled }}
+{{- $s := .Values.sentinel }}
+# Write/discovery Service. Clients ask Sentinel for the current master:
+#   SENTINEL get-master-addr-by-name <masterSet>
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "dragonfly.sentinel.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sentinel
+spec:
+  type: {{ $s.service.type }}
+  ports:
+    - port: {{ $s.port }}
+      targetPort: sentinel
+      name: sentinel
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: sentinel
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-headless" (include "dragonfly.sentinel.fullname" .) }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sentinel
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - port: {{ $s.port }}
+      targetPort: sentinel
+      name: sentinel
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: sentinel
+{{- end }}

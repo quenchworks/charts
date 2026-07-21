@@ -16,15 +16,61 @@ image:
 
 nameOverride: ""
 
+# Hardened busybox helper image, used ONLY by init containers in Sentinel HA mode
+# (to seed Sentinel's writable config and run boot-time master discovery). This
+# keeps the dragonfly image itself unchanged. Pinned by digest, never a tag.
+busybox:
+  repository: ghcr.io/quenchworks/images/busybox
+  digest: "sha256:379b162cd4794ee14c63fec0cc501b855b804f33f824c4e46ced6183f644adfe"
+  pullPolicy: IfNotPresent
+
+# standalone: one server (default). replication: one primary plus N read replicas
+# (Dragonfly REPLICAOF). Turn on sentinel below for automatic failover.
+architecture: standalone
+
+# HA / automatic failover via a Redis-protocol Sentinel quorum. Requires
+# architecture: replication. Dragonfly ships NO sentinel binary of its own, so the
+# Sentinels run `valkey-sentinel` from the QuenchWorks Valkey image (same RESP +
+# Sentinel API; verified to drive Dragonfly failover on kind). 3 Sentinels monitor
+# the Dragonfly primary and auto-promote a replica on primary loss (SLAVEOF NO ONE);
+# clients discover the current master with
+#   SENTINEL get-master-addr-by-name <masterSet>
+# against the sentinel Service. Config seeding + boot-time master discovery run in
+# busybox init containers writing into an emptyDir, so the dragonfly image is untouched.
+sentinel:
+  enabled: false
+  replicaCount: 3
+  masterSet: mymaster
+  # Sentinels agreeing the primary is down before failover. Keep a strict
+  # majority of replicaCount (2 of 3).
+  quorum: 2
+  port: 26379
+  downAfterMilliseconds: 5000
+  failoverTimeout: 180000
+  parallelSyncs: 1
+  # Sentinel binary source: the QuenchWorks Valkey image (ships valkey-sentinel).
+  # Dragonfly has no sentinel of its own. Pinned by digest; bump manually when the
+  # valkey image is re-released (CI only rewrites the dragonfly digest above).
+  image:
+    repository: ghcr.io/quenchworks/images/valkey
+    digest: "sha256:f03ad3203cfaba0224cde68d152ed0839deca6db72aeef7111ad91c5b7a101a0"
+    pullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+  resources:
+    requests: { cpu: 50m, memory: 32Mi }
+    limits: { cpu: 200m, memory: 64Mi }
+
 # Authentication. Off by default (matching the image) — open on the wire, so the
 # NetworkPolicy is the security boundary. Enable to set --requirepass via a Secret.
+# In replication mode the same password is used for --masterauth (replica -> primary).
 auth:
   enabled: false
   password: ""
   existingSecret: ""
   existingSecretPasswordKey: "dragonfly-password"
 
-# Dragonfly server tuning. IMPORTANT consistency rule, enforced by the image's
+# Dragonfly server tuning. IMPORTANT consistency rule, enforced by Dragonfly's
 # pre-flight check: maxmemory MUST be >= threads * 256MiB or Dragonfly refuses to
 # start. If you raise threads, raise maxmemory (and the pod memory limit) together.
 # Defaults: 2 threads -> needs >= 512MiB; 512mb cap fits a ~1Gi limit.
@@ -34,23 +80,38 @@ config:
   # io_uring is often restricted under nonroot/kind/seccomp; keep epoll on by
   # default. Set to false to let Dragonfly attempt io_uring.
   forceEpoll: true
-# Extra dragonfly flags, appended to the server command (e.g. ["--cache_mode=true"]).
+# Extra dragonfly flags. Applied in replication mode (e.g. ["--cache_mode=true"]).
+# NOTE: in standalone mode the image's env-based entrypoint does not forward extra
+# container args, so extraFlags take effect only when architecture: replication.
 extraFlags: []
 
-persistence:
-  enabled: true
-  size: 8Gi
-  # storageClass: ""        # default class if unset
-  accessModes: ["ReadWriteOnce"]
-  annotations: {}
-  selector: {}
-  existingClaim: ""         # bind an existing PVC instead of provisioning one
+primary:
+  replicaCount: 1
+  persistence:
+    enabled: true
+    size: 8Gi
+    # storageClass: ""        # default class if unset
+    accessModes: ["ReadWriteOnce"]
+    annotations: {}
+    selector: {}
+    existingClaim: ""         # bind an existing PVC instead of provisioning one
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
 
-replicaCount: 1
-
-resources:
-  requests: { cpu: 100m, memory: 256Mi }
-  limits: { cpu: "1", memory: 1Gi }
+replica:
+  replicaCount: 2
+  persistence:
+    enabled: true
+    size: 8Gi
+    # storageClass: ""        # default class if unset
+    accessModes: ["ReadWriteOnce"]
+    annotations: {}
+    selector: {}
+    existingClaim: ""         # bind an existing PVC instead of provisioning one
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
 
 service:
   type: ClusterIP

@@ -19,6 +19,50 @@
       }
     },
     "nameOverride": { "type": "string" },
+    "busybox": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "digest"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "architecture": { "type": "string", "enum": ["standalone", "replication"] },
+    "sentinel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "masterSet": { "type": "string", "minLength": 1 },
+        "quorum": { "type": "integer", "minimum": 1 },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "downAfterMilliseconds": { "type": "integer", "minimum": 1 },
+        "failoverTimeout": { "type": "integer", "minimum": 1 },
+        "parallelSyncs": { "type": "integer", "minimum": 1 },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "digest"],
+          "description": "valkey-sentinel image source (Dragonfly ships no sentinel binary).",
+          "properties": {
+            "repository": { "type": "string", "minLength": 1 },
+            "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+            "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+          }
+        },
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] }
+          }
+        },
+        "resources": { "$ref": "#/definitions/resources" }
+      }
+    },
     "auth": {
       "type": "object",
       "additionalProperties": false,
@@ -39,21 +83,8 @@
       }
     },
     "extraFlags": { "type": "array", "items": { "type": "string" } },
-    "replicaCount": { "type": "integer", "minimum": 0 },
-    "persistence": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": { "type": "boolean" },
-        "size": { "type": "string" },
-        "storageClass": { "type": "string" },
-        "accessModes": { "type": "array" },
-        "annotations": { "type": "object" },
-        "selector": { "type": "object" },
-        "existingClaim": { "type": "string" }
-      }
-    },
-    "resources": { "$ref": "#/definitions/resources" },
+    "primary": { "$ref": "#/definitions/nodeGroup" },
+    "replica": { "$ref": "#/definitions/nodeGroup" },
     "service": {
       "type": "object",
       "additionalProperties": false,
@@ -100,6 +131,27 @@
       "properties": {
         "requests": { "type": "object" },
         "limits": { "type": "object" }
+      }
+    },
+    "nodeGroup": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "replicaCount": { "type": "integer", "minimum": 0 },
+        "persistence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "size": { "type": "string" },
+            "storageClass": { "type": "string" },
+            "accessModes": { "type": "array" },
+            "annotations": { "type": "object" },
+            "selector": { "type": "object" },
+            "existingClaim": { "type": "string" }
+          }
+        },
+        "resources": { "$ref": "#/definitions/resources" }
       }
     }
   }
