@@ -1,0 +1,56 @@
+Quenchworks Typesense is installed as {{ include "quench-common.fullname" . }} (single-node).
+
+The search API is reachable inside the cluster at:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Health (always UNAUTHENTICATED, used by the probes):
+
+  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/health   # -> {"ok":true}
+
+AUTH MODEL: Typesense REQUIRES an API key at startup. Every API route except
+GET /health requires the header:
+
+    X-TYPESENSE-API-KEY: <api-key>
+
+{{- if .Values.auth.existingSecret }}
+The API key comes from your existing Secret "{{ .Values.auth.existingSecret }}" (key "{{ .Values.auth.existingSecretKey }}").
+
+  KEY="$(kubectl get secret {{ .Values.auth.existingSecret }} -o jsonpath='{.data.{{ .Values.auth.existingSecretKey }}}' | base64 -d)"
+{{- else }}
+The API key lives in the chart-managed Secret. Pull it out with:
+
+  KEY="$(kubectl get secret {{ include "typesense.secretName" . }} -o jsonpath='{.data.api-key}' | base64 -d)"
+{{- end }}
+
+Port-forward to reach it from your workstation:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+
+Create a collection, index a document, then search (all WITH the API key):
+
+  # 1) create a collection
+  curl -fsS -X POST "http://127.0.0.1:{{ .Values.service.port }}/collections" \
+    -H "X-TYPESENSE-API-KEY: $KEY" -H 'content-type: application/json' \
+    -d '{"name":"books","fields":[{"name":"title","type":"string"}]}'
+
+  # 2) index a document
+  curl -fsS -X POST "http://127.0.0.1:{{ .Values.service.port }}/collections/books/documents" \
+    -H "X-TYPESENSE-API-KEY: $KEY" -H 'content-type: application/json' \
+    -d '{"id":"1","title":"The Hitchhiker Guide"}'
+
+  # 3) typo-tolerant search (note the typo "hitchiker" still matches)
+  curl -fsS "http://127.0.0.1:{{ .Values.service.port }}/collections/books/documents/search?q=hitchiker&query_by=title" \
+    -H "X-TYPESENSE-API-KEY: $KEY"
+
+A request WITHOUT the key (or with a wrong key) is rejected with 401 -- proving the
+generated api-key Secret is wired through. The /health route stays open so probes work.
+
+This chart runs Typesense as a single node (one StatefulSet replica with the embedded
+store on a PVC). Keep replicaCount at 1 unless you set up a Typesense Raft cluster.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

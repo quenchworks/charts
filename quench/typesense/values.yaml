@@ -1,0 +1,98 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/typesense.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/typesense
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Typesense keeps its index on local disk under the --data-dir (mounted at /data),
+# so this chart ships a StatefulSet. It is single-node by default. Typesense does
+# support a Raft cluster, but that needs a --nodes peer file and per-node identity
+# beyond this chart's scope; keep replicaCount at 1.
+replicaCount: 1
+
+# API-key authentication. Typesense REQUIRES an --api-key (TYPESENSE_API_KEY) at
+# startup and authenticates every route except GET /health with the header:
+#   X-TYPESENSE-API-KEY: <apiKey>
+# Resolution order for the key:
+#   1. auth.existingSecret  -> read the key from that Secret under existingSecretKey
+#   2. auth.apiKey          -> use this literal value (stored in a chart-managed Secret)
+#   3. neither set          -> generate a strong random key once and PRESERVE it across
+#                              upgrades via a lookup of the existing Secret
+# The generated/literal key lands in a chart-managed Secret; pull it out with:
+#   kubectl get secret <release>-typesense-apikey -o jsonpath='{.data.api-key}' | base64 -d
+auth:
+  apiKey: ""
+  existingSecret: ""
+  existingSecretKey: api-key
+
+# Extra raw flags appended after the entrypoint's typesense-server invocation, e.g.
+# ["--enable-cors"]. The image entrypoint passes "$@" through to the binary.
+extraArgs: []
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  # REST search API.
+  port: 8108
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
