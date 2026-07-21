@@ -1,0 +1,26 @@
+Quenchworks Coolify realtime is installed as {{ include "quench-common.fullname" . }}.
+
+It runs nonroot and exposes two ports via the Service:
+  - soketi   (Pusher-compatible WebSocket) on {{ .Values.service.soketiPort }}
+  - terminal (node-pty bridge)             on {{ .Values.service.terminalPort }}
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+
+Check the soketi health endpoint over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.soketiPort }}:{{ .Values.service.soketiPort }}
+  curl http://127.0.0.1:{{ .Values.service.soketiPort }}/ready
+
+{{- if not .Values.soketi.appId }}
+
+No soketi.appId is set, so soketi is using its built-in demo app
+(id/key/secret = app-id/app-key/app-secret). Set soketi.appId / soketi.appKey /
+soketi.appSecret to the SAME PUSHER_* credentials your Coolify app uses before
+exposing this beyond local testing.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/coolify-realtime \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

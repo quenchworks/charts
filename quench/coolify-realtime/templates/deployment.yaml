@@ -1,0 +1,90 @@
+{{/*
+Coolify realtime tier: soketi (Pusher-compatible WebSocket pub/sub on :6001, what the
+UI subscribes to) + the node-pty terminal bridge (:6002). Runs as uid 1001 (the
+quench-common default) on a read-only rootfs; the shell entrypoint writes log FIFOs
+under /tmp and node-pty spawns its PTY with cwd=$HOME (/home/coolify), so /tmp + HOME
+are the only writable surfaces. soketi's HTTP server answers GET /ready -> 200 and
+GET / -> 200 once up. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/" "port" "soketi") "initialDelaySeconds" 15 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/ready" "port" "soketi") "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 12 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "coolify-realtime.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: coolify-realtime
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: SOKETI_HOST
+              value: "0.0.0.0"
+            - name: SOKETI_PORT
+              value: {{ .Values.service.soketiPort | quote }}
+            {{- with .Values.soketi.appId }}
+            - name: SOKETI_DEFAULT_APP_ID
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.soketi.appKey }}
+            - name: SOKETI_DEFAULT_APP_KEY
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.soketi.appSecret }}
+            - name: SOKETI_DEFAULT_APP_SECRET
+              value: {{ . | quote }}
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: soketi
+              containerPort: {{ .Values.service.soketiPort }}
+              protocol: TCP
+            - name: terminal
+              containerPort: {{ .Values.service.terminalPort }}
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: home
+              mountPath: /home/coolify
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: home
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

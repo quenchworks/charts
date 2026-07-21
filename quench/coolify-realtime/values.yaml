@@ -1,0 +1,79 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/coolify-realtime
+  digest: "sha256:91e80b74ab6614367a8f72c36af202ca9799d83099d2546d4746bce79cd4d558"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# soketi is a stateless in-memory WebSocket broker; this chart runs a Deployment
+# behind a ClusterIP Service. Scale horizontally only with an external adapter
+# (Redis) configured via extraEnvVars — the default in-memory adapter is per-pod.
+replicaCount: 1
+
+# soketi's default (single-app) Pusher credentials. The Coolify UI authenticates to
+# soketi with these — they MUST match the app's PUSHER_APP_{ID,KEY,SECRET}. When
+# left empty soketi falls back to its built-in demo app (id/key/secret =
+# app-id/app-key/app-secret); set real values for anything beyond local testing, or
+# source them from a Secret via extraEnvVarsSecret.
+soketi:
+  appId: ""
+  appKey: ""
+  appSecret: ""
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  # soketi WebSocket / HTTP (what the UI subscribes to).
+  soketiPort: 6001
+  # node-pty terminal bridge.
+  terminalPort: 6002
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The realtime tier is reached from browsers (cross-namespace / ingress), so allow
+# external ingress by default. Set allowExternal=false to restrict to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
