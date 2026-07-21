@@ -1,0 +1,91 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+# PLACEHOLDER until the code-server image is published — the main loop pins the
+# real digest before release.
+image:
+  repository: ghcr.io/quenchworks/images/code-server
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# code-server is a single-writer stateful workload: one pod owns the RWO data
+# volume ($HOME). It is NOT horizontally scalable — the Deployment is pinned to
+# one replica with a Recreate strategy.
+
+# Login auth. code-server's default --auth is `password`, read from the PASSWORD
+# env. The chart generates a random 24-char password into a Secret on first
+# install (stable across upgrades). Set auth.password to fix it, or point
+# auth.existingSecret at your own Secret (key auth.existingSecretKey).
+auth:
+  password: ""
+  existingSecret: ""
+  existingSecretKey: password
+
+# Extra flags appended to the container command (e.g. ["--disable-workspace-trust"]).
+extraArgs: []
+
+# Persistent $HOME: the user's workspace plus code-server state (settings,
+# installed extensions, ~/.local/share/code-server). RWO, survives rollouts.
+persistence:
+  enabled: true
+  size: 10Gi
+  mountPath: /home/coder
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  # The container serves the editor on 8080; the Service maps the same port.
+  port: 8080
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The editor is a session workload usually fronted by an Ingress with TLS; keep
+# the NetworkPolicy as the trust boundary. allowExternal=true permits ingress
+# from outside the namespace (e.g. an ingress controller).
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
