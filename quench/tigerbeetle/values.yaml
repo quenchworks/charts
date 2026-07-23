@@ -1,0 +1,96 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/tigerbeetle.json after every green image build. It is never a tag.
+# The all-zero value is a placeholder pinned by the build loop before release.
+image:
+  repository: ghcr.io/quenchworks/images/tigerbeetle
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# TigerBeetle cluster id. 0 is reserved for testing/benchmarking — set a real,
+# randomly-generated id in production (see the TigerBeetle docs).
+cluster: 0
+
+# Data directory: a persisted, writable mount. The single-replica data file is
+# <dataDir>/0_0.tigerbeetle, formatted exactly once by an initContainer.
+dataDir: /data
+
+# Single-node standalone. TigerBeetle also runs as a fault-tolerant replicated
+# cluster (replica-count 3/6), but that needs coordinated addresses across replicas
+# and is a follow-up; this chart ships the standalone topology (replica-count 1).
+
+persistence:
+  enabled: true
+  # TigerBeetle preallocates its data file (~1 GiB minimum) and grows in place, so
+  # size the volume for your ledger's lifetime.
+  size: 16Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+# TigerBeetle allocates ALL its memory up front at start (fixed-resource design):
+# the grid cache plus LSM manifests, message pool, and compaction buffers. With the
+# default 1GiB grid cache the replica-init allocation is ~3GiB and OOM-kills under a
+# tight limit; a 512MiB grid brings it to ~2.5GiB, which fits the limits below.
+# Raise cacheGrid (and memory) for larger working sets.
+cacheGrid: 512MiB
+
+resources:
+  requests: { cpu: 500m, memory: 2Gi }
+  limits: { cpu: "2", memory: 3Gi }
+
+service:
+  type: ClusterIP
+  port: 3000
+
+# io_uring: TigerBeetle performs ALL I/O through io_uring, whose syscalls the
+# RuntimeDefault seccomp profile blocks (the process then aborts with "io_uring is
+# not available"). Run the pod seccomp-Unconfined so io_uring works. Every other
+# hardening default from quench-common stays in force: nonroot uid 1001, read-only
+# root filesystem, all Linux capabilities dropped, no privilege escalation.
+podSecurityContext:
+  seccompProfile:
+    type: Unconfined
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: false

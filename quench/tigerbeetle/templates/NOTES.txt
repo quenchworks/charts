@@ -1,0 +1,20 @@
+Quenchworks TigerBeetle is installed as {{ include "quench-common.fullname" . }} (single-node standalone).
+
+TigerBeetle speaks its OWN binary protocol (NOT HTTP) on port {{ .Values.service.port }}. Connect with a
+TigerBeetle client library or the `tigerbeetle` CLI — do not curl it.
+
+In-cluster address:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Reach it from your workstation with a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+
+Then point a TigerBeetle client at 127.0.0.1:{{ .Values.service.port }} (cluster id {{ .Values.cluster }}).
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
