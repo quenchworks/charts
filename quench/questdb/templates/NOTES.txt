@@ -1,0 +1,27 @@
+Quenchworks QuestDB is installed as {{ include "quench-common.fullname" . }} (standalone).
+
+Endpoints inside the cluster ({{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local):
+
+  Web console + REST/HTTP : {{ .Values.service.httpPort }}
+  PostgreSQL wire         : {{ .Values.service.pgPort }}
+  InfluxDB line protocol  : {{ .Values.service.ilpPort }}
+
+Open the web console (port-forward from your machine):
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.httpPort }}:{{ .Values.service.httpPort }}
+  # then browse http://127.0.0.1:{{ .Values.service.httpPort }}
+
+Run SQL over the REST API:
+
+  curl -G "http://127.0.0.1:{{ .Values.service.httpPort }}/exec" --data-urlencode "query=SELECT 1"
+
+Connect with psql over the PostgreSQL wire protocol (default creds admin/quest):
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.pgPort }}:{{ .Values.service.pgPort }}
+  PGPASSWORD=quest psql -h 127.0.0.1 -p {{ .Values.service.pgPort }} -U admin -d qdb
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
