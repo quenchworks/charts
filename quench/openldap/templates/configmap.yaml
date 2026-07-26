@@ -1,0 +1,90 @@
+{{/*
+Bootstrap material for slapd. Everything here is read-only; the init container
+renders the final config into an emptyDir shared with the slapd container.
+
+Why a template and not the final config: rootpw has to carry the hashed admin
+password, which lives in a Secret (possibly an existingSecret whose value the chart
+never sees). The init container is the only place that can read the Secret and hash
+it with slappasswd, so the ConfigMap ships __ROOTPW__ and the init container
+substitutes it.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  slapd.conf.tmpl: |
+    # Rendered by the bootstrap init container; do not edit in place.
+    include /etc/openldap/schema/core.schema
+    include /etc/openldap/schema/cosine.schema
+    include /etc/openldap/schema/inetorgperson.schema
+    include /etc/openldap/schema/nis.schema
+
+    pidfile  /var/lib/openldap/run/slapd.pid
+    argsfile /var/lib/openldap/run/slapd.args
+
+    # back-mdb (LMDB) is a loadable module in Wolfi's packaging.
+    modulepath /usr/lib/openldap
+    moduleload back_mdb.so
+
+    database  mdb
+    maxsize   {{ .Values.ldap.maxSize | int64 }}
+    suffix    "{{ .Values.ldap.baseDN }}"
+    rootdn    "{{ include "openldap.adminDN" . }}"
+    rootpw    __ROOTPW__
+    directory /var/lib/openldap/openldap-data
+    index     objectClass                     eq
+    index     cn,uid,mail,sn,givenName        eq,sub
+    {{- with .Values.ldap.extraConfig }}
+
+    # --- ldap.extraConfig (first-match-wins, so it can tighten the ACLs below) ---
+    {{- nindent 4 . }}
+    {{- end }}
+
+    # Defaults: passwords are write-self / auth-only and never readable; the rest of
+    # the tree is readable (a directory service's normal posture). Deny anonymous
+    # reads by putting your own `access to *` rule in ldap.extraConfig.
+    access to attrs=userPassword
+      by self write
+      by anonymous auth
+      by * none
+    access to *
+      by self write
+      by * read
+
+    database monitor
+  bootstrap.ldif: |
+    dn: {{ .Values.ldap.baseDN }}
+    objectClass: dcObject
+    objectClass: organization
+    dc: {{ include "openldap.baseDCValue" . }}
+    o: {{ .Values.ldap.organization }}
+{{- /* LDIF separates entries with a blank line, so keep one before the extra block. */}}
+{{- if .Values.ldap.extraLdif }}
+
+{{ .Values.ldap.extraLdif | indent 4 }}
+{{- end }}
+  bootstrap.sh: |
+    #!/bin/sh
+    # First-boot bootstrap, idempotent: safe on every restart and rescheduling.
+    #   1. make the LMDB + pid directories on the (possibly empty) volume
+    #   2. render slapd.conf with the hashed admin password from the Secret
+    #   3. only if the database does not exist yet, create it offline with slapadd
+    set -eu
+    DATA=/var/lib/openldap/openldap-data
+    mkdir -p "$DATA" /var/lib/openldap/run
+
+    # SSHA output is base64 (A-Za-z0-9+/=), so it can never collide with the sed
+    # delimiter or contain a `&` backreference.
+    hash="$(slappasswd -s "$LDAP_ADMIN_PASSWORD")"
+    sed "s|__ROOTPW__|${hash}|" /bootstrap/slapd.conf.tmpl > {{ include "openldap.configFile" . }}
+    chmod 0600 {{ include "openldap.configFile" . }}
+
+    if [ -f "$DATA/data.mdb" ]; then
+      echo "bootstrap: database already present, leaving it alone"
+    else
+      echo "bootstrap: seeding {{ .Values.ldap.baseDN }}"
+      slapadd -q -f {{ include "openldap.configFile" . }} -l /bootstrap/bootstrap.ldif
+    fi

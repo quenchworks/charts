@@ -1,0 +1,152 @@
+{{- $port := .Values.service.port -}}
+{{- $cfg := include "openldap.configFile" . -}}
+{{- $liveness := dict "tcpSocket" (dict "port" "ldap") "initialDelaySeconds" 20 "periodSeconds" 15 -}}
+{{/* A real directory check, not a port check: an anonymous base-scope search on the
+     base DN fails (rc 32) until the seeded entry is actually served. timeoutSeconds
+     is raised from the 1s default — forking ldapsearch under a CPU limit needs more. */}}
+{{- $readiness := dict "exec" (dict "command" (list "ldapsearch" "-x" "-LLL" "-H" (printf "ldap://127.0.0.1:%v/" $port) "-b" .Values.ldap.baseDN "-s" "base" "dn")) "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 5 -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "openldap.headlessName" . }}
+  # A single slapd instance owns the LMDB volume. Multi-master replication
+  # (syncrepl / mirrormode) is a separate topology, not a replica count.
+  replicas: 1
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # roll the pod when the config or the admin password changes
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "openldap.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        # Renders slapd.conf (hashing the admin password with slappasswd) and, on a
+        # fresh volume only, creates the LMDB database with the base entry.
+        - name: bootstrap
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/bin/sh", "/bootstrap/bootstrap.sh"]
+          env:
+            - name: LDAP_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "openldap.secretName" . }}
+                  key: {{ include "openldap.secretPasswordKey" . }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/openldap
+            - name: config
+              mountPath: /opt/quench/openldap
+            - name: bootstrap
+              mountPath: /bootstrap
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: openldap
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- if .Values.command }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- else }}
+          command: ["/bin/sh", "-c"]
+          {{- end }}
+          {{- if .Values.args }}
+          {{- include "quench-common.args" . | nindent 10 }}
+          {{- else }}
+          # `ulimit -n` first: slapd sizes its connection table from RLIMIT_NOFILE, and
+          # containerd's default (1073741816) makes it allocate ~56 GB and get OOM-killed
+          # before it listens. slapd is exec'ed, so it is still PID 1 and gets signals.
+          args:
+            - "ulimit -n {{ .Values.ldap.maxOpenFiles }}; exec /usr/bin/slapd -h ldap://0.0.0.0:{{ $port }}/ -f {{ $cfg }} -d {{ .Values.ldap.logLevel }}"
+          {{- end }}
+          env:
+            - name: LDAP_BASE_DN
+              value: {{ .Values.ldap.baseDN | quote }}
+            - name: LDAP_ADMIN_DN
+              value: {{ include "openldap.adminDN" . | quote }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: ldap
+              containerPort: {{ $port }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/openldap
+            - name: config
+              mountPath: /opt/quench/openldap
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        # rendered slapd.conf, written by the init container, read by slapd
+        - name: config
+          emptyDir: {}
+        - name: bootstrap
+          configMap:
+            name: {{ include "quench-common.fullname" . }}
+            defaultMode: 0555
+        {{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim }}
+        {{- else if not .Values.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
+  {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        {{- with .Values.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes: {{ .Values.persistence.accessModes }}
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        {{- with .Values.persistence.selector }}
+        selector:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}
+  {{- end }}

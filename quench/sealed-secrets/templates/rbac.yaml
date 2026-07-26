@@ -1,0 +1,125 @@
+{{- if .Values.rbac.create }}
+{{- /*
+Clean-room RBAC, authored from the controller's documented API needs:
+
+  * It watches SealedSecrets (cluster-wide when allNamespaces) and writes their
+    status subresource -> read on bitnami.com/sealedsecrets + update on /status.
+  * For every SealedSecret it creates/updates the decrypted Secret, owns it, and
+    recreates it if someone deletes it -> full write on core Secrets.
+  * It records Events on the SealedSecret when unsealing fails.
+  * It lists namespaces to know which ones to watch.
+  * Its own sealing key pairs are Secrets in the RELEASE namespace, created and
+    listed at startup -> a separate namespaced "key-admin" Role, deliberately
+    kept out of the ClusterRole so key creation is scoped to one namespace.
+
+Cluster-scoped names carry the namespace so two releases never collide.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "sealed-secrets.unsealerName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["bitnami.com"]
+    resources: ["sealedsecrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["bitnami.com"]
+    resources: ["sealedsecrets/status"]
+    verbs: ["update"]
+  # The decrypted Secrets the controller materializes and keeps in sync.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "sealed-secrets.unsealerName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "sealed-secrets.unsealerName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "sealed-secrets.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# --- Sealing keys: create/list Secrets in the release namespace only ---------
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "sealed-secrets.keyAdminName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "sealed-secrets.keyAdminName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "sealed-secrets.keyAdminName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "sealed-secrets.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.rbac.serviceProxier }}
+---
+# --- kubeseal cert fetch: let authenticated users proxy to the Service --------
+# Scoped to THIS Service by resourceNames. The proxied endpoint only serves the
+# PUBLIC sealing certificate, so this grants no access to secret material.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "sealed-secrets.serviceProxierName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["services"]
+    resourceNames: [{{ include "quench-common.fullname" . | quote }}]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["services/proxy"]
+    resourceNames:
+      - {{ include "quench-common.fullname" . | quote }}
+      - {{ printf "http:%s:" (include "quench-common.fullname" .) | quote }}
+      - {{ printf "http:%s:http" (include "quench-common.fullname" .) | quote }}
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "sealed-secrets.serviceProxierName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "sealed-secrets.serviceProxierName" . }}
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: system:authenticated
+{{- end }}
+{{- end }}

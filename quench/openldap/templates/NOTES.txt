@@ -1,0 +1,44 @@
+Quenchworks OpenLDAP is installed as {{ include "quench-common.fullname" . }}.
+
+Connect from inside the cluster:
+
+  URL:      ldap://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+  Base DN:  {{ .Values.ldap.baseDN }}
+  Admin DN: {{ include "openldap.adminDN" . }}
+
+Port {{ .Values.service.port }}, not 389: slapd runs as uid 1001 and cannot bind a
+privileged port.
+
+Get the admin password:
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "openldap.secretName" . }} \
+    -o jsonpath="{.data.{{ include "openldap.secretPasswordKey" . }}}" | base64 -d
+
+Check the directory (the client tools ship in the image):
+
+  kubectl exec -n {{ .Release.Namespace }} {{ include "quench-common.fullname" . }}-0 -- \
+    ldapsearch -x -LLL -H ldap://127.0.0.1:{{ .Values.service.port }} -b "{{ .Values.ldap.baseDN }}"
+
+  kubectl exec -n {{ .Release.Namespace }} {{ include "quench-common.fullname" . }}-0 -- \
+    ldapwhoami -x -H ldap://127.0.0.1:{{ .Values.service.port }} \
+      -D "{{ include "openldap.adminDN" . }}" -w "<password>"
+
+Add entries:
+
+  kubectl exec -i -n {{ .Release.Namespace }} {{ include "quench-common.fullname" . }}-0 -- \
+    ldapadd -x -H ldap://127.0.0.1:{{ .Values.service.port }} \
+      -D "{{ include "openldap.adminDN" . }}" -w "<password>" < entries.ldif
+
+Only the base entry is seeded, and only on first boot. Use ldap.extraLdif to seed
+more at that moment (it is ignored on every later start).
+{{- if not .Values.persistence.enabled }}
+
+WARNING: persistence is disabled — the directory lives in an emptyDir and is lost
+when the pod is replaced.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

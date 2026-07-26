@@ -1,0 +1,105 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/sealed-secrets
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The controller is a SINGLETON: it owns the sealing keys and has no leader
+# election, so running more than one replica means several controllers racing to
+# create keys. Leave this at 1 unless you know exactly why you are raising it.
+replicaCount: 1
+
+# --- Controller behaviour (flags on /usr/bin/controller) -------------------
+controller:
+  # Prefix for the Secrets holding the sealing key pairs (upstream: sealed-secrets-key).
+  keyPrefix: "sealed-secrets-key"
+  # RSA key size for newly generated sealing keys.
+  keySize: 4096
+  # How often a NEW sealing key is generated. Old keys are kept, so previously
+  # sealed secrets keep decrypting. "0" disables automatic rotation.
+  # Empty = the controller's own default (30 days).
+  keyRenewPeriod: ""
+  # Watch SealedSecrets in every namespace (the normal cluster-wide install).
+  # Set false for a namespace-scoped controller, and use additionalNamespaces to
+  # name extra namespaces explicitly.
+  allNamespaces: true
+  additionalNamespaces: ""
+  # Only reconcile SealedSecrets matching this label selector (empty = all).
+  labelSelector: ""
+  # Write the decryption outcome to the SealedSecret's status subresource.
+  updateStatus: true
+  # Log level (INFO|ERROR) and format (text|json).
+  logLevel: INFO
+  logFormat: text
+  # Ports the controller listens on. 8080 serves /healthz, /v1/cert.pem (the
+  # public sealing certificate kubeseal fetches) and /v1/verify; 8081 serves
+  # Prometheus metrics.
+  httpPort: 8080
+  metricsPort: 8081
+  # Raw extra flags, appended last.
+  extraArgs: []
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # Exposes the controller's HTTP port (cert/verify/healthz) and metrics port.
+  port: 8080
+  metricsPort: 8081
+  annotations: {}
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  # The controller needs cluster-wide read on SealedSecrets and write on Secrets,
+  # plus create/list on Secrets in its own namespace for the sealing keys.
+  # Turning this off means wiring equivalent RBAC yourself.
+  create: true
+  # Also create a namespaced Role letting authenticated users GET the controller
+  # Service and proxy to it. This is how `kubeseal` fetches the public sealing
+  # certificate without cluster-admin. It grants no access to secret material
+  # (the endpoint only serves the PUBLIC key), but set false to lock it down and
+  # have clients use `kubeseal --cert` with an out-of-band certificate instead.
+  serviceProxier: true
+
+# The public sealing certificate is fetched from across the cluster (and often
+# from CI), so ingress is allowed by default. Set allowExternal=false to limit
+# ingress to in-cluster pods.
+networkPolicy:
+  enabled: true
+  allowExternal: true

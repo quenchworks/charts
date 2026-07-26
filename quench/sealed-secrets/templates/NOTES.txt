@@ -1,0 +1,49 @@
+Quenchworks Sealed Secrets is installed as {{ include "quench-common.fullname" . }}.
+
+The controller runs nonroot with a read-only root filesystem and watches
+{{ if .Values.controller.allNamespaces }}every namespace{{ else }}namespace {{ .Release.Namespace }}{{ with .Values.controller.additionalNamespaces }} (plus {{ . }}){{ end }}{{ end }}
+for SealedSecret resources, decrypting each one into a regular Secret.
+
+  service:  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+  metrics:  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.metricsPort }}/metrics
+  crd:      sealedsecrets.bitnami.com (v1alpha1), installed from the chart's crds/
+
+Seal a secret with the kubeseal client (install it from the upstream release page):
+
+  kubectl create secret generic mysecret --dry-run=client \
+    --from-literal=password=s3cr3t -o yaml \
+  | kubeseal --controller-namespace {{ .Release.Namespace }} \
+      --controller-name {{ include "quench-common.fullname" . }} \
+      --format yaml > mysealedsecret.yaml
+
+  kubectl apply -f mysealedsecret.yaml
+  kubectl get secret mysecret        # created by the controller
+
+The committed mysealedsecret.yaml is safe to keep in Git: only this cluster's
+private sealing key can decrypt it.
+
+Fetch the public sealing certificate directly (useful for offline sealing in CI):
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }} -n {{ .Release.Namespace }}
+  curl -fsS http://127.0.0.1:{{ .Values.service.port }}/v1/cert.pem > sealing-cert.pem
+  kubeseal --cert sealing-cert.pem ...
+
+BACK UP THE SEALING KEYS. They live as Secrets labelled
+sealedsecrets.bitnami.com/sealed-secrets-key in {{ .Release.Namespace }}; without
+them no existing SealedSecret can ever be decrypted again:
+
+  kubectl get secret -n {{ .Release.Namespace }} \
+    -l sealedsecrets.bitnami.com/sealed-secrets-key -o yaml > sealing-keys.yaml
+
+{{- if gt (int .Values.replicaCount) 1 }}
+
+WARNING: replicaCount is {{ .Values.replicaCount }}. The controller has no leader
+election and owns the sealing keys, so multiple replicas will race to generate
+keys. Run exactly one replica.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/sealed-secrets \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

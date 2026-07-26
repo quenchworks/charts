@@ -1,0 +1,127 @@
+# The digest below is the contract with the image factory. CI rewrites it after
+# every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/openldap
+  digest: "sha256:3d3663a23ea853d4faa405a6ec8eab2c4fc212a3dfc14c8cad2be6ea9687b1c9"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# --- Directory ---
+ldap:
+  # Suffix of the directory. Must be a dc-style DN: the chart seeds a matching
+  # dcObject/organization entry on first boot, so `dc=example,dc=org` creates
+  # `dn: dc=example,dc=org` with `dc: example`.
+  baseDN: dc=example,dc=org
+  # `o:` of the seeded base entry.
+  organization: QuenchWorks
+  # LMDB map size in bytes — the HARD ceiling on database size (LMDB pre-reserves
+  # the address space; growing it later needs a slapcat/slapadd round trip).
+  maxSize: 1073741824
+  # slapd -d level. Any -d value keeps slapd in the foreground (which a container
+  # needs); 256 is "stats", i.e. connections/operations/results as container logs.
+  # 0 = silent, -1 = everything.
+  logLevel: 256
+  # RLIMIT_NOFILE cap, and the effective ceiling on concurrent connections. DO NOT
+  # remove it: slapd sizes its connection table from RLIMIT_NOFILE at startup, and
+  # containerd hands containers a soft limit of 1073741816 — slapd then tries to
+  # allocate ~56 GB of connection slots and is OOM-killed before it ever listens.
+  maxOpenFiles: 4096
+  # Extra slapd.conf directives injected into the mdb database section BEFORE the
+  # chart's default ACLs. slapd evaluates `access to` rules in order and stops at
+  # the first match, so this is also where you tighten the defaults, e.g.
+  #   extraConfig: |
+  #     access to * by dn.exact="cn=admin,dc=example,dc=org" write by users read by * none
+  extraConfig: ""
+  # Extra LDIF loaded ONCE, on first boot only, right after the base entry
+  # (offline, through slapadd). Ignored on every later start.
+  extraLdif: ""
+
+# Admin (rootdn) credentials. slapd has no directory without a rootdn, so this is
+# always on; only the source of the password is configurable. A random password is
+# generated and stored in a Secret if you do not set one.
+auth:
+  # rootdn becomes cn=<adminUsername>,<baseDN>
+  adminUsername: admin
+  adminPassword: ""
+  existingSecret: ""
+  existingSecretPasswordKey: "admin-password"
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: 500m, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  # 1389, not 389: the container runs as uid 1001, which cannot bind a privileged
+  # port. Point clients at this port (or front it with a Service on 389 if your
+  # CNI allows the remap).
+  port: 1389
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# slapd invocation. Left empty, the chart supplies
+#   /bin/sh -c "ulimit -n <ldap.maxOpenFiles>; exec /usr/bin/slapd \
+#     -h ldap://0.0.0.0:<service.port>/ -f <rendered config> -d <ldap.logLevel>"
+# pointing slapd at the config the bootstrap init container renders (the image's own
+# baked config is only the standalone `docker run` default). slapd is `exec`ed, so it
+# is still PID 1 and gets signals directly; the shell exists only for the ulimit.
+# Override to add `ldaps://0.0.0.0:1636/` to the -h URL list once you have mounted TLS
+# material and declared TLSCertificateFile/TLSCertificateKeyFile via ldap.extraConfig.
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+# The default readiness probe is an anonymous `ldapsearch -s base` on the base DN,
+# so it proves the directory really answers. If you deny anonymous access through
+# ldap.extraConfig, replace it with customReadinessProbe.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
