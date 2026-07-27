@@ -1,0 +1,142 @@
+# The digest below is the contract with the image factory. It is never a tag.
+#
+# PLACEHOLDER (all-zero): the crossplane image has not been published to GHCR yet, so
+# there is no digest to pin. Replace it -- here AND in Chart.yaml's
+# artifacthub.io/images annotation -- with the digest of the multi-arch index from the
+# first green build-crossplane.yml run. The release workflow's install gate cannot pull
+# an image until then.
+image:
+  repository: ghcr.io/quenchworks/images/crossplane
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Crossplane uses leader election (see core.leaderElection), so more than one replica is
+# safe -- but only one is ever active. Extra replicas buy failover, not throughput.
+replicaCount: 1
+
+# --- Core control plane (`crossplane core start`) ---------------------------
+core:
+  # Namespace Crossplane unpacks and runs packages (Providers/Functions) in. Must be the
+  # release namespace: the init container writes the TLS secrets there and the package
+  # runtime creates Deployments there.
+  namespace: ""
+  # Leader election via a Lease in the release namespace. On with >1 replica.
+  leaderElection: true
+  # Admission/conversion webhooks. Crossplane's own `core init` generates the CA and the
+  # server/client certificates into the three Secrets this chart pre-creates empty, so
+  # there is no cert-manager dependency. Turning this off disables the Usage-protection
+  # validating webhook and the XRD conversion webhooks.
+  webhooks:
+    enabled: true
+    port: 9443
+  # Prometheus metrics (controller-runtime) and the /healthz + /readyz probe endpoint.
+  metricsPort: 8080
+  healthProbePort: 8081
+  # How often every resource is re-checked for drift, and how often an individual
+  # resource is polled. Empty = the binary's own defaults (1h / 1m).
+  syncInterval: ""
+  pollInterval: ""
+  # Worker pool size for reconciles. Empty = upstream default (100).
+  maxConcurrentReconciles: ""
+  # Packages pre-installed by the `core init` container on first install. Fully qualified
+  # image references only -- Crossplane has no default registry.
+  #   provider:      ["xpkg.crossplane.io/crossplane-contrib/provider-nop:v0.4.0"]
+  #   function:      ["xpkg.crossplane.io/crossplane-contrib/function-patch-and-transform:v0.8.2"]
+  #   configuration: ["xpkg.crossplane.io/my-org/platform:v1.0.0"]
+  packages:
+    providers: []
+    functions: []
+    configurations: []
+  # Alpha/beta feature gates, passed verbatim, e.g. ["--enable-operations"].
+  extraArgs: []
+  # Sizes of the emptyDir caches Crossplane unpacks packages and caches function
+  # responses into. Both are pure cache: losing them only costs a re-pull.
+  packageCache:
+    sizeLimit: 20Mi
+  functionCache:
+    sizeLimit: 128Mi
+
+# --- RBAC manager (`crossplane rbac start`) --------------------------------
+# A SECOND Deployment, on by default, mirroring upstream. It is not optional in
+# practice: it is the component that grants an installed Provider the RBAC it asked for
+# and that grants the core control plane access to the CRDs a Provider brings. Without
+# it every `kubectl apply` of a Provider stalls un-Healthy, and the aggregated
+# `crossplane` ClusterRole this chart binds stays empty. Disable it only if you
+# reconcile provider RBAC by some other means.
+rbacManager:
+  enabled: true
+  replicaCount: 1
+  leaderElection: true
+  # Create the consumer-facing aggregated ClusterRoles (-admin/-edit/-view/-browse) that
+  # the RBAC manager labels its per-XRD roles into, plus the <name>:masters group
+  # binding on -admin. Without these the per-XRD roles it creates aggregate nowhere.
+  aggregatedClusterRoles: true
+  # Cap what a Provider package may request: when true the manager only grants
+  # permissions that also appear in the aggregated <name>-allowed-provider-permissions
+  # ClusterRole, so a malicious package cannot ask for cluster-admin. Off by default
+  # (upstream default) because the allow-list starts empty, which would deny everything.
+  restrictProviderPermissions: false
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { cpu: 250m, memory: 256Mi }
+  extraArgs: []
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: 1000m, memory: 1Gi }
+
+service:
+  type: ClusterIP
+  # Fronts the webhook server. The API server reaches the conversion and validating
+  # webhooks through this Service on 9443; the certificate `core init` mints carries its
+  # DNS names, so renaming the release is safe but bypassing the Service is not.
+  port: 9443
+  annotations: {}
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  # Crossplane is a control plane: it owns CRDs cluster-wide, creates the Deployments and
+  # ServiceAccounts that run Provider and Function packages, and manages every
+  # *.crossplane.io resource. Turning this off means wiring equivalent RBAC yourself.
+  create: true
+
+# Ingress to the webhook port must stay open to the API server, which is off-cluster from
+# a Pod's point of view, so a NetworkPolicy that only allows in-cluster peers would break
+# admission. Left disabled by default for that reason; enable it with allowExternal
+# true (the default) if you want an explicit port allow-list.
+networkPolicy:
+  enabled: false
+  allowExternal: true

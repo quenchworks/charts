@@ -1,0 +1,33 @@
+{{- if .Values.networkPolicy.enabled }}
+{{/* Ingress allow-list for the core Pod. Note allowExternal must stay true unless you
+     have verified your CNI treats the API server as an in-cluster peer: the API server
+     initiates the webhook connection to port 9443, and a podSelector-only rule blocks it,
+     which fails admission on every Usage and XRD. */}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: core
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: metrics
+          protocol: TCP
+        - port: probes
+          protocol: TCP
+        {{- if .Values.core.webhooks.enabled }}
+        - port: webhooks
+          protocol: TCP
+        {{- end }}
+      {{- if not .Values.networkPolicy.allowExternal }}
+      from:
+        - podSelector: {}
+      {{- end }}
+{{- end }}

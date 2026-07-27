@@ -1,0 +1,161 @@
+{{/* controller-runtime serves /healthz and /readyz on the health-probe port; both are
+     registered only after the manager (and, with webhooks on, the webhook server) has
+     started, so they are real readiness signals rather than a port that happens to be
+     bound. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/healthz" "port" "probes") "initialDelaySeconds" 10 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/readyz" "port" "probes") "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: core
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: core
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "crossplane.serviceAccountName" . }}
+      {{/* Crossplane IS an API-server client on every reconcile. */}}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        {{/*
+          `core init` is what makes the cluster ready: it applies the core CRDs the image
+          carries at /crds, registers the webhook configurations from
+          /webhookconfigurations, and generates the CA plus server/client certificates
+          into the three Secrets this chart pre-creates. It is idempotent, so it runs on
+          every rollout and doubles as the storage-version migrator on upgrade -- which is
+          exactly why the CRDs are NOT in the chart's crds/ directory, where Helm would
+          apply them once on install and never touch them again.
+        */}}
+        - name: init
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - "core"
+            - "init"
+            {{- range .Values.core.packages.providers }}
+            - "--provider={{ . }}"
+            {{- end }}
+            {{- range .Values.core.packages.configurations }}
+            - "--configuration={{ . }}"
+            {{- end }}
+            {{- range .Values.core.packages.functions }}
+            - "--function={{ . }}"
+            {{- end }}
+          env:
+            {{- include "crossplane.commonEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: crossplane
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - "core"
+            - "start"
+            - "--metrics-port={{ .Values.core.metricsPort }}"
+            - "--health-probe-port={{ .Values.core.healthProbePort }}"
+            {{- if .Values.core.webhooks.enabled }}
+            - "--webhook-port={{ .Values.core.webhooks.port }}"
+            {{- end }}
+            {{- with .Values.core.syncInterval }}
+            - "--sync-interval={{ . }}"
+            {{- end }}
+            {{- with .Values.core.pollInterval }}
+            - "--poll-interval={{ . }}"
+            {{- end }}
+            {{- with .Values.core.maxConcurrentReconciles }}
+            - "--max-concurrent-reconciles={{ . }}"
+            {{- end }}
+            {{- range .Values.core.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            {{- include "crossplane.commonEnv" . | nindent 12 }}
+            - name: LEADER_ELECTION
+              value: {{ .Values.core.leaderElection | quote }}
+            - name: TLS_SERVER_CERTS_DIR
+              value: /tls/server
+            - name: TLS_CLIENT_CERTS_DIR
+              value: /tls/client
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.core.metricsPort }}
+              protocol: TCP
+            - name: probes
+              containerPort: {{ .Values.core.healthProbePort }}
+              protocol: TCP
+            {{- if .Values.core.webhooks.enabled }}
+            - name: webhooks
+              containerPort: {{ .Values.core.webhooks.port }}
+              protocol: TCP
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{/* Root filesystem is read-only. Everything Crossplane writes is cache: it
+                 unpacks package images under /cache/xpkg and memoises composition
+                 function responses under /cache/xfn. Losing either costs a re-pull. */}}
+            - name: package-cache
+              mountPath: /cache/xpkg
+            - name: function-cache
+              mountPath: /cache/xfn
+            - name: tls-server
+              mountPath: /tls/server
+              readOnly: true
+            - name: tls-client
+              mountPath: /tls/client
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: package-cache
+          emptyDir:
+            sizeLimit: {{ .Values.core.packageCache.sizeLimit }}
+        - name: function-cache
+          emptyDir:
+            sizeLimit: {{ .Values.core.functionCache.sizeLimit }}
+        - name: tls-server
+          secret:
+            secretName: {{ include "crossplane.tlsServerSecret" . }}
+        - name: tls-client
+          secret:
+            secretName: {{ include "crossplane.tlsClientSecret" . }}
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

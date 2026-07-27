@@ -1,0 +1,66 @@
+Quenchworks Crossplane is installed as {{ include "quench-common.fullname" . }}.
+
+The control plane runs nonroot with a read-only root filesystem. Its core CRDs were
+installed by the `init` container from /crds INSIDE the image, so CRDs and controller are
+always at the same revision -- there is no crds/ directory in this chart to drift.
+
+  namespace:  {{ include "crossplane.namespace" . }}   (where packages are unpacked and run)
+  metrics:    :{{ .Values.core.metricsPort }}/metrics
+  probes:     :{{ .Values.core.healthProbePort }}/healthz and /readyz
+{{- if .Values.core.webhooks.enabled }}
+  webhooks:   {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }} (TLS from {{ include "crossplane.tlsCASecret" . }})
+{{- end }}
+{{- if .Values.rbacManager.enabled }}
+  rbac mgr:   {{ include "crossplane.rbacManagerName" . }}
+{{- else }}
+  rbac mgr:   DISABLED -- installed Providers will NOT be granted the permissions they
+              request, so they will stay un-Healthy until you grant them yourself.
+{{- end }}
+
+Confirm the control plane is up and owns its APIs:
+
+  kubectl get deploy -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }}
+  kubectl get crd -l app.kubernetes.io/part-of=crossplane
+  kubectl api-resources --api-group=pkg.crossplane.io
+
+Install a Provider (fully qualified references only -- Crossplane has no default registry):
+
+  kubectl apply -f - <<'EOF'
+  apiVersion: pkg.crossplane.io/v1
+  kind: Provider
+  metadata:
+    name: provider-nop
+  spec:
+    package: xpkg.crossplane.io/crossplane-contrib/provider-nop:v0.4.0
+  EOF
+
+  kubectl get provider.pkg -w      # wait for INSTALLED=True HEALTHY=True
+
+Then define your own API with a CompositeResourceDefinition and a Composition; see
+https://docs.crossplane.io/latest/getting-started/.
+{{- if .Values.rbacManager.enabled }}{{ if .Values.rbacManager.aggregatedClusterRoles }}
+
+Hand out access with the aggregated roles the RBAC manager fills in per XRD:
+
+  {{ include "crossplane.clusterRoleName" . }}-admin / -edit / -view / -browse
+
+They are EMPTY until your first XRD exists. Members of the group
+{{ include "quench-common.fullname" . }}:masters already have the -admin role bound.
+{{- end }}{{ end }}
+
+One Crossplane per cluster. Its CRDs, the aggregation labels the RBAC manager writes, and
+the webhook configurations it registers are all cluster-scoped and not namespaced by
+release, so a second release would fight the first.
+{{- if gt (int .Values.replicaCount) 1 }}
+{{- if not .Values.core.leaderElection }}
+
+WARNING: replicaCount is {{ .Values.replicaCount }} but core.leaderElection is false.
+Several control planes will reconcile the same resources at once. Enable leader election.
+{{- end }}
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/crossplane \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

@@ -1,0 +1,235 @@
+{{- if .Values.rbac.create }}
+{{- /*
+RBAC for the CORE control plane, authored from what `crossplane core start` and
+`crossplane core init` actually do:
+
+  * `core init` installs the ~20 core CRDs it carries at /crds and, when webhooks are on,
+    the ValidatingWebhookConfiguration at /webhookconfigurations -> full rights on
+    customresourcedefinitions and on {validating,mutating}webhookconfigurations.
+  * It also writes the CA and TLS certificates into three Secrets, and reads them back at
+    start -> write on core Secrets.
+  * The apiextensions controllers own every *.crossplane.io resource: XRDs, Compositions,
+    the CRDs those XRDs generate, and the composite/claim instances of them.
+  * The pkg controllers unpack a Provider/Function package and run it: that means creating
+    the ServiceAccount, Service and Deployment for the package runtime in the release
+    namespace, plus the *Revision bookkeeping resources.
+  * Leader election takes a Lease; controller-runtime also touches ConfigMaps.
+  * Every reconciler records Events on the resource it failed on.
+
+When the RBAC manager is enabled the bound ClusterRole is AGGREGATING and carries no
+rules of its own -- the rules live in a second, labelled ClusterRole. That indirection is
+required, not stylistic: the RBAC manager grants the core control plane access to the CRDs
+a freshly installed Provider brings by creating more ClusterRoles with the same
+aggregation label, and Kubernetes overwrites the rules of any ClusterRole that has an
+aggregationRule. With the manager disabled there is nothing to aggregate, so the rules go
+straight into the bound role.
+
+The aggregation LABEL cannot be namespaced -- the RBAC manager hardcodes it -- so run one
+Crossplane per cluster, as upstream intends.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "crossplane.clusterRoleName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+{{- if .Values.rbacManager.enabled }}
+aggregationRule:
+  clusterRoleSelectors:
+    - matchLabels:
+        rbac.crossplane.io/aggregate-to-crossplane: "true"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-system" (include "crossplane.clusterRoleName" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    crossplane.io/scope: "system"
+    rbac.crossplane.io/aggregate-to-crossplane: "true"
+{{- end }}
+rules:
+  # Core CRDs (installed by `core init`) and the CRDs generated for every XRD.
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions", "customresourcedefinitions/status"]
+    verbs: ["*"]
+  # Everything Crossplane defines: XRDs, Compositions, packages, Operations, Usages.
+  - apiGroups:
+      - apiextensions.crossplane.io
+      - ops.crossplane.io
+      - pkg.crossplane.io
+      - protection.crossplane.io
+    resources: ["*"]
+    verbs: ["*"]
+  # TLS material written by `core init`, plus connection-detail Secrets for composites.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # The package runtime: a Provider or Function package runs as a Deployment with its own
+  # ServiceAccount, fronted by a Service.
+  - apiGroups: [""]
+    resources: ["serviceaccounts", "services"]
+    verbs: ["*"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Leader election (Lease) and controller-runtime's ConfigMap fallback.
+  - apiGroups: ["", "coordination.k8s.io"]
+    resources: ["configmaps", "leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # `core init` registers the Usage-protection and XRD conversion webhooks.
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingwebhookconfigurations", "mutatingwebhookconfigurations"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "crossplane.clusterRoleName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "crossplane.clusterRoleName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "crossplane.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.rbacManager.enabled }}
+---
+{{- /*
+RBAC for the RBAC MANAGER. Its whole job is writing other people's RBAC, so it needs
+rights the core control plane must never hold:
+
+  * `escalate` on ClusterRoles/Roles -- it grants a Provider the permissions the package
+    requested, which by definition exceed its own;
+  * `bind` on ClusterRoles and full rights on ClusterRoleBindings -- it wires those roles
+    to the Provider's ServiceAccount;
+  * `update` on the /finalizers subresource of Namespace, XRD and ProviderRevision --
+    the roles it creates are ownerReferenced to those objects, and the
+    OwnerReferencesPermissionEnforcement admission plugin requires finalizer rights to
+    create a blocking owner reference.
+
+It only ever READS the objects it derives roles from (XRDs, ProviderRevisions,
+Namespaces, CRDs, Deployments), which is why this role has no write verbs on them.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "crossplane.rbacManagerClusterRoleName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["namespaces/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["apiextensions.crossplane.io"]
+    resources: ["compositeresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apiextensions.crossplane.io"]
+    resources: ["compositeresourcedefinitions/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["pkg.crossplane.io"]
+    resources: ["providerrevisions"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["pkg.crossplane.io"]
+    resources: ["providerrevisions/finalizers"]
+    verbs: ["update"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles", "roles"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "escalate"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles"]
+    verbs: ["bind"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterrolebindings"]
+    verbs: ["*"]
+  - apiGroups: ["", "coordination.k8s.io"]
+    resources: ["configmaps", "leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "crossplane.rbacManagerClusterRoleName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "crossplane.rbacManagerClusterRoleName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "crossplane.rbacManagerName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+{{- /* The allow-list the manager checks provider requests against when
+       rbacManager.restrictProviderPermissions is on. Aggregating and initially EMPTY:
+       add ClusterRoles labelled
+       rbac.crossplane.io/aggregate-to-allowed-provider-permissions: "true" to widen it. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-allowed-provider-permissions" (include "crossplane.clusterRoleName" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+aggregationRule:
+  clusterRoleSelectors:
+    - matchLabels:
+        rbac.crossplane.io/aggregate-to-allowed-provider-permissions: "true"
+{{- if .Values.rbacManager.aggregatedClusterRoles }}
+{{- /*
+Consumer-facing roles. For every XRD it sees, the RBAC manager emits a ClusterRole
+labelled aggregate-to-{admin,edit,view,browse}; these four collect them, so a platform
+team can hand out one stable role name instead of tracking per-API roles. Empty until the
+first XRD exists -- that is expected, not a bug.
+*/}}
+{{- range $tier := list "admin" "edit" "view" "browse" }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-%s" (include "crossplane.clusterRoleName" $) $tier | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+aggregationRule:
+  clusterRoleSelectors:
+    - matchLabels:
+        rbac.crossplane.io/aggregate-to-{{ $tier }}: "true"
+{{- end }}
+---
+{{- /* Anyone in the <release>:masters group gets the aggregated admin role. The group has
+       no members until a cluster operator maps identities onto it. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-admin" (include "crossplane.clusterRoleName" .) | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-admin" (include "crossplane.clusterRoleName" .) | trunc 63 | trimSuffix "-" }}
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: {{ printf "%s:masters" (include "quench-common.fullname" .) }}
+{{- end }}
+{{- end }}
+{{- end }}

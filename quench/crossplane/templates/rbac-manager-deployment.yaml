@@ -1,0 +1,86 @@
+{{- if .Values.rbacManager.enabled }}
+{{/* The RBAC manager runs a plain controller-runtime manager with no health-probe server,
+     so its only real endpoint is the metrics handler. An httpGet on /metrics is therefore
+     the honest liveness signal here -- it proves the manager's HTTP stack is serving, not
+     merely that a port is bound. */}}
+{{- $probe := dict "httpGet" (dict "path" "/metrics" "port" "metrics") "initialDelaySeconds" 10 "periodSeconds" 15 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "crossplane.rbacManagerName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rbac-manager
+spec:
+  replicas: {{ .Values.rbacManager.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: rbac-manager
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: rbac-manager
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "crossplane.rbacManagerName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        {{/* `rbac init` does one thing: block until the CRDs it watches
+             (compositeresourcedefinitions, providerrevisions) exist. Without it this pod
+             races the core Deployment's `core init` and crashloops for the first minute
+             of every fresh install. */}}
+        - name: init
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args: ["rbac", "init"]
+          resources:
+            {{- toYaml .Values.rbacManager.resources | nindent 12 }}
+      containers:
+        - name: rbac-manager
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - "rbac"
+            - "start"
+            {{- if .Values.rbacManager.restrictProviderPermissions }}
+            - "--provider-clusterrole={{ printf "%s-allowed-provider-permissions" (include "crossplane.clusterRoleName" .) | trunc 63 | trimSuffix "-" }}"
+            {{- end }}
+            {{- range .Values.rbacManager.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: LEADER_ELECTION
+              value: {{ .Values.rbacManager.leaderElection | quote }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: metrics
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml $probe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml $probe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.rbacManager.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

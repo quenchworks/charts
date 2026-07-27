@@ -1,0 +1,26 @@
+{{- if .Values.core.webhooks.enabled }}
+{{/* Fronts the webhook server ONLY. The certificate `core init` mints carries this
+     Service's DNS names, and the ValidatingWebhookConfiguration it registers points the
+     API server here, so the Service name is part of the TLS contract. Metrics are scraped
+     from the Pod, not through a Service, so they are deliberately absent. */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: webhooks
+      port: {{ .Values.service.port }}
+      targetPort: webhooks
+      protocol: TCP
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: core
+{{- end }}

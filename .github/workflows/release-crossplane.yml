@@ -1,0 +1,171 @@
+name: release-crossplane
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/crossplane/**"
+      - ".github/workflows/release-crossplane.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/crossplane
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --namespace crossplane-system --create-namespace --wait --timeout 10m
+          kubectl -n crossplane-system rollout status deployment/rtest-crossplane --timeout=300s
+          kubectl -n crossplane-system rollout status deployment/rtest-crossplane-rbac-manager --timeout=300s
+
+          # --- real smoke check, not a TCP probe -----------------------------
+          # 1. the CRDs the image carries at /crds were applied AND Established by the API
+          #    server. `kubectl wait --for=condition=Established` fails on a CRD that was
+          #    applied but rejected, which a port probe would never notice.
+          for crd in \
+            providers.pkg.crossplane.io \
+            functions.pkg.crossplane.io \
+            configurations.pkg.crossplane.io \
+            compositeresourcedefinitions.apiextensions.crossplane.io \
+            compositions.apiextensions.crossplane.io ; do
+            kubectl wait --for=condition=Established "crd/${crd}" --timeout=120s
+          done
+
+          # 2. the control plane reports itself healthy on its OWN probe endpoints.
+          #    /readyz only answers 200 once the manager and the webhook server started.
+          pod="$(kubectl -n crossplane-system get pod \
+                  -l app.kubernetes.io/instance=rtest,app.kubernetes.io/component=core \
+                  -o jsonpath='{.items[0].metadata.name}')"
+          kubectl -n crossplane-system port-forward "pod/${pod}" 8081:8081 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS http://127.0.0.1:8081/healthz | grep -q '^ok$'
+          curl -fsS http://127.0.0.1:8081/readyz  | grep -q '^ok$'
+
+          # 3. `core init` really minted the webhook TLS material into the empty Secrets
+          #    the chart created, and registered the webhook with that CA bundle.
+          kubectl -n crossplane-system get secret rtest-crossplane-tls-server \
+            -o jsonpath='{.data.tls\.crt}' | base64 -d | grep -q "BEGIN CERTIFICATE"
+          # (the VWC name is fixed upstream, hence one Crossplane per cluster)
+          kubectl get validatingwebhookconfiguration crossplane-no-usages \
+            -o jsonpath='{.webhooks[0].clientConfig.service.name}' | grep -qx rtest-crossplane
+
+          # 4. the control plane actually SERVES its own API: create a real XRD and wait
+          #    for Crossplane to establish the CRD it derives from it. This exercises the
+          #    apiextensions controller, the conversion webhook and the RBAC path in one
+          #    go -- a dead control plane leaves the XRD unestablished and fails here.
+          #    (v1 XRDs warn "consider migrating to v2"; kept on v1 deliberately -- it is
+          #    still served, and it is the shape the RBAC manager derives roles from.)
+          kubectl apply -f - <<'EOF'
+          apiVersion: apiextensions.crossplane.io/v1
+          kind: CompositeResourceDefinition
+          metadata:
+            name: xgatewidgets.gate.quench-works.com
+          spec:
+            group: gate.quench-works.com
+            names:
+              kind: XGateWidget
+              plural: xgatewidgets
+            versions:
+              - name: v1alpha1
+                served: true
+                referenceable: true
+                schema:
+                  openAPIV3Schema:
+                    type: object
+                    properties:
+                      spec:
+                        type: object
+                        properties:
+                          size:
+                            type: string
+          EOF
+          kubectl wait --for=condition=Established \
+            xrd/xgatewidgets.gate.quench-works.com --timeout=180s \
+            || { kubectl describe xrd xgatewidgets.gate.quench-works.com; \
+                 kubectl -n crossplane-system logs deployment/rtest-crossplane --tail=200; exit 1; }
+          kubectl wait --for=condition=Established \
+            crd/xgatewidgets.gate.quench-works.com --timeout=120s
+
+          # 5. the RBAC manager did its job: it derives ClusterRoles from that XRD and
+          #    labels them into the aggregated consumer roles. Nothing else creates these.
+          for i in $(seq 1 30); do
+            kubectl get clusterrole crossplane:composite:xgatewidgets.gate.quench-works.com:aggregate-to-edit >/dev/null 2>&1 && break
+            [ "$i" = 30 ] && { echo "RBAC manager never derived roles for the XRD"; \
+              kubectl get clusterrole | grep -i xgatewidget || true; \
+              kubectl -n crossplane-system logs deployment/rtest-crossplane-rbac-manager --tail=200; exit 1; }
+            sleep 2
+          done
+          # 6. the aggregation indirection actually closed the loop: the manager's
+          #    aggregate-to-crossplane role must have flowed into the ClusterRole bound to
+          #    the core ServiceAccount, otherwise the control plane cannot touch the API it
+          #    just defined. This is the one thing a static RBAC review cannot prove.
+          kubectl get clusterrole rtest-crossplane -o json \
+            | jq -e '[.rules[].apiGroups[]] | index("gate.quench-works.com")' >/dev/null \
+            || { echo "aggregated core ClusterRole did not pick up the XRD-derived rules"; \
+                 kubectl get clusterrole rtest-crossplane -o yaml; exit 1; }
+          #    ... and into the consumer-facing -edit role.
+          kubectl get clusterrole rtest-crossplane-edit -o json \
+            | jq -e '[.rules[].resources[]] | index("xgatewidgets")' >/dev/null \
+            || { echo "aggregated -edit ClusterRole is empty after the XRD"; exit 1; }
+
+          echo "install gate OK: CRDs Established, /readyz ok, XRD served, RBAC aggregation closed"
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/crossplane-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/crossplane@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/crossplane:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
