@@ -1,0 +1,46 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Client listener (9999) + PCP admin (9898). Clients are usually other in-cluster
+    # workloads, so ingress is restricted to the release namespace by default; set
+    # allowExternal: true to accept connections from anywhere.
+    - ports:
+        - port: pgpool
+          protocol: TCP
+        - port: pcp
+          protocol: TCP
+      {{- if not .Values.networkPolicy.allowExternal }}
+      from:
+        - podSelector: {}
+      {{- end }}
+  egress:
+    # DNS resolution
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # Backend PostgreSQL nodes. Open to each DISTINCT configured backend port
+    # cluster-wide so both the bundled subchart and external nodes are reachable.
+    {{- $ports := list -}}
+    {{- range (include "pgpool.backendList" . | fromJsonArray) -}}
+    {{- $ports = append $ports (.port | int) -}}
+    {{- end }}
+    - ports:
+        {{- range (uniq $ports) }}
+        - port: {{ . }}
+          protocol: TCP
+        {{- end }}
+{{- end }}

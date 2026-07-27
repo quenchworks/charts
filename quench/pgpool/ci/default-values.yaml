@@ -1,0 +1,38 @@
+# Standalone install gate. No image override: uses the chart's real CI-maintained digest.
+# Bundles the Quenchworks PostgreSQL subchart with persistence off; deterministic shared
+# credentials so the generated pool_passwd matches the backend; small resources for the
+# runner. scram-sha-256 proves real end-to-end auth THROUGH the pooler, and the gate then
+# runs `SELECT 1` plus `SHOW POOL_NODES` over port 9999 — a TCP probe alone would pass on
+# a pooler that has lost its backend.
+postgresql:
+  enabled: true
+  auth:
+    username: appuser
+    password: appsecret
+    database: appdb
+  primary:
+    persistence:
+      enabled: false
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: "1", memory: 512Mi }
+
+pgpool:
+  clusteringMode: streaming_replication
+  authMethod: scram-sha-256
+  # A GitHub runner cannot afford 32 pre-forked children x 4 pooled connections against a
+  # single small PG; 8 x 2 still exercises pooling and load balancing.
+  numInitChildren: 8
+  maxPool: 2
+  healthCheckPeriod: 5
+  srCheckPeriod: 5
+
+# One PCP user so the admin protocol on 9898 is exercised too. The value is
+# md5("adminsecret") -- pcp.conf stores unsalted MD5, never plaintext.
+pcp:
+  users:
+    admin: 71a4a17a658b90a7f847585721b5a217
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }

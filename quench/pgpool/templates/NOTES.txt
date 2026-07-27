@@ -1,0 +1,77 @@
+Quenchworks Pgpool-II is installed as {{ include "quench-common.fullname" . }}.
+
+Point your applications at the pooler instead of PostgreSQL directly:
+
+  host : {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local
+  port : {{ .Values.service.port }}
+  user : {{ include "pgpool.db.user" . }}
+  db   : {{ include "pgpool.db.name" . }}
+
+Backend nodes (node 0 is the primary in streaming_replication mode):
+{{- range $i, $b := (include "pgpool.backendList" . | fromJsonArray) }}
+  {{ $i }}: {{ $b.host }}:{{ $b.port }}  weight={{ $b.weight }}  flag={{ $b.flag }}
+{{- end }}
+
+  clustering mode : {{ .Values.pgpool.clusteringMode }}
+  load balancing  : {{ .Values.pgpool.loadBalanceMode }}
+  connection pool : {{ .Values.pgpool.connectionCache }} ({{ .Values.pgpool.numInitChildren }} children x max_pool {{ .Values.pgpool.maxPool }})
+
+Connect from a client pod (the Quenchworks postgresql image ships psql):
+
+  PW=$(kubectl get secret --namespace {{ .Release.Namespace }} \
+{{- if .Values.postgresql.enabled }}
+        {{ .Release.Name }}-postgresql -o jsonpath="{.data.postgres-password}" | base64 -d)
+{{- else }}
+        <your-db-secret> -o jsonpath="{.data.password}" | base64 -d)
+{{- end }}
+
+  kubectl run pgclient --rm -it --restart=Never \
+    --image=ghcr.io/quenchworks/images/postgresql:18.4 -- \
+    psql "host={{ include "quench-common.fullname" . }} port={{ .Values.service.port }} user={{ include "pgpool.db.user" . }} dbname={{ include "pgpool.db.name" . }} password=$PW" -c 'SELECT 1;'
+
+Pgpool-II answers its own SHOW commands over the same connection — use them to see the
+node table, which query went where, and the pool state:
+
+  SHOW POOL_NODES;    -- one row per backend: role, status, weight, select_cnt, delay
+  SHOW POOL_PROCESSES;
+  SHOW POOL_POOLS;
+  SHOW POOL_VERSION;
+
+Admin (PCP) protocol on port {{ .Values.service.pcpPort }} — pcp_node_count,
+pcp_node_info, pcp_detach_node, pcp_attach_node, pcp_recovery_node.
+{{- if .Values.pcp.users }}
+Configured PCP users: {{ keys .Values.pcp.users | sortAlpha | join ", " }}.
+{{- else }}
+No PCP users are configured, so the listener accepts nothing. Add one to use it:
+
+  --set pcp.users.admin=<password>
+
+PCP clients read the password from a file named by $PCPPASSFILE, one
+"host:port:user:password" line, mode 0600.
+{{- end }}
+
+Backend database:
+{{- if .Values.postgresql.enabled }}
+  Bundled Quenchworks PostgreSQL (postgresql.enabled=true) as the single node. Pgpool-II
+  and the bundled PG share the deterministic credentials under `postgresql.auth`. This
+  self-contained mode is mainly for demos/CI — in PRODUCTION set postgresql.enabled=false
+  and list your real primary + standbys in `backends`.
+{{- else }}
+  External nodes (postgresql.enabled=false), credentials from `auth`.
+{{- end }}
+
+Notes on behaviour:
+  * Client authentication uses pool_hba.conf ({{ .Values.pgpool.authMethod }}); the
+    plaintext credential in the pool_passwd Secret is what lets Pgpool-II both verify
+    the client and log in to the backends.
+  * No failover_command is configured: the runtime image has no shell, so promotion is
+    left to Kubernetes / your PostgreSQL operator. Pgpool-II still detaches a dead node
+    and re-detects the primary via sr_check.
+  * pgpool_status lives on an emptyDir, so node up/down state is rebuilt from health
+    checks after a restart.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

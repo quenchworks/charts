@@ -1,0 +1,175 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/pgpool.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/pgpool
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Pgpool-II is stateless — its only state is the backend node list plus the
+# pgpool_status file (which is a cache of node up/down and is rebuilt from health
+# checks). Scale horizontally by raising replicaCount; each replica keeps its own
+# pool, so total backend connections = replicaCount * num_init_children * max_pool.
+replicaCount: 1
+
+# Bundled in-cluster PostgreSQL (the Quenchworks postgresql subchart). Default true:
+# a self-contained demo/gate that pools in front of an in-cluster PG. In PRODUCTION
+# you typically set postgresql.enabled=false and list your real PostgreSQL nodes in
+# `backends` — the point of Pgpool-II is to front an existing cluster.
+#
+# The auth block pins DETERMINISTIC credentials so the generated pool_passwd and the
+# bundled PG agree on db/user/password.
+postgresql:
+  enabled: true
+  auth:
+    # NOTE: the bundled PostgreSQL image creates the application database only when it
+    # differs from both "postgres" and the superuser name, so username and database
+    # MUST NOT be equal (here: appuser vs appdb).
+    username: appuser
+    password: appsecret
+    database: appdb
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# Backend PostgreSQL nodes, used when postgresql.enabled=false. This is the real use
+# case: node 0 is the primary, the rest are streaming-replication standbys that
+# Pgpool-II load-balances read-only queries across.
+#   - name:   optional label shown in SHOW POOL_NODES
+#   - weight: relative share of load-balanced (read-only) traffic
+#   - flag:   ALLOW_TO_FAILOVER | DISALLOW_TO_FAILOVER | ALWAYS_PRIMARY
+backends: []
+#  - host: pg-primary.db.svc.cluster.local
+#    port: 5432
+#    weight: 1
+#    flag: ALLOW_TO_FAILOVER
+#  - host: pg-replica.db.svc.cluster.local
+#    port: 5432
+#    weight: 1
+#    flag: ALLOW_TO_FAILOVER
+
+# Credentials Pgpool-II uses when postgresql.enabled=false. They must be valid on
+# every backend: Pgpool-II authenticates clients with them (SCRAM, from pool_passwd)
+# and reuses them for the health check and the primary-node check.
+auth:
+  database: appdb
+  username: appuser
+  password: ""
+  existingSecret: ""               # Secret holding the password
+  existingSecretPasswordKey: "password"
+
+# --- Pgpool-II configuration (rendered into the pgpool.conf ConfigMap) ---
+# The whole file is templated from these knobs; for advanced cases supply your own
+# with `pgpool.raw` (a complete pgpool.conf), which REPLACES everything below.
+pgpool:
+  # raw|streaming_replication|native_replication|logical_replication|slony|snapshot_isolation
+  # streaming_replication (default) is the modern setup: read/write split against a
+  # primary + physical standbys, with automatic primary re-detection on failover.
+  # Use `raw` for a single node with no replication.
+  clusteringMode: streaming_replication
+  # Client auth METHOD in pool_hba.conf. scram-sha-256 is the default and matches the
+  # Quenchworks PostgreSQL image; pool_passwd holds the plaintext password Pgpool-II
+  # needs both to verify the client and to log in to the backends.
+  authMethod: scram-sha-256        # scram-sha-256 | md5 | password | trust
+  numInitChildren: 32              # pre-forked children = max concurrent clients
+  maxPool: 4                       # cached connections per child, per (user, database)
+  connectionCache: true            # the actual connection pooling
+  loadBalanceMode: true            # spread read-only queries over the standbys
+  # Health check: marks a node down (and triggers failover in streaming_replication
+  # mode) when it stops answering. Credentials come from pool_passwd, so no password
+  # is duplicated into the ConfigMap.
+  healthCheckPeriod: 10
+  healthCheckTimeout: 20
+  healthCheckMaxRetries: 3
+  healthCheckRetryDelay: 1
+  # Streaming-replication check: finds the primary and measures replication delay.
+  # Ignored unless clusteringMode is streaming_replication.
+  srCheckPeriod: 10
+  delayThreshold: 10000000         # bytes of WAL lag before a standby stops taking reads
+  logMinMessages: warning          # debug5..panic
+  logConnections: false
+  clientIdleLimit: 0               # seconds; 0 = never disconnect an idle client
+  # Extra raw lines appended verbatim to pgpool.conf (key = value per line).
+  extraConfig: ""
+  # Provide a COMPLETE pgpool.conf here to bypass templating entirely (advanced).
+  raw: ""
+
+# The pool_passwd Secret maps usernames to the credentials Pgpool-II uses. An entry
+# for the backend user is generated from the resolved password; an unprefixed value is
+# treated as PLAINTEXT, which is what scram-sha-256 needs at both ends.
+poolPasswd:
+  existingSecret: ""               # your own Secret (key: pool_passwd)
+  extraUsers: {}                   # { "reader": "readerpw", ... } appended to the list
+
+# PCP is Pgpool-II's admin protocol on 9898 (pcp_node_count, pcp_detach_node, ...).
+# Each entry becomes a "username:md5(password)" line in pcp.conf. Values are the MD5
+# HASH, not the plaintext (Helm has no md5 function, and hashing before you commit
+# keeps the password out of your values file):
+#     pg_md5 <password>            # ships in the image
+#     printf %s <password> | md5sum
+# Empty = nobody can use PCP, which is the safe default.
+pcp:
+  existingSecret: ""               # your own Secret (key: pcp.conf)
+  users: {}                        # { "admin": "<md5-of-password>" }
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 9999                       # Pgpool-II client listener (point apps here)
+  pcpPort: 9898                    # PCP admin listener
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Pgpool-II fronts a database; clients are typically other workloads. Default restricts
+# ingress on 9999/9898 to the release namespace. Set allowExternal: true to accept
+# connections from anywhere (e.g. an ingress/LB exposing the pooler outside the cluster).
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

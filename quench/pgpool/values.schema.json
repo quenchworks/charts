@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Quenchworks Pgpool-II values",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "digest"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] }
+      }
+    },
+    "nameOverride": { "type": "string" },
+    "replicaCount": { "type": "integer", "minimum": 1 },
+    "postgresql": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "auth": {
+          "type": "object",
+          "additionalProperties": true,
+          "properties": {
+            "username": { "type": "string", "minLength": 1 },
+            "password": { "type": "string" },
+            "database": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "backends": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["host"],
+        "properties": {
+          "host": { "type": "string", "minLength": 1 },
+          "port": { "type": ["integer", "string"] },
+          "weight": { "type": ["integer", "number", "string"] },
+          "flag": { "type": "string", "enum": ["ALLOW_TO_FAILOVER", "DISALLOW_TO_FAILOVER", "ALWAYS_PRIMARY"] }
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "database": { "type": "string" },
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "existingSecret": { "type": "string" },
+        "existingSecretPasswordKey": { "type": "string" }
+      }
+    },
+    "pgpool": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "clusteringMode": {
+          "type": "string",
+          "enum": ["raw", "streaming_replication", "native_replication", "logical_replication", "slony", "snapshot_isolation"]
+        },
+        "authMethod": { "type": "string", "enum": ["scram-sha-256", "md5", "password", "trust", "cert"] },
+        "numInitChildren": { "type": "integer", "minimum": 1 },
+        "maxPool": { "type": "integer", "minimum": 1 },
+        "connectionCache": { "type": "boolean" },
+        "loadBalanceMode": { "type": "boolean" },
+        "healthCheckPeriod": { "type": "integer", "minimum": 0 },
+        "healthCheckTimeout": { "type": "integer", "minimum": 0 },
+        "healthCheckMaxRetries": { "type": "integer", "minimum": 0 },
+        "healthCheckRetryDelay": { "type": "integer", "minimum": 0 },
+        "srCheckPeriod": { "type": "integer", "minimum": 0 },
+        "delayThreshold": { "type": "integer", "minimum": 0 },
+        "logMinMessages": {
+          "type": "string",
+          "enum": ["debug5", "debug4", "debug3", "debug2", "debug1", "log", "info", "notice", "warning", "error", "fatal", "panic"]
+        },
+        "logConnections": { "type": "boolean" },
+        "clientIdleLimit": { "type": "integer", "minimum": 0 },
+        "extraConfig": { "type": "string" },
+        "raw": { "type": "string" }
+      }
+    },
+    "poolPasswd": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "existingSecret": { "type": "string" },
+        "extraUsers": { "type": "object" }
+      }
+    },
+    "pcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "existingSecret": { "type": "string" },
+        "users": { "type": "object" }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "requests": { "type": "object" }, "limits": { "type": "object" } }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "pcpPort": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "annotations": { "type": "object" }
+      }
+    },
+    "rbac": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "create": { "type": "boolean" } }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "allowExternal": { "type": "boolean" }
+      }
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minAvailable": { "type": ["integer", "string"] }
+      }
+    }
+  }
+}

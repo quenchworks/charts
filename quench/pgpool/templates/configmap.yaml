@@ -1,0 +1,17 @@
+{{/*
+The pgpool.conf + pool_hba.conf the runtime actually reads. The image's entrypoint runs
+`pgpool -n -f /etc/pgpool/pgpool.conf -F /etc/pgpool/pcp.conf -a /etc/pgpool/pool_hba.conf`,
+so these are mounted at those exact paths. Changing either rolls the Deployment via the
+checksum annotation. No credentials live here — see the pool_passwd Secret.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pgpool.configMapName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  pgpool.conf: |
+    {{- include "pgpool.conf" . | nindent 4 }}
+  pool_hba.conf: |
+    {{- include "pgpool.hba" . | nindent 4 }}
