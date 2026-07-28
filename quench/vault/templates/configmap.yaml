@@ -1,0 +1,17 @@
+{{- if not .Values.dev.enabled }}
+{{/*
+The Vault HCL config. Vault refuses to start without a config file, and the image is
+shell-free (no entrypoint script can synthesize one), so the chart supplies it here and
+overrides the container args to point at it. Dev mode takes no config file at all, so
+this ConfigMap is skipped entirely there.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vault.configMapName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  vault.hcl: |
+    {{- .Values.server.config | nindent 4 }}
+{{- end }}

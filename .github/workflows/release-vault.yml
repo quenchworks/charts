@@ -1,0 +1,112 @@
+name: release-vault
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/vault/**"
+      - ".github/workflows/release-vault.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/vault
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # pin actions to SHAs before going public (renovate)
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          set -o pipefail
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          # A real Vault node boots SEALED, and a sealed node answers 501/503 forever --
+          # indistinguishable from a wedged process to a TCP probe. So the gate runs
+          # ci/default-values.yaml in DEV MODE (auto-unsealed, fixed root token): health
+          # must return 200 and a real kv-v2 put/get roundtrip must come back with the
+          # value we wrote. That proves Vault ANSWERS ITS API, not just that :8200 is open.
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 6m
+          kubectl rollout status statefulset/rtest-vault --timeout=300s
+
+          # dev mode = initialized + unsealed: /v1/sys/health returns 200 over a
+          # port-forward (the runtime image has no HTTP client).
+          kubectl port-forward rtest-vault-0 8200:8200 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          ok=""
+          for i in $(seq 1 30); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8200/v1/sys/health)" || true
+            echo "health: $code"
+            if [ "$code" = "200" ]; then ok=1; break; fi
+            sleep 3
+          done
+          test -n "$ok"   # fail loudly if the dev node never reports init+unsealed
+
+          # Sealed status straight from the API, not just the HTTP code.
+          curl -s http://127.0.0.1:8200/v1/sys/health | grep -q '"sealed":false'
+
+          # Real kv-v2 roundtrip via the in-image `vault` CLI. The image is SHELL-FREE, so
+          # exec the binary directly -- VAULT_ADDR and VAULT_TOKEN are already in the
+          # container's env (kubectl exec cannot set them), which is exactly what the
+          # chart wires up in dev mode.
+          kubectl exec rtest-vault-0 -- vault kv put secret/gate v=quench
+          out="$(kubectl exec rtest-vault-0 -- vault kv get -field=v secret/gate)"
+          echo "kv get -> $out"
+          echo "$out" | grep -q '^quench$'   # fail loudly on mismatch
+          kubectl exec rtest-vault-0 -- vault status
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/vault-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"   # fail loudly rather than handing cosign an empty ref
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/vault@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push. Register the ArtifactHub repo and set the ID."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/vault:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

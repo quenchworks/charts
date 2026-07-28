@@ -1,0 +1,17 @@
+# Standalone install gate. No image override: uses the chart's real CI-maintained digest.
+#
+# Dev mode so the node auto-unseals: /v1/sys/health returns 200 and a kv put/get
+# roundtrip can run, which proves Vault actually ANSWERS ITS API rather than merely
+# holding a socket open. (A non-dev node boots sealed and would only ever answer
+# 501/503, which a TCP probe cannot distinguish from a wedged process.) The dev root
+# token is injected into the pod env from the chart's Secret, so the shell-free image
+# can be driven with a plain `kubectl exec -- vault kv ...`.
+# In-memory (no PVC) keeps the gate tiny.
+dev:
+  enabled: true
+  rootToken: "ci-gate-root-token"
+persistence:
+  enabled: false
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: 500m, memory: 256Mi }

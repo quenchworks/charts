@@ -1,0 +1,88 @@
+==============================================================================
+ LICENSE -- NOT OPEN SOURCE
+ HashiCorp Vault 1.15.0 and later are licensed under the Business Source
+ License 1.1 (BUSL-1.1). BUSL is NOT OSI-approved open source: it restricts
+ competing hosted use and only converts to MPL-2.0 after a change date.
+ Do NOT treat Vault as open source.
+ CLEAN ALTERNATIVE: OpenBao (MPL-2.0, /charts/openbao) is the truly-open
+ drop-in fork of Vault, API- and CLI-compatible -- prefer it for new
+ deployments.
+==============================================================================
+
+Quenchworks Vault is installed as {{ include "quench-common.fullname" . }}.
+
+The HTTP API is reachable inside the cluster at:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.apiPort }}
+
+{{ if .Values.dev.enabled }}
+=========================  DEV MODE  =========================
+This release runs in DEV MODE: an auto-unsealed, IN-MEMORY server. Data is NOT
+persisted and the root token lives in a Secret. Use it for quick start / testing
+ONLY, NEVER for production. Disable with `dev.enabled=false` for a real node.
+
+Get the dev root token:
+
+  kubectl get secret {{ include "vault.devSecretName" . }} \
+    -o jsonpath='{.data.dev-root-token}' | base64 -d
+
+Write and read a secret. The image is SHELL-FREE, so exec the binary directly --
+VAULT_ADDR and VAULT_TOKEN are already in the container's environment:
+
+  kubectl exec {{ include "quench-common.fullname" . }}-0 -- vault kv put secret/hello v=quench
+  kubectl exec {{ include "quench-common.fullname" . }}-0 -- vault kv get secret/hello
+{{ else }}
+###############################################################################
+#  !!  THE SERVER STARTS SEALED AND UNINITIALIZED  --  THIS IS EXPECTED  !!    #
+#                                                                             #
+#  A real Vault node does NOT serve secrets until you INITIALIZE it and then   #
+#  UNSEAL it. /v1/sys/health returns 501 (uninit) / 503 (sealed) until then;    #
+#  the pod is intentionally reported Ready while sealed so you can run these    #
+#  operator steps against it.                                                  #
+###############################################################################
+
+The image is SHELL-FREE, so exec the binary directly (no `sh -c`); VAULT_ADDR is
+already set in the container's environment.
+
+1) Initialize (ONCE, ever). This prints the unseal key(s) and the initial root
+   token -- SAVE THEM SECURELY; they cannot be recovered:
+
+     kubectl exec {{ include "quench-common.fullname" . }}-0 -- \
+       vault operator init -key-shares=1 -key-threshold=1
+
+2) Unseal (after every start, until auto-unseal is configured). Use the unseal
+   key from step 1:
+
+     kubectl exec {{ include "quench-common.fullname" . }}-0 -- vault operator unseal <UNSEAL_KEY>
+     kubectl exec {{ include "quench-common.fullname" . }}-0 -- vault status
+
+3) Use it with the root token. `kubectl exec` cannot set environment variables,
+   so put the token in the pod's env (`extraEnvVars`, ideally from a Secret) or
+   talk to the API over a port-forward:
+
+     kubectl port-forward {{ include "quench-common.fullname" . }}-0 {{ .Values.service.apiPort }}:{{ .Values.service.apiPort }}
+     export VAULT_ADDR=http://127.0.0.1:{{ .Values.service.apiPort }} VAULT_TOKEN=<ROOT_TOKEN>
+     vault secrets enable -path=secret kv-v2
+     vault kv put secret/hello v=quench
+
+For a one-command quick start instead, install with `dev.enabled=true`
+(in-memory, auto-unsealed -- testing only).
+{{ end }}
+NOTE: there is NO WEB UI. The image is built without Vault's `ui` build tag (the
+browser console needs a full Ember asset build), so `ui = true` in the config does
+nothing. Use the CLI or the HTTP API.
+
+NOTE: `disable_mlock = true` is set because a nonroot, cap-dropped container cannot
+hold CAP_IPC_LOCK. Run Vault on swap-disabled nodes (the Kubernetes default) to keep
+the "master key never reaches disk" guarantee.
+
+NOTE: TLS is OFF by default and auto-unseal is not configured -- both are tracked
+follow-ups, and both are reachable by replacing `server.config` (add a `seal` block
+and a `tls_cert_file`/`tls_key_file` listener) with no chart change. The
+NetworkPolicy is the trust boundary; keep it enabled.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
