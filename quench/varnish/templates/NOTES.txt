@@ -1,0 +1,41 @@
+Quenchworks Varnish Cache is installed as {{ include "quench-common.fullname" . }}.
+
+It runs nonroot, listens on container port 8080, and the Service exposes it on
+port {{ .Values.service.port }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+{{ if .Values.vcl.existingConfigMap -}}
+VCL: your ConfigMap {{ .Values.vcl.existingConfigMap }} (key default.vcl).
+{{- else if .Values.vcl.raw -}}
+VCL: your own `vcl.raw`, rendered into {{ include "varnish.configMapName" . }}.
+Make sure it answers {{ .Values.vcl.healthPath }} from vcl_synth, or the probes
+will follow the origin's health instead of Varnish's.
+{{- else if .Values.backend.host -}}
+VCL: generated, caching {{ .Values.backend.host }}:{{ .Values.backend.port }}.
+{{- else -}}
+VCL: generated with NO BACKEND ({{ "backend default none;" }}) -- every request is
+answered locally with a synthetic 200, which installs cleanly but caches nothing.
+Set backend.host (and backend.port) to put a real origin behind it.
+{{- end }}
+
+Check that Varnish itself is answering (X-Varnish only comes from Varnish):
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl -i http://127.0.0.1:{{ .Values.service.port }}{{ .Values.vcl.healthPath }}
+
+Live stats and log tailing, and the admin CLI (bound to loopback inside the pod):
+
+  kubectl exec deploy/{{ include "quench-common.fullname" . }} -- varnishstat -1 -n /var/lib/varnish
+  kubectl exec deploy/{{ include "quench-common.fullname" . }} -- varnishlog -n /var/lib/varnish
+  kubectl exec deploy/{{ include "quench-common.fullname" . }} -- varnishadm -n /var/lib/varnish backend.list
+
+The cache is in memory only ({{ .Values.cacheSize }} of malloc storage) and starts
+cold after every restart or rollout. {{ if gt (int .Values.replicaCount) 1 }}With {{ .Values.replicaCount }} replicas each pod keeps its
+own cache, so the same object can be fetched once per pod.{{ end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/varnish \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

@@ -1,0 +1,124 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/varnish
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Varnish's cache is ephemeral by design -- the working set lives in memory and is
+# rebuilt from the origin after a restart -- so this is a Deployment, not a
+# StatefulSet, and the only real state is the VCL plus the backend list. Each
+# replica keeps its OWN cache, so N replicas mean up to N misses for the same
+# object; that is the normal trade-off for scaling a cache tier horizontally.
+replicaCount: 1
+
+# The origin Varnish fronts. Leave `host` empty and Varnish answers every request
+# itself with a 200 from vcl_synth (a `backend default none;` VCL) -- handy for a
+# smoke install, useless as a cache. Point it at a Service to actually cache:
+#   backend:
+#     host: my-app.default.svc.cluster.local
+#     port: 8080
+#
+# TWO THINGS TO KNOW, both consequences of Varnish resolving backend hosts when it
+# COMPILES the VCL, not per request:
+#   1. The name must resolve when the pod STARTS. If the origin Service does not
+#      exist yet, VCL compilation fails ("could not be resolved to an IP address")
+#      and the pod crash-loops until it does -- so ordering matters on a fresh
+#      install, though Kubernetes' restart backoff heals it by itself.
+#   2. Use a normal ClusterIP Service name. Its IP is stable for the Service's
+#      lifetime, which is what Varnish pins. A headless Service (or a raw pod IP)
+#      resolves to pod addresses that change, and Varnish will keep using the old
+#      one until the VCL is reloaded.
+backend:
+  host: ""
+  port: 80
+
+# VCL. By default the chart renders one from `backend` above plus the health
+# endpoint below. Supply your own with `vcl.raw` (a COMPLETE VCL file, which
+# replaces the generated one entirely) or point `vcl.existingConfigMap` at a
+# ConfigMap with a `default.vcl` key.
+#
+# IMPORTANT for custom VCL: the probes GET `vcl.healthPath`, so your VCL must
+# answer it without involving the backend, or the pod restarts whenever the origin
+# is unhealthy. Keep this at the top of vcl_recv:
+#
+#   if (req.url == "/varnish-health") { return (synth(200, "OK")); }
+#
+# (or override livenessProbe/readinessProbe/customLivenessProbe instead).
+vcl:
+  raw: ""
+  existingConfigMap: ""
+  healthPath: /varnish-health
+
+# Cache storage: passed to varnishd as `-s malloc,<cacheSize>`. Keep it well below
+# resources.limits.memory -- Varnish needs headroom on top of the cache for
+# per-connection workspaces and its transient storage.
+cacheSize: 128m
+
+# Extra varnishd flags, appended last (e.g. `-p thread_pool_max=2000`, `-t 300`).
+extraArgs: []
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  # Clients talk plain HTTP to this port; the container listens on 8080 (nonroot
+  # cannot bind Varnish's traditional :80).
+  port: 80
+
+# Optional horizontal autoscaling on CPU.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# A cache is normally fronted by an Ingress or called from other namespaces, so
+# external ingress is allowed by default. Set allowExternal=false to restrict it to
+# the release namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

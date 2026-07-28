@@ -1,0 +1,14 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+#
+# No backend on purpose. Varnish needs a bootable VCL, and `backend default none;`
+# plus a synthetic 200 (what the chart renders when backend.host is empty) means the
+# gate needs no fixture origin at all -- yet the response still carries X-Varnish,
+# so the smoke check still proves that varnishd compiled its VCL, started its child
+# and served the request itself. A backend pod would only add a second thing that
+# can fail for reasons unrelated to Varnish.
+replicaCount: 1
+cacheSize: 64m
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }

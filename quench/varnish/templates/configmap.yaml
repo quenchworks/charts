@@ -1,0 +1,14 @@
+{{- if not .Values.vcl.existingConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "varnish.configMapName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # Mounted over /etc/varnish/default.vcl (the path the image's varnishd -f points
+  # at). varnishd reads it once at startup, so the Deployment carries a checksum
+  # annotation to force a rollout when this changes.
+  default.vcl: |-
+    {{- include "varnish.vcl" . | nindent 4 }}
+{{- end }}
