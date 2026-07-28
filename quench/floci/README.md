@@ -36,7 +36,7 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/floci --owner quenc
 | Value | Default | Notes |
 |-------|---------|-------|
 | `image.repository` | `ghcr.io/quenchworks/images/floci` | |
-| `image.tag` | `1.5.32` | Reference only; the pod pulls by digest. |
+| `image.tag` | `1.5.33` | Reference only; the pod pulls by digest. |
 | `image.digest` | (CI-maintained) | Signed multi-arch index (hardened image). Pinned by digest, never a tag. |
 | `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
 | `replicaCount` | `1` | Keep at 1 with in-process storage. |
