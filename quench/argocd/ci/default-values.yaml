@@ -1,0 +1,37 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+#
+# Everything needed to boot is already in the chart -- Argo CD installs no external
+# dependency and mints its own server certificate -- except Redis, which is a HARD
+# requirement and comes from the bundled quench/redis subchart (redis.enabled
+# defaults to true, so nothing to set here beyond trimming it).
+#
+# insecure: true so the gate can curl /healthz over plain HTTP and be sure it is
+# talking to a live API server rather than a TLS handshake. Resources are trimmed to
+# fit all four workloads plus Redis on a single-node kind cluster.
+server:
+  insecure: true
+  replicaCount: 1
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 1000m, memory: 512Mi }
+repoServer:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 1000m, memory: 1Gi }
+controller:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 1000m, memory: 1Gi }
+applicationSet:
+  enabled: true
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+redis:
+  enabled: true
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { cpu: 500m, memory: 256Mi }

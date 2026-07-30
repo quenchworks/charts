@@ -1,0 +1,99 @@
+{{- if .Values.applicationSet.enabled }}
+{{/*
+  argocd-applicationset-controller: expands one ApplicationSet into N Applications
+  (git / cluster / list / matrix generators). Enabled by DEFAULT, because the chart
+  installs the ApplicationSet CRD either way -- shipping the CRD without the
+  controller gives you a resource that can be created and is then never reconciled,
+  which looks like a broken Argo CD rather than a disabled feature. Turn the whole
+  thing off with applicationSet.enabled=false and the CRD stays (Applications made
+  by an earlier install must not be orphaned), but nothing will act on it.
+
+  It renders manifests through the repo server, so it needs the same git/TLS/GPG
+  config volumes as the repo server itself.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "argocd.appset.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: applicationset-controller
+spec:
+  replicas: {{ .Values.applicationSet.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: applicationset-controller
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: applicationset-controller
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "argocd.appset.sa" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: argocd-applicationset-controller
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/argocd-applicationset-controller"]
+          args:
+            - "--metrics-addr=:{{ .Values.applicationSet.metricsPort }}"
+            - "--probe-addr=:{{ .Values.applicationSet.probePort }}"
+            - "--webhook-addr=:{{ .Values.applicationSet.webhookPort }}"
+            - "--argocd-repo-server={{ include "argocd.repoServer.addr" . }}"
+            - "--repo-server-plaintext={{ .Values.repoServer.disableTLS }}"
+            - "--logformat={{ .Values.logFormat }}"
+            - "--loglevel={{ .Values.logLevel }}"
+            {{- if .Values.applicationSet.enableLeaderElection }}
+            - "--enable-leader-election=true"
+            {{- end }}
+            {{- range .Values.applicationSet.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- with (include "quench-common.extraEnvVars" .) }}
+          env:
+            {{- . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: webhook
+              containerPort: {{ .Values.applicationSet.webhookPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.applicationSet.metricsPort }}
+              protocol: TCP
+            - name: probe
+              containerPort: {{ .Values.applicationSet.probePort }}
+              protocol: TCP
+          {{/* controller-runtime's health endpoints: registered only after the
+               manager starts, so /readyz 200 means the controller is really up. */}}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: probe
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: probe
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.applicationSet.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "argocd.configVolumeMounts" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        {{- include "argocd.configVolumes" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
+{{- end }}

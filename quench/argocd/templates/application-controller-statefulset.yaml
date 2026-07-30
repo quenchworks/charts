@@ -1,0 +1,106 @@
+{{/*
+  argocd-application-controller: the reconciler. Shipped as a StatefulSet, which is
+  what upstream's own manifests/base uses, NOT a Deployment -- and the difference
+  matters as soon as you scale it. Controller sharding assigns clusters to shards by
+  the pod's ORDINAL, parsed out of the pod name (argocd-application-controller-0,
+  -1, ...). A Deployment's random pod suffixes have no ordinal, so a scaled-out
+  Deployment either needs the (alpha) dynamic distribution or silently double-
+  reconciles. One replica behaves identically either way; this shape is the one that
+  stays correct when replicaCount goes up.
+
+  It is the most privileged component in the chart: applying arbitrary rendered
+  manifests requires cluster-admin-equivalent RBAC (see templates/rbac.yaml).
+*/}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "argocd.controller.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: application-controller
+spec:
+  replicas: {{ .Values.controller.replicaCount }}
+  serviceName: {{ include "argocd.controller.fullname" . }}
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: application-controller
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: application-controller
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "argocd.controller.sa" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: argocd-application-controller
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/argocd-application-controller"]
+          args:
+            - "--metrics-port={{ .Values.controller.metricsPort }}"
+            - "--repo-server={{ include "argocd.repoServer.addr" . }}"
+            - "--repo-server-plaintext={{ .Values.repoServer.disableTLS }}"
+            - "--redis={{ include "argocd.redis.addr" . }}"
+            - "--logformat={{ .Values.logFormat }}"
+            - "--loglevel={{ .Values.logLevel }}"
+            {{- with .Values.controller.statusProcessors }}
+            - "--status-processors={{ . }}"
+            {{- end }}
+            {{- with .Values.controller.operationProcessors }}
+            - "--operation-processors={{ . }}"
+            {{- end }}
+            {{- range .Values.controller.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            {{- include "argocd.redis.env" . | nindent 12 }}
+            {{/* Sharding needs to know the shard COUNT; the shard INDEX comes from
+                 the StatefulSet ordinal in the pod name. Keep these consistent or
+                 some clusters get reconciled twice and others not at all. */}}
+            - name: ARGOCD_CONTROLLER_REPLICAS
+              value: {{ .Values.controller.replicaCount | quote }}
+            {{- with .Values.controller.shardingAlgorithm }}
+            - name: ARGOCD_CONTROLLER_SHARDING_ALGORITHM
+              value: {{ . | quote }}
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.controller.metricsPort }}
+              protocol: TCP
+          {{/* /healthz on the metrics port is served by the controller itself and
+               reports its own reconcile loop, not just an open socket. There is no
+               liveness probe on purpose: a long resync can stall the health handler
+               and a restart mid-sync is worse than a slow reconcile. */}}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          volumeMounts:
+            {{/* $HOME holds the per-cluster kubeconfigs and the cluster cache. */}}
+            - name: argocd-home
+              mountPath: /home/argocd
+            {{- include "argocd.configVolumeMounts" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: argocd-home
+          emptyDir: {}
+        {{- include "argocd.configVolumes" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

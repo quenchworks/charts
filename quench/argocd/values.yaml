@@ -1,0 +1,266 @@
+# The digest below is the contract with the image factory. It is never a tag.
+#
+# ONE image, every component: /usr/bin/argocd is a multi-call binary and each
+# component is an argv[0] symlink onto it (argocd-server, argocd-repo-server,
+# argocd-application-controller, argocd-applicationset-controller,
+# argocd-notifications), so all five workloads share this single digest.
+image:
+  repository: ghcr.io/quenchworks/images/argocd
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# json or text; and debug|info|warn|error. Applied to every component.
+logFormat: json
+logLevel: info
+
+# --- CRDs -------------------------------------------------------------------
+# Application, ApplicationSet and AppProject ship as TEMPLATES (templates/crds/),
+# not in Helm's crds/ directory, which is what upstream's own argo-helm chart does
+# too. Helm applies crds/ once on install and NEVER on upgrade, and Argo CD's
+# Application/ApplicationSet schemas change every single minor release -- a
+# crds/-shipped copy would freeze at install time and silently reject every field
+# added since. As templates they are reconciled by `helm upgrade`.
+crds:
+  install: true
+  # helm.sh/resource-policy: keep. Deleting these CRDs deletes every Application,
+  # ApplicationSet and AppProject in the cluster, so `helm uninstall` must not do
+  # it by accident. Set false only if you really want uninstall to take them.
+  keep: true
+  annotations: {}
+
+# --- Argo CD's own configuration --------------------------------------------
+# These land in the FIXED-NAME objects Argo CD looks up itself (argocd-cm,
+# argocd-rbac-cm, argocd-secret, ...). The names are compiled into Argo CD and
+# cannot be release-prefixed, so there can be only ONE Argo CD per namespace.
+configs:
+  # Externally reachable base URL, e.g. https://argocd.example.com. Required for
+  # OIDC callbacks, git webhooks and notification links.
+  url: ""
+  # argocd-cm, verbatim. Anything from Argo CD's argocd-cm reference works here:
+  #   oidc.config, dex.config, repositories, resource.exclusions,
+  #   timeout.reconciliation, kustomize.buildOptions, helm.valuesFileSchemes, ...
+  cm: {}
+  # argocd-rbac-cm. policyDefault is deliberately empty (= deny): a "role:readonly"
+  # default silently grants every authenticated SSO user read access to every app.
+  rbac:
+    policyDefault: ""
+    policyCsv: ""
+    scopes: "[groups]"
+  # ssh host keys for ssh:// repositories, one "host keytype key" per line. The
+  # image symlinks /etc/ssh/ssh_known_hosts at this, so git's ssh honours it too.
+  # Empty by default -- add entries with `argocd cert add-ssh` or here.
+  sshKnownHosts: ""
+  # CA bundles for self-signed https:// git/Helm repos, keyed by hostname:
+  #   git.internal: |
+  #     -----BEGIN CERTIFICATE----- ...
+  tlsCerts: {}
+  # Public GPG keys the repo server imports to verify signed commits/tags, keyed by
+  # key id.
+  gpgKeys: {}
+  secret:
+    # BCRYPT hash of the admin password (`argocd account bcrypt --password ...`),
+    # NOT the plaintext. Leave empty and Argo CD generates one into the Secret
+    # argocd-initial-admin-secret on first start.
+    argocdServerAdminPassword: ""
+    # Extra keys merged into argocd-secret: webhook.github.secret,
+    # oidc.<name>.clientSecret, dex.<connector>.clientSecret, ...
+    extra: {}
+
+# --- argocd-server: API + embedded React console ----------------------------
+server:
+  replicaCount: 1
+  containerPort: 8080
+  metricsPort: 8083
+  # false = the server terminates TLS itself, upstream's default. It generates a
+  # PER-SESSION in-memory self-signed certificate (util/tls) -- nothing is
+  # persisted, so the cert changes on every restart; supply a real one by creating
+  # the Secret argocd-server-tls (tls.crt/tls.key), which Argo CD reads through its
+  # settings. true = plain HTTP, for when an Ingress or mesh terminates TLS. The
+  # probes follow this automatically.
+  insecure: false
+  # Serve the UI under a sub-path, e.g. /argocd (sets both --rootpath and --basehref).
+  rootpath: ""
+  extraArgs: []
+  service:
+    type: ClusterIP
+    port: 8080
+    nodePort: null
+    annotations: {}
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 1000m, memory: 512Mi }
+
+# --- argocd-repo-server: clones repos, renders manifests --------------------
+# The only component that needs the toolbelt in the image (git, git-lfs, ssh, gpg,
+# helm, kustomize) and the only one with no API-server access at all.
+repoServer:
+  replicaCount: 1
+  metricsPort: 8084
+  # Serve gRPC in plaintext inside the cluster. true by default because the
+  # alternative is managing a certificate for a ClusterIP-only service that only
+  # the other components in this release ever dial; every caller is told about it
+  # through --repo-server-plaintext so the two ends cannot disagree.
+  disableTLS: true
+  # Concurrent manifest generations. 0 = unlimited (upstream default); set a bound
+  # if repo-server memory spikes on large Helm charts.
+  parallelismLimit: 0
+  # emptyDir for HELM_CACHE/CONFIG/DATA_HOME. Pure cache -- losing it costs a
+  # re-pull of chart dependencies. Raise it if you vendor large chart deps.
+  helmWorkingDirSizeLimit: 1Gi
+  extraArgs: []
+  service:
+    port: 8081
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 1000m, memory: 1Gi }
+
+# --- argocd-application-controller: the reconciler --------------------------
+# A StatefulSet, matching upstream's own manifests: shards are assigned by the
+# pod's ORDINAL, which only a StatefulSet provides. Raising replicaCount shards
+# the registered clusters across the pods; it does not add redundancy for a single
+# cluster.
+controller:
+  replicaCount: 1
+  metricsPort: 8082
+  # NOTE: the resync interval is NOT a controller flag -- it is
+  # `timeout.reconciliation` in configs.cm (or the ARGOCD_RECONCILIATION_TIMEOUT
+  # env var). Set it there, not here.
+  # Worker pools. Empty = upstream defaults (20 status, 10 operation).
+  statusProcessors: ""
+  operationProcessors: ""
+  # legacy | round-robin | consistent-hashing. Only meaningful with replicaCount > 1.
+  shardingAlgorithm: ""
+  extraArgs: []
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: 2000m, memory: 2Gi }
+
+# --- argocd-applicationset-controller ---------------------------------------
+# ON by default: the chart installs the ApplicationSet CRD regardless, and a CRD
+# with no controller behind it looks broken rather than disabled.
+applicationSet:
+  enabled: true
+  replicaCount: 1
+  webhookPort: 7000
+  metricsPort: 8085
+  probePort: 8086
+  # Needed if you ever run more than one replica; harmless with one.
+  enableLeaderElection: false
+  extraArgs: []
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+# --- argocd-notifications-controller ----------------------------------------
+# OFF by default: it does nothing until you write triggers/templates into `cm` and
+# credentials into `secret`, and it has no CRD, so its absence is invisible.
+# Always single-replica (no leader election -> a second replica double-sends).
+notifications:
+  enabled: false
+  metricsPort: 9001
+  # argocd-notifications-cm, e.g.
+  #   service.slack: |
+  #     token: $slack-token
+  #   trigger.on-sync-failed: |
+  #     - send: [app-sync-failed]
+  cm: {}
+  # argocd-notifications-secret; referenced from cm as $key.
+  secret: {}
+  extraArgs: []
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 250m, memory: 256Mi }
+
+# --- Redis (hard dependency, not a cache you can skip) ----------------------
+# The application controller writes every resource tree and app state into Redis
+# and the API server reads them back; without it the UI shows nothing and syncs
+# stall. This chart depends on the quench/redis chart rather than vendoring a
+# second Redis, so it is the same hardened, digest-pinned 0-CVE image (and the
+# same Sentinel HA story) as everywhere else in the catalog. Any value the
+# quench/redis chart accepts can be set under this key.
+redis:
+  enabled: true
+  # Trimmed for a cache-shaped workload; Argo CD's Redis holds no durable data.
+  architecture: standalone
+  auth:
+    enabled: true
+  persistence:
+    enabled: false
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+# BYO Redis. Setting host here wins over the bundled subchart (set redis.enabled
+# false as well so the subchart is not installed).
+externalRedis:
+  host: ""
+  port: 6379
+  db: 0
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: "redis-password"
+
+# --- RBAC -------------------------------------------------------------------
+rbac:
+  create: true
+  # Cluster-wide RBAC so Argo CD can manage the cluster it runs in. The
+  # application controller's ClusterRole is cluster-admin-equivalent by
+  # construction -- applying arbitrary rendered manifests has no smaller
+  # permission set. Set false for an Argo CD that only manages REMOTE clusters
+  # through explicitly registered credentials.
+  clusterScoped: true
+
+serviceAccount:
+  # One per component; their privilege levels differ by orders of magnitude.
+  create: true
+  annotations: {}
+  # Only used when create=false: pre-existing names to bind to.
+  server: ""
+  repoServer: ""
+  controller: ""
+  applicationSet: ""
+  notifications: ""
+
+# Fences the repo server's gRPC port to this release's own pods (it holds every
+# repository credential). The API server's ingress stays open to whatever
+# terminates traffic in front of it unless allowExternal is turned off.
+networkPolicy:
+  enabled: false
+  allowExternal: true
+
+# --- Common production knobs, wired through quench-common (all optional) ----
+# NOTE: these are chart-wide -- they apply to every component. Per-component
+# replicas and resources live under the component keys above.
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# ARGOCD_* environment variables are Argo CD's real tuning interface (upstream's
+# argocd-cmd-params-cm exists only to feed these), e.g.
+#   - name: ARGOCD_REPO_SERVER_PARALLELISM_LIMIT
+#     value: "10"
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+# Timing overrides for the API server's probes (the other components' probes are
+# fixed to what their own health endpoints support).
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}

@@ -1,0 +1,314 @@
+{{- if .Values.rbac.create }}
+{{/*
+  ---------------------------------------------------------------------------
+  Namespaced Roles: what each component needs inside the Argo CD namespace.
+  ---------------------------------------------------------------------------
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "argocd.server.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+rules:
+  {{/* The API server READS AND WRITES its own config: it stores repository and
+       cluster credentials in Secrets, generates argocd-initial-admin-secret on
+       first start and writes server.secretkey into argocd-secret. */}}
+  - apiGroups: [""]
+    resources: [secrets, configmaps]
+    verbs: [create, get, list, watch, update, patch, delete]
+  - apiGroups: [argoproj.io]
+    resources: [applications, applicationsets, appprojects]
+    verbs: [create, get, list, watch, update, patch, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "argocd.server.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "argocd.server.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "argocd.server.sa" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "argocd.controller.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: application-controller
+rules:
+  {{/* Read-only on its own config; it never writes credentials. */}}
+  - apiGroups: [""]
+    resources: [secrets, configmaps]
+    verbs: [get, list, watch]
+  - apiGroups: [argoproj.io]
+    resources: [applications, applicationsets, appprojects]
+    verbs: [create, get, list, watch, update, patch, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, list]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "argocd.controller.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: application-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "argocd.controller.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "argocd.controller.sa" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.applicationSet.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "argocd.appset.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: applicationset-controller
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [applications, applicationsets, applicationsets/finalizers]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [argoproj.io]
+    resources: [applicationsets/status]
+    verbs: [get, patch, update]
+  - apiGroups: [argoproj.io]
+    resources: [appprojects]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, get, list, patch, watch]
+  - apiGroups: [""]
+    resources: [secrets, configmaps]
+    verbs: [get, list, watch]
+  {{/* Leader election. Split in two on purpose: `create` cannot be scoped with
+       resourceNames, so the create rule has to be unscoped while get/update stay
+       pinned to the one Lease the controller actually uses (the id is compiled
+       into cmd/argocd-applicationset-controller). */}}
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    resourceNames: ["58ac56fa.applicationsets.argoproj.io"]
+    verbs: [get, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "argocd.appset.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: applicationset-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "argocd.appset.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "argocd.appset.sa" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- if .Values.notifications.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "argocd.notifications.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: notifications-controller
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [applications, appprojects]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups: [""]
+    resources: [configmaps, secrets]
+    verbs: [list, watch]
+  {{/* Read-scoped to its own two objects: the notification config can hold every
+       webhook token and smtp password in the cluster, so a blanket secrets/get
+       here would be a real escalation. */}}
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [argocd-notifications-cm]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [argocd-notifications-secret]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "argocd.notifications.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: notifications-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "argocd.notifications.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "argocd.notifications.sa" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- if .Values.rbac.clusterScoped }}
+{{/*
+  ---------------------------------------------------------------------------
+  Cluster-scoped RBAC. This is what makes Argo CD able to manage the cluster it
+  runs in, and it is genuinely broad: the application controller has to be able to
+  apply, prune and diff ANY resource an Application renders, so its ClusterRole is
+  cluster-admin-equivalent by construction -- there is no smaller set that lets a
+  GitOps controller deploy arbitrary manifests.
+
+  Set rbac.clusterScoped=false for a namespaced Argo CD that only manages remote
+  clusters through explicitly registered credentials, and grant the controller
+  per-namespace Roles yourself (see configs.params
+  `application.namespaces`). Names are namespace-suffixed because ClusterRoles are
+  global and one cluster may hold several Argo CD installs.
+   --------------------------------------------------------------------------- */}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "argocd.clusterName" . }}-application-controller
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: application-controller
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["*"]
+  - nonResourceURLs: ["*"]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "argocd.clusterName" . }}-application-controller
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: application-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "argocd.clusterName" . }}-application-controller
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "argocd.controller.sa" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "argocd.clusterName" . }}-server
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+rules:
+  {{/* Deliberately NOT "*" verbs: the API server is the internet-facing component,
+       so it gets only what the UI actually drives -- read a live manifest, delete a
+       live object, patch one, tail pod logs, and re-trigger a Job/Workflow. */}}
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: [get, delete, patch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [list]
+  - apiGroups: [""]
+    resources: [pods, pods/log]
+    verbs: [get]
+  - apiGroups: [argoproj.io]
+    resources: [applications, applicationsets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [create]
+  - apiGroups: [argoproj.io]
+    resources: [workflows]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "argocd.clusterName" . }}-server
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "argocd.clusterName" . }}-server
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "argocd.server.sa" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.applicationSet.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "argocd.clusterName" . }}-applicationset-controller
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: applicationset-controller
+rules:
+  {{/* Cluster-wide so ApplicationSets can target Applications in other namespaces
+       (the Cluster and Git generators read Secrets/ConfigMaps cluster-wide too). */}}
+  - apiGroups: [argoproj.io]
+    resources: [applications, applicationsets, applicationsets/finalizers]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [argoproj.io]
+    resources: [applicationsets/status]
+    verbs: [get, patch, update]
+  - apiGroups: [argoproj.io]
+    resources: [appprojects]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, get, list, patch, watch]
+  - apiGroups: [""]
+    resources: [secrets, configmaps]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "argocd.clusterName" . }}-applicationset-controller
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: applicationset-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "argocd.clusterName" . }}-applicationset-controller
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "argocd.appset.sa" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}
+{{- end }}

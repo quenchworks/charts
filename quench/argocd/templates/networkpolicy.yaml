@@ -1,0 +1,62 @@
+{{- if .Values.networkPolicy.enabled }}
+{{/* The repo server is the one worth fencing: it holds every repository credential
+     and it renders untrusted manifests, yet the only things that ever need to reach
+     its gRPC port are the other Argo CD components in this release. */}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "argocd.repoServer.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: repo-server
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: repo-server
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: grpc
+          protocol: TCP
+      from:
+        - podSelector:
+            matchLabels:
+              {{- include "quench-common.selectorLabels" . | nindent 14 }}
+    {{/* Metrics stay reachable from anywhere in the cluster so Prometheus does not
+         need to live in this namespace. */}}
+    - ports:
+        - port: metrics
+          protocol: TCP
+---
+{{/* The API server is the front door: its ingress must stay open to whatever
+     terminates traffic (an Ingress controller, a LoadBalancer, kubectl
+     port-forward), which is off-cluster from a podSelector's point of view. Hence
+     allowExternal defaults to true -- flipping it to false is only safe if you have
+     confirmed your ingress path is an in-cluster peer. */}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "argocd.server.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: http
+          protocol: TCP
+        - port: metrics
+          protocol: TCP
+      {{- if not .Values.networkPolicy.allowExternal }}
+      from:
+        - podSelector: {}
+      {{- end }}
+{{- end }}

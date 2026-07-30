@@ -1,0 +1,69 @@
+Argo CD {{ .Chart.AppVersion }} is installed as release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+
+Components:
+  * argocd-server                    {{ include "argocd.server.fullname" . }}  (API + web console, {{ ternary "http" "https" .Values.server.insecure }}://:{{ .Values.server.service.port }})
+  * argocd-repo-server               {{ include "argocd.repoServer.fullname" . }}
+  * argocd-application-controller    {{ include "argocd.controller.fullname" . }}  ({{ .Values.controller.replicaCount }} shard(s))
+{{- if .Values.applicationSet.enabled }}
+  * argocd-applicationset-controller {{ include "argocd.appset.fullname" . }}
+{{- end }}
+{{- if .Values.notifications.enabled }}
+  * argocd-notifications-controller  {{ include "argocd.notifications.fullname" . }}
+{{- end }}
+  * redis                            {{ include "argocd.redis.addr" . }}{{ if .Values.externalRedis.host }} (external){{ else if .Values.redis.enabled }} (bundled quench/redis subchart){{ end }}
+
+1. Get the initial admin password (Argo CD generates it on first start):
+
+     kubectl -n {{ .Release.Namespace }} get secret argocd-initial-admin-secret \
+       -o jsonpath='{.data.password}' | base64 -d ; echo
+{{- if .Values.configs.secret.argocdServerAdminPassword }}
+
+   (You pinned admin.password in configs.secret, so argocd-initial-admin-secret
+   will NOT be created -- use the password whose bcrypt hash you supplied.)
+{{- end }}
+
+   Delete that Secret once you have changed the password:
+
+     kubectl -n {{ .Release.Namespace }} delete secret argocd-initial-admin-secret
+
+2. Reach the console:
+
+     kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "argocd.server.fullname" . }} 8080:{{ .Values.server.service.port }}
+     open {{ ternary "http" "https" .Values.server.insecure }}://localhost:8080
+{{- if not .Values.server.insecure }}
+
+   The certificate is self-signed and regenerated per session, so a browser warning
+   is expected; use `argocd login localhost:8080 --insecure` for the CLI. Supply a
+   real one by creating the Secret argocd-server-tls (tls.crt/tls.key), or set
+   server.insecure=true and terminate TLS on an Ingress in front.
+{{- end }}
+
+3. Register a repository and create your first Application:
+
+     argocd repo add https://github.com/argoproj/argocd-example-apps.git
+     argocd app create guestbook \
+       --repo https://github.com/argoproj/argocd-example-apps.git \
+       --path guestbook --dest-server https://kubernetes.default.svc --dest-namespace default
+
+Configuration lives in the fixed-name objects Argo CD reads itself:
+  argocd-cm, argocd-rbac-cm, argocd-secret, argocd-ssh-known-hosts-cm,
+  argocd-tls-certs-cm, argocd-gpg-keys-cm{{ if .Values.notifications.enabled }}, argocd-notifications-cm, argocd-notifications-secret{{ end }}.
+Those names are compiled into Argo CD, so ONE release per namespace.
+{{- if not .Values.configs.url }}
+
+Set configs.url to the externally reachable URL before configuring SSO or webhooks --
+OIDC callbacks and notification links are built from it.
+{{- end }}
+{{- if not .Values.rbac.clusterScoped }}
+
+rbac.clusterScoped=false: this Argo CD has NO cluster-wide permissions. It can only
+manage clusters you register explicitly with credentials, plus whatever namespaced
+Roles you grant it yourself.
+{{- end }}
+
+There is no Dex in this chart. Configure OIDC directly in argocd-cm (oidc.config) for
+any standards-compliant provider, or run the separate quench/dex chart if you need
+Dex's connector translation -- see this chart's README for why.
+
+Image: {{ include "quench-common.image" . }}
+(hardened, nonroot uid 1001, read-only rootfs, 0 fixable CVEs, cosign-signed)

@@ -1,0 +1,202 @@
+name: release-argocd
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/argocd/**"
+      - ".github/workflows/release-argocd.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/argocd
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --namespace argocd --create-namespace --wait --timeout 12m
+          kubectl -n argocd rollout status deployment/rtest-argocd-server --timeout=300s
+          kubectl -n argocd rollout status deployment/rtest-argocd-repo-server --timeout=300s
+          kubectl -n argocd rollout status statefulset/rtest-argocd-application-controller --timeout=300s
+          kubectl -n argocd rollout status deployment/rtest-argocd-applicationset-controller --timeout=300s
+
+          # --- real smoke checks, not a TCP probe ----------------------------
+          # 1. all three CRDs were applied AND Established by the API server.
+          #    `kubectl wait --for=condition=Established` fails on a CRD that was
+          #    applied but rejected, which a port probe would never notice.
+          for crd in applications.argoproj.io applicationsets.argoproj.io appprojects.argoproj.io ; do
+            kubectl wait --for=condition=Established "crd/${crd}" --timeout=120s
+          done
+
+          # 2. the API server answers on its OWN health endpoint, serves the API,
+          #    and -- the check that matters most for this image -- serves the REAL
+          #    embedded React console. A build against the untouched source tree
+          #    compiles fine and 404s every UI route; only fetching / and finding
+          #    the SPA proves the yarn/webpack stage actually ran.
+          kubectl -n argocd port-forward svc/rtest-argocd-server 8080:8080 >/tmp/pf-server.log 2>&1 &
+          pf=$!; trap 'kill $pf 2>/dev/null || true' EXIT; sleep 5
+          curl -fsS http://127.0.0.1:8080/healthz >/dev/null
+          ver="$(curl -fsS http://127.0.0.1:8080/api/version)"
+          echo "api/version: $ver"
+          echo "$ver" | jq -e --arg v "v$(helm show chart "${CHART_DIR}" | awk '/^appVersion:/{gsub(/"/,"");print $2}')" \
+            '.Version == $v' >/dev/null \
+            || { echo "api/version does not match the chart appVersion"; exit 1; }
+          index="$(curl -fsS http://127.0.0.1:8080/)"
+          echo "$index" | grep -qi '<title>Argo CD</title>' \
+            || { echo "the web console is NOT being served (no SPA index.html)"; \
+                 echo "$index" | head -20; exit 1; }
+          # the SPA loads hashed webpack chunks; a stub tree would have none.
+          bundle="$(echo "$index" | grep -oE 'src="[^"]*\.js"' | head -1 | cut -d'"' -f2)"
+          test -n "$bundle" || { echo "index.html references no js bundle"; exit 1; }
+          curl -fsS "http://127.0.0.1:8080${bundle}" -o /tmp/bundle.js
+          [ "$(stat -c%s /tmp/bundle.js)" -gt 100000 ] \
+            || { echo "the served js bundle is implausibly small"; exit 1; }
+          echo "  console served: index.html + ${bundle} ($(stat -c%s /tmp/bundle.js) bytes)"
+
+          # 3. the repo server really has the toolbelt it needs to render manifests.
+          #    Missing/broken helm or kustomize means every Application fails to
+          #    render at sync time, long after this gate would have passed.
+          repo_pod="$(kubectl -n argocd get pod -l app.kubernetes.io/component=repo-server \
+                       -o jsonpath='{.items[0].metadata.name}')"
+          kubectl -n argocd exec "$repo_pod" -- /usr/bin/helm version --short
+          kubectl -n argocd exec "$repo_pod" -- /usr/bin/kustomize version
+          kubectl -n argocd exec "$repo_pod" -- /usr/bin/git --version
+          kubectl -n argocd exec "$repo_pod" -- /usr/bin/gpg-wrapper.sh --version >/dev/null
+
+          # 4. the applicationset controller actually RECONCILES. A list generator
+          #    needs no git and no network, so this is deterministic: if the
+          #    controller is up and its RBAC is right, the Application appears.
+          kubectl apply -f - <<'EOF'
+          apiVersion: argoproj.io/v1alpha1
+          kind: AppProject
+          metadata:
+            name: gate
+            namespace: argocd
+          spec:
+            sourceRepos: ["*"]
+            destinations:
+              - namespace: "*"
+                server: "*"
+            clusterResourceWhitelist:
+              - group: "*"
+                kind: "*"
+          ---
+          apiVersion: argoproj.io/v1alpha1
+          kind: ApplicationSet
+          metadata:
+            name: gate-set
+            namespace: argocd
+          spec:
+            generators:
+              - list:
+                  elements:
+                    - name: gate-app
+            template:
+              metadata:
+                name: '{{name}}'
+              spec:
+                project: gate
+                source:
+                  repoURL: https://github.com/argoproj/argocd-example-apps.git
+                  targetRevision: HEAD
+                  path: guestbook
+                destination:
+                  server: https://kubernetes.default.svc
+                  namespace: default
+          EOF
+          for i in $(seq 1 60); do
+            kubectl -n argocd get application gate-app >/dev/null 2>&1 && break
+            [ "$i" = 60 ] && { echo "applicationset controller never generated the Application"; \
+              kubectl -n argocd describe applicationset gate-set; \
+              kubectl -n argocd logs deployment/rtest-argocd-applicationset-controller --tail=200; exit 1; }
+            sleep 2
+          done
+          echo "  applicationset -> Application gate-app generated"
+
+          # 5. the application controller reconciled that Application. Its own
+          #    /healthz plus the per-app metric it only emits for Applications it
+          #    has actually loaded -- a dead or RBAC-starved controller passes a
+          #    readiness probe but never publishes argocd_app_info.
+          ctrl_pod="$(kubectl -n argocd get pod -l app.kubernetes.io/component=application-controller \
+                       -o jsonpath='{.items[0].metadata.name}')"
+          kubectl -n argocd port-forward "pod/${ctrl_pod}" 8082:8082 >/tmp/pf-ctrl.log 2>&1 &
+          pfc=$!; trap 'kill $pf $pfc 2>/dev/null || true' EXIT; sleep 5
+          curl -fsS http://127.0.0.1:8082/healthz >/dev/null
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8082/metrics | grep -q 'argocd_app_info{.*name="gate-app"' && break
+            [ "$i" = 60 ] && { echo "application controller never reported argocd_app_info for gate-app"; \
+              kubectl -n argocd logs "$ctrl_pod" --tail=200; exit 1; }
+            sleep 2
+          done
+          echo "  application controller reconciled gate-app"
+
+          # 6. Redis came from the quench/redis subchart and Argo CD is authenticated
+          #    against it. An unauthenticated or unreachable Redis leaves the API
+          #    server's cache endpoints erroring while /healthz still returns 200.
+          kubectl -n argocd get secret rtest-redis -o jsonpath='{.data.redis-password}' \
+            | base64 -d | grep -q . || { echo "no redis password secret from the subchart"; exit 1; }
+          kubectl -n argocd logs "$ctrl_pod" --tail=500 \
+            | grep -qiE 'NOAUTH|WRONGPASS|connection refused.*6379' \
+            && { echo "controller cannot talk to redis"; exit 1; }
+
+          echo "install gate OK: CRDs Established, console served, repo-server toolbelt present, ApplicationSet -> Application reconciled"
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/argocd-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/argocd@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/argocd:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

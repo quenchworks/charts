@@ -1,0 +1,108 @@
+{{/*
+  argocd-server: the API server AND the web console. The React SPA is compiled into
+  this image (ui/embed.go), so there is no separate UI container and no sidecar --
+  /healthz, the gRPC/REST API and the console all come out of the same port.
+
+  TLS: with server.insecure=false (upstream's default) the server terminates TLS
+  itself using a self-signed certificate it generates in memory for the session --
+  no Secret is created and the certificate changes on restart. Put a real one in the
+  Secret argocd-server-tls to override it. The probes follow the insecure flag, which
+  is why the scheme is derived rather than hardcoded: an HTTP probe against an HTTPS
+  listener is the classic "pod never goes ready" trap.
+*/}}
+{{- $scheme := ternary "HTTP" "HTTPS" .Values.server.insecure -}}
+{{- $liveness := dict "httpGet" (dict "path" "/healthz?full=true" "port" "http" "scheme" $scheme) "initialDelaySeconds" 10 "periodSeconds" 30 "timeoutSeconds" 5 "failureThreshold" 3 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/healthz" "port" "http" "scheme" $scheme) "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "argocd.server.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  replicas: {{ .Values.server.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: server
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "argocd.server.sa" . }}
+      {{/* The API server proxies live-resource reads and pod logs, so it is an
+           API-server client on nearly every request. */}}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: argocd-server
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{/* argv[0] selects the component out of the multi-call binary. */}}
+          command: ["/usr/bin/argocd-server"]
+          args:
+            - "--port={{ .Values.server.containerPort }}"
+            - "--metrics-port={{ .Values.server.metricsPort }}"
+            - "--repo-server={{ include "argocd.repoServer.addr" . }}"
+            - "--repo-server-plaintext={{ .Values.repoServer.disableTLS }}"
+            - "--redis={{ include "argocd.redis.addr" . }}"
+            - "--logformat={{ .Values.logFormat }}"
+            - "--loglevel={{ .Values.logLevel }}"
+            {{- if .Values.server.insecure }}
+            - "--insecure"
+            {{- end }}
+            {{- with .Values.server.rootpath }}
+            - "--rootpath={{ . }}"
+            - "--basehref={{ . }}"
+            {{- end }}
+            {{- range .Values.server.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            {{- include "argocd.redis.env" . | nindent 12 }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.server.containerPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.server.metricsPort }}
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.server.resources | nindent 12 }}
+          volumeMounts:
+            {{/* Read-only rootfs. $HOME must be writable: the server caches the
+                 kubeconfigs it builds for registered clusters and unpacks CMP
+                 plugin state under it. */}}
+            - name: argocd-home
+              mountPath: /home/argocd
+            {{- include "argocd.configVolumeMounts" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: argocd-home
+          emptyDir: {}
+        {{- include "argocd.configVolumes" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

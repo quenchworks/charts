@@ -1,0 +1,103 @@
+{{/*
+  argocd-repo-server: clones git repositories and renders manifests. This is the
+  component that actually needs the toolbelt in the image -- git, git-lfs, ssh, gpg
+  and the helm + kustomize binaries -- and the only one with no API-server access at
+  all, hence automountServiceAccountToken: false.
+
+  It is stateless: every clone lands in /tmp and is thrown away, so a read-only
+  rootfs works as long as /tmp, the Helm home and the GnuPG keyring are writable
+  emptyDirs. /healthz lives on the metrics port and only answers once the gRPC
+  listener is up, which makes it a real readiness signal.
+*/}}
+{{- $liveness := dict "httpGet" (dict "path" "/healthz?full=true" "port" "metrics") "initialDelaySeconds" 30 "periodSeconds" 30 "timeoutSeconds" 5 "failureThreshold" 3 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/healthz" "port" "metrics") "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "argocd.repoServer.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: repo-server
+spec:
+  replicas: {{ .Values.repoServer.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: repo-server
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: repo-server
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "argocd.repoServer.sa" . }}
+      {{/* It never talks to the Kubernetes API. Not mounting the token means a
+           manifest-rendering RCE gets no cluster credentials to steal. */}}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: argocd-repo-server
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/argocd-repo-server"]
+          args:
+            - "--port={{ .Values.repoServer.service.port }}"
+            - "--metrics-port={{ .Values.repoServer.metricsPort }}"
+            - "--redis={{ include "argocd.redis.addr" . }}"
+            - "--logformat={{ .Values.logFormat }}"
+            - "--loglevel={{ .Values.logLevel }}"
+            {{- if .Values.repoServer.disableTLS }}
+            - "--disable-tls"
+            {{- end }}
+            {{- with .Values.repoServer.parallelismLimit }}
+            - "--parallelismlimit={{ . }}"
+            {{- end }}
+            {{- range .Values.repoServer.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            {{- include "argocd.redis.env" . | nindent 12 }}
+            {{/* helm writes its cache, config and data under one writable dir. */}}
+            - name: HELM_CACHE_HOME
+              value: /helm-working-dir
+            - name: HELM_CONFIG_HOME
+              value: /helm-working-dir
+            - name: HELM_DATA_HOME
+              value: /helm-working-dir
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.repoServer.service.port }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.repoServer.metricsPort }}
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml $liveness | nindent 12 }}
+          readinessProbe:
+            {{- toYaml $readiness | nindent 12 }}
+          resources:
+            {{- toYaml .Values.repoServer.resources | nindent 12 }}
+          volumeMounts:
+            - name: helm-working-dir
+              mountPath: /helm-working-dir
+            {{- include "argocd.configVolumeMounts" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: helm-working-dir
+          emptyDir:
+            sizeLimit: {{ .Values.repoServer.helmWorkingDirSizeLimit }}
+        {{- include "argocd.configVolumes" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

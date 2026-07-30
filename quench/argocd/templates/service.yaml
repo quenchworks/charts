@@ -1,0 +1,127 @@
+{{/* The API + web console. This is the only Service anyone outside the release
+     talks to; the rest exist so the components can find each other and so a
+     ServiceMonitor has something to scrape. */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "argocd.server.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+  {{- with .Values.server.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.server.service.type }}
+  ports:
+    - name: {{ ternary "http" "https" .Values.server.insecure }}
+      port: {{ .Values.server.service.port }}
+      targetPort: http
+      protocol: TCP
+      {{- if and (eq .Values.server.service.type "NodePort") .Values.server.service.nodePort }}
+      nodePort: {{ .Values.server.service.nodePort }}
+      {{- end }}
+    - name: metrics
+      port: {{ .Values.server.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+---
+{{/* gRPC endpoint the API server, the application controller, the applicationset
+     controller and the notifications controller all dial. Its NAME is what this
+     chart passes to them as --repo-server, instead of relying on Argo CD's
+     compiled-in "argocd-repo-server:8081" default -- that default is what makes two
+     Argo CD releases in two namespaces cross-wire. */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "argocd.repoServer.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: repo-server
+spec:
+  type: ClusterIP
+  ports:
+    - name: grpc
+      port: {{ .Values.repoServer.service.port }}
+      targetPort: grpc
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.repoServer.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: repo-server
+---
+{{/* Headless, and required rather than cosmetic: it is the StatefulSet's
+     serviceName, which is what gives the controller pods their stable ordinal
+     identities that sharding keys off. Also the metrics scrape target. */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "argocd.controller.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: application-controller
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - name: metrics
+      port: {{ .Values.controller.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: application-controller
+{{- if .Values.applicationSet.enabled }}
+---
+{{/* The webhook port is the one that matters here: point a git provider's webhook
+     at it (through an Ingress) and generators refresh on push instead of on the
+     poll interval. */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "argocd.appset.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: applicationset-controller
+spec:
+  type: ClusterIP
+  ports:
+    - name: webhook
+      port: {{ .Values.applicationSet.webhookPort }}
+      targetPort: webhook
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.applicationSet.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: applicationset-controller
+{{- end }}
+{{- if .Values.notifications.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "argocd.notifications.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: notifications-controller
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: {{ .Values.notifications.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: notifications-controller
+{{- end }}

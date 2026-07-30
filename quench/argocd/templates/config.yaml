@@ -1,0 +1,115 @@
+{{/*
+  Argo CD's own configuration. Every name here is COMPILED IN (common/common.go)
+  and cannot be release-prefixed, which is what limits a namespace to one Argo CD
+  release -- see templates/_helpers.tpl.
+
+  All five are created by default and all five are safe to hand-edit afterwards:
+  Argo CD watches them and reloads without a restart. `configs.cm`, `configs.params`
+  and `configs.rbac` are rendered verbatim, so anything in the upstream
+  argocd-cm / argocd-cmd-params-cm / argocd-rbac-cm reference works unchanged.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: config
+data:
+  {{/* The externally reachable base URL. Required for OIDC/SSO callbacks, webhook
+       URLs and the links Argo CD puts in notifications; harmless when empty. */}}
+  {{- with .Values.configs.url }}
+  url: {{ . | quote }}
+  {{- end }}
+  {{- range $k, $v := .Values.configs.cm }}
+  {{ $k }}: {{ $v | toString | quote }}
+  {{- end }}
+---
+{{/*
+  NOTE, deliberately: there is NO argocd-cmd-params-cm here.
+  That ConfigMap is not read by Argo CD at all -- nothing in common/common.go looks
+  it up. It is pure kustomize plumbing: upstream's Deployments wire ~50 individual
+  `valueFrom: configMapKeyRef` entries from it into ARGOCD_* environment variables,
+  and the binaries read the ENV VARS. Shipping the ConfigMap without those 250-odd
+  lines of per-component wiring would leave an object that looks authoritative and
+  silently does nothing -- the worst of both.
+  So this chart exposes the same surface directly: typed values for the common
+  flags, `<component>.extraArgs` for anything else, and `extraEnvVars` for the
+  ARGOCD_* variables themselves (e.g. ARGOCD_REPO_SERVER_PARALLELISM_LIMIT), which
+  is what argocd-cmd-params-cm was feeding in the first place.
+*/}}
+{{/* API RBAC. The default policy is deliberately "" (deny) with the built-in
+     admin account: a readonly or admin default would silently widen access for
+     every authenticated SSO user. */}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-rbac-cm
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: config
+data:
+  policy.default: {{ .Values.configs.rbac.policyDefault | quote }}
+  policy.csv: |
+    {{- .Values.configs.rbac.policyCsv | nindent 4 }}
+  scopes: {{ .Values.configs.rbac.scopes | quote }}
+---
+{{/* SSH host keys the repo server trusts for ssh:// repositories. The image
+     symlinks /etc/ssh/ssh_known_hosts at this ConfigMap's file, so it applies to
+     git's ssh too. Empty by default: Argo CD adds entries through
+     `argocd cert add-ssh` at runtime, and a bogus baked-in key is worse than none. */}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-ssh-known-hosts-cm
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: config
+data:
+  ssh_known_hosts: |
+    {{- .Values.configs.sshKnownHosts | nindent 4 }}
+---
+{{/* Extra CA certificates for self-signed https:// git and Helm repositories,
+     keyed by hostname (e.g. git.internal: | -----BEGIN CERTIFICATE----- ...). */}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-tls-certs-cm
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: config
+data:
+  {{- range $k, $v := .Values.configs.tlsCerts }}
+  {{ $k }}: |
+    {{- $v | nindent 4 }}
+  {{- end }}
+---
+{{/* Public GPG keys the repo server imports into its keyring to verify signed
+     commits and tags (util/gpg/gpg.go, via gpg-wrapper.sh in the image). */}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-gpg-keys-cm
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: config
+data:
+  {{- range $k, $v := .Values.configs.gpgKeys }}
+  {{ $k }}: |
+    {{- $v | nindent 4 }}
+  {{- end }}
+{{- if .Values.notifications.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-notifications-cm
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: notifications-controller
+data:
+  {{- range $k, $v := .Values.notifications.cm }}
+  {{ $k }}: |
+    {{- $v | toString | nindent 4 }}
+  {{- end }}
+{{- end }}

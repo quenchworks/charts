@@ -1,0 +1,85 @@
+{{- if .Values.notifications.enabled }}
+{{/*
+  argocd-notifications-controller: watches Applications and fires triggers at
+  Slack / e-mail / webhooks. OFF by default -- unlike the applicationset controller
+  it has no CRD of its own, so its absence is invisible rather than confusing, and
+  it is useless until you have written triggers and templates into
+  argocd-notifications-cm plus credentials into argocd-notifications-secret. Both
+  objects are created for you when this is enabled.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "argocd.notifications.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: notifications-controller
+spec:
+  {{/* Single replica, not configurable: the controller does not do leader election,
+       so a second replica would send every notification twice. */}}
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: notifications-controller
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: notifications-controller
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "argocd.notifications.sa" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: argocd-notifications-controller
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{/* The notifications root command IS the controller -- there is no
+               `controller` subcommand (cmd/argocd-notification/commands). */}}
+          command: ["/usr/bin/argocd-notifications"]
+          args:
+            - "--metrics-port={{ .Values.notifications.metricsPort }}"
+            - "--argocd-repo-server={{ include "argocd.repoServer.addr" . }}"
+            - "--argocd-repo-server-plaintext={{ .Values.repoServer.disableTLS }}"
+            - "--logformat={{ .Values.logFormat }}"
+            - "--loglevel={{ .Values.logLevel }}"
+            {{- range .Values.notifications.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- with (include "quench-common.extraEnvVars" .) }}
+          env:
+            {{- . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.notifications.metricsPort }}
+              protocol: TCP
+          {{/* The controller exposes no /healthz; /metrics on its own port is the
+               only thing it serves, and it is served by the same process that runs
+               the trigger loop. */}}
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.notifications.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "argocd.configVolumeMounts" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        {{- include "argocd.configVolumes" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
+{{- end }}
