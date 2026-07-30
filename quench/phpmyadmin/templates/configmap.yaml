@@ -1,0 +1,76 @@
+{{/*
+phpMyAdmin's configuration file. The image ships a bootable default so `docker run` works
+standalone; this ConfigMap is mounted OVER it (subPath, read-only) so every setting is
+visible in the chart instead of hidden in the image.
+
+The file is fully STATIC: the server address, the auth type and the blowfish secret are all
+read from the pod environment at request time (php-fpm runs with clear_env = no, so the
+container env reaches getenv()). No secret is ever written into this ConfigMap.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  config.inc.php: |
+    <?php
+    /**
+     * Managed by the QuenchWorks phpMyAdmin Helm chart.
+     * Every value comes from the pod environment (PMA_* env vars); the blowfish secret is
+     * injected from a Secret, so it never appears here or in the pod's argv.
+     */
+    declare(strict_types=1);
+
+    // Signs + AES-encrypts the auth cookie. Injected from the managed Secret, which keeps
+    // the same value across upgrades so existing sessions survive.
+    $cfg['blowfish_secret'] = (string) getenv('PMA_BLOWFISH_SECRET');
+
+    $cfg['Servers'] = [];
+    $i = 0;
+
+    // One entry per host in PMA_HOSTS (comma-separated) -> the login form shows a server
+    // dropdown when there is more than one.
+    $hosts = array_filter(array_map('trim', explode(',', (string) getenv('PMA_HOSTS'))));
+    $verbose = array_map('trim', explode(',', (string) getenv('PMA_VERBOSES')));
+    $port = getenv('PMA_PORT') ?: '3306';
+
+    foreach ($hosts as $index => $host) {
+        $i++;
+        $cfg['Servers'][$i] = [
+            'host' => $host,
+            'port' => $port,
+            'auth_type' => getenv('PMA_AUTH_TYPE') ?: 'cookie',
+            'AllowNoPassword' => (bool) getenv('PMA_ALLOW_NO_PASSWORD'),
+            'compress' => false,
+            // No phpMyAdmin configuration storage by default: it needs a pre-created pmadb
+            // and phpMyAdmin degrades gracefully without it.
+            'controluser' => '',
+            'controlpass' => '',
+        ];
+        if (isset($verbose[$index]) && $verbose[$index] !== '') {
+            $cfg['Servers'][$i]['verbose'] = $verbose[$index];
+        }
+        // Only consulted when auth_type is "config" (single fixed user).
+        if (getenv('PMA_USER')) {
+            $cfg['Servers'][$i]['user'] = getenv('PMA_USER');
+        }
+        if (getenv('PMA_PASSWORD')) {
+            $cfg['Servers'][$i]['password'] = getenv('PMA_PASSWORD');
+        }
+    }
+
+    // Behind an ingress / TLS proxy, phpMyAdmin needs its public URL to build redirects.
+    if (getenv('PMA_ABSOLUTE_URI')) {
+        $cfg['PmaAbsoluteUri'] = getenv('PMA_ABSOLUTE_URI');
+    }
+
+    // The rootfs is read-only; /tmp is the emptyDir the Deployment mounts. TempDir holds
+    // compiled Twig templates (phpMyAdmin warns and runs slower without a writable one).
+    $cfg['TempDir'] = '/tmp';
+    $cfg['UploadDir'] = '';
+    $cfg['SaveDir'] = '';
+    $cfg['CheckConfigurationPermissions'] = false;
+    // No phoning home: the image is rebuilt (and re-scanned) by CI, not upgraded in place.
+    $cfg['VersionCheck'] = false;

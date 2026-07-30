@@ -1,0 +1,110 @@
+{{/* Liveness and readiness both GET / on the HTTP port. nginx answers 200 only once php-fpm
+     is up AND the vendored PHP app renders its login template, so --wait on readiness is a
+     real check of the web tier. It deliberately does NOT depend on the database being
+     reachable: phpMyAdmin is a client, and its login page must stay servable while a target
+     server is down. The kubelet performs the GET; the image ships no HTTP client on PATH. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/" "port" "http") "initialDelaySeconds" 15 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/" "port" "http") "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Roll the pod when the blowfish secret or config.inc.php changes.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- if not .Values.phpmyadmin.existingSecret }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "phpmyadmin.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: phpmyadmin
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- include "quench-common.args" . | nindent 10 }}
+          env:
+            # config.inc.php (mounted from the ConfigMap) reads all of these at request time.
+            - name: PMA_HOSTS
+              value: {{ include "phpmyadmin.db.hosts" . | quote }}
+            - name: PMA_PORT
+              value: {{ include "phpmyadmin.db.port" . | quote }}
+            {{- with .Values.phpmyadmin.verboseNames }}
+            - name: PMA_VERBOSES
+              value: {{ . | quote }}
+            {{- end }}
+            - name: PMA_AUTH_TYPE
+              value: {{ .Values.phpmyadmin.authType | quote }}
+            - name: PMA_ALLOW_NO_PASSWORD
+              value: {{ ternary "1" "" .Values.phpmyadmin.allowNoPassword | quote }}
+            {{- with .Values.phpmyadmin.absoluteUri }}
+            - name: PMA_ABSOLUTE_URI
+              value: {{ . | quote }}
+            {{- end }}
+            # Never inlined: the cookie-signing key comes from a Secret.
+            - name: PMA_BLOWFISH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "phpmyadmin.secretName" . }}
+                  key: {{ include "phpmyadmin.secretBlowfishKey" . }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # The chart-supplied config.inc.php (subPath so it doesn't shadow the docroot).
+            - name: config
+              mountPath: /var/www/html/config.inc.php
+              subPath: config.inc.php
+              readOnly: true
+            # The only writable surface: PHP sessions, nginx pid/temp, compiled Twig templates.
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

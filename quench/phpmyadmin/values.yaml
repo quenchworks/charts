@@ -1,0 +1,143 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+#
+# NOTE (initial release): this is the digest of the LOCALLY gated 5.2.3 build (0 fixable
+# CVEs on x86_64 + aarch64). It must be replaced with the multi-arch index digest the
+# images CI publishes for 5.2.3 — until then the image cannot be pulled from GHCR.
+image:
+  repository: ghcr.io/quenchworks/images/phpmyadmin
+  digest: "sha256:b03f0ef4aa41ded6aa0f0e333a886cb4bf3134c66d240791bbdc71cc59ed64c8"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# phpMyAdmin is served by a hardened PHP-FPM + nginx runtime (supervisord): nginx listens on
+# 8080 (nonroot can't bind <1024) and FastCGI-passes .php to php-fpm on 127.0.0.1:9000.
+#
+# It is STATELESS — every byte of durable state lives in the MySQL/MariaDB server it
+# administers, so this is a plain Deployment with no PVC and the rootfs stays read-only
+# (only /tmp is writable: PHP sessions, nginx temp, compiled Twig templates). Scale it
+# freely: with a stable blowfish_secret (kept in the managed Secret) any replica can decrypt
+# any session cookie.
+#
+# The image ships a bootable env-driven config.inc.php; this chart mounts its OWN over it
+# from a ConfigMap so every setting is chart-visible. php-fpm runs with clear_env = no, so
+# the config reads the pod environment through getenv().
+replicaCount: 1
+
+phpmyadmin:
+  # Comma-separated list of database servers to offer in the login form's dropdown. Leave
+  # empty to use the bundled MariaDB (mariadb.enabled) or externalDatabase.host.
+  hosts: ""
+  # Optional matching display names for `hosts` (same order, comma-separated).
+  verboseNames: ""
+  # "cookie" (default) prompts for credentials and stores them AES-encrypted in the session
+  # cookie. "config" logs in as a single fixed user — only with existingSecret credentials,
+  # and only if you understand that anyone reaching the pod is that user.
+  authType: cookie
+  # Public URL phpMyAdmin is reached at, e.g. https://pma.example.com. Set it when behind an
+  # ingress / TLS proxy so redirects and cookie paths are built correctly.
+  absoluteUri: ""
+  # Allow logging in with an empty password. Off by default; MySQL users without passwords
+  # are a bad idea outside throwaway environments.
+  allowNoPassword: false
+  # 32-character key that signs/encrypts the auth cookie. Leave empty and the chart
+  # generates one, then KEEPS it across upgrades (it is read back from the Secret via
+  # lookup) so a re-render doesn't invalidate every logged-in session.
+  blowfishSecret: ""
+  # Reference an existing Secret for the blowfish secret instead of the managed one.
+  existingSecret: ""
+  existingSecretBlowfishKey: "blowfish-secret"
+
+# Resources. php-fpm + nginx idle small; memory grows with concurrent requests and with the
+# size of result sets / imports being processed.
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+# nginx serves the whole UI on a single HTTP port.
+service:
+  type: ClusterIP
+  port: 8080
+
+# --- Bundled database (optional) ---
+# mariadb.enabled deploys the QuenchWorks MariaDB subchart and points phpMyAdmin at it, so
+# `helm install` gives a working UI + server out of the box (this is what the CI gate uses).
+# Turn it OFF and set externalDatabase.host to administer a database you already run — the
+# usual case, since phpMyAdmin is a client, not the system of record.
+mariadb:
+  enabled: false
+  auth:
+    rootPassword: ""
+    database: phpmyadmin
+    username: phpmyadmin
+    password: ""
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- External database (mariadb.enabled=false) ---
+# Only the address is needed: with cookie auth phpMyAdmin asks the user for credentials, so
+# this chart never stores database passwords.
+externalDatabase:
+  host: ""
+  port: 3306
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# Extra env vars (list of {name,value} or {name,valueFrom}). Appended after the chart's own
+# env, so these win on conflict. Useful for the PMA_* knobs this chart doesn't surface.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (nonroot uid 1001,
+# read-only rootfs). The image is built to run read-only with /tmp as its only writable
+# surface, so the defaults hold as-is. Your keys still win on conflict.
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block. The
+# default probes GET / — phpMyAdmin renders its login form without touching the database, so
+# readiness reflects the health of nginx + php-fpm, not of the server being administered
+# (which is exactly right: the UI is still usable when a target server is down).
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# phpMyAdmin is a privileged administrative surface: anyone who reaches it can attempt
+# logins against your database. Ingress is therefore restricted to the release namespace by
+# default; set allowExternal: true only behind an authenticating ingress / VPN.
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

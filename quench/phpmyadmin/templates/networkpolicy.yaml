@@ -1,0 +1,38 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # phpMyAdmin is a privileged administrative surface — anyone who reaches it can attempt
+    # logins against the database. Ingress is restricted to the release namespace by default
+    # (allowExternal: false); set it true only behind an authenticating ingress or a VPN.
+    - ports:
+        - port: http
+          protocol: TCP
+      {{- if not .Values.networkPolicy.allowExternal }}
+      from:
+        - podSelector: {}
+      {{- end }}
+  egress:
+    # DNS resolution
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # The database servers being administered. Open to the DB port cluster-wide so both the
+    # bundled subchart pod and external servers are reachable.
+    - ports:
+        - port: {{ include "phpmyadmin.db.port" . | int }}
+          protocol: TCP
+{{- end }}

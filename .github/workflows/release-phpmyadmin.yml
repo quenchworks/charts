@@ -1,0 +1,112 @@
+name: release-phpmyadmin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/phpmyadmin/**"
+      - ".github/workflows/release-phpmyadmin.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/phpmyadmin
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          # ci/default-values.yaml bundles MariaDB, so this install is self-contained:
+          # phpMyAdmin has no state of its own and is only useful with a server to talk to.
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          kubectl rollout status deployment/rtest-phpmyadmin --timeout=300s
+
+          # The runtime image has no HTTP client, so probe over a port-forward.
+          kubectl port-forward deployment/rtest-phpmyadmin 8080:8080 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+
+          # --- PROVE phpMyAdmin IS SERVING, not that a port is open. A 200 whose body
+          # carries the login form's own <input name="pma_username"> means nginx reached
+          # php-fpm, the composer autoloader resolved, the Twig template compiled into the
+          # writable /tmp and config.inc.php parsed with a usable blowfish_secret. A
+          # tcpSocket check (or a bare status code) would pass on a dead PHP stack. ---
+          code="$(curl -fsS -o /tmp/pma.html -w '%{http_code}' http://127.0.0.1:8080/)"
+          test "$code" = "200"
+          grep -q 'name="pma_username"' /tmp/pma.html
+          grep -qi 'phpmyadmin' /tmp/pma.html
+          # phpMyAdmin prints this error instead of a form when the cookie key is unusable.
+          ! grep -qi 'blowfish_secret' /tmp/pma.html
+
+          # --- PROVE THE DATABASE IS REACHABLE FROM THE POD with the mysqli extension the
+          # UI actually uses, resolving the host through the SAME getenv("PMA_HOSTS") the
+          # chart's config.inc.php reads (credentials: the deterministic ones in
+          # ci/default-values.yaml). This is the piece the HTTP check cannot cover: the
+          # login page renders fine with no server at all. ---
+          kubectl exec deployment/rtest-phpmyadmin -- php -r '
+            $c = @mysqli_connect(getenv("PMA_HOSTS"), "phpmyadmin", "ci-test-password", "phpmyadmin", (int) getenv("PMA_PORT"));
+            if (!$c) { fwrite(STDERR, "mysqli_connect failed: " . mysqli_connect_error() . "\n"); exit(1); }
+            echo "connected to ", getenv("PMA_HOSTS"), " server=", mysqli_get_server_info($c), "\n";
+            $r = mysqli_query($c, "SELECT DATABASE()");
+            $row = mysqli_fetch_row($r);
+            echo "current database: ", $row[0], "\n";
+            exit($row[0] === "phpmyadmin" ? 0 : 1);' | tee /tmp/db.out
+          grep -q 'current database: phpmyadmin' /tmp/db.out
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/phpmyadmin-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/phpmyadmin@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/phpmyadmin:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

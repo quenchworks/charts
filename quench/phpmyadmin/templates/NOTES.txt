@@ -1,0 +1,55 @@
+Quenchworks phpMyAdmin is installed as {{ include "quench-common.fullname" . }}.
+
+The UI is served on port {{ .Values.service.port }} inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Reach it from your machine with a port-forward:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  # then open http://localhost:{{ .Values.service.port }}/
+
+Database server{{ if gt (len (splitList "," (include "phpmyadmin.db.hosts" .))) 1 }}s{{ end }} offered at login:
+
+  hosts : {{ include "phpmyadmin.db.hosts" . }}
+  port  : {{ include "phpmyadmin.db.port" . }}
+  auth  : {{ .Values.phpmyadmin.authType }}
+{{- if .Values.mariadb.enabled }}
+
+  These point at the bundled Quenchworks MariaDB subchart (mariadb.enabled=true). Log in with
+  the credentials it provisioned:
+    user     : {{ .Values.mariadb.auth.username }}
+    database : {{ .Values.mariadb.auth.database }}
+  The password is in the subchart's Secret:
+    kubectl get secret --namespace {{ .Release.Namespace }} {{ .Release.Name }}-mariadb -o jsonpath='{.data.mariadb-password}' | base64 -d
+{{- else }}
+
+  phpMyAdmin is a client: it stores nothing itself. With auth_type "{{ .Values.phpmyadmin.authType }}"
+  {{- if eq .Values.phpmyadmin.authType "cookie" }} you supply the database credentials at login; they are
+  AES-encrypted into your session cookie and never persisted by this release.
+  {{- else }} the credentials come from the pod environment (see phpmyadmin.existingSecret / extraEnvVars).
+  {{- end }}
+{{- end }}
+
+Session key:
+{{- if .Values.phpmyadmin.existingSecret }}
+  blowfish_secret comes from the existing Secret {{ .Values.phpmyadmin.existingSecret }} (key
+  {{ .Values.phpmyadmin.existingSecretBlowfishKey }}).
+{{- else }}
+  blowfish_secret lives in the managed Secret {{ include "quench-common.fullname" . }} and is
+  PRESERVED across `helm upgrade` (it is read back via lookup), so upgrades do not log
+  everyone out. Set phpmyadmin.blowfishSecret to pin it explicitly.
+{{- end }}
+
+Security notes:
+  * This is a full database administration console. Keep networkPolicy.allowExternal=false
+    unless it sits behind an authenticating ingress / VPN.
+  * The pod is nonroot (uid 1001) on a read-only rootfs; /tmp is the only writable path
+    (PHP sessions, nginx temp, compiled templates). Nothing is persisted — scale replicas
+    freely, the shared blowfish_secret keeps sessions valid on any pod.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

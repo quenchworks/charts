@@ -1,0 +1,30 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+#
+# phpMyAdmin is a client with no state of its own, so the gate stands up a database for it:
+# the bundled Quenchworks MariaDB subchart with deterministic credentials and a small PVC.
+# That makes the install self-contained AND lets the smoke check prove the real thing —
+# phpMyAdmin serves its rendered login form over HTTP *and* the pod can open a mysqli
+# connection to that MariaDB with those credentials. A pinned blowfishSecret keeps the
+# render deterministic across gate runs.
+mariadb:
+  enabled: true
+  auth:
+    rootPassword: ci-test-root-password
+    database: phpmyadmin
+    username: phpmyadmin
+    password: ci-test-password
+  primary:
+    persistence:
+      enabled: true
+      size: 1Gi
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: "1", memory: 512Mi }
+
+phpmyadmin:
+  blowfishSecret: "citestcitestcitestcitestcitest32"
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
