@@ -35,6 +35,33 @@ Tres garantias, integradas en cada chart:
 - **Una sola linea base endurecida.** Cada chart hereda el mismo contexto de seguridad de pod y contenedor del library chart [`quench-common`](https://github.com/quenchworks/common): nonroot, sistema de archivos raiz de solo lectura, sin escalada de privilegios, todas las capacidades eliminadas, seccomp `RuntimeDefault`. Arreglalo una vez, arreglalo en todas partes.
 - **Procedencia verificable.** Los charts estan firmados con cosign keyless, y las imagenes a las que apuntan estan firmadas y llevan SBOM. Puedes comprobarlo todo tu mismo.
 
+## Objetos compartidos e Ingress opcional
+
+Cinco familias de manifiestos que eran casi identicas en cada chart ahora se generan desde la libreria [`quench-common`](https://github.com/quenchworks/common) en lugar de una copia por chart: `ServiceAccount`, RBAC (`Role`/`RoleBinding`, opcionalmente de ambito de cluster), `PodDisruptionBudget`, `HorizontalPodAutoscaler` y `NetworkPolicy`. Arregla una, arreglas el catalogo.
+
+Que familias se movieron se decidio midiendo, no por gusto: agrupando los 138 charts por forma generada, `serviceaccount.yaml` 117/132 identicos, `poddisruptionbudget.yaml` 105/123, `rbac.yaml` 104/123, `hpa.yaml` 20/23. El `NetworkPolicy` es compartido pero **parametrizado**, porque 128 charts produjeron 91 formas distintas: cada aplicacion permite puertos diferentes. `service.yaml` se queda deliberadamente en cada chart: 98 formas distintas de 128 charts, ya que la lista de puertos es la identidad de la aplicacion y un helper necesitaria tanta configuracion como el manifiesto que reemplaza.
+
+Cada chart que sirve HTTP tiene un **Ingress, desactivado por defecto**:
+
+```yaml
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: app.example.com      # un host sin `paths` recibe un unico "/" Prefix
+  tls:
+    - hosts: [app.example.com]
+      secretName: app-tls
+```
+
+El puerto de backend se resuelve segun la forma de service que use el chart, asi que normalmente basta con un host. Activarlo sin host, o donde no se pueda resolver un puerto HTTP, falla la plantilla con una explicacion en vez de instalar algo que no enruta a ninguna parte.
+
+Los charts que **no** hablan HTTP (PostgreSQL, Redis, Kafka, MariaDB, etcd) no tienen knob `ingress` en absoluto. Un `Ingress` es un router HTTP y no puede ponerse delante de ellos; exponlos con `service.type=LoadBalancer` o el passthrough TCP de tu controlador. Un flag que silenciosamente no hiciera nada seria peor que no tenerlo.
+
+Los **stacks** no tienen Service propio, asi que su `ingress` expone el Service de un subchart: por defecto la UI principal del stack (Grafana, o Keycloak en `identity-stack`), y `ingress.serviceName` / `ingress.servicePort` lo apuntan a cualquier otro componente. Tambien puedes dejarlo desactivado y activar el ingress del subchart, por ejemplo `grafana.ingress.enabled=true`.
+
+Ademas, cada chart expone `commonLabels`, `commonAnnotations` y `podLabels` (todos seguros de cambiar en un release en vivo), mas `partOf`, `fullnameOverride`, `image.registry` e `imagePullSecrets`. `selectorLabels` tambien existe, pero alimenta `spec.selector`, que Kubernetes trata como **inmutable**: definelo antes de la primera instalacion o cada `helm upgrade` posterior fallara con `field is immutable`.
+
 ## El catalogo
 
 | Categoria | Charts |
