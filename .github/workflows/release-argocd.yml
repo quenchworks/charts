@@ -77,6 +77,12 @@ jobs:
           # the SPA loads hashed webpack chunks; a stub tree would have none.
           bundle="$(echo "$index" | grep -oE 'src="[^"]*\.js"' | head -1 | cut -d'"' -f2)"
           test -n "$bundle" || { echo "index.html references no js bundle"; exit 1; }
+          # Argo CD 3.4's index.html references its chunks RELATIVELY (src="main.<hash>.js",
+          # no leading slash), so concatenating it straight onto the authority produced
+          # http://127.0.0.1:8080main.<hash>.js and curl read "8080main" as the port:
+          #   curl: (3) URL rejected: Port number was not a decimal number
+          # Strip any leading slash and add exactly one, so both forms work.
+          bundle="/${bundle#/}"
           curl -fsS "http://127.0.0.1:8080${bundle}" -o /tmp/bundle.js
           [ "$(stat -c%s /tmp/bundle.js)" -gt 100000 ] \
             || { echo "the served js bundle is implausibly small"; exit 1; }
