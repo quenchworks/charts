@@ -1,0 +1,13 @@
+{{/*
+  Front door for the stack. A stack has NO Service of its own -- it aggregates
+  subcharts -- so the Ingress must name a SUBCHART Service explicitly; the default
+  helper form would point at <release>-identity-stack, which does not exist.
+
+  Defaults to the stack's primary UI, Keycloak (keycloak). Override
+  ingress.serviceName / ingress.servicePort to front a different component, or enable
+  the subchart's own ingress instead (keycloak.ingress.enabled=true) if you would rather
+  configure it there.
+*/}}
+{{- $svc := .Values.ingress.serviceName | default (printf "%s-keycloak" .Release.Name) -}}
+{{- $port := .Values.ingress.servicePort | default ((.Values.keycloak.service.port) | default 8080) -}}
+{{- include "quench-common.ingress" (dict "ctx" . "serviceName" $svc "port" $port) }}

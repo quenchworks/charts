@@ -2,7 +2,7 @@ apiVersion: v2
 name: identity-stack
 description: "Hardened, operator-free self-hosted SSO/identity stack: Keycloak (OIDC/SAML identity provider) + PostgreSQL (Keycloak's database) + oauth2-proxy (an auth proxy you place in front of any upstream app to authenticate users against Keycloak), wired together so you get single sign-on in front of your apps out of the box. No operator, no CRDs. All components are QuenchWorks-hardened, nonroot, 0-CVE images pinned by digest and cosign-signed."
 type: application
-version: 0.0.5
+version: 0.0.6
 appVersion: "1.0.0"
 keywords:
   - identity
@@ -50,17 +50,20 @@ annotations:
     fingerprint: keyless (cosign / Sigstore)
     url: https://github.com/quenchworks/.github/blob/main/SECURITY.md
 dependencies:
+  - name: quench-common
+    version: 0.0.8
+    repository: oci://ghcr.io/quenchworks/charts
   # PostgreSQL is NOT a direct dependency: the keycloak chart already bundles
   # quench/postgresql (alias "postgresql", default enabled) and wires Keycloak to
   # it automatically (keycloak.db.host resolves to <release>-postgresql). It still
   # ships in this stack (inside keycloak), so it stays in artifacthub.io/images
   # and the keywords above.
   - name: keycloak
-    version: 0.0.12
+    version: 0.0.15
     repository: oci://ghcr.io/quenchworks/charts
     condition: keycloak.enabled
   - name: oauth2-proxy
     alias: oauth2Proxy
-    version: 0.0.5
+    version: 0.0.8
     repository: oci://ghcr.io/quenchworks/charts
     condition: oauth2Proxy.enabled

@@ -1,0 +1,13 @@
+{{/*
+  Front door for the stack. A stack has NO Service of its own -- it aggregates
+  subcharts -- so the Ingress must name a SUBCHART Service explicitly; the default
+  helper form would point at <release>-harbor-observability, which does not exist.
+
+  Defaults to the stack's primary UI, Grafana (grafana). Override
+  ingress.serviceName / ingress.servicePort to front a different component, or enable
+  the subchart's own ingress instead (grafana.ingress.enabled=true) if you would rather
+  configure it there.
+*/}}
+{{- $svc := .Values.ingress.serviceName | default (printf "%s-grafana" .Release.Name) -}}
+{{- $port := .Values.ingress.servicePort | default ((.Values.grafana.service.port) | default 3000) -}}
+{{- include "quench-common.ingress" (dict "ctx" . "serviceName" $svc "port" $port) }}
