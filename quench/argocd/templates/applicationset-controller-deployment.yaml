@@ -16,7 +16,7 @@ kind: Deployment
 metadata:
   name: {{ include "argocd.appset.fullname" . }}
   labels:
-    {{- include "quench-common.labels" . | nindent 4 }}
+    {{- include "argocd.labels" . | nindent 4 }}
     app.kubernetes.io/component: applicationset-controller
 spec:
   replicas: {{ .Values.applicationSet.replicaCount }}
@@ -73,18 +73,26 @@ spec:
             - name: probe
               containerPort: {{ .Values.applicationSet.probePort }}
               protocol: TCP
-          {{/* controller-runtime's health endpoints: registered only after the
-               manager starts, so /readyz 200 means the controller is really up. */}}
+          {{/* NOT httpGet /healthz + /readyz on the probe port. argo-cd 3.4.6 sets
+               controller-runtime's HealthProbeBindAddress but registers NO
+               AddHealthzCheck / AddReadyzCheck (cmd/argocd-applicationset-controller),
+               and controller-runtime only mounts those routes when a check exists --
+               so the port LISTENS and returns 404 for every path. Measured on the
+               running pod: :8086/healthz, /readyz and / all 404, while :8085/metrics
+               returns 200. An httpGet probe there fails liveness forever and kubelet
+               restarts a perfectly healthy controller (it did, 6 times).
+               So: tcpSocket for liveness (the listener is a real signal the manager
+               came up) and /metrics for readiness (only served once the manager is
+               actually running). */}}
           livenessProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: probe
             initialDelaySeconds: 10
             periodSeconds: 30
           readinessProbe:
             httpGet:
-              path: /readyz
-              port: probe
+              path: /metrics
+              port: metrics
             initialDelaySeconds: 5
             periodSeconds: 10
           resources:

@@ -146,3 +146,24 @@
 - name: tmp
   mountPath: /tmp
 {{- end -}}
+
+{{/*
+  Argo CD's OWN labels. Identical to quench-common.labels except that
+  app.kubernetes.io/part-of is forced to "argocd" instead of the house
+  "quenchworks" value.
+
+  This is NOT cosmetic. Argo CD's settings manager watches ConfigMaps and Secrets
+  through an informer whose label selector is literally
+  app.kubernetes.io/part-of=argocd (argo-cd util/settings/settings.go). With the
+  house value the objects exist but are invisible to that informer, so every
+  component dies on `configmap "argocd-cm" not found` even though the ConfigMap is
+  right there in the namespace -- which is exactly how the first kind gate for this
+  chart failed. Upstream's own chart labels every Argo CD resource this way.
+
+  Safe to apply chart-wide: quench-common.selectorLabels is name+instance only, so
+  part-of never reaches a Deployment/StatefulSet selector and this cannot collide
+  with the immutable-selector rule on upgrade.
+*/}}
+{{- define "argocd.labels" -}}
+{{ include "quench-common.labels" . | replace "app.kubernetes.io/part-of: quenchworks" "app.kubernetes.io/part-of: argocd" }}
+{{- end -}}
