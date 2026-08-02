@@ -69,7 +69,13 @@ Do not expose Solr externally without an authenticating proxy in front of it.
 | `podDisruptionBudget.enabled` | `true` | |
 | `podDisruptionBudget.minAvailable` | `1` | |
 
-## Storage layout
+
+| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
+| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
+| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
+| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
+| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |## Storage layout
 
 The read-only rootfs forces everything writable under one mount. The chart mounts the
 `data` volume at `/var/solr`, which covers:

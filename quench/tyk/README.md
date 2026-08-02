@@ -108,27 +108,31 @@ gh attestation verify oci://ghcr.io/quenchworks/images/tyk \
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/tyk` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Stateless; can be scaled out. |
-| `containerPort` | `8080` | Port the gateway binds (nonroot). Wired to `listen_port`. |
-| `service.port` | `80` | Service port, forwards to the container's `http` port. |
-| `gateway.secret` | `""` | Control-API secret. Random+persisted if empty. |
-| `gateway.nodeSecret` | `""` | `node_secret`. Random+persisted if empty. |
-| `gateway.existingSecret` | `""` | Supply both secrets via your own Secret. |
-| `extraConfig` | `{}` | Extra `tyk.conf` keys merged over the baseline (your keys win). |
-| `redis.enabled` | `true` | Bundled hardened Redis subchart. |
-| `redis.auth.enabled` | `true` | |
-| `redis.auth.password` | `tyk-redis` | **Shared with the gateway's `storage.password`; override for production.** |
-| `externalRedis.*` | (unset) | Used when `redis.enabled=false`. |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `rbac.create` | `false` | Minimal empty Role/RoleBinding when enabled. |
-| `networkPolicy.enabled` | `true` | Client ingress from the namespace; set `allowExternal: true` to open it. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
-
-## Security
+| Key                           | Default                          | Notes                                                                                     |
+| ----------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------- | ----------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/tyk` |                                                                                           |
+| `image.digest`                | (CI-written)                     | Required. Charts pin by digest, never a tag.                                              |
+| `replicaCount`                | `1`                              | Stateless; can be scaled out.                                                             |
+| `containerPort`               | `8080`                           | Port the gateway binds (nonroot). Wired to `listen_port`.                                 |
+| `service.port`                | `80`                             | Service port, forwards to the container's `http` port.                                    |
+| `gateway.secret`              | `""`                             | Control-API secret. Random+persisted if empty.                                            |
+| `gateway.nodeSecret`          | `""`                             | `node_secret`. Random+persisted if empty.                                                 |
+| `gateway.existingSecret`      | `""`                             | Supply both secrets via your own Secret.                                                  |
+| `extraConfig`                 | `{}`                             | Extra `tyk.conf` keys merged over the baseline (your keys win).                           |
+| `redis.enabled`               | `true`                           | Bundled hardened Redis subchart.                                                          |
+| `redis.auth.enabled`          | `true`                           |                                                                                           |
+| `redis.auth.password`         | `tyk-redis`                      | **Shared with the gateway's `storage.password`; override for production.**                |
+| `externalRedis.*`             | (unset)                          | Used when `redis.enabled=false`.                                                          |
+| `serviceAccount.create`       | `true`                           | Token automount is off.                                                                   |
+| `rbac.create`                 | `false`                          | Minimal empty Role/RoleBinding when enabled.                                              |
+| `networkPolicy.enabled`       | `true`                           | Client ingress from the namespace; set `allowExternal: true` to open it.                  |
+| `podDisruptionBudget.enabled` | `true`                           | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`             | `false`                          | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                             | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                             | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                           | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                             | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                             | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      | ## Security |
 
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
 dropped; only `emptyDir` mounts for `/tmp` and the gateway `app_path` are

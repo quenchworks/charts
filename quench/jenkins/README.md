@@ -64,6 +64,12 @@ Configuration-as-Code) and persist on the volume.
 | `service.ports.agent` | `50000` | inbound JNLP agents |
 | `extraEnvVars` | `JAVA_OPTS=-Djenkins.install.runSetupWizard=false` | tune the JVM / disable the wizard |
 
+| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
+| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
+| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
+| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
+| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 ### Production notes
 
 - The image entrypoint hardcodes `--httpPort=8080`; change `service.ports.http`

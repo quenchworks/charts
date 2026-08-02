@@ -142,6 +142,12 @@ gh attestation verify oci://ghcr.io/quenchworks/images/opensearch \
 | `networkPolicy.enabled` | `true` | Restricts HTTP ingress to the release namespace; node-to-node transport always allowed. |
 | `podDisruptionBudget.enabled` | `true` | HA pins the master pool at quorum; single uses `minAvailable`. |
 
+| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
+| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
+| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
+| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
+| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
 env/volumes, security contexts). A soft `podAntiAffinity` spreads each pool across
 nodes by default; set `.Values.affinity` to take over.

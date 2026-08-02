@@ -141,6 +141,12 @@ curl http://127.0.0.1:8080/api/v2/monitor/health   # HTTP 200 once up
 | `networkPolicy.enabled` | `true` | restrict ingress to the api-server |
 | `podDisruptionBudget.enabled` | `true` | PDB for the api-server |
 
+| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
+| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
+| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
+| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
+| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 ## Image provenance
 
 ```sh

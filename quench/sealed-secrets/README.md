@@ -84,6 +84,12 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/sealed-secrets --ow
 | `networkPolicy.enabled` | `true` | Restricts ingress to the controller's two ports. |
 | `networkPolicy.allowExternal` | `true` | Set `false` to restrict ingress to in-cluster pods. |
 
+| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
+| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
+| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
+| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
+| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
 containers, extra env/volumes, security contexts, update strategy).
 

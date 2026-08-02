@@ -96,6 +96,28 @@ externalDatabase:
 attachments, the host SSH key) via a `volumeClaimTemplate`. Set `persistence.enabled=false`
 for an ephemeral `emptyDir` (the CI gate uses this), or bind `persistence.existingClaim`.
 
+## Ingress
+
+Off by default. `ingress.enabled=true` plus at least one host publishes the HTTP UI/API
+through an Ingress; the backend port is resolved from the chart's own Service, so only
+the host is required:
+
+```yaml
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: gitea.example.com     # a host with no `paths` gets one "/" Prefix path
+  tls:
+    - hosts: [gitea.example.com]
+      secretName: gitea-tls
+```
+
+`ingress.annotations` passes controller annotations through, and `ingress.servicePort`
+overrides the resolved port. Note this fronts HTTP only: **git over SSH is a TCP
+protocol and cannot traverse an Ingress** -- expose port 22 with
+`service.type=LoadBalancer` or your controller's TCP passthrough.
+
 ## Hardening
 
 - Runs as nonroot uid 1001 with a read-only root filesystem and all capabilities

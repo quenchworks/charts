@@ -88,7 +88,13 @@ gh attestation verify oci://ghcr.io/quenchworks/images/questdb --owner quenchwor
 | `networkPolicy.enabled` | `true` | Ingress to the three ports from the namespace. |
 | `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
 
-## Security
+
+| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
+| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
+| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
+| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
+| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |## Security
 
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
 dropped. Only the `/var/lib/questdb` data volume and `/tmp` are writable.
