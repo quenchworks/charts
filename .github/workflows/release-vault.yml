@@ -80,6 +80,119 @@ jobs:
           echo "$out" | grep -q '^quench$'   # fail loudly on mismatch
           kubectl exec rtest-vault-0 -- vault status
 
+      - name: HA install gate (kind, raft 3 nodes)
+        run: |
+          set -o pipefail
+          # The dev-mode gate above proves the API answers. It CANNOT catch a broken raft
+          # cluster: dev mode is a single in-memory node with no storage stanza at all. So
+          # ha.enabled=true gets its own gate, or a chart rendering unjoinable retry_join
+          # addresses would publish green.
+          # The previous step backgrounded a port-forward on 8200 and killed it via an EXIT
+          # trap. If one somehow survives, it would still be bound to 8200 while pointing
+          # at a pod that is about to be deleted, and every curl below would hit a corpse.
+          # (Safe from self-matching: the runner executes this block as a script FILE, so
+          # the pattern is not in any process cmdline.)
+          pkill -f 'kubectl port-forward' || true
+          helm uninstall rtest --wait
+          kubectl delete pvc --all --ignore-not-found
+
+          helm install hatest "${CHART_DIR}" \
+            --set dev.enabled=false --set ha.enabled=true --set ha.replicas=3 \
+            --set persistence.size=1Gi
+          # NO --wait: a real Vault boots SEALED, so readiness never passes until unsealed.
+          n=0
+          for i in $(seq 1 60); do
+            n="$(kubectl get pods -l app.kubernetes.io/name=vault --no-headers | grep -c Running || true)"
+            [ "${n:-0}" -ge 3 ] && break
+            sleep 5
+          done
+          kubectl get pods -l app.kubernetes.io/name=vault
+          test "${n:-0}" -ge 3
+
+          # The runtime image is SHELL-FREE and has no HTTP client, so every step below
+          # talks to the API over a port-forward from the runner.
+          pf() {
+            kubectl port-forward "hatest-vault-$1" 8200:8200 >"/tmp/pf-$1.log" 2>&1 &
+            PF=$!
+            for i in $(seq 1 20); do
+              curl -sf -o /dev/null "http://127.0.0.1:8200/v1/sys/seal-status" && return 0
+              sleep 2
+            done
+            return 1
+          }
+
+          pf 0 || { echo "no port-forward to pod 0"; exit 1; }
+          init="$(curl -sS -X PUT -d '{"secret_shares":1,"secret_threshold":1}' \
+                    http://127.0.0.1:8200/v1/sys/init)"
+          key="$(echo "$init" | jq -r '.keys_base64[0]')"
+          tok="$(echo "$init" | jq -r '.root_token')"
+          test -n "$key" && test "$key" != "null"   # fail loudly instead of unsealing with ""
+          kill $PF
+
+          # Unseal every node. A joiner cannot unseal until its retry_join reaches the
+          # leader, so this retries rather than assuming first-try success.
+          for p in 0 1 2; do
+            pf "$p" || { echo "no port-forward to pod $p"; exit 1; }
+            s=""
+            for i in $(seq 1 24); do
+              s="$(curl -sS -X PUT -d "{\"key\":\"$key\"}" \
+                     http://127.0.0.1:8200/v1/sys/unseal | jq -r '.sealed')"
+              [ "$s" = "false" ] && break
+              sleep 5
+            done
+            echo "hatest-vault-$p sealed=$s"
+            kill $PF
+            test "$s" = "false"
+          done
+
+          # THE assertion: raft must report 3 VOTERS. Three Running pods each reporting one
+          # voter would be three SEPARATE single-node clusters -- which is exactly what a
+          # pod-count or per-pod health check cannot tell apart from a real cluster.
+          pf 0 || { echo "no port-forward to pod 0"; exit 1; }
+          v=0
+          for i in $(seq 1 24); do
+            cfg="$(curl -sS -H "X-Vault-Token: $tok" \
+                     http://127.0.0.1:8200/v1/sys/storage/raft/configuration)"
+            v="$(echo "$cfg" | jq '[.data.config.servers[] | select(.voter)] | length')"
+            [ "${v:-0}" -ge 3 ] && break
+            sleep 5
+          done
+          echo "$cfg" | jq -r '.data.config.servers[] | "  \(.node_id) voter=\(.voter)"'
+          test "${v:-0}" -ge 3
+
+          # Write through the leader...
+          curl -sS -H "X-Vault-Token: $tok" -X POST \
+            -d '{"type":"kv","options":{"version":"2"}}' \
+            http://127.0.0.1:8200/v1/sys/mounts/qw
+          curl -sS -H "X-Vault-Token: $tok" -X POST \
+            -d '{"data":{"value":"quench"}}' http://127.0.0.1:8200/v1/qw/data/gate
+
+          # ...and read it back from a DIFFERENT pod: proves the write REPLICATED, not just
+          # that one node accepted it.
+          curl -sS -o /tmp/ui.html -w 'ui http=%{http_code}\n' http://127.0.0.1:8200/ui/
+          kill $PF
+          pf 2 || { echo "no port-forward to pod 2"; exit 1; }
+          got="$(curl -sS -H "X-Vault-Token: $tok" \
+                   http://127.0.0.1:8200/v1/qw/data/gate | jq -r '.data.data.value')"
+          echo "replicated read from pod 2 -> $got"
+          kill $PF
+          test "$got" = "quench"
+
+          # The web UI must actually be compiled into the binary (built with -tags ui).
+          #
+          # Checking for HTTP 200 here would be WORTHLESS: a Vault built WITHOUT the ui tag
+          # still answers /ui/ with 200 and a ~1.4KB HTML stub reading "Vault UI is not
+          # available in this binary." Verified against the previous image, which returned
+          # 200 with no UI whatsoever. So assert on CONTENT: the stub phrase must be absent
+          # and the real Ember bundle must be referenced (the built index.html is ~1MB).
+          if grep -qi 'not available in this binary' /tmp/ui.html; then
+            echo "UI stub served: image lacks -tags ui"; exit 1
+          fi
+          grep -qE '/ui/assets/[A-Za-z0-9._-]+\.js' /tmp/ui.html || { echo "no Ember bundle referenced in /ui/"; exit 1; }
+          echo "UI served: $(wc -c </tmp/ui.html) bytes, Ember bundle referenced"
+
+          helm uninstall hatest --wait
+
       - name: Package and push (OCI)
         id: push
         run: |

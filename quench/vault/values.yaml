@@ -8,16 +8,97 @@
 # =============================================================================
 image:
   repository: ghcr.io/quenchworks/images/vault
-  digest: "sha256:3428da8e9cee6078dfb909784150e6ac487123ffa13c94091f18b82c8865d893"
+  digest: "sha256:9379b7e3219452a823449ae7a45ae8eac26ad26126cdff57d8746d796c4bdebf"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
 
-# Single node. Vault's HA story is a multi-node raft cluster over the headless
-# service (8201); that, plus TLS and auto-unseal, is a tracked follow-up (see
-# server.config below for how to get there without a chart change). This chart
-# ships the self-contained single-node server.
+# Replica count for the NON-HA (single node, `file` storage) mode. File storage is
+# not an HA backend, so raising this without ha.enabled gives you N independent
+# Vaults on N PVCs, not a cluster -- which is why ha.enabled owns its own count.
 replicaCount: 1
+
+# --- High availability (raft integrated storage) --------------------------------
+# ha.enabled=true switches storage from `file` to Vault's own raft, forms a cluster
+# over the headless service on the cluster port, and ignores server.config in favour
+# of a generated raft configuration (add to it with server.extraConfig).
+#
+# What still has to be done BY HAND after install, exactly as with any real Vault:
+# initialise ONE pod (`vault operator init`), unseal it, then unseal each remaining
+# pod. Peers find the leader through retry_join, so they join on their own once
+# unsealed -- there is no init container doing it for you, because a chart that
+# auto-initialises Vault has to put the unseal keys somewhere, and every option is
+# worse than you holding them.
+#
+# The headless Service sets publishNotReadyAddresses so raft peers can resolve each
+# other DURING STARTUP. The readiness probe passes while sealed (it asks health for
+# sealedcode=200&uninitcode=200), so a sealed pod is Ready -- but retry_join fires as
+# soon as Vault starts, before the first probe has succeeded, and a NotReady pod has
+# no DNS record. Without this the initial join attempts fail on name resolution.
+ha:
+  enabled: false
+  # Raft wants an odd number so a quorum survives losing one node.
+  replicas: 3
+  # Extra HCL appended to the generated raft config -- a `seal` stanza for
+  # auto-unseal, a second listener, telemetry, and so on.
+  extraConfig: ""
+  # Disruption budget for the cluster. minAvailable 2 of 3 keeps quorum during a
+  # drain; podDisruptionBudget.enabled must also be true.
+  #
+  # NOTE: raft data lives on each pod's PVC. Scaling DOWN does not remove a peer
+  # from the raft configuration -- run `vault operator raft remove-peer <node_id>`
+  # BEFORE scaling in, or the cluster keeps counting a node that will never come
+  # back and can lose quorum. This chart deliberately does not automate that: peer
+  # removal needs a privileged token, and getting it wrong destroys quorum.
+
+# --- Autoscaling (HorizontalPodAutoscaler) --------------------------------------
+# OFF, and for most installs it should STAY off. Vault does not scale horizontally the
+# way a stateless web app does, so this is only usable in ONE topology:
+#
+#   a SHARED, EXTERNAL storage backend -- consul, dynamodb, gcs, ... -- set through
+#   server.config, where every node reaches the same data and any node can serve.
+#
+# The chart REFUSES the other two combinations at template time, because both look fine
+# at deploy and fail later:
+#
+#   ha.enabled (raft)   A raft cluster's voter count must be fixed. An HPA scale-in does
+#                       not run `vault operator raft remove-peer`, so raft keeps counting
+#                       removed nodes as voters and the cluster LOSES QUORUM; a scale-out
+#                       adds nodes that boot SEALED and serve nothing; and the size would
+#                       have two owners that nothing reconciles -- the HPA's bounds and
+#                       ha.replicas, which is what the retry_join list is built from.
+#                       Size raft with ha.replicas instead.
+#
+#   `file` storage      Per-pod, not shared. Replicas would be separate, separately
+#                       sealed, separately initialized Vaults behind one Service,
+#                       answering 501/503 at random.
+#
+# Two things to know even in the supported case. A new node still boots SEALED and serves
+# nothing until unsealed, so configure auto-unseal (a `seal` stanza in server.config)
+# or autoscaling buys no capacity. And `replicaCount` is IGNORED while this is on: the
+# StatefulSet omits `replicas` so the HPA owns the count (Kubernetes starts it at 1 and
+# the HPA scales up to minReplicas).
+autoscaling:
+  enabled: false
+  # StatefulSet, not Deployment: this chart's workload is a StatefulSet, and the
+  # shared helper defaults to Deployment.
+  targetKind: StatefulSet
+  # Defaults to the release fullname, which is this chart's StatefulSet. Override only
+  # to point the HPA at something else.
+  targetName: ""
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+  # Set to also scale on memory; leave unset for CPU only.
+  targetMemoryUtilizationPercentage: null
+  # A full autoscaling/v2 `metrics` list (external / pods / object metrics). When set,
+  # it REPLACES the CPU and memory targets above rather than adding to them.
+  metrics: []
+  # autoscaling/v2 scaling `behavior` -- stabilization windows and scale-up/down
+  # policies. Worth setting a long scaleDown stabilizationWindowSeconds here.
+  behavior: {}
+  annotations: {}
+  extraLabels: {}
 
 # --- Server mode ---------------------------------------------------------------
 # DEFAULT: a real (non-dev) single node with `file` storage on the PVC. It boots
@@ -43,12 +124,12 @@ server:
   # Vault on swap-disabled nodes (the Kubernetes default) to keep the same
   # "master key never hits disk" guarantee.
   #
-  # ui = false: the image is built WITHOUT the `ui` build tag (the browser
-  # console needs a full Ember asset build), so there is no web UI to serve.
-  # Use the CLI or the HTTP API.
+  # ui = true: the image now ships the browser console (built from upstream's own
+  # Ember pipeline in the melange sandbox), so it is served on the API port. Set
+  # false to serve the API only.
   config: |
     disable_mlock = true
-    ui            = false
+    ui            = true
 
     storage "file" {
       path = "/vault/data"

@@ -13,9 +13,10 @@ spec:
   selector:
     {{- include "quench-common.selectorLabels" . | nindent 4 }}
 ---
-# Headless service: stable per-pod DNS for Vault cluster traffic (8201), the basis
-# for a future multi-node HA topology. publishNotReadyAddresses so peers resolve
-# while a node is still sealed/initializing.
+# Headless service: stable per-pod DNS for Vault cluster traffic (8201). This is what
+# the generated raft config's retry_join entries point at when ha.enabled=true.
+# publishNotReadyAddresses because retry_join fires the moment Vault starts, before the
+# first readiness probe has succeeded, and a NotReady pod has no DNS record.
 apiVersion: v1
 kind: Service
 metadata:

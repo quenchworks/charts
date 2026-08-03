@@ -4,6 +4,21 @@ The Vault HCL config. Vault refuses to start without a config file, and the imag
 shell-free (no entrypoint script can synthesize one), so the chart supplies it here and
 overrides the container args to point at it. Dev mode takes no config file at all, so
 this ConfigMap is skipped entirely there.
+
+Two shapes:
+
+  ha.enabled=false  .Values.server.config verbatim -- single node, `file` storage.
+
+  ha.enabled=true   a GENERATED raft configuration. server.config is ignored, because
+                    raft needs values only the chart knows (one retry_join entry per
+                    replica, built from the headless Service DNS), and hand-maintaining
+                    those in values is how clusters end up half-joined. Append your own
+                    HCL -- a seal stanza for auto-unseal, telemetry -- through
+                    ha.extraConfig.
+
+node_id is deliberately NOT set here: it comes from VAULT_RAFT_NODE_ID in the
+StatefulSet, which takes the pod name. A node_id written into this shared ConfigMap
+would give every peer the SAME identity, and raft would refuse to form a cluster.
 */}}
 apiVersion: v1
 kind: ConfigMap
@@ -13,5 +28,33 @@ metadata:
     {{- include "quench-common.labels" . | nindent 4 }}
 data:
   vault.hcl: |
+    {{- if .Values.ha.enabled }}
+    disable_mlock = true
+    ui            = true
+
+    storage "raft" {
+      path = "/vault/data"
+    {{- $full := include "quench-common.fullname" . }}
+    {{- $headless := include "vault.headlessName" . }}
+    {{- $port := .Values.service.apiPort }}
+    {{- range $i := until (int .Values.ha.replicas) }}
+      {{/* Every peer lists every peer, itself included: Vault ignores a retry_join
+           that points at itself, and a uniform list means ANY pod can be the one you
+           initialise -- no special-casing pod 0. */}}
+      retry_join {
+        leader_api_addr = "http://{{ $full }}-{{ $i }}.{{ $headless }}:{{ $port }}"
+      }
+    {{- end }}
+    }
+
+    listener "tcp" {
+      address     = "0.0.0.0:{{ .Values.service.apiPort }}"
+      tls_disable = true
+    }
+    {{- with .Values.ha.extraConfig }}
+    {{ . | nindent 4 | trim }}
+    {{- end }}
+    {{- else }}
     {{- .Values.server.config | nindent 4 }}
+    {{- end }}
 {{- end }}

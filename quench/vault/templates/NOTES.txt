@@ -52,9 +52,23 @@ already set in the container's environment.
 
 2) Unseal (after every start, until auto-unseal is configured). Use the unseal
    key from step 1:
+{{ if .Values.ha.enabled }}
+   RAFT HA: unseal EVERY pod with the same key. The others join the leader on
+   their own through retry_join once unsealed. A joiner may refuse the first
+   unseal until its retry_join reaches the leader -- just retry.
+{{ range $i := until (int .Values.ha.replicas) }}
+     kubectl exec {{ include "quench-common.fullname" $ }}-{{ $i }} -- vault operator unseal <UNSEAL_KEY>
+{{- end }}
 
+   Then CONFIRM the cluster actually formed. This must list {{ .Values.ha.replicas }} voters --
+   {{ .Values.ha.replicas }} Running pods each reporting one voter would be {{ .Values.ha.replicas }} SEPARATE
+   single-node clusters:
+
+     kubectl exec {{ include "quench-common.fullname" . }}-0 -- vault operator raft list-peers
+{{- else }}
      kubectl exec {{ include "quench-common.fullname" . }}-0 -- vault operator unseal <UNSEAL_KEY>
      kubectl exec {{ include "quench-common.fullname" . }}-0 -- vault status
+{{- end }}
 
 3) Use it with the root token. `kubectl exec` cannot set environment variables,
    so put the token in the pod's env (`extraEnvVars`, ideally from a Secret) or
@@ -68,9 +82,13 @@ already set in the container's environment.
 For a one-command quick start instead, install with `dev.enabled=true`
 (in-memory, auto-unsealed -- testing only).
 {{ end }}
-NOTE: there is NO WEB UI. The image is built without Vault's `ui` build tag (the
-browser console needs a full Ember asset build), so `ui = true` in the config does
-nothing. Use the CLI or the HTTP API.
+WEB UI: the browser console is compiled into the image and enabled, served at /ui/:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.apiPort }}:{{ .Values.service.apiPort }}
+  # then open http://127.0.0.1:{{ .Values.service.apiPort }}/ui/ and log in with a token
+
+Set `ui = false` in your config to close the route off, or enable the Ingress
+(`ingress.enabled=true`) to reach it from outside the cluster.
 
 NOTE: `disable_mlock = true` is set because a nonroot, cap-dropped container cannot
 hold CAP_IPC_LOCK. Run Vault on swap-disabled nodes (the Kubernetes default) to keep

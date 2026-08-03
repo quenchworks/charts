@@ -19,7 +19,16 @@ metadata:
     {{- include "quench-common.labels" . | nindent 4 }}
 spec:
   serviceName: {{ include "vault.headlessName" . }}
-  replicas: {{ .Values.replicaCount }}
+  {{/* HA owns its own count: `file` storage is not an HA backend, so raising
+       replicaCount without ha.enabled would give N independent Vaults, not a cluster.
+
+       Omitted entirely under autoscaling: if the manifest carried a replica count, every
+       `helm upgrade` would reset the StatefulSet to it and the HPA would immediately
+       scale back, so the two would fight forever. Leaving the field out hands ownership
+       of the count to the HPA. */}}
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ if .Values.ha.enabled }}{{ .Values.ha.replicas }}{{ else }}{{ .Values.replicaCount }}{{ end }}
+  {{- end }}
   {{- with .Values.updateStrategy }}
   updateStrategy:
     {{- toYaml . | nindent 4 }}
@@ -84,6 +93,15 @@ spec:
               value: "http://$(POD_NAME).{{ include "vault.headlessName" . }}:{{ .Values.service.apiPort }}"
             - name: VAULT_CLUSTER_ADDR
               value: "https://$(POD_NAME).{{ include "vault.headlessName" . }}:{{ .Values.service.clusterPort }}"
+            {{- if .Values.ha.enabled }}
+            {{/* Raft node identity. It MUST come from the environment, not the config:
+                 the HCL lives in one ConfigMap shared by every pod, so a node_id written
+                 there would hand all peers the same identity and raft would refuse to
+                 form a cluster. The pod name is stable across restarts for a
+                 StatefulSet, which is exactly what raft needs. */}}
+            - name: VAULT_RAFT_NODE_ID
+              value: "$(POD_NAME)"
+            {{- end }}
             {{- if .Values.dev.enabled }}
             # DEV MODE: auto-unsealed, in-memory. NOT for production.
             - name: VAULT_DEV_ROOT_TOKEN_ID

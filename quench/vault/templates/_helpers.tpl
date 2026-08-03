@@ -2,7 +2,7 @@
 {{- if .Values.serviceAccount.create -}}{{ default (include "quench-common.fullname" .) .Values.serviceAccount.name }}{{- else -}}{{ default "default" .Values.serviceAccount.name }}{{- end -}}
 {{- end -}}
 
-{{/* Headless service for stable peer DNS (Vault cluster traffic on 8201, future HA). */}}
+{{/* Headless service for stable peer DNS (Vault cluster traffic on 8201, raft HA). */}}
 {{- define "vault.headlessName" -}}
 {{- printf "%s-headless" (include "quench-common.fullname" .) -}}
 {{- end -}}

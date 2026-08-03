@@ -1,0 +1,57 @@
+{{/*
+HorizontalPodAutoscaler, from the shared quench-common helper.
+
+Autoscaling only makes sense for ONE Vault topology: a shared, external storage backend
+(consul, dynamodb, gcs, ...) where nodes are interchangeable and any node can serve. That
+case renders normally. The other two are refused at template time, because both fail in
+ways that look fine at deploy and bite later:
+
+  - raft (ha.enabled): a raft cluster's voter count must be fixed and explicit.
+  - `file` storage: per-pod, so replicas are unrelated Vaults, not capacity.
+
+Note also that `replicas` is deliberately absent from the StatefulSet whenever
+autoscaling is on (see statefulset.yaml), so the HPA owns the count outright instead of
+being reset by every `helm upgrade`. Kubernetes defaults the initial count to 1 and the
+HPA then raises it to minReplicas -- it enforces the min bound even while metrics read
+`<unknown>`, verified on a real cluster.
+*/}}
+{{- if .Values.autoscaling.enabled }}
+
+  {{- if .Values.ha.enabled }}
+    {{/*
+      Raft + HPA has no safe configuration, so it is refused rather than documented:
+
+        - Scale IN loses quorum. Deleting a pod does not remove it from the raft
+          configuration (that needs `vault operator raft remove-peer` and a privileged
+          token), so raft keeps counting it as a voter that will never answer. 3 -> 1
+          leaves 2 of 3 voters unreachable: the cluster stops serving until an operator
+          repairs the peer list by hand.
+        - Scale OUT adds nothing. A new node boots SEALED and serves no request until it
+          is unsealed, so the autoscaler cannot actually add capacity in response to
+          load.
+        - Two sources of truth for one number. The HPA owns spec.replicas (it enforces
+          minReplicas even when metrics are unavailable -- measured, not assumed), while
+          the generated raft config builds its retry_join list from ha.replicas. Nothing
+          keeps the two in agreement, so the cluster's real size and the size its own
+          config describes drift apart silently.
+
+      Size a raft cluster with ha.replicas instead. It is a deliberate, stable number.
+    */}}
+    {{- fail "vault: autoscaling.enabled=true is not supported with ha.enabled=true (raft). A raft cluster's voter count must be fixed: an HPA scale-in does NOT run `vault operator raft remove-peer`, so raft would keep counting removed nodes as voters and the cluster would LOSE QUORUM; a scale-out adds nodes that boot SEALED and serve nothing; and the cluster size would then have two owners, the HPA's bounds and ha.replicas, which nothing keeps in agreement. Size the cluster with ha.replicas and leave autoscaling.enabled=false. Autoscaling is only meaningful with a shared external storage backend (consul, dynamodb, gcs, ...) set through server.config." }}
+
+  {{- else if contains "storage \"file\"" .Values.server.config }}
+    {{/*
+      `file` storage is per-pod, not shared. Every replica gets its own PVC from the
+      volumeClaimTemplate, so N replicas are N unrelated Vaults -- each needing its own
+      init and its own unseal keys -- behind one Service that load-balances between
+      them. Clients get 501/503 at random and a secret written to one node is invisible
+      on the others.
+
+      Matched on the rendered config rather than on a flag, so replacing server.config
+      with a genuinely shared backend is allowed.
+    */}}
+    {{- fail "vault: autoscaling.enabled=true with the default `file` storage backend. File storage is per-pod and NOT shared, so extra replicas would be separate, separately-sealed, separately-initialized Vaults behind one Service -- answering 501/503 at random, with secrets written to one node invisible on the others. Replace server.config with a shared external backend (consul, dynamodb, gcs, ...), or leave autoscaling.enabled=false." }}
+  {{- end }}
+
+{{- end }}
+{{- include "quench-common.hpa" . }}

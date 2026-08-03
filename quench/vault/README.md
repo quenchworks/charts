@@ -1,6 +1,7 @@
 # Quenchworks Vault
 
 > ### ⚠️ LICENSE — NOT OPEN SOURCE
+>
 > HashiCorp Vault 1.15.0 and later are licensed under the **Business Source License 1.1
 > (BUSL-1.1)**, which is **not** OSI-approved open source: it restricts competing hosted
 > use and only converts to MPL-2.0 after a change date. Do not treat Vault as open
@@ -13,17 +14,14 @@
 
 Hardened [Vault](https://github.com/hashicorp/vault) secrets-management server on a
 minimal, nonroot, 0-CVE image, built from source on Wolfi, cosign-signed and pinned by
-digest. Single node with the `file` storage backend on a PVC; the HTTP API is on 8200,
-cluster traffic on 8201.
+digest. Single node with the `file` storage backend on a PVC by default, or a
+[multi-node raft cluster](#high-availability-raft) with `ha.enabled=true`. The HTTP API
+is on 8200, cluster traffic on 8201. The **web UI is included** and served at `/ui/`.
 
 > Note: a real node boots sealed and uninitialized, which is expected. It does not serve
 > secrets until you initialize it (`vault operator init`) and unseal it. See
 > [Initialize & unseal](#initialize--unseal). For a one-command quick start, use
 > [dev mode](#dev-mode-quick-start).
-
-> Note: there is **no web UI**. The image is built without Vault's `ui` build tag (the
-> browser console needs a full Ember/pnpm asset build), so `ui = true` in the config does
-> nothing. Use the CLI or the HTTP API.
 
 ## Install
 
@@ -90,26 +88,35 @@ Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them 
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/vault` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Single node (HA is a follow-up). |
-| `dev.enabled` | `false` | `true` = auto-unsealed in-memory server (testing only). |
-| `dev.rootToken` | `""` | Dev root token; random into a Secret if unset. |
-| `server.config` | `file` storage, TLS off, mlock off | The whole `vault.hcl`, rendered into a ConfigMap. Replace it to change storage, add `seal`, or enable TLS. |
-| `persistence.enabled` | `true` | 8Gi PVC mounted at `/vault/data` (file storage). |
-| `service.apiPort` | `8200` | HTTP API / CLI. |
-| `service.clusterPort` | `8201` | Vault cluster port (headless service, future HA). |
-| `networkPolicy.enabled` | `true` | Restricts API ingress to the release namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                            | Notes                                                                                                      |
+| ----------------------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/vault` |                                                                                                            |
+| `image.digest`                | (CI-written)                       | Required. Charts pin by digest, never a tag.                                                               |
+| `replicaCount`                | `1`                                | Single-node replica count. Ignored when `ha.enabled=true` (`ha.replicas` wins).                            |
+| `ha.enabled`                  | `false`                            | `true` = multi-node raft cluster. Generates the HCL and ignores `server.config`.                            |
+| `ha.replicas`                 | `3`                                | Raft node count. Keep it odd so a quorum survives losing one node.                                         |
+| `ha.extraConfig`              | `""`                               | Extra HCL appended to the generated raft config (a `seal` stanza for auto-unseal, telemetry, ...).          |
+| `autoscaling.enabled`         | `false`                            | HPA for the StatefulSet. Only valid with a shared external backend — see [Autoscaling](#autoscaling).       |
+| `autoscaling.minReplicas`     | `1`                                | Lower bound. Enforced even when metrics are unavailable.                                                    |
+| `autoscaling.maxReplicas`     | `3`                                | Upper bound.                                                                                                |
+| `autoscaling.targetCPUUtilizationPercentage` | `80`                | CPU target. Set `targetMemoryUtilizationPercentage` to also scale on memory.                                 |
+| `autoscaling.metrics`         | `[]`                               | Full `autoscaling/v2` metrics list (external/pods/object). Replaces the CPU + memory targets when set.       |
+| `autoscaling.behavior`        | `{}`                               | `autoscaling/v2` scaling behavior (stabilization windows, policies).                                        |
+| `dev.enabled`                 | `false`                            | `true` = auto-unsealed in-memory server (testing only).                                                    |
+| `dev.rootToken`               | `""`                               | Dev root token; random into a Secret if unset.                                                             |
+| `server.config`               | `file` storage, TLS off, mlock off | The whole `vault.hcl`, rendered into a ConfigMap. Replace it to change storage, add `seal`, or enable TLS. |
+| `persistence.enabled`         | `true`                             | 8Gi PVC mounted at `/vault/data` (file storage).                                                           |
+| `service.apiPort`             | `8200`                             | HTTP API / CLI.                                                                                            |
+| `service.clusterPort`         | `8201`                             | Vault cluster port on the headless service. Carries raft traffic when `ha.enabled=true`.                   |
+| `networkPolicy.enabled`       | `true`                             | Restricts API ingress to the release namespace.                                                            |
+| `podDisruptionBudget.enabled` | `true`                             | `minAvailable: 1`.                                                                                         |
+| `ingress.enabled`             | `false`                            | Create an Ingress for this chart. HTTP only.                                                               |
+| `ingress.className`           | `""`                               | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.                           |
+| `ingress.annotations`         | `{}`                               | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).                             |
+| `ingress.servicePort`         | `null`                             | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.                         |
+| `ingress.hosts`               | `[]`                               | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path.                  |
+| `ingress.tls`                 | `[]`                               | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.                       |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
 env/volumes, security contexts). Use `extraEnvVars` / `extraVolumes` to wire telemetry,
 a token for exec-based automation, or TLS materials.
@@ -121,7 +128,8 @@ persistent volume. The default is a real single node backed by the `file` storag
 on a PVC mounted at `/vault/data`; with `persistence.enabled=false` that path is an
 `emptyDir` and does not survive a restart. Each node advertises its API and cluster
 addresses over a headless service (`<pod>.<headless>`, via `VAULT_API_ADDR` /
-`VAULT_CLUSTER_ADDR`), which is the basis for a future multi-node HA topology.
+`VAULT_CLUSTER_ADDR`), which is what lets raft peers find each other under
+[`ha.enabled`](#high-availability-raft).
 
 Vault needs a config file to start, and the image is **shell-free** (no busybox), so
 nothing inside it can synthesize one. The chart renders `server.config` into a ConfigMap
@@ -131,7 +139,8 @@ mounted at `/vault/config/vault.hcl` and overrides the container args to
 file at all: the args become `server -dev …` and the ConfigMap is not rendered.
 
 Two ports are exposed: HTTP (8200) for the API and CLI, and 8201 for Vault's cluster
-traffic (idle with `file` storage, which is not an HA backend). A real node boots sealed
+traffic (idle with `file` storage, which is not an HA backend; carrying raft replication
+once `ha.enabled=true`). A real node boots sealed
 and uninitialized, and Vault's `/v1/sys/health` returns 503 (sealed) or 501
 (uninitialized) in that state. Gating readiness on a plain 200 would leave the pod
 NotReady forever, so the probes ask the health endpoint to return 200 for standby,
@@ -140,9 +149,125 @@ a TCP check on the API port. In dev mode the node auto-unseals and the same endp
 returns 200 anyway — which is what the CI install gate asserts, together with a real
 kv-v2 put/get roundtrip.
 
-The default topology is single-node (`replicaCount: 1`). A multi-node HA cluster (raft
-integrated storage over the headless service) is a tracked follow-up; keep `replicaCount`
-at 1 unless you also replace `server.config` with a raft/HA backend.
+## High availability (raft)
+
+`ha.enabled=true` switches storage to Vault's **raft** integrated storage and runs
+`ha.replicas` nodes (default 3, keep it odd so a quorum survives losing one node):
+
+```bash
+helm install vault oci://ghcr.io/quenchworks/charts/vault \
+  --set ha.enabled=true --set ha.replicas=3
+```
+
+In this mode the chart **generates** the whole `vault.hcl` and ignores `server.config`,
+because raft needs values only the chart knows: one `retry_join` block per replica, built
+from the headless-service DNS names. Hand-maintaining those in values is how clusters end
+up half-joined. Append your own HCL (a `seal` stanza for auto-unseal, telemetry) with
+`ha.extraConfig`.
+
+Every peer lists every peer, itself included: Vault ignores a `retry_join` pointing at
+itself, so a uniform list means *any* pod can be the one you initialize. `node_id` is not
+in the ConfigMap (a shared value would give every peer the same identity and raft would
+refuse to form); it comes from `VAULT_RAFT_NODE_ID`, set to the pod name.
+
+Bringing the cluster up, once:
+
+```bash
+# 1) Initialize ONE pod. Save the keys and token; they cannot be recovered.
+kubectl exec vault-0 -- vault operator init -key-shares=5 -key-threshold=3
+
+# 2) Unseal EVERY pod with the same keys. The joiners reach quorum via retry_join;
+#    a joiner cannot unseal until its retry_join finds the leader, so retry if the
+#    first attempt is refused.
+for p in 0 1 2; do
+  kubectl exec vault-$p -- vault operator unseal <key-1>
+  kubectl exec vault-$p -- vault operator unseal <key-2>
+  kubectl exec vault-$p -- vault operator unseal <key-3>
+done
+
+# 3) Confirm the cluster really formed: this must list ha.replicas VOTERS.
+kubectl exec vault-0 -- vault operator raft list-peers
+```
+
+Step 3 is the check that matters. Three Running pods each reporting one voter are three
+*separate* single-node clusters, which no pod-count or per-pod health check can tell
+apart from a real cluster. The chart's release gate asserts the voter count for this
+reason.
+
+Two caveats worth knowing before you rely on it:
+
+- **A sealed pod reports Ready.** The readiness probe asks Vault's health endpoint for
+  `sealedcode=200&uninitcode=200`, so the StatefulSet rolls out and `helm install --wait`
+  returns even though no node can serve a secret yet. That is deliberate — you need the
+  pods reachable in order to run `operator init` / `unseal` against them — but it means
+  **Ready does not mean usable here**. Check `vault status`, not the pod state. It also
+  means a rolling image update restarts each pod into a sealed state and moves on without
+  waiting for you; configure
+  [auto-unseal](https://developer.hashicorp.com/vault/docs/concepts/seal#auto-unseal) via
+  `ha.extraConfig` before you rely on unattended restarts.
+- **Scaling down does not remove a raft peer.** Run
+  `vault operator raft remove-peer <node_id>` *before* scaling in, or the cluster keeps
+  counting a node that will never return and can lose quorum. The chart deliberately does
+  not automate this: peer removal needs a privileged token, and getting it wrong destroys
+  quorum.
+
+## Autoscaling
+
+Off by default, and for most installs it should stay off — Vault does not scale
+horizontally the way a stateless service does. There is exactly one topology where an
+HPA is meaningful: a **shared, external storage backend** (consul, dynamodb, gcs, …) set
+through `server.config`, where every node reaches the same data and any node can serve.
+
+```yaml
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 80
+server:
+  config: |
+    disable_mlock = true
+    ui            = true
+    storage "consul" { address = "consul:8500", path = "vault/" }
+    listener "tcp"   { address = "0.0.0.0:8200", tls_disable = true }
+```
+
+The chart **refuses to render** the other two combinations, rather than letting you find
+out in production:
+
+| Combination | Why it is refused |
+| --- | --- |
+| `autoscaling` + `ha.enabled` (raft) | A raft cluster's voter count must be fixed. A scale-in does not run `vault operator raft remove-peer`, so raft keeps counting removed nodes as voters and the cluster **loses quorum**; a scale-out adds nodes that boot **sealed** and serve nothing; and the size ends up with two owners nothing reconciles — the HPA's bounds and `ha.replicas`, which the `retry_join` list is built from. |
+| `autoscaling` + default `file` storage | `file` storage is per-pod, not shared. Replicas would be separate, separately sealed, separately initialized Vaults behind one Service, answering 501/503 at random, with a secret written to one node invisible on the others. |
+
+Two things to know even in the supported case:
+
+- **A new node boots sealed** and serves nothing until unsealed, so unless auto-unseal is
+  configured (a `seal` stanza in `server.config`), adding replicas under load buys no
+  capacity at all.
+- **`replicaCount` is ignored** while autoscaling is on. The StatefulSet omits `replicas`
+  so the HPA owns the count outright — otherwise every `helm upgrade` would reset the
+  count and the HPA would scale back, fighting forever. Kubernetes starts it at 1 and the
+  HPA raises it to `minReplicas` (it enforces the min bound even while metrics read
+  `<unknown>`).
+
+## Web UI
+
+Vault's browser console is compiled into the image (built with `-tags ui`, the Ember
+assets built from source) and enabled by default, served at `/ui/`:
+
+```bash
+kubectl port-forward svc/vault 8200:8200
+# then open http://127.0.0.1:8200/ui/ and log in with a token
+```
+
+Set `ui = false` in `server.config` (or via `ha.extraConfig`) to close the route off. To
+reach it from outside the cluster, enable the Ingress (`ingress.enabled=true`).
+
+> A Vault built *without* the `ui` tag still answers `/ui/` with **HTTP 200** — serving a
+> ~1.4 KB stub that reads "Vault UI is not available in this binary." So a 200 alone
+> proves nothing. The real console is a ~1 MB `index.html` referencing hashed bundles
+> under `/ui/assets/`, which is what this chart's gate and the image's smoke test assert.
 
 ## Security
 
@@ -221,8 +346,9 @@ kubectl delete pvc -l app.kubernetes.io/instance=vault
 
 ## Notes
 
-Single node with `file` storage. Multi-node HA, TLS listeners, and auto-unseal are
-tracked follow-ups, all reachable through `server.config`. Vault is BUSL-1.1 and **not**
+Single node with `file` storage by default; multi-node raft HA via `ha.enabled`, and the
+web UI is built in. TLS listeners and auto-unseal are not wired up as first-class values —
+both are reachable through `server.config` / `ha.extraConfig`. Vault is BUSL-1.1 and **not**
 open source; OpenBao (MPL-2.0) is the clean fork — see the banner at the top. Depends on
 the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`.

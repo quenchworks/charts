@@ -5,7 +5,7 @@ name: vault
 # fork -- prefer it for new deployments. The chart's NOTES.txt repeats this on install.
 description: "Secrets and encryption management for tokens, keys, and certificates, with dynamic secrets and leasing. Shipped under the Business Source License, which is not OSI-approved; OpenBao (MPL-2.0) is the open drop-in fork. Hardened by QuenchWorks as a minimal, nonroot, 0-CVE image, cosign-signed and pinned by digest."
 type: application
-version: 0.0.2
+version: 0.0.3
 appVersion: "2.0.3"
 keywords:
   - vault
@@ -25,11 +25,19 @@ sources:
 annotations:
   artifacthub.io/changes: |
     - kind: added
-      description: "First release: single-node HashiCorp Vault on a hardened, nonroot, 0-CVE image built from source, pinned by digest."
+      description: "High availability: ha.enabled runs a multi-node raft cluster, with one retry_join per replica generated from the headless-service DNS and node_id taken from the pod name."
+    - kind: added
+      description: "Web UI: the browser console is now built into the image and served at /ui/, reachable through the optional Ingress."
+    - kind: added
+      description: "Optional HorizontalPodAutoscaler (autoscaling.enabled, off by default). Valid only with a shared external storage backend; the chart refuses to render it alongside raft HA or the per-pod file backend, both of which break rather than scale."
+    - kind: changed
+      description: "The release gate now installs an HA cluster and asserts the raft voter count, a replicated secret read from a second pod, and that the served UI is the real Ember console rather than the stub a UI-less build returns."
+    - kind: removed
+      description: "ha.autoRemovePeers, which no template ever read. Remove a raft peer with `vault operator raft remove-peer` before scaling in."
   artifacthub.io/category: security
   artifacthub.io/images: |
     - name: vault
-      image: ghcr.io/quenchworks/images/vault@sha256:3428da8e9cee6078dfb909784150e6ac487123ffa13c94091f18b82c8865d893
+      image: ghcr.io/quenchworks/images/vault@sha256:9379b7e3219452a823449ae7a45ae8eac26ad26126cdff57d8746d796c4bdebf
   artifacthub.io/operator: "false"
   artifacthub.io/prerelease: "false"
   # NOT OSI-approved open source (Business Source License 1.1). See the note above.
