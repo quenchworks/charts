@@ -1,0 +1,116 @@
+name: release-kong
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/kong/**"
+      - ".github/workflows/release-kong.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/kong
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/rtest-kong --timeout=300s
+
+          # The runtime image has no HTTP client, so probe over a port-forward.
+          # /status on the STATUS port, not the Admin API: it is what Kong documents for
+          # health and it stays available in DB-less mode where the Admin API is read-only.
+          kubectl port-forward deployment/rtest-kong 8100:8100 >/tmp/pf-status.log 2>&1 &
+          pf1=$!; trap 'kill $pf1 2>/dev/null || true' EXIT; sleep 5
+          ok=""
+          for i in $(seq 1 30); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8100/status)" || true
+            echo "status: $code"
+            [ "$code" = "200" ] && { ok=1; break; }
+            sleep 3
+          done
+          test -n "$ok"
+
+          # Admin API must report the version we built.
+          kubectl port-forward deployment/rtest-kong 8001:8001 >/tmp/pf-admin.log 2>&1 &
+          pf2=$!; trap 'kill $pf1 $pf2 2>/dev/null || true' EXIT; sleep 5
+          ver="$(curl -fsS http://127.0.0.1:8001/ | jq -r '.version')"
+          echo "kong version: $ver"
+          echo "$ver" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+' || { echo "Admin API returned no version"; exit 1; }
+
+          # THE assertion: a request must actually TRAVERSE THE PROXY. Kong answering its own
+          # endpoints proves nothing about routing -- a broken router, a missing
+          # libatc_router.so or an unloaded declarative config all leave /status at 200 while
+          # every real request 404s. ci/default-values.yaml declares a route to Kong's own
+          # status port for exactly this, so no second workload is needed.
+          kubectl port-forward deployment/rtest-kong 8000:8000 >/tmp/pf-proxy.log 2>&1 &
+          pf3=$!; trap 'kill $pf1 $pf2 $pf3 2>/dev/null || true' EXIT; sleep 5
+          pcode=""
+          for i in $(seq 1 20); do
+            pcode="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/selftest)" || true
+            echo "proxy /selftest: $pcode"
+            [ "$pcode" = "200" ] && break
+            sleep 3
+          done
+          test "$pcode" = "200" || { echo "request did not traverse the proxy"; kubectl logs deployment/rtest-kong --tail=40; exit 1; }
+
+          helm uninstall rtest --wait
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/kong-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/kong@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/kong:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

@@ -1,0 +1,115 @@
+name: release-cosmian-kms
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/cosmian-kms/**"
+      - ".github/workflows/release-cosmian-kms.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/cosmian-kms
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-cosmian-kms --timeout=300s
+
+          # The runtime image has no HTTP client, so probe over a port-forward.
+          kubectl port-forward statefulset/rtest-cosmian-kms 9998:9998 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf 2>/dev/null || true' EXIT; sleep 5
+          ok=""
+          for i in $(seq 1 30); do
+            code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:9998/version)" || true
+            echo "version: $code"
+            [ "$code" = "200" ] && { ok=1; break; }
+            sleep 3
+          done
+          test -n "$ok"
+
+          ver="$(curl -fsS http://127.0.0.1:9998/version)"
+          echo "reported: $ver"
+
+          # The version string carries the OpenSSL the server actually linked. Two things
+          # this recipe controls deliberately, asserted here so a regression cannot ship:
+          #   1) NOT the vendored OpenSSL 3.6.2 that upstream's build.rs downloads -- if the
+          #      OPENSSL_DIR redirect ever stops working, this is where it surfaces
+          #   2) non-FIPS, because Wolfi ships no OpenSSL FIPS provider; the catalog must not
+          #      inherit upstream's FIPS 140-3 claim
+          echo "$ver" | grep -q "OpenSSL" || { echo "no OpenSSL version reported"; exit 1; }
+          echo "$ver" | grep -q "3.6.2"  && { echo "FAIL: linked the VENDORED OpenSSL 3.6.2"; exit 1; }
+          echo "$ver" | grep -qi "non-FIPS" || { echo "FAIL: expected a non-FIPS build"; exit 1; }
+
+          # KMIP is the whole point of this app: the route must exist. 400/401 is a pass --
+          # it means the endpoint is routed and authenticating. 404 means it is not there.
+          kcode="$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+                    -H 'Content-Type: application/json' \
+                    --data '{"tag":"Query","type":"Structure","value":[]}' \
+                    http://127.0.0.1:9998/kmip/2_1)" || true
+          echo "POST /kmip/2_1: $kcode"
+          case "$kcode" in
+            404|000) echo "FAIL: KMIP endpoint not reachable"; exit 1 ;;
+          esac
+
+          helm uninstall rtest --wait
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/cosmian-kms-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/cosmian-kms@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/cosmian-kms:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
