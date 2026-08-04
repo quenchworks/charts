@@ -1,0 +1,119 @@
+# =============================================================================
+# Matomo -- self-hosted web analytics. GPL-3.0.
+#
+# The digest below is the contract with the image factory. It is NEVER a tag.
+# =============================================================================
+image:
+  repository: ghcr.io/quenchworks/images/matomo
+  digest: "sha256:8d771a71ca6ee35a1595cda0a87d07d15adbc76d51be874ab251d243a90688b0"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+# ONE replica, and this is not a knob to turn up casually. Matomo's installer writes
+# config.ini.php into the config volume, which is ReadWriteOnce -- a second replica on
+# another node cannot mount it, and two replicas sharing one config while running their
+# own archiving cron would double-process the same data. Scale by giving the pod more
+# CPU, or move config/ to a ReadWriteMany volume first.
+replicaCount: 1
+
+matomo:
+  # Matomo has no environment-variable configuration: everything lives in
+  # config.ini.php, which its web installer generates on first run. So the chart cannot
+  # pre-seed credentials -- you complete the installer once, and the file persists on the
+  # config PVC from then on.
+  #
+  # The database below is therefore what you type INTO the installer, not what the pod
+  # reads at boot. It is recorded here so the values file documents the intended target
+  # and so NOTES.txt can print it back to you.
+  port: 8080
+
+# --- Database -----------------------------------------------------------------
+# Matomo needs MySQL or MariaDB. No subchart is bundled: pair this with
+# quench/mariadb or point it at a managed instance.
+externalDatabase:
+  host: ""
+  port: 3306
+  database: matomo
+  user: matomo
+  # Only used to PRINT the connection details in NOTES.txt for the installer. Matomo
+  # never reads it from the environment, so putting a password here buys you nothing and
+  # leaks it into `helm get values`. Prefer leaving it empty.
+  password: ""
+
+persistence:
+  # config/ holds config.ini.php -- the installer's output. WITHOUT persistence Matomo
+  # asks you to reinstall on every pod restart and the previous install is orphaned
+  # against a database that already has its schema.
+  enabled: true
+  size: 1Gi
+  # storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  existingClaim: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+resources:
+  requests: { cpu: 200m, memory: 512Mi }
+  limits: { cpu: 1, memory: 1Gi }
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+rbac:
+  create: false
+  rules: []
+
+networkPolicy:
+  enabled: true
+  # Analytics collection needs to accept beacons from wherever your sites are served,
+  # so the HTTP port is open by default -- unlike a datastore.
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+# --- Shared quench-common knobs ----------------------------------------------
+partOf: ""
+commonLabels: {}
+commonAnnotations: {}
+podLabels: {}
+podAnnotations: {}
+selectorLabels: {}
+imagePullSecrets: []
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+livenessProbe: {}
+readinessProbe: {}
+startupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []

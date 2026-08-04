@@ -1,0 +1,89 @@
+{{/*
+Matomo: nginx (8080) + php-fpm (127.0.0.1:9000) under supervisord in one container, which
+is how the image is built -- see apps/matomo/apko.yaml.
+
+WRITABLE SURFACES. The rootfs is read-only, so three paths must be mounted:
+  /var/www/html/config   PVC -- config.ini.php, written by the web installer. This is the
+                         one that must SURVIVE restarts; without it Matomo asks you to
+                         reinstall on every pod restart while the database already has a
+                         schema, which is a confusing half-broken state.
+  /var/www/html/tmp      emptyDir -- cache, sessions, templates_c, logs. Regenerated.
+  /tmp                   emptyDir -- supervisord pid/sock, nginx pid + temp paths.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.podTemplateLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "matomo.serviceAccountName" . }}
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: matomo
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.matomo.port }}
+          {{/*
+            Probe / rather than a PHP entry point: before the installer has run, Matomo
+            redirects everything to index.php?action=... and a deep path can 500 while the
+            server is perfectly healthy. / answers 200 or 302 in both states.
+            startupProbe is generous because the first request compiles Twig templates.
+          */}}
+          {{- $h := dict "httpGet" (dict "path" "/" "port" "http") }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "startup" "default" (merge (dict "failureThreshold" 40 "periodSeconds" 3) $h)) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" (merge (dict "periodSeconds" 10 "timeoutSeconds" 5) $h)) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" (merge (dict "periodSeconds" 20 "timeoutSeconds" 5) $h)) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /var/www/html/config
+            - name: matomo-tmp
+              mountPath: /var/www/html/tmp
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: config
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (include "quench-common.fullname" .) }}
+          {{- else }}
+          {{/* emptyDir means the installer's config.ini.php is LOST on restart. */}}
+          emptyDir: {}
+          {{- end }}
+        - name: matomo-tmp
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

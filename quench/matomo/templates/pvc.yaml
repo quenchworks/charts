@@ -1,0 +1,26 @@
+{{/* Standalone PVC for Matomo's config/ directory -- config.ini.php, which the WEB
+     INSTALLER generates on first run. Matomo has no env-var configuration, so this file IS
+     the installation: lose it and Matomo asks you to reinstall against a database that
+     already has its schema. Not tied to the pod lifecycle, so it survives rollouts.
+     Skipped when persistence is disabled or an existingClaim is supplied. */}}
+{{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "quench-common.fullname" . }}-uploads
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.persistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.persistence.accessModes | nindent 4 }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}

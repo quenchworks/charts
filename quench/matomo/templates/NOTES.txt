@@ -1,0 +1,42 @@
+Matomo is installed as {{ include "quench-common.fullname" . }}.
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+
+FINISH THE INSTALLER. Matomo has NO environment-variable configuration -- everything lives
+in config.ini.php, which its WEB INSTALLER writes on first run. So the chart cannot
+pre-seed anything; open the URL above and complete the wizard once.
+
+You will need a MySQL or MariaDB database. This chart bundles none -- pair it with
+quench/mariadb or use a managed instance.
+{{ if .Values.externalDatabase.host }}
+  host      {{ .Values.externalDatabase.host }}
+  port      {{ .Values.externalDatabase.port }}
+  database  {{ .Values.externalDatabase.database }}
+  user      {{ .Values.externalDatabase.user }}
+{{- else }}
+  !! externalDatabase.host is unset, so the installer has nothing to point at. Set it (it
+     is only used to print these details -- Matomo never reads it from the environment).
+{{- end }}
+
+{{ if not .Values.persistence.enabled }}
+!! persistence.enabled is FALSE. config/ is an emptyDir, so config.ini.php is LOST on every
+   pod restart and Matomo will ask you to reinstall -- against a database that already has
+   its schema, which is a confusing half-broken state. Fine for a smoke test, never for
+   real use.
+{{- else }}
+config.ini.php persists on a {{ .Values.persistence.size }} PVC, so the install survives
+restarts and rollouts.
+{{- end }}
+
+replicaCount is capped at 1 by the schema. That is deliberate: config/ is ReadWriteOnce so
+a second replica cannot mount it, and two Matomos running their own archiving would
+double-process the same data. Give the pod more CPU instead, or move config/ to a
+ReadWriteMany volume first.
+
+The image is pinned by digest and cosign-signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
