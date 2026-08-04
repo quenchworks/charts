@@ -1,0 +1,163 @@
+# =============================================================================
+# !!  LICENCE: BUSL-1.1, AND STRICTER THAN VAULT'S. READ BEFORE DEPLOYING.  !!
+#
+# Cosmian KMS is licensed under the Business Source License 1.1, which is NOT
+# OSI-approved open source. Its Additional Use Grant permits production use only
+# up to:
+#
+#     2 vCPUs on virtual machines, or 1 physical core on bare metal,
+#     and does NOT include offering the Licensed Work to third parties.
+#
+# So unlike quench/vault (also BUSL, but unlimited INTERNAL production use),
+# SCALING THIS PAST 2 vCPUs IN PRODUCTION IS A LICENCE VIOLATION, and offering it
+# as a service to third parties is barred outright.
+#
+# The resource limits below are deliberately set at 2 CPU to match the grant. If
+# you raise them, that is your decision and your licence exposure -- the chart
+# will not stop you, but it will not quietly hide it either.
+#
+# There is no open KMIP alternative to point at: Vault's KMIP secrets engine is
+# Enterprise-only, so OpenBao does not have it, and nothing else in this catalog
+# speaks KMIP 2.1.
+#
+# NOT FIPS 140-3, despite upstream's description. Upstream builds in FIPS mode by
+# default; that needs OpenSSL's FIPS provider, which Wolfi does not ship, so this
+# image is built with the `non-fips` feature. Do not inherit the FIPS claim.
+#
+# The digest below is the contract with the image factory. It is NEVER a tag.
+# =============================================================================
+image:
+  repository: ghcr.io/quenchworks/images/cosmian-kms
+  digest: "sha256:REPLACE_WITH_IMAGE_DIGEST"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Single replica by design. The default backend is SQLite on the PVC below, which
+# is NOT shared storage -- two replicas would be two independent key stores behind
+# one Service, handing out different keys per request. Raise this only after
+# pointing `database` at a genuinely shared backend, and note that doing so almost
+# certainly exceeds the 2-vCPU licence grant.
+replicaCount: 1
+
+# --- Server -------------------------------------------------------------------
+server:
+  # Listen port. Above 1024 so the nonroot (uid 1001) container binds it with no
+  # capability.
+  port: 9998
+  # Username used when no authentication method is configured. Cosmian's own
+  # default is "admin".
+  defaultUsername: admin
+  # Force the default username even when an auth method IS configured. Leave false
+  # unless you know why you want it -- true means every authenticated caller is
+  # treated as the same user.
+  forceDefaultUsername: false
+  # Public URL of this server, required if Google CSE or Microsoft DKE are used.
+  publicUrl: ""
+
+# --- Database -----------------------------------------------------------------
+# sqlite (default) keeps everything on the PVC. The other backends are Cosmian's
+# and are passed straight through; use them when you need more than one replica or
+# external durability.
+database:
+  type: sqlite            # sqlite | postgresql | mysql | redis-findex
+  # Connection URL for the non-sqlite backends. Prefer existingSecret.
+  url: ""
+  existingSecret: ""
+  existingSecretUrlKey: url
+  # Clear the database on startup. Destructive; exists because Cosmian offers it.
+  clearOnStart: false
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  existingClaim: ""
+
+# --- TLS ----------------------------------------------------------------------
+# The server can terminate TLS itself. Off by default: in-cluster traffic is
+# normally fronted by the Ingress or a mesh. A KMS handing out key material over
+# plaintext beyond the pod boundary is worth thinking about before you ship it.
+tls:
+  enabled: false
+  # Secret with tls.crt and tls.key (a standard kubernetes.io/tls secret).
+  existingSecret: ""
+  # PKCS#12 password if the secret holds a .p12 instead.
+  p12Password: ""
+
+# Any other Cosmian setting, passed as environment variables verbatim. Applied
+# last so it wins over the chart's own values -- you are never blocked by a knob
+# this chart did not model.
+extraConfig: {}
+  # KMS_LOG_LEVEL: info
+  # KMS_GOOGLE_CSE_KACLS_URL: https://...
+
+service:
+  type: ClusterIP
+  port: 9998
+  annotations: {}
+
+# Kept at the licence's 2-vCPU ceiling on purpose -- see the banner above.
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: 2, memory: 2Gi }
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+rbac:
+  create: false
+  rules: []
+
+networkPolicy:
+  # Restricted to the release namespace by default. This is a key management
+  # service: everything it serves is key material, so the trust boundary starts
+  # closed and you open it deliberately.
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+# --- Shared quench-common knobs ----------------------------------------------
+partOf: ""
+commonLabels: {}
+commonAnnotations: {}
+podLabels: {}
+podAnnotations: {}
+selectorLabels: {}
+imagePullSecrets: []
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+livenessProbe: {}
+readinessProbe: {}
+startupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []

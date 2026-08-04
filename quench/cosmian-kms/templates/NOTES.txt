@@ -1,0 +1,52 @@
+###############################################################################
+#  LICENCE: BUSL-1.1 -- NOT OSI-APPROVED, AND CAPPED IN PRODUCTION            #
+#                                                                             #
+#  Cosmian KMS may be used in production only up to 2 vCPUs (or 1 physical     #
+#  core), and may NOT be offered to third parties. This is STRICTER than       #
+#  HashiCorp Vault's BUSL, which allows unlimited internal production use.     #
+#                                                                             #
+#  Scaling this release past 2 vCPUs is a licence violation. The chart's       #
+#  default resource limit is set at 2 CPU to match the grant.                  #
+#                                                                             #
+#  NOT FIPS 140-3, despite upstream's description: this image is built with    #
+#  the non-fips feature because Wolfi ships no OpenSSL FIPS provider.          #
+###############################################################################
+
+Cosmian KMS is installed as {{ include "quench-common.fullname" . }}.
+
+Reachable inside the cluster at:
+
+  http{{ if .Values.tls.enabled }}s{{ end }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Check it is serving:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl -s http://127.0.0.1:{{ .Values.service.port }}/version
+
+The KMIP 2.1 endpoint is at /kmip/2_1. Cosmian's `ckms` CLI and the PKCS#11 provider are
+separate binaries and are NOT part of this image.
+
+{{ if eq .Values.database.type "sqlite" }}
+STORAGE: sqlite{{ if .Values.persistence.enabled }} on a {{ .Values.persistence.size }} PVC{{ else }} on an EPHEMERAL emptyDir -- ALL KEYS ARE LOST when the pod is replaced. Set persistence.enabled=true for anything you care about{{ end }}.
+
+replicaCount is fixed at 1 with sqlite, and that is not a limitation to work around: the
+database is a file on a ReadWriteOnce volume, so two replicas would be two INDEPENDENT key
+stores behind one Service, returning different keys depending on which pod answered.
+{{- else }}
+STORAGE: {{ .Values.database.type }}, from the secret {{ .Values.database.existingSecret }}.
+{{- end }}
+
+{{ if not .Values.tls.enabled }}
+TLS is OFF, so this server speaks plaintext HTTP. Everything it serves is key material --
+terminate TLS at the Ingress, run it behind a mesh, or set tls.enabled=true with a
+certificate secret before anything outside the pod talks to it.
+{{- end }}
+
+The NetworkPolicy restricts access to this namespace by default ({{ if .Values.networkPolicy.allowExternal }}currently WIDENED by networkPolicy.allowExternal=true{{ else }}networkPolicy.allowExternal=false{{ end }}). For a key management service the trust
+boundary starts closed on purpose.
+
+The image is pinned by digest and cosign-signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

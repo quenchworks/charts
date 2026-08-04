@@ -1,0 +1,153 @@
+{{/*
+StatefulSet, not a Deployment: with the default SQLite backend the key store lives on the
+PVC below, and a StatefulSet gives that volume a stable identity.
+
+replicaCount stays 1 for the same reason -- SQLite on a ReadWriteOnce volume is not shared
+storage, so two replicas would be two independent key stores behind one Service, returning
+different keys depending on which pod answered. That is a data-integrity failure, not a
+performance trade-off.
+
+WORKING DIRECTORY. The server creates its SQLite database RELATIVE TO ITS CWD. The image
+sets work-dir to /var/lib/cosmian for exactly that reason; if that path is not writable the
+process prints its whole configuration and then exits SILENTLY, with no error line. Keep
+the PVC mounted there.
+*/}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "quench-common.fullname" . }}
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.podTemplateLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "cosmian-kms.serviceAccountName" . }}
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: cosmian-kms
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: KMS_HOSTNAME
+              value: 0.0.0.0
+            - name: KMS_PORT
+              value: {{ .Values.server.port | quote }}
+            - name: KMS_DEFAULT_USERNAME
+              value: {{ .Values.server.defaultUsername | quote }}
+            - name: KMS_FORCE_DEFAULT_USERNAME
+              value: {{ .Values.server.forceDefaultUsername | quote }}
+            {{- with .Values.server.publicUrl }}
+            - name: KMS_PUBLIC_URL
+              value: {{ . | quote }}
+            {{- end }}
+            - name: KMS_DATABASE_TYPE
+              value: {{ .Values.database.type | quote }}
+            {{- if ne .Values.database.type "sqlite" }}
+            - name: KMS_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "database.existingSecret is required for non-sqlite backends" .Values.database.existingSecret }}
+                  key: {{ .Values.database.existingSecretUrlKey }}
+            {{- end }}
+            {{- if .Values.database.clearOnStart }}
+            - name: KMS_CLEAR_DATABASE
+              value: "true"
+            {{- end }}
+            {{- if .Values.tls.enabled }}
+            - name: KMS_HTTPS_P12_FILE
+              value: /etc/cosmian/tls/tls.p12
+            {{- with .Values.tls.p12Password }}
+            - name: KMS_HTTPS_P12_PASSWORD
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+            {{- range $k, $v := .Values.extraConfig }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.server.port }}
+          {{/*
+            /version is the cheapest endpoint that proves the server is actually serving
+            rather than merely listening: it is served by the same actix app as the KMIP
+            routes, so a 200 here means the whole stack came up.
+          */}}
+          {{- $h := dict "httpGet" (dict "path" "/version" "port" "http") }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "startup" "default" (merge (dict "failureThreshold" 30 "periodSeconds" 3) $h)) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" (merge (dict "periodSeconds" 10 "timeoutSeconds" 3) $h)) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" (merge (dict "periodSeconds" 15 "timeoutSeconds" 3) $h)) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/cosmian
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.tls.enabled }}
+            - name: tls
+              mountPath: /etc/cosmian/tls
+              readOnly: true
+            {{- end }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.tls.enabled }}
+        - name: tls
+          secret:
+            secretName: {{ required "tls.existingSecret is required when tls.enabled=true" .Values.tls.existingSecret }}
+        {{- end }}
+        {{- if or (not .Values.persistence.enabled) .Values.persistence.existingClaim }}
+        - name: data
+          {{- if .Values.persistence.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
+  {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        {{- with .Values.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes:
+          {{- toYaml .Values.persistence.accessModes | nindent 10 }}
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}
+  {{- end }}
