@@ -1,0 +1,113 @@
+# =============================================================================
+# k6 -- load and performance testing. AGPL-3.0.
+#
+# k6 IS A CLI, NOT A SERVER. It runs a script, reports, and exits. So this chart
+# does NOT create a Deployment: it creates a Job (run once) or a CronJob (run on a
+# schedule). A Deployment would restart k6 forever, re-running your load test in a
+# loop against production, which is how a test tool becomes an outage.
+#
+# The digest below is the contract with the image factory. It is NEVER a tag.
+# =============================================================================
+image:
+  repository: ghcr.io/quenchworks/images/k6
+  digest: "sha256:e05cde371e5d8c0a4850455e10545fc2b38ff6daa0e0c7ddfa9a735ccc69b8aa"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+# job     run once, on install. Helm --wait then blocks until the test finishes, so a
+#         failing test fails the release -- which is usually what you want in CI.
+# cronjob run on a schedule.
+mode: job                       # job | cronjob
+
+# --- The test script -----------------------------------------------------------
+# Rendered into a ConfigMap and mounted read-only. Replace it with your own, or set
+# existingConfigMap to mount a script you manage elsewhere.
+#
+# The default is a REAL but trivial check against the local API so a bare
+# `helm install` succeeds and proves the image runs; it makes no external requests,
+# because a chart's default behaviour must not generate load against anything.
+script: |
+  import { check } from 'k6';
+
+  export const options = { vus: 1, iterations: 1 };
+
+  export default function () {
+    // No network call: this exists to prove the k6 runtime executes a script.
+    check(true, { 'k6 runtime works': (ok) => ok });
+  }
+
+existingConfigMap: ""           # mount your own; key must be scriptFileName
+scriptFileName: script.js
+
+# Arguments after `k6`. The image's entrypoint is the k6 binary itself.
+args:
+  - run
+  - /scripts/script.js
+
+# k6 flags you are most likely to set. Anything else goes in extraArgs.
+vus: null                       # --vus
+duration: ""                    # --duration, e.g. 30s
+extraArgs: []                   # e.g. ["--out", "json=/dev/stdout", "--quiet"]
+
+# --- Job / CronJob behaviour ---------------------------------------------------
+job:
+  backoffLimit: 0               # 0: a failed load test is a RESULT, not a flake to retry
+  activeDeadlineSeconds: null
+  ttlSecondsAfterFinished: null
+  # Helm hook wiring. Off by default: as a plain Job the manifest stays in the release
+  # and you can inspect it. Enable to run k6 as a release gate instead.
+  helmHook: ""                  # e.g. "post-install,post-upgrade"
+
+cronjob:
+  schedule: "0 * * * *"
+  concurrencyPolicy: Forbid     # never let two load tests overlap
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  suspend: false
+  startingDeadlineSeconds: null
+
+# k6's REST API (--address). Off by default: it is only useful for a long-running run
+# you want to control externally, and it is unauthenticated.
+api:
+  enabled: false
+  port: 6565
+
+resources:
+  requests: { cpu: 200m, memory: 256Mi }
+  limits: { cpu: 1, memory: 1Gi }
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+networkPolicy:
+  # k6 exists to send traffic OUT, so a default-deny egress policy would break every
+  # test. Egress is therefore unrestricted; nothing needs to reach k6 inbound.
+  enabled: false
+
+# --- Shared quench-common knobs ----------------------------------------------
+partOf: ""
+commonLabels: {}
+commonAnnotations: {}
+podLabels: {}
+podAnnotations: {}
+selectorLabels: {}
+imagePullSecrets: []
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []

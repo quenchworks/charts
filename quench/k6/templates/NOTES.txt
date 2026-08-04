@@ -1,0 +1,44 @@
+k6 is installed as {{ include "quench-common.fullname" . }} in {{ .Values.mode }} mode.
+
+k6 IS A CLI, NOT A SERVER: it runs your script, reports, and exits. That is why this chart
+creates a {{ if eq .Values.mode "job" }}Job{{ else }}CronJob{{ end }} and never a Deployment --
+under a Deployment k6 would be restarted forever, re-running the load test in a loop against
+whatever you pointed it at.
+
+{{ if eq .Values.mode "job" }}
+Watch it and read the summary:
+
+  kubectl logs -f job/{{ include "quench-common.fullname" . }}-{{ .Release.Revision }}
+
+The Job name carries the release revision, so `helm upgrade` creates a NEW Job. It has to:
+Job.spec.template is immutable, so patching one in place fails.
+
+NOTE: plain `helm install --wait` does NOT wait for Jobs. Add --wait-for-jobs if you want the
+release to block until the test finishes (and to FAIL if the test fails).
+{{- else }}
+Schedule: {{ .Values.cronjob.schedule }} (concurrencyPolicy {{ .Values.cronjob.concurrencyPolicy }})
+
+  kubectl get cronjob {{ include "quench-common.fullname" . }}
+  kubectl logs -l app.kubernetes.io/name=k6 --tail=50
+
+concurrencyPolicy defaults to Forbid on purpose: two overlapping runs would double the load
+you asked for.
+{{- end }}
+
+{{ if .Values.existingConfigMap }}
+Script: from the existing ConfigMap {{ .Values.existingConfigMap }} (key {{ .Values.scriptFileName }}).
+{{- else }}
+Script: from the chart's ConfigMap, mounted at /scripts/{{ .Values.scriptFileName }}.
+
+The DEFAULT script makes NO network requests -- it only proves the runtime executes. A chart's
+default behaviour must not generate load against anything. Replace `script` with your own, or
+point existingConfigMap at one you manage.
+{{- end }}
+
+backoffLimit is {{ .Values.job.backoffLimit }}. At 0, a failed test is reported once and not
+retried, which is deliberate: a failing load test is a RESULT to look at, and retrying would
+re-send the traffic.
+
+{{ if .Values.api.enabled }}
+k6's REST API is on {{ .Values.api.port }}. It is UNAUTHENTICATED -- do not expose it.
+{{- end }}
