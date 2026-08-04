@@ -1,0 +1,72 @@
+Quenchworks Kong Gateway is installed as {{ include "quench-common.fullname" . }}.
+
+{{- if eq .Values.role "control_plane" }}
+=====================  CONTROL PLANE  =====================
+This release does NOT proxy traffic (KONG_PROXY_LISTEN=off). It stores configuration,
+serves the Admin API, and pushes config to data planes over:
+
+  cluster:    {{ include "quench-common.fullname" . }}-cluster.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.cluster.port }}
+  telemetry:  {{ include "quench-common.fullname" . }}-clustertelemetry.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.cluster.telemetryPort }}
+
+Point your data-plane release at those two hosts:
+
+  --set role=data_plane \
+  --set cluster.enabled=true \
+  --set cluster.certSecret={{ .Values.cluster.certSecret }} \
+  --set cluster.controlPlaneHost={{ include "quench-common.fullname" . }}-cluster.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.cluster.port }} \
+  --set cluster.telemetryHost={{ include "quench-common.fullname" . }}-clustertelemetry.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.cluster.telemetryPort }}
+
+{{- else if eq .Values.role "data_plane" }}
+=======================  DATA PLANE  ======================
+This release proxies traffic but has NO Admin API (KONG_ADMIN_LISTEN=off) and no config
+of its own -- it pulls everything from the control plane at
+{{ .Values.cluster.controlPlaneHost }} and keeps it in memory. Change configuration on the
+control plane, not here.
+{{- end }}
+
+The proxy is reachable inside the cluster at:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.proxyPort }}
+
+{{ if not (include "kong.dbMode" .) }}
+DB-LESS MODE. Configuration comes from the declarative document in the ConfigMap
+{{ include "kong.configMapName" . }}, so the ADMIN API IS READ-ONLY: POSTing a service or
+route returns an error. Change configuration by editing `declarativeConfig` and upgrading,
+or by replacing the whole document at once:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.adminPort }}:{{ .Values.service.adminPort }}
+  curl -sS -X POST http://127.0.0.1:{{ .Values.service.adminPort }}/config -F config=@kong.yml
+{{- else }}
+DATABASE MODE (postgres at {{ .Values.postgres.host }}).
+{{ if .Values.migrations.enabled }}
+Migrations run as Helm hooks: bootstrap on install, `migrations up` pre-upgrade and
+`migrations finish` post-upgrade. They are NOT run from the pod entrypoint on purpose --
+N replicas racing one schema is how a control plane corrupts itself.
+{{- else }}
+!! migrations.enabled is FALSE. Kong will not start against an un-bootstrapped schema.
+   Either set migrations.enabled=true, or run `kong migrations bootstrap` yourself before
+   the first install.
+{{- end }}
+{{- end }}
+
+ADMIN API. Kong's Admin API has NO authentication of its own -- anything that can reach it
+can create routes, load plugins and read every credential Kong holds. So:
+  - it is NOT on the Service unless you set service.exposeAdmin=true
+  - the NetworkPolicy restricts it to this namespace even when networkPolicy.allowExternal
+    is true; widen it with networkPolicy.extraFrom, never by disabling the policy
+
+NO KONG MANAGER. This image does not ship the browser GUI: its assets are not in Kong's
+source tree and are not built from source upstream (Kong's build downloads a prebuilt
+bundle), so shipping it would mean vendoring an unauditable blob. Use the Admin API, decK,
+or another OSS UI in front of it.
+
+Check health and version:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.statusPort }}:{{ .Values.service.statusPort }}
+  curl -s http://127.0.0.1:{{ .Values.service.statusPort }}/status
+
+The image is pinned by digest and cosign-signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

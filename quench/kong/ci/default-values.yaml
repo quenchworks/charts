@@ -1,0 +1,26 @@
+# Install gate. No image override: uses the chart's real CI-maintained digest.
+#
+# DB-less so the gate needs no Postgres, with one real service+route declared up front so
+# the gate can prove a request is actually PROXIED rather than merely that Kong answers
+# its own endpoints. The upstream is Kong's own status port on localhost, which every pod
+# already serves -- no second workload required.
+database: "off"
+declarativeConfig: |
+  _format_version: "3.0"
+  services:
+    - name: selftest
+      url: http://127.0.0.1:8100/status
+      routes:
+        - name: selftest-route
+          paths:
+            - /selftest
+          strip_path: true
+replicaCount: 1
+podDisruptionBudget:
+  enabled: false
+# 1 worker keeps the gate inside a CI runner's memory. Kong OOMKills at 1Gi with "auto"
+# workers on a many-core host, which is what the local kind gate caught.
+workerProcesses: 1
+resources:
+  requests: { cpu: 200m, memory: 512Mi }
+  limits: { cpu: 1, memory: 1Gi }

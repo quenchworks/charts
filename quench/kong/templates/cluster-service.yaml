@@ -1,0 +1,53 @@
+{{- if and .Values.cluster.enabled (eq .Values.role "control_plane") }}
+{{/*
+Cluster + telemetry Services, CONTROL PLANE only.
+
+Two separate Services rather than one with two ports, because data planes are configured
+with two independent endpoints (cluster_control_plane and cluster_telemetry_endpoint) and
+sites routinely give them different types -- a ClusterIP for config push and something
+externally reachable for telemetry, or vice versa.
+
+Data planes reach these as:
+  <release>-cluster.<ns>.svc.cluster.local:{{ .Values.cluster.port }}
+  <release>-clustertelemetry.<ns>.svc.cluster.local:{{ .Values.cluster.telemetryPort }}
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}-cluster
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.cluster.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.cluster.service.type }}
+  ports:
+    - port: {{ .Values.cluster.port }}
+      targetPort: cluster
+      protocol: TCP
+      name: cluster
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}-clustertelemetry
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.cluster.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.cluster.service.type }}
+  ports:
+    - port: {{ .Values.cluster.telemetryPort }}
+      targetPort: clustertelem
+      protocol: TCP
+      name: clustertelemetry
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+{{- end }}

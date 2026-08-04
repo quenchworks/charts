@@ -1,0 +1,70 @@
+{{- if and (include "kong.dbMode" .) .Values.migrations.enabled }}
+{{/*
+Migration Jobs, database mode only.
+
+Run as Helm HOOKS, not as an initContainer and not inside the pod entrypoint, because
+`kong migrations` mutates one shared schema: N replicas each running it on start race
+each other, and the loser can leave the schema half-applied. A hook runs exactly once per
+release operation.
+
+Kong's documented zero-downtime order is what this implements:
+  install       migrations bootstrap
+  pre-upgrade   migrations up      (additive changes only -- old pods keep working)
+  post-upgrade  migrations finish  (drops what the old schema needed)
+
+hook-delete-policy keeps the Job around on failure so its log is still readable; a
+before-hook-creation delete clears the previous one on the next attempt.
+*/}}
+{{- $hooks := list }}
+{{- if .Values.migrations.preUpgrade }}{{- $hooks = append $hooks "pre-upgrade" }}{{- end }}
+{{- range $phase, $cmd := dict "bootstrap" "bootstrap" }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "quench-common.fullname" $ }}-migrations-{{ $phase }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation
+    {{- with $.Values.migrations.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  backoffLimit: {{ $.Values.migrations.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" $ | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "kong.serviceAccountName" $ }}
+      {{- include "quench-common.imagePullSecrets" $ | nindent 6 }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" $ | nindent 8 }}
+      containers:
+        - name: migrations
+          image: {{ include "quench-common.image" $ }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" $ | nindent 12 }}
+          command: ["/usr/local/bin/kong", "migrations", {{ $cmd | quote }}, "--yes"]
+          env:
+            {{- include "kong.dbEnv" $ | nindent 12 }}
+          resources:
+            {{- toYaml $.Values.migrations.resources | nindent 12 }}
+          volumeMounts:
+            - name: prefix
+              mountPath: /kong_prefix
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" $ | nindent 12 }}
+      volumes:
+        - name: prefix
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" $ | nindent 8 }}
+{{- end }}
+{{- end }}

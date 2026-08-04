@@ -1,0 +1,38 @@
+{{/*
+Data-plane Service. The Admin API port is included ONLY when service.exposeAdmin is
+true: Kong's Admin API has no authentication of its own, so putting it on a Service by
+default would hand every pod in the cluster a control plane.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.proxyPort }}
+      targetPort: proxy
+      protocol: TCP
+      name: proxy
+    - port: {{ .Values.service.proxyTlsPort }}
+      targetPort: proxy-tls
+      protocol: TCP
+      name: proxy-tls
+    - port: {{ .Values.service.statusPort }}
+      targetPort: status
+      protocol: TCP
+      name: status
+    {{- if .Values.service.exposeAdmin }}
+    - port: {{ .Values.service.adminPort }}
+      targetPort: admin
+      protocol: TCP
+      name: admin
+    {{- end }}
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

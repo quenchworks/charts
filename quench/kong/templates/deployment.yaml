@@ -1,0 +1,196 @@
+{{/*
+Kong runs as a Deployment, not a StatefulSet: it holds no durable state of its own.
+DB-less keeps config in memory, database mode keeps it in Postgres, and the prefix is
+regenerated on every start.
+
+THE PREFIX. KONG_PREFIX is /kong_prefix, NOT /usr/local/kong, and the emptyDir mounts
+there. That is not cosmetic: /usr/local/kong also contains include/ -- the .proto files
+Kong's opentelemetry and grpc plugins load at RUNTIME -- and mounting a volume over
+/usr/local/kong MASKS them, after which Kong dies with
+  module load error: opentelemetry/proto/collector/trace/v1/trace_service.proto
+The image sets the same prefix; keep the two in agreement.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.podTemplateLabels" . | nindent 8 }}
+      annotations:
+        {{- if not (include "kong.dbMode" .) }}
+        checksum/declarative: {{ .Values.declarativeConfig | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "kong.serviceAccountName" . }}
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: kong
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            # The prefix must be writable and must NOT be /usr/local/kong -- see the
+            # header. nginx must also stay in the foreground or the container exits 0
+            # right after starting its workers, which reads as a clean shutdown.
+            - name: KONG_PREFIX
+              value: /kong_prefix
+            - name: KONG_NGINX_DAEMON
+              value: "off"
+            - name: KONG_DATABASE
+              value: {{ .Values.database | quote }}
+            {{- if include "kong.dbMode" . }}
+            {{- include "kong.dbEnv" . | nindent 12 }}
+            {{- else }}
+            - name: KONG_DECLARATIVE_CONFIG
+              value: /kong/declarative/kong.yml
+            {{- end }}
+            {{- if ne .Values.role "traditional" }}
+            {{/*
+              Hybrid mode. The cluster cert pair is REQUIRED: without mTLS any pod that can
+              reach the cluster port could register as a data plane and receive the whole
+              configuration, credentials included.
+            */}}
+            - name: KONG_ROLE
+              value: {{ .Values.role | quote }}
+            - name: KONG_CLUSTER_MTLS
+              value: {{ .Values.cluster.mtls | quote }}
+            - name: KONG_CLUSTER_CERT
+              value: /etc/secrets/cluster/tls.crt
+            - name: KONG_CLUSTER_CERT_KEY
+              value: /etc/secrets/cluster/tls.key
+            {{- if eq .Values.role "control_plane" }}
+            - name: KONG_CLUSTER_LISTEN
+              value: "0.0.0.0:{{ .Values.cluster.port }}"
+            - name: KONG_CLUSTER_TELEMETRY_LISTEN
+              value: "0.0.0.0:{{ .Values.cluster.telemetryPort }}"
+            {{- else }}
+            - name: KONG_CLUSTER_CONTROL_PLANE
+              value: {{ required "cluster.controlPlaneHost is required for role data_plane" .Values.cluster.controlPlaneHost | quote }}
+            - name: KONG_CLUSTER_TELEMETRY_ENDPOINT
+              value: {{ .Values.cluster.telemetryHost | default .Values.cluster.controlPlaneHost | quote }}
+            - name: KONG_CLUSTER_SERVER_NAME
+              value: {{ .Values.cluster.serverName | quote }}
+            {{- end }}
+            {{- end }}
+            {{- if eq .Values.role "control_plane" }}
+            {{/* A control plane serves config and the Admin API; it does NOT proxy. */}}
+            - name: KONG_PROXY_LISTEN
+              value: "off"
+            {{- else }}
+            - name: KONG_PROXY_LISTEN
+              value: "0.0.0.0:{{ .Values.service.proxyPort }}, 0.0.0.0:{{ .Values.service.proxyTlsPort }} ssl"
+            {{- end }}
+            {{- if eq .Values.role "data_plane" }}
+            {{/* A data plane has no config of its own to administer. */}}
+            - name: KONG_ADMIN_LISTEN
+              value: "off"
+            {{- else }}
+            - name: KONG_ADMIN_LISTEN
+              value: "0.0.0.0:{{ .Values.service.adminPort }}"
+            {{- end }}
+            - name: KONG_STATUS_LISTEN
+              value: "0.0.0.0:{{ .Values.service.statusPort }}"
+            - name: KONG_PROXY_ACCESS_LOG
+              value: {{ .Values.logs.proxyAccess | quote }}
+            - name: KONG_PROXY_ERROR_LOG
+              value: {{ .Values.logs.proxyError | quote }}
+            - name: KONG_ADMIN_ACCESS_LOG
+              value: {{ .Values.logs.adminAccess | quote }}
+            - name: KONG_ADMIN_ERROR_LOG
+              value: {{ .Values.logs.adminError | quote }}
+            {{- /* Pinned, not "auto": see resources in values.yaml -- "auto" counts the
+                    node's CPUs, not the container limit, and OOMKills Kong on big nodes. */}}
+            - name: KONG_NGINX_WORKER_PROCESSES
+              value: {{ .Values.workerProcesses | quote }}
+            {{- range $k, $v := .Values.extraConfig }}
+            - name: KONG_{{ $k | upper | replace "-" "_" }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: proxy
+              containerPort: {{ .Values.service.proxyPort }}
+            - name: proxy-tls
+              containerPort: {{ .Values.service.proxyTlsPort }}
+            - name: admin
+              containerPort: {{ .Values.service.adminPort }}
+            - name: status
+              containerPort: {{ .Values.service.statusPort }}
+            {{- if eq .Values.role "control_plane" }}
+            - name: cluster
+              containerPort: {{ .Values.cluster.port }}
+            - name: clustertelem
+              containerPort: {{ .Values.cluster.telemetryPort }}
+            {{- end }}
+          {{/*
+            Probes hit /status on the STATUS port, not the Admin API: /status is what Kong
+            documents for health, it stays available in DB-less mode where the Admin API is
+            read-only, and it avoids exposing a control plane to the kubelet.
+            startupProbe is generous because Kong's init_by_lua compiles every bundled
+            plugin before it listens.
+          */}}
+          {{- $h := dict "httpGet" (dict "path" "/status" "port" "status") }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "startup" "default" (merge (dict "failureThreshold" 40 "periodSeconds" 3) $h)) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" (merge (dict "periodSeconds" 10 "timeoutSeconds" 3) $h)) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" (merge (dict "periodSeconds" 15 "timeoutSeconds" 3) $h)) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: prefix
+              mountPath: /kong_prefix
+            - name: tmp
+              mountPath: /tmp
+            {{- if not (include "kong.dbMode" .) }}
+            - name: declarative
+              mountPath: /kong/declarative
+              readOnly: true
+            {{- end }}
+            {{- if ne .Values.role "traditional" }}
+            - name: cluster-cert
+              mountPath: /etc/secrets/cluster
+              readOnly: true
+            {{- end }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        # Kong regenerates nginx.conf and its lmdb state in the prefix at every start,
+        # so this is scratch space, not durable storage.
+        - name: prefix
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- if not (include "kong.dbMode" .) }}
+        - name: declarative
+          configMap:
+            name: {{ include "kong.configMapName" . }}
+        {{- end }}
+        {{- if ne .Values.role "traditional" }}
+        - name: cluster-cert
+          secret:
+            secretName: {{ required "cluster.certSecret is required in hybrid mode (role != traditional)" .Values.cluster.certSecret }}
+            defaultMode: 0444
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

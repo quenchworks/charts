@@ -1,0 +1,67 @@
+{{- if .Values.networkPolicy.enabled }}
+{{/*
+BESPOKE, not quench-common.networkPolicy, and deliberately so.
+
+Kong needs TWO different ingress rules in one policy, which the shared helper cannot
+express: its allowExternal is all-or-nothing for the whole policy.
+
+  proxy / proxy-tls / status   reachable from ANYWHERE by default. A gateway that only
+                               accepts same-namespace traffic is not a gateway.
+
+  admin                        restricted to the release namespace, ALWAYS -- even when
+                               allowExternal is true. Kong's Admin API has no
+                               authentication of its own: anything that can reach it can
+                               create routes, load plugins, and read every credential
+                               Kong holds. Opening it cluster-wide is a
+                               privilege-escalation path, so allowExternal deliberately
+                               does NOT widen it.
+
+If you genuinely need the Admin API reachable from elsewhere, add that peer to
+networkPolicy.extraFrom rather than disabling the policy.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.networkPolicy.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # --- data plane + status ---
+    - ports:
+        - port: proxy
+          protocol: TCP
+        - port: proxy-tls
+          protocol: TCP
+        - port: status
+          protocol: TCP
+      {{- if not .Values.networkPolicy.allowExternal }}
+      from:
+        - podSelector: {}
+        {{- with .Values.networkPolicy.extraFrom }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+    # --- Admin API: namespace-scoped regardless of allowExternal ---
+    - ports:
+        - port: admin
+          protocol: TCP
+      from:
+        - podSelector: {}
+        {{- with .Values.networkPolicy.extraFrom }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+  {{- with .Values.networkPolicy.egress }}
+  egress:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
