@@ -56,14 +56,30 @@ spec:
               value: {{ .Values.server.port | quote }}
             - name: KMS_DEFAULT_USERNAME
               value: {{ .Values.server.defaultUsername | quote }}
+            {{- if .Values.server.forceDefaultUsername }}
+            {{/* A clap FLAG, not a value: setting it to "false" is a parse error, so it is
+                 emitted only when true. */}}
             - name: KMS_FORCE_DEFAULT_USERNAME
-              value: {{ .Values.server.forceDefaultUsername | quote }}
+              value: "true"
+            {{- end }}
             {{- with .Values.server.publicUrl }}
             - name: KMS_PUBLIC_URL
               value: {{ . | quote }}
             {{- end }}
             - name: KMS_DATABASE_TYPE
               value: {{ .Values.database.type | quote }}
+            {{- if eq .Values.database.type "sqlite" }}
+            {{/*
+              REQUIRED once any database env is set. clap makes --sqlite-path mandatory
+              alongside --database-type, and omitting it fails with "the following required
+              arguments were not provided" listing EVERY argument -- which hides which one is
+              actually missing. It must also point at the mounted volume: the server creates
+              the database relative to CWD otherwise, and on a read-only rootfs that means it
+              prints its config and exits silently.
+            */}}
+            - name: KMS_SQLITE_PATH
+              value: /var/lib/cosmian
+            {{- end }}
             {{- if ne .Values.database.type "sqlite" }}
             - name: KMS_DATABASE_URL
               valueFrom:
