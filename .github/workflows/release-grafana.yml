@@ -53,7 +53,13 @@ jobs:
           # /api/health returns 200 with database ok + the running version
           curl -fsS http://127.0.0.1:3000/api/health | tee /tmp/health.json
           grep -q '"database": *"ok"' /tmp/health.json
-          grep -q '"version": *"13.1.0"' /tmp/health.json
+          # Derive from Chart.yaml: a hardcoded version silently fails every bump
+          # (grep -q prints nothing, so the step exits 1 after a healthy rollout and
+          # looks like the app died). Same trap that stalled the elasticsearch chart.
+          APPVER="$(grep '^appVersion:' "${CHART_DIR}/Chart.yaml" | head -1 | tr -d '\"' | awk '{print $2}')"
+          echo "asserting Grafana version ${APPVER} (from Chart.yaml appVersion)"
+          grep -q "\"version\": *\"${APPVER}\"" /tmp/health.json \
+            || { echo "::error::/api/health did not report ${APPVER}"; cat /tmp/health.json; exit 1; }
           # exercise an authenticated endpoint with the admin creds from the Secret:
           # basic-auth GET /api/org must return the default org (asserts login works).
           USER="$(kubectl get secret rtest-grafana -o jsonpath='{.data.admin-user}' | base64 -d)"

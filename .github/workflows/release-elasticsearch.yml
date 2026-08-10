@@ -55,8 +55,15 @@ jobs:
             curl -fsS http://127.0.0.1:9200/ >/tmp/root.json 2>/dev/null && break
             sleep 5
           done
-          # GET / reports the Elasticsearch version
-          grep -q '"number" : "9.4.3"' /tmp/root.json
+          # GET / reports the Elasticsearch version. Derive the expectation from
+          # Chart.yaml -- a hardcoded version here silently fails EVERY bump: grep -q
+          # prints nothing, so the step just exits 1 right after a healthy rollout and
+          # reads exactly like "the node stopped answering". That is what stalled the
+          # 9.4.4 bump for two weeks; the node was fine, this assertion was stale.
+          APPVER="$(grep '^appVersion:' "${CHART_DIR}/Chart.yaml" | head -1 | tr -d '\"' | awk '{print $2}')"
+          echo "asserting Elasticsearch version ${APPVER} (from Chart.yaml appVersion)"
+          grep -q "\"number\" : \"${APPVER}\"" /tmp/root.json \
+            || { echo "::error::GET / did not report ${APPVER}"; cat /tmp/root.json; exit 1; }
           # cluster health must be green or yellow (single-node yields yellow once replicas unassigned)
           for i in $(seq 1 30); do
             curl -fsS 'http://127.0.0.1:9200/_cluster/health?wait_for_status=yellow&timeout=10s' >/tmp/health.json 2>/dev/null \
