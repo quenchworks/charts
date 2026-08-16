@@ -85,7 +85,10 @@ def main() -> int:
     else:
         ctext = ctext.replace("  artifacthub.io/images:", block + "  artifacthub.io/images:", 1)
 
-    if old in ctext or old in vtext:
+    # Only meaningful when the digest actually MOVED. A changelog-only correction
+    # legitimately re-passes the current digest, and the old value is then supposed to
+    # still be there.
+    if old != digest and (old in ctext or old in vtext):
         print(f"!! {chart}: a stale digest survived the rewrite")
         return 3
 
