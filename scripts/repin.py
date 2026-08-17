@@ -68,6 +68,31 @@ def main() -> int:
 
     vtext = vtext.replace(old, digest)
     ctext = ctext.replace(old, digest)
+
+    # Retag the image block we just re-pinned. The `tag:` next to a digest is documented
+    # in the charts as "human-readable, for reference only" -- the pod pulls by digest --
+    # but leaving it behind makes it actively misleading rather than merely useless: the
+    # floci chart advertised tag "1.5.33" at appVersion 1.6.0, so anyone reading
+    # values.yaml to find out what they were running got the wrong answer.
+    #
+    # Only the block that owns the replaced digest is touched. Multi-image charts (floci
+    # has floci + floci-full; nextcloud has nextcloud + mariadb) version their images
+    # independently, so rewriting every `tag:` in the file would corrupt the siblings.
+    lines = vtext.split("\n")
+    for i, line in enumerate(lines):
+        if digest not in line:
+            continue
+        for j in range(i - 1, max(-1, i - 8), -1):
+            m = re.match(r"^(\s*)tag:\s*(\"?)([^\"\n]*)(\"?)\s*$", lines[j])
+            if m:
+                lines[j] = f'{m.group(1)}tag: "{appver}"'
+                break
+            # Stop at the start of the enclosing image block so we cannot climb out of it
+            # and grab a neighbouring image's tag.
+            if re.match(r"^\s*image:\s*$", lines[j]):
+                break
+        break
+    vtext = "\n".join(lines)
     ctext = re.sub(r"^version:\s*\S+", f"version: {newver}", ctext, count=1, flags=re.M)
     ctext = re.sub(r'^appVersion:\s*"?[^"\n]+"?', f'appVersion: "{appver}"', ctext, count=1, flags=re.M)
 
