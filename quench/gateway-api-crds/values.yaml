@@ -1,0 +1,43 @@
+# This chart has NO image. It installs nothing that runs -- only the Gateway API
+# CustomResourceDefinitions from kubernetes-sigs/gateway-api and upstream's
+# safe-upgrades ValidatingAdmissionPolicy. There is therefore no image block, no
+# digest contract with the image factory, and no quench-common dependency (that
+# library chart exists to build pod specs and this chart renders none).
+#
+# There is deliberately NO `channel` toggle. The chart ships the STANDARD channel
+# only, because a chart carrying both bundles cannot be installed at all: Helm
+# stores the chart files AND the rendered manifest in a single release Secret, and
+# Kubernetes caps a Secret at 1 MiB. Measured on Gateway API v1.6.1:
+#
+#   standard only      842 KiB of 1 MiB   installs
+#   both channels     ~1.48 MiB of 1 MiB  "Secret ... is invalid: data: Too long"
+#
+# See the README, "Why standard only", for the experimental-channel escape hatch.
+
+crds:
+  # Stamp helm.sh/resource-policy: keep on every CRD. Default true, and you
+  # almost certainly want it: these are cluster-scoped singletons, and deleting a
+  # CRD cascade-deletes every object of that kind, so a `helm uninstall` without
+  # this would wipe every Gateway, HTTPRoute and GRPCRoute in the cluster.
+  #
+  # The cost of true: after `helm uninstall` the CRDs survive still carrying the
+  # old release's meta.helm.sh/release-name annotation, so re-installing under a
+  # DIFFERENT release name fails with "invalid ownership metadata". Reinstall
+  # with the same release name and namespace, or re-annotate (README). Set to
+  # false only for throwaway clusters (kind, CI) where losing the CRs is fine.
+  keep: true
+
+safeUpgradePolicy:
+  # Ship upstream's `safe-upgrades.gateway.networking.k8s.io`
+  # ValidatingAdmissionPolicy + Binding. It denies, cluster-wide:
+  #   * installing experimental-channel CRDs over standard-channel ones, and
+  #   * installing a bundle older than v1.5 (this copy's regex is stricter than
+  #     its own message and also rejects v1.5.x -- an upstream quirk).
+  # It is CEL evaluated in the apiserver, so it adds no webhook availability
+  # risk, but it does gate every CRD write in the cluster whose spec.group is
+  # gateway.networking.k8s.io -- including writes from other tools. That is the
+  # point, and it is why this is a toggle rather than unconditional.
+  #
+  # Requires Kubernetes 1.30+ (ValidatingAdmissionPolicy GA). On older clusters
+  # the template self-skips, so leaving this true is safe.
+  enabled: true

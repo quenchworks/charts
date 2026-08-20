@@ -1,0 +1,46 @@
+Gateway API {{ .Chart.AppVersion }} CRDs installed from the STANDARD channel as
+release {{ .Release.Name }}:
+
+  GatewayClass  Gateway  HTTPRoute  GRPCRoute  TCPRoute  UDPRoute
+  TLSRoute      BackendTLSPolicy    ListenerSet          ReferenceGrant
+
+Check what landed:
+
+  kubectl get crd -o json | jq -r '
+    .items[] | select(.spec.group | test("gateway.networking"))
+    | "\(.metadata.name)\t\(.metadata.annotations["gateway.networking.k8s.io/channel"])\t\(.metadata.annotations["gateway.networking.k8s.io/bundle-version"])"'
+
+THIS RELEASE OWNS THESE CRDs. They are cluster-scoped singletons. Do not enable a
+Gateway API implementation chart's own CRD installer (Envoy Gateway, Contour,
+NGINX Gateway Fabric, kgateway, Istio) alongside this release -- two owners of the
+same CRD name means whichever applies last wins, and `helm uninstall` of either
+one can take the other's API surface with it.
+{{ if .Values.crds.keep }}
+The CRDs carry helm.sh/resource-policy: keep, so `helm uninstall {{ .Release.Name }}`
+leaves them (and every Gateway/HTTPRoute in the cluster) in place. To reinstall,
+reuse the release name {{ .Release.Name }} in namespace {{ .Release.Namespace }}, or
+Helm will refuse with "invalid ownership metadata".
+{{- else }}
+WARNING: crds.keep is false. `helm uninstall {{ .Release.Name }}` will DELETE these
+CRDs, and Kubernetes cascade-deletes every object of a deleted kind -- every
+Gateway, HTTPRoute and GRPCRoute in the cluster goes with them. Only leave this
+false on throwaway clusters.
+{{- end }}
+{{- if and .Values.safeUpgradePolicy.enabled (semverCompare ">=1.30.0-0" .Capabilities.KubeVersion.Version) }}
+
+Upstream's safe-upgrades ValidatingAdmissionPolicy is active. It denies any
+gateway.networking.k8s.io CRD write that crosses from the standard channel to the
+experimental one, or that installs a bundle older than v1.5. If you need the
+experimental channel, delete it first -- and see the chart README, because the
+experimental bundle is too large to ship as a Helm release and has to be applied
+with `kubectl apply --server-side`:
+
+  kubectl delete validatingadmissionpolicybinding safe-upgrades.gateway.networking.k8s.io
+  kubectl delete validatingadmissionpolicy safe-upgrades.gateway.networking.k8s.io
+{{- end }}
+
+The chart is cosign-signed (keyless):
+
+  cosign verify ghcr.io/quenchworks/charts/gateway-api-crds \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

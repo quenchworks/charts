@@ -1,0 +1,100 @@
+apiVersion: v2
+name: gateway-api-crds
+description: "Gateway API CustomResourceDefinitions from kubernetes-sigs/gateway-api, packaged as a standalone chart so every Gateway API implementation in the QuenchWorks catalog (Envoy Gateway, Contour, NGINX Gateway Fabric, kgateway, Istio) binds to ONE pinned bundle instead of vendoring its own copy. Ships the upstream Standard-channel release asset byte for byte, plus upstream's safe-upgrades ValidatingAdmissionPolicy, which blocks accidental channel crossovers and pre-v1.5 downgrades. CRDs go in templates/ rather than crds/ so helm upgrade actually rolls the bundle forward, and carry helm.sh/resource-policy: keep so uninstall cannot cascade-delete every Gateway in the cluster. CRDs are cluster-scoped singletons: this chart owns them and implementation charts must not install their own."
+type: application
+version: 0.0.1
+appVersion: "1.6.1"
+kubeVersion: ">=1.29.0-0"
+keywords:
+  - gateway-api
+  - crds
+  - customresourcedefinition
+  - ingress
+  - gateway
+  - httproute
+  - grpcroute
+  - service-mesh
+  - networking
+  - kubernetes-sigs
+maintainers:
+  - name: QuenchWorks
+    email: info@quench-works.com
+    url: https://github.com/quenchworks
+icon: https://raw.githubusercontent.com/quenchworks/.github/main/profile/assets/chart-icon.png
+home: https://quench-works.com
+sources:
+  - https://github.com/quenchworks/charts
+  - https://github.com/kubernetes-sigs/gateway-api
+annotations:
+  artifacthub.io/changes: |
+    - kind: added
+      description: "First release: the Gateway API v1.6.1 Standard-channel CustomResourceDefinitions, vendored byte for byte from the upstream release asset standard-install.yaml (sha256 24d931f22abd8e40c973264319ead7cfa09d0fb7716b7ab1ee2ff174cb063a73). Ten CRDs: GatewayClass, Gateway, HTTPRoute, GRPCRoute, TCPRoute, UDPRoute, TLSRoute, BackendTLSPolicy, ListenerSet, ReferenceGrant. The release workflow re-fetches the asset on every run and refuses to publish if the shipped template diverges from it."
+    - kind: added
+      description: "Standard channel only, deliberately and with no channel toggle. As of Gateway API v1.6 the standard channel already carries everything the catalog's five implementations reconcile -- TCPRoute, UDPRoute, TLSRoute, BackendTLSPolicy and ListenerSet all graduated into it at v1 -- and it is the only channel with an API stability guarantee. A chart carrying both bundles cannot be installed at all: Helm stores the chart files and the rendered manifest in one release Secret and Kubernetes caps a Secret at 1 MiB (measured: standard alone 842 KiB, both channels ~1.48 MiB). The README documents the experimental-channel escape hatch."
+    - kind: added
+      description: "Upstream's safe-upgrades ValidatingAdmissionPolicy is shipped and enabled by default (Kubernetes 1.30+, self-skipping below that). It denies installing experimental CRDs over standard ones and denies pre-v1.5 bundles, cluster-wide."
+    - kind: added
+      description: "CRDs ship as regular templates, not in a crds/ directory, so helm upgrade actually rolls the bundle forward -- Helm never upgrades crds/ content, which would make a version-pinning chart a no-op on upgrade. They carry helm.sh/resource-policy: keep by default so helm uninstall cannot cascade-delete every Gateway, HTTPRoute and GRPCRoute in the cluster."
+  artifacthub.io/category: networking
+  artifacthub.io/crds: |
+    - kind: GatewayClass
+      version: v1
+      name: gatewayclasses.gateway.networking.k8s.io
+      displayName: GatewayClass
+      description: Cluster-scoped template naming the controller that implements a set of Gateways.
+    - kind: Gateway
+      version: v1
+      name: gateways.gateway.networking.k8s.io
+      displayName: Gateway
+      description: A request for a load-balancer instance with a set of listeners (ports, protocols, TLS).
+    - kind: HTTPRoute
+      version: v1
+      name: httproutes.gateway.networking.k8s.io
+      displayName: HTTPRoute
+      description: HTTP/HTTPS routing rules -- matches, filters and backend references -- attached to a Gateway listener.
+    - kind: GRPCRoute
+      version: v1
+      name: grpcroutes.gateway.networking.k8s.io
+      displayName: GRPCRoute
+      description: gRPC service/method routing rules attached to a Gateway listener.
+    - kind: TCPRoute
+      version: v1
+      name: tcproutes.gateway.networking.k8s.io
+      displayName: TCPRoute
+      description: Layer-4 TCP forwarding from a Gateway listener to backends. Graduated to v1 in the standard channel in v1.6.
+    - kind: UDPRoute
+      version: v1
+      name: udproutes.gateway.networking.k8s.io
+      displayName: UDPRoute
+      description: Layer-4 UDP forwarding from a Gateway listener to backends. Graduated to v1 in the standard channel in v1.6.
+    - kind: TLSRoute
+      version: v1
+      name: tlsroutes.gateway.networking.k8s.io
+      displayName: TLSRoute
+      description: SNI-based passthrough routing for TLS connections a Gateway does not terminate.
+    - kind: BackendTLSPolicy
+      version: v1
+      name: backendtlspolicies.gateway.networking.k8s.io
+      displayName: BackendTLSPolicy
+      description: Configures the TLS the Gateway itself presents when connecting to a backend Service.
+    - kind: ListenerSet
+      version: v1
+      name: listenersets.gateway.networking.k8s.io
+      displayName: ListenerSet
+      description: A namespaced set of extra listeners merged into a Gateway, so listener config can be delegated.
+    - kind: ReferenceGrant
+      version: v1beta1
+      name: referencegrants.gateway.networking.k8s.io
+      displayName: ReferenceGrant
+      description: Consent object letting a route in one namespace reference a backend in another.
+  artifacthub.io/operator: "false"
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/quenchworks/charts
+    - name: upstream
+      url: https://github.com/kubernetes-sigs/gateway-api
+  artifacthub.io/signKey: |
+    fingerprint: keyless (cosign / Sigstore)
+    url: https://github.com/quenchworks/.github/blob/main/SECURITY.md

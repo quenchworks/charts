@@ -1,0 +1,208 @@
+name: release-gateway-api-crds
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/gateway-api-crds/**"
+      - ".github/workflows/release-gateway-api-crds.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/gateway-api-crds
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+          # Both toggles are shipped code paths, so both must render.
+          helm template "${CHART_DIR}" --set safeUpgradePolicy.enabled=false >/dev/null
+          helm template "${CHART_DIR}" --set crds.keep=false >/dev/null
+          # Below Kubernetes 1.30 the ValidatingAdmissionPolicy must self-skip.
+          if helm template "${CHART_DIR}" --kube-version 1.29.0 | grep -q ValidatingAdmissionPolicy; then
+            echo "::error::the VAP rendered on Kubernetes 1.29; it must self-skip"
+            exit 1
+          fi
+
+      - name: Provenance -- the template must be the upstream release asset
+        run: |
+          set -o pipefail
+          # templates/crds-standard.yaml is standard-install.yaml byte for byte plus
+          # three known template edits (chart README, "Provenance"). If upstream
+          # re-cuts a tag, or a hand-edit sneaks into the vendored blob, this fails
+          # before we publish a bundle nobody can audit.
+          ver="$(helm show chart "${CHART_DIR}" | awk '/^appVersion:/ {gsub(/"/,"",$2); print $2}')"
+          test -n "$ver"
+          url="https://github.com/kubernetes-sigs/gateway-api/releases/download/v${ver}/standard-install.yaml"
+          curl -fsSL -o up.yaml "$url"
+          sed -e '1,2d' \
+              -e '/^{{- if /d' \
+              -e '/^{{- end }}$/d' \
+              -e '/^    {{- if \.Values\.crds\.keep }}$/,+2d' \
+              "${CHART_DIR}/templates/crds-standard.yaml" > vendored.yaml
+          cmp vendored.yaml up.yaml \
+            || { echo "::error::templates/crds-standard.yaml diverges from ${url}"; exit 1; }
+          # The checksum recorded in the README must be the one we just fetched.
+          s="$(sha256sum up.yaml | cut -d' ' -f1)"
+          echo "standard-install.yaml sha256 ${s}"
+          grep -q "$s" "${CHART_DIR}/README.md" \
+            || { echo "::error::README.md 'Provenance' does not record sha256 $s"; exit 1; }
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          # No workload to wait on -- this chart ships only CRDs and a
+          # ValidatingAdmissionPolicy. The gate is therefore an API-surface check.
+          helm install rtest "${CHART_DIR}" -n gateway-system --create-namespace \
+            -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 5m
+
+          # Every standard-channel CRD must exist, be Established, and be stamped
+          # with the channel + bundle version this chart claims to ship.
+          ver="$(helm show chart "${CHART_DIR}" | awk '/^appVersion:/ {gsub(/"/,"",$2); print $2}')"
+          for crd in gatewayclasses gateways httproutes grpcroutes tcproutes udproutes \
+                     tlsroutes backendtlspolicies listenersets referencegrants; do
+            n="${crd}.gateway.networking.k8s.io"
+            kubectl wait --for=condition=Established "crd/${n}" --timeout=120s
+            got_ch="$(kubectl get "crd/${n}" -o jsonpath='{.metadata.annotations.gateway\.networking\.k8s\.io/channel}')"
+            got_ver="$(kubectl get "crd/${n}" -o jsonpath='{.metadata.annotations.gateway\.networking\.k8s\.io/bundle-version}')"
+            got_keep="$(kubectl get "crd/${n}" -o jsonpath='{.metadata.annotations.helm\.sh/resource-policy}')"
+            test "$got_ch" = standard      || { echo "::error::${n} channel=${got_ch}"; exit 1; }
+            test "$got_ver" = "v${ver}"    || { echo "::error::${n} bundle-version=${got_ver} want v${ver}"; exit 1; }
+            test "$got_keep" = keep        || { echo "::error::${n} resource-policy=${got_keep}"; exit 1; }
+          done
+          # Nothing from the experimental channel may appear: this chart ships standard only.
+          test -z "$(kubectl get crd -o name | grep 'gateway.networking.x-k8s.io' || true)"
+
+          # Upstream's safe-upgrades policy must be installed and bound.
+          kubectl get validatingadmissionpolicy safe-upgrades.gateway.networking.k8s.io
+          kubectl get validatingadmissionpolicybinding safe-upgrades.gateway.networking.k8s.io
+
+          # The release Secret is capped at 1 MiB by Kubernetes, and this chart is a
+          # large fraction of it (~80% at Gateway API v1.6.1). Assert the headroom so
+          # a future bundle bump fails HERE, with this message, instead of failing at
+          # a user's `helm install` with an opaque "data: Too long". The fix when it
+          # trips is in the chart README, "Known ceiling".
+          sz="$(kubectl get secret -n gateway-system -o json \
+                | python3 -c 'import json,sys; print(max((sum(len(v) for v in i["data"].values()) for i in json.load(sys.stdin)["items"] if i["metadata"]["name"].startswith("sh.helm.release")), default=0))')"
+          echo "release Secret: ${sz} of 1048576 bytes ($((sz * 100 / 1048576))%)"
+          test "$sz" -lt 1048576 || { echo "::error::release Secret exceeds the 1 MiB cap"; exit 1; }
+          test "$sz" -lt 943718  || echo "::warning::release Secret is over 90% of the 1 MiB cap (${sz}); see the chart README, 'Known ceiling'"
+
+          # The schemas and their CEL rules must accept real objects. A CRD chart that
+          # installs cleanly but rejects a valid Gateway is still broken, and nothing
+          # else in this chart would catch that.
+          kubectl apply -f - <<'EOF'
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: GatewayClass
+          metadata: { name: smoke }
+          spec: { controllerName: example.com/not-a-real-controller }
+          ---
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: Gateway
+          metadata: { name: smoke, namespace: default }
+          spec:
+            gatewayClassName: smoke
+            listeners:
+              - name: http
+                protocol: HTTP
+                port: 80
+                allowedRoutes: { namespaces: { from: Same } }
+          ---
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: HTTPRoute
+          metadata: { name: smoke, namespace: default }
+          spec:
+            parentRefs: [{ name: smoke }]
+            rules:
+              - matches: [{ path: { type: PathPrefix, value: /smoke } }]
+                backendRefs: [{ name: smoke-svc, port: 80 }]
+          EOF
+          # GatewayClass.spec.description is a real API field, not schema prose --
+          # assert it survives, because the documented size-reduction fallback (strip
+          # schema descriptions) must never delete it.
+          kubectl patch gatewayclass smoke --type merge \
+            -p '{"spec":{"description":"smoke test"}}'
+          # Assert exactly which API versions this bundle serves. v1 and v1beta1 are
+          # served; the v1alpha2/v1alpha3 entries are retained but served: false, which
+          # is precisely why Contour v1.33.6 (gateway-api v1.3.0) is only partially
+          # compatible -- see the chart README. Pin that fact here so a future bundle
+          # bump that changes it shows up as a gate failure and a README update.
+          kubectl get gateways.v1beta1.gateway.networking.k8s.io -A
+          kubectl get httproutes.v1beta1.gateway.networking.k8s.io -A
+          kubectl get referencegrants.v1beta1.gateway.networking.k8s.io -A
+          for old in tcproutes.v1alpha2 tlsroutes.v1alpha2 backendtlspolicies.v1alpha3; do
+            if kubectl get "${old}.gateway.networking.k8s.io" -A >/dev/null 2>&1; then
+              echo "::warning::${old} is now served; the README compatibility table says it is not"
+            fi
+          done
+          diff <(kubectl api-versions | grep '^gateway.networking.k8s.io/' | sort) \
+               <(printf 'gateway.networking.k8s.io/v1\ngateway.networking.k8s.io/v1beta1\n') \
+            || { echo "::error::served gateway.networking.k8s.io API versions changed; update the README compatibility table"; exit 1; }
+
+          # The safe-upgrades policy must actually deny an experimental crossover.
+          # This is the guardrail the README promises; assert it rather than trust it.
+          curl -fsSL -o exp.yaml \
+            "https://github.com/kubernetes-sigs/gateway-api/releases/download/v${ver}/experimental-install.yaml"
+          kubectl apply --dry-run=server -f exp.yaml 2>&1 | tee crossover.txt || true
+          grep -qi "prohibited by default" crossover.txt \
+            || { echo "::error::safe-upgrades policy did not deny the standard->experimental crossover"; exit 1; }
+
+          # crds.keep must survive uninstall: the CRDs (and therefore every
+          # Gateway/HTTPRoute in the cluster) stay put.
+          helm uninstall rtest -n gateway-system --wait
+          kubectl get crd gateways.gateway.networking.k8s.io
+          kubectl get gateway smoke -n default
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/gateway-api-crds-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/gateway-api-crds@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/gateway-api-crds:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
