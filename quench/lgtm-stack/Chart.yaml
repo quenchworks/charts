@@ -2,7 +2,7 @@ apiVersion: v2
 name: lgtm-stack
 description: "Hardened, operator-free LGTM observability superset in one install: Loki (logs) + Grafana (the single pane) + Tempo (traces) + VictoriaMetrics (Prometheus-compatible metrics) + an OpenTelemetry Collector (OTLP ingest) + Alertmanager. Grafana gets three pre-provisioned datasources — VictoriaMetrics (default), Loki, Tempo — so metrics, logs and traces are explorable side by side out of the box. VictoriaMetrics scrapes pods via annotation-based service discovery; Vector ships every pod's logs to Loki; apps send OTLP traces to the collector, which forwards to Tempo. No operator, no CRDs. All component images are QuenchWorks-hardened, nonroot, 0-CVE, pinned by digest and cosign-signed. node-exporter and Vector take host access by design (cluster metrics + logs); both are toggleable."
 type: application
-version: 0.0.12
+version: 0.0.13
 appVersion: "1.0.0"
 keywords:
   - lgtm
@@ -38,8 +38,8 @@ sources:
   - https://github.com/prometheus/node_exporter
 annotations:
   artifacthub.io/changes: |
-    - kind: security
-      description: "Re-pinned node-exporter to rebuilt 0-CVE image digests."
+    - kind: fixed
+      description: "Fixed the Vector DaemonSet under vector 0.57.0: its new template-confinement check rejects Loki label templates that are a bare event field; enabled upstream's dangerously_allow_unconfined_template_resolution on the loki sink (labels are not paths; a literal prefix would corrupt dashboard label values)."
   artifacthub.io/category: monitoring-logging
   artifacthub.io/images: |
     - name: victoriametrics

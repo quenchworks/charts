@@ -82,6 +82,13 @@ def main() -> int:
     for i, line in enumerate(lines):
         if digest not in line:
             continue
+        # The block must belong to OUR image. Batch 1 proved the failure mode: couchdb's
+        # main image block has no tag:, so the old first-tag-in-file logic stamped the
+        # couchdb appVersion onto the init helper's curlimages/curl tag (8.11.1 ->
+        # "3.5.2", a tag that does not exist) and the init Job ImagePullBackOff'd.
+        near = "\n".join(lines[max(0, i - 8):i + 1])
+        if "ghcr.io/quenchworks/images" not in near:
+            break
         for j in range(i - 1, max(-1, i - 8), -1):
             m = re.match(r"^(\s*)tag:\s*(\"?)([^\"\n]*)(\"?)\s*$", lines[j])
             if m:
