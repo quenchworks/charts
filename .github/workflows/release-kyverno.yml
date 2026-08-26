@@ -57,9 +57,26 @@ jobs:
           echo "release Secret: ${size} bytes of 1048576"
           test "${size}" -lt 838860   # fail at 80% of the cap, not at 100%
 
+          # Kyverno registers its policy webhooks as soon as the controller starts,
+          # but the admission controller's TLS listener is not accepting yet at that
+          # moment, so the very first apply races it and dies with
+          #   failed calling webhook "mutate-policy.kyverno.svc": connect: connection refused
+          # A rolled-out Deployment does not mean the webhook endpoint answers. Wait
+          # for the Service to actually have a ready endpoint before writing a policy.
+          for _ in $(seq 1 60); do
+            eps="$(kubectl get endpointslices -n kyverno \
+              -l kubernetes.io/service-name=rtest-kyverno-svc \
+              -o jsonpath='{.items[*].endpoints[*].conditions.ready}' 2>/dev/null || true)"
+            case "$eps" in *true*) break;; esac
+            sleep 2
+          done
+
           # The real gate. Ready is not proof the webhook is wired: install a
           # policy in Enforce mode and prove BOTH directions of the round trip.
-          kubectl apply -f - <<'EOF'
+          # Retry the apply: the endpoint being ready still leaves a short window
+          # where the webhook's own cert reconciler has not filled the Secret.
+          for attempt in $(seq 1 30); do
+            if kubectl apply -f - <<'EOF'
           apiVersion: kyverno.io/v1
           kind: ClusterPolicy
           metadata: { name: require-team-label }
@@ -73,6 +90,11 @@ jobs:
                   message: "every Pod must carry the label `team`"
                   pattern: { metadata: { labels: { team: "?*" } } }
           EOF
+          then break; fi
+          echo "policy apply attempt $attempt failed (webhook not serving yet); retrying"
+          sleep 5
+          test "$attempt" -lt 30
+          done
           kubectl wait --for=condition=Ready clusterpolicy/require-team-label --timeout=180s
 
           # (a) a violating Pod MUST be rejected, by Kyverno, with Kyverno's message
