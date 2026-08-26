@@ -1,0 +1,435 @@
+{{- if .Values.rbac.create }}
+{{- /*
+RBAC, authored from Kyverno's own documented per-controller API surface.
+
+Shape, and why it is worth the extra objects:
+
+  <name>:<component>        aggregated, rules empty, filled in by Kubernetes
+  <name>:<component>:core   this chart's rules, aggregated into the one above
+
+Kyverno's generate / mutate-existing / cleanup rules act on resource kinds the
+chart cannot know at install time -- a policy that generates NetworkPolicies
+needs the background controller to be able to write NetworkPolicies. Kyverno's
+documented answer is aggregation: create a ClusterRole labelled
+rbac.kyverno.io/aggregate-to-background-controller: "true" and its rules are
+merged in without editing anything here. Keeping the aggregation layer means
+that path keeps working.
+
+Namespaced Roles cover the things each controller does to its OWN release
+namespace: its TLS Secrets, its config, its leader-election Leases.
+*/}}
+{{- $ns := .Release.Namespace -}}
+{{- $components := list "admission-controller" "background-controller" "cleanup-controller" "reports-controller" -}}
+{{- range $components }}
+{{- $component := . }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s:%s" (include "quench-common.fullname" $) $component }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" $ "component" $component) | nindent 4 }}
+aggregationRule:
+  clusterRoleSelectors:
+    - matchLabels:
+        {{ printf "rbac.kyverno.io/aggregate-to-%s" $component }}: "true"
+    - matchLabels:
+        app.kubernetes.io/name: {{ include "quench-common.name" $ }}
+        app.kubernetes.io/instance: {{ $.Release.Name }}
+        app.kubernetes.io/component: {{ $component }}
+---
+{{- end }}
+# =====================================================================
+# Admission controller
+# =====================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s:admission-controller:core" (include "quench-common.fullname" .) }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "admission-controller") | nindent 4 }}
+rules:
+  # Create and keep in sync the webhook configurations Kyverno registers for
+  # itself, and the native ValidatingAdmissionPolicies it compiles policies down
+  # to. This is the grant that makes Kyverno able to bootstrap its own admission
+  # path; without it nothing is ever enforced.
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources:
+      - "mutatingwebhookconfigurations"
+      - "validatingwebhookconfigurations"
+      - "validatingadmissionpolicies"
+      - "validatingadmissionpolicybindings"
+      - "mutatingadmissionpolicies"
+      - "mutatingadmissionpolicybindings"
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get"]
+  # Kyverno resolves the effective permissions of the requesting user before it
+  # lets a policy generate or mutate on their behalf.
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "clusterroles", "rolebindings", "clusterrolebindings"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["subjectaccessreviews"]
+    verbs: ["create"]
+  # The policy APIs themselves, plus the UpdateRequests the admission controller
+  # queues for the background controller.
+  - apiGroups: ["kyverno.io"]
+    resources:
+      - "policies"
+      - "policies/status"
+      - "clusterpolicies"
+      - "clusterpolicies/status"
+      - "updaterequests"
+      - "updaterequests/status"
+      - "globalcontextentries"
+      - "globalcontextentries/status"
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"]
+  - apiGroups: ["kyverno.io"]
+    resources: ["policyexceptions"]
+    verbs: ["create", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["policies.kyverno.io"]
+    resources:
+      - "validatingpolicies"
+      - "validatingpolicies/status"
+      - "namespacedvalidatingpolicies"
+      - "namespacedvalidatingpolicies/status"
+      - "imagevalidatingpolicies"
+      - "imagevalidatingpolicies/status"
+      - "namespacedimagevalidatingpolicies"
+      - "namespacedimagevalidatingpolicies/status"
+      - "generatingpolicies"
+      - "generatingpolicies/status"
+      - "namespacedgeneratingpolicies"
+      - "namespacedgeneratingpolicies/status"
+      - "mutatingpolicies"
+      - "mutatingpolicies/status"
+      - "namespacedmutatingpolicies"
+      - "namespacedmutatingpolicies/status"
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"]
+  - apiGroups: ["policies.kyverno.io"]
+    resources: ["policyexceptions"]
+    verbs: ["create", "get", "list", "patch", "update", "watch"]
+  # Reports the reports controller aggregates.
+  - apiGroups: ["reports.kyverno.io"]
+    resources: ["ephemeralreports", "clusterephemeralreports"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"]
+  - apiGroups: ["wgpolicyk8s.io"]
+    resources:
+      - "policyreports"
+      - "policyreports/status"
+      - "clusterpolicyreports"
+      - "clusterpolicyreports/status"
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"]
+  - apiGroups: ["", "events.k8s.io"]
+    resources: ["events"]
+    verbs: ["create", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["configmaps", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create", "update", "patch", "get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ printf "%s:admission-controller" (include "quench-common.fullname" .) }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "admission-controller") | nindent 4 }}
+rules:
+  # The self-generated CA and serving keypair live here. Kyverno creates them on
+  # first start and rotates them, so this is create + full write, not a read of
+  # something a chart pre-seeded.
+  - apiGroups: [""]
+    resources: ["secrets", "serviceaccounts"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create", "delete", "get", "list", "watch", "patch", "update"]
+  # Kyverno annotates its own Deployment to record webhook state.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+---
+# =====================================================================
+# Background controller
+# =====================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s:background-controller:core" (include "quench-common.fullname" .) }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "background-controller") | nindent 4 }}
+rules:
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get"]
+  - apiGroups: ["kyverno.io"]
+    resources:
+      - "policies"
+      - "policies/status"
+      - "clusterpolicies"
+      - "clusterpolicies/status"
+      - "policyexceptions"
+      - "updaterequests"
+      - "updaterequests/status"
+      - "globalcontextentries"
+      - "globalcontextentries/status"
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"]
+  - apiGroups: ["policies.kyverno.io"]
+    resources:
+      - "generatingpolicies"
+      - "namespacedgeneratingpolicies"
+      - "mutatingpolicies"
+      - "namespacedmutatingpolicies"
+      - "policyexceptions"
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"]
+  - apiGroups: [""]
+    resources: ["namespaces", "configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["", "events.k8s.io"]
+    resources: ["events"]
+    verbs: ["create", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["reports.kyverno.io"]
+    resources: ["ephemeralreports", "clusterephemeralreports"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"]
+  # Write access to the kinds generate rules most often produce. Anything else
+  # your policies generate needs an aggregated ClusterRole -- see the header.
+  - apiGroups: [""]
+    resources: ["configmaps", "resourcequotas", "limitranges"]
+    verbs: ["create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "ingressclasses", "networkpolicies"]
+    verbs: ["create", "update", "patch", "delete"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["roles", "rolebindings"]
+    verbs: ["create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ printf "%s:background-controller" (include "quench-common.fullname" .) }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "background-controller") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create", "delete", "get", "list", "watch", "patch", "update"]
+---
+# =====================================================================
+# Cleanup controller
+# =====================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s:cleanup-controller:core" (include "quench-common.fullname" .) }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "cleanup-controller") | nindent 4 }}
+rules:
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get"]
+  # The cleanup controller registers its own two webhook configurations (cleanup
+  # policy validation, and the cleanup.kyverno.io/ttl label check).
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingwebhookconfigurations"]
+    verbs: ["create", "delete", "get", "list", "update", "watch"]
+  - apiGroups: [""]
+    resources: ["namespaces", "configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["kyverno.io"]
+    resources: ["clustercleanuppolicies", "cleanuppolicies"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["kyverno.io"]
+    resources: ["clustercleanuppolicies/status", "cleanuppolicies/status"]
+    verbs: ["update"]
+  - apiGroups: ["kyverno.io"]
+    resources: ["globalcontextentries", "globalcontextentries/status"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"]
+  - apiGroups: ["policies.kyverno.io"]
+    resources: ["deletingpolicies", "namespaceddeletingpolicies"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["policies.kyverno.io"]
+    resources: ["deletingpolicies/status", "namespaceddeletingpolicies/status"]
+    verbs: ["update"]
+  - apiGroups: ["policies.kyverno.io"]
+    resources: ["policyexceptions"]
+    verbs: ["get", "list", "patch", "update", "watch"]
+  - apiGroups: ["", "events.k8s.io"]
+    resources: ["events"]
+    verbs: ["create", "patch", "update"]
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["subjectaccessreviews"]
+    verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ printf "%s:cleanup-controller" (include "quench-common.fullname" .) }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "cleanup-controller") | nindent 4 }}
+rules:
+  # Its own self-generated CA and serving keypair, same story as the admission
+  # controller's.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create", "delete", "get", "list", "watch", "patch", "update"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch"]
+---
+# =====================================================================
+# Reports controller
+# =====================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s:reports-controller:core" (include "quench-common.fullname" .) }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "reports-controller") | nindent 4 }}
+rules:
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["configmaps", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["kyverno.io"]
+    resources:
+      - "globalcontextentries"
+      - "globalcontextentries/status"
+      - "policyexceptions"
+      - "policies"
+      - "clusterpolicies"
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"]
+  - apiGroups: ["policies.kyverno.io"]
+    resources:
+      - "validatingpolicies"
+      - "validatingpolicies/status"
+      - "namespacedvalidatingpolicies"
+      - "namespacedvalidatingpolicies/status"
+      - "imagevalidatingpolicies"
+      - "imagevalidatingpolicies/status"
+      - "namespacedimagevalidatingpolicies"
+      - "namespacedimagevalidatingpolicies/status"
+      - "generatingpolicies"
+      - "namespacedgeneratingpolicies"
+      - "mutatingpolicies"
+      - "namespacedmutatingpolicies"
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"]
+  - apiGroups: ["policies.kyverno.io"]
+    resources: ["policyexceptions", "policyexceptions/status"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingadmissionpolicies", "validatingadmissionpolicybindings"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["reports.kyverno.io"]
+    resources: ["ephemeralreports", "clusterephemeralreports"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"]
+  - apiGroups: ["wgpolicyk8s.io"]
+    resources:
+      - "policyreports"
+      - "policyreports/status"
+      - "clusterpolicyreports"
+      - "clusterpolicyreports/status"
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch", "deletecollection"]
+  - apiGroups: ["", "events.k8s.io"]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ printf "%s:reports-controller" (include "quench-common.fullname" .) }}
+  namespace: {{ $ns }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "reports-controller") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create", "delete", "get", "list", "watch", "patch", "update"]
+{{- /* Bindings. Each component binds its aggregated ClusterRole and its Role. */}}
+{{- $bindings := list
+  (dict "component" "admission-controller" "sa" (include "kyverno.admissionServiceAccountName" .))
+  (dict "component" "background-controller" "sa" (include "kyverno.backgroundServiceAccountName" .))
+  (dict "component" "cleanup-controller" "sa" (include "kyverno.cleanupServiceAccountName" .))
+  (dict "component" "reports-controller" "sa" (include "kyverno.reportsServiceAccountName" .))
+-}}
+{{- range $bindings }}
+{{- $sa := .sa }}
+{{- $component := .component }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s:%s" (include "quench-common.fullname" $) $component }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" $ "component" $component) | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s:%s" (include "quench-common.fullname" $) $component }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sa }}
+    namespace: {{ $.Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ printf "%s:%s" (include "quench-common.fullname" $) $component }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" $ "component" $component) | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ printf "%s:%s" (include "quench-common.fullname" $) $component }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sa }}
+    namespace: {{ $.Release.Namespace }}
+{{- if $.Values.rbac.bindViewRole }}
+---
+{{- /*
+Read-only access to everything, via the built-in `view` ClusterRole. Kyverno
+needs it for context lookups: context.apiCall in a policy, background scans over
+existing resources, and resolving mutate-existing targets. `view` deliberately
+excludes Secrets.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s:%s:view" (include "quench-common.fullname" $) $component }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" $ "component" $component) | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: view
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sa }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}
+{{- end }}

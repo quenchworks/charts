@@ -1,0 +1,65 @@
+{{/*
+KEDA's TLS material and the aggregated APIService that pins it.
+
+One keypair serves two purposes, which is why they live in one file:
+
+  * the operator's gRPC metrics service and the adapter's gRPC client
+    authenticate each other with it (mutual TLS, same CA both ways);
+  * the adapter's aggregated API server presents it to the kube-apiserver,
+    which validates it against the CA published in the APIService caBundle.
+
+So the Secret and the APIService MUST be derived from the same generated CA in
+the same render pass -- hence one `keda.certificates` call, used twice below.
+
+KEDA can also generate this material itself (--enable-cert-rotation), but its
+rotator deliberately exits the process the first time it writes the Secret so
+the pod restarts with the new files; that costs a container restart on every
+fresh install. The chart issues the certificates instead and reuses them across
+upgrades, so both deployments come up once and stay up.
+*/}}
+{{- $certs := include "keda.certificates" . | fromJson }}
+{{- if not .Values.certificates.existingSecret }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "keda.certSecretName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with (include "quench-common.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+type: kubernetes.io/tls
+data:
+  ca.crt: {{ index $certs "ca.crt" }}
+  tls.crt: {{ index $certs "tls.crt" }}
+  tls.key: {{ index $certs "tls.key" }}
+{{- end }}
+{{- if .Values.apiService.create }}
+---
+{{/*
+The external metrics API is a cluster singleton: only one APIService can back
+external.metrics.k8s.io, so only one KEDA (or other external-metrics adapter)
+can own it per cluster.
+*/}}
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.external.metrics.k8s.io
+  labels:
+    {{- include "keda.componentLabels" (dict "ctx" . "component" "metrics-apiserver") | nindent 4 }}
+  {{- with (include "quench-common.commonAnnotations" .) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+spec:
+  group: external.metrics.k8s.io
+  version: v1beta1
+  groupPriorityMinimum: {{ .Values.apiService.groupPriorityMinimum }}
+  versionPriority: {{ .Values.apiService.versionPriority }}
+  caBundle: {{ .Values.apiService.caBundle | default (index $certs "ca.crt") }}
+  service:
+    name: {{ include "keda.metricsName" . }}
+    namespace: {{ .Release.Namespace }}
+    port: 443
+{{- end }}

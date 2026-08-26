@@ -1,0 +1,144 @@
+{{/*
+Services.
+
+Two of these are load-bearing: the API server dials the admission controller and
+the cleanup controller on :443 through the ClusterIP Services below, and Kyverno
+writes those Service references into the webhook configurations it generates
+(from KYVERNO_SVC, so the release-scoped names here are what ends up in the
+webhook config). The serving certificates Kyverno mints cover exactly these DNS
+names, so renaming one without telling Kyverno breaks the TLS handshake and
+every admission request with it.
+
+The metrics Services are optional plumbing for a ServiceMonitor.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kyverno.serviceName" . }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "admission-controller") | nindent 4 }}
+  {{- with .Values.admissionController.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.admissionController.service.type }}
+  ports:
+    - name: https
+      port: 443
+      targetPort: https
+      protocol: TCP
+      appProtocol: https
+  selector:
+    {{- include "kyverno.componentSelectorLabels" (dict "ctx" . "component" "admission-controller") | nindent 4 }}
+{{- if .Values.metrics.service.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-metrics" (include "kyverno.serviceName" .) }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "admission-controller") | nindent 4 }}
+  {{- with .Values.metrics.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: {{ .Values.admissionController.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "kyverno.componentSelectorLabels" (dict "ctx" . "component" "admission-controller") | nindent 4 }}
+{{- end }}
+{{- if .Values.cleanupController.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "kyverno.cleanupName" . }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "cleanup-controller") | nindent 4 }}
+  {{- with .Values.cleanupController.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.cleanupController.service.type }}
+  ports:
+    - name: https
+      port: 443
+      targetPort: https
+      protocol: TCP
+      appProtocol: https
+  selector:
+    {{- include "kyverno.componentSelectorLabels" (dict "ctx" . "component" "cleanup-controller") | nindent 4 }}
+{{- if .Values.metrics.service.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-metrics" (include "kyverno.cleanupName" .) }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "cleanup-controller") | nindent 4 }}
+  {{- with .Values.metrics.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: {{ .Values.cleanupController.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "kyverno.componentSelectorLabels" (dict "ctx" . "component" "cleanup-controller") | nindent 4 }}
+{{- end }}
+{{- end }}
+{{- if and .Values.metrics.service.enabled .Values.backgroundController.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-metrics" (include "kyverno.backgroundName" .) }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "background-controller") | nindent 4 }}
+  {{- with .Values.metrics.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: {{ .Values.backgroundController.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "kyverno.componentSelectorLabels" (dict "ctx" . "component" "background-controller") | nindent 4 }}
+{{- end }}
+{{- if and .Values.metrics.service.enabled .Values.reportsController.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ printf "%s-metrics" (include "kyverno.reportsName" .) }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "reports-controller") | nindent 4 }}
+  {{- with .Values.metrics.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: {{ .Values.reportsController.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "kyverno.componentSelectorLabels" (dict "ctx" . "component" "reports-controller") | nindent 4 }}
+{{- end }}

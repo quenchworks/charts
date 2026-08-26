@@ -1,0 +1,129 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+# KEDA ships as ONE image carrying BOTH first-party binaries: the operator
+# (/usr/bin/keda, the image entrypoint) and the external-metrics adapter
+# (/usr/bin/keda-adapter). Each Deployment selects its binary via `command`.
+image:
+  repository: ghcr.io/quenchworks/images/keda
+  digest: "sha256:c79e90e08f150b547c53de1d796b72fd65e70db164705ed8dd4526b8a8c589af"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Cluster domain used to build the certificate SANs and the adapter's gRPC dial
+# address. Change only on clusters not using cluster.local.
+clusterDomain: cluster.local
+
+# Operator: the reconcile loop for ScaledObject / ScaledJob /
+# (Cluster)TriggerAuthentication / (Cluster)CloudEventSource. It creates and
+# owns the HorizontalPodAutoscaler behind every ScaledObject, evaluates the
+# scalers, and serves the resulting metrics to the adapter over mTLS gRPC.
+operator:
+  replicaCount: 1
+  # Restrict KEDA to a single namespace by setting this. Empty = all namespaces.
+  watchNamespace: ""
+  logLevel: info
+  # console or json
+  logEncoder: console
+  # Leader election is required when replicaCount > 1 and harmless at 1: it
+  # keeps a single reconciler active across a rolling update.
+  leaderElect: true
+  # Prometheus metrics endpoint (/metrics).
+  metricsPort: 8080
+  # Health/readiness endpoint (/healthz, /readyz).
+  healthPort: 8081
+  # gRPC metrics service the adapter dials, secured with the chart's mTLS certs.
+  grpcPort: 9666
+  # Default timeout (ms) for HTTP calls scalers make to event sources. Empty =
+  # KEDA's own default (3000ms).
+  httpDefaultTimeout: ""
+  extraArgs: []
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 1, memory: 1Gi }
+
+# Metrics adapter: an aggregated API server for external.metrics.k8s.io. The
+# kube-controller-manager's HPA controller queries it for every KEDA-managed
+# HPA; it answers by asking the operator over gRPC. Without it, ScaledObjects
+# reconcile but never actually scale.
+metricsApiserver:
+  replicaCount: 1
+  logLevel: error
+  # HTTPS port the aggregation layer dials (via the Service :443).
+  securePort: 6443
+  # Prometheus metrics endpoint (/metrics).
+  metricsPort: 8080
+  extraArgs: []
+  service:
+    type: ClusterIP
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 1, memory: 1Gi }
+
+# Serving/mTLS certificates. KEDA needs one keypair trusted by both components:
+# it secures the operator's gRPC metrics service AND the adapter's aggregated
+# API server, and its CA is what the aggregation layer pins in the APIService's
+# caBundle.
+#
+# The chart issues them itself (self-signed CA + one leaf covering both Service
+# DNS names) and keeps them across upgrades by reading back the existing Secret,
+# so `helm upgrade` never churns the certificates. This is why KEDA's own
+# cert-rotation controller is left off: it generates the same material but exits
+# the process the first time it writes the Secret, which costs a container
+# restart on every fresh install.
+certificates:
+  # Days of validity for the generated CA and leaf certificate.
+  validityDays: 3650
+  # Use a Secret you manage instead (must hold ca.crt, tls.crt, tls.key, and its
+  # CA must match the APIService caBundle -- set apiService.caBundle too).
+  existingSecret: ""
+
+# The aggregated APIService for external.metrics.k8s.io.
+apiService:
+  create: true
+  # Override the caBundle (base64 PEM). Only needed with certificates.existingSecret.
+  caBundle: ""
+  groupPriorityMinimum: 100
+  versionPriority: 100
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# RBAC is required. The operator needs cluster-wide read plus write access to
+# the /scale subresource, HPAs and Jobs; the adapter needs the aggregated-API
+# authentication delegation grants (auth-delegator + the kube-system
+# extension-apiserver-authentication reader).
+rbac:
+  create: true
+  # Bind the kube-system horizontal-pod-autoscaler ServiceAccount to the
+  # external-metrics reader ClusterRole. Required for HPAs to read KEDA metrics
+  # on clusters where the HPA controller is not already granted it.
+  createHpaControllerBinding: true
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+# These apply to both deployments (shared pod-spec surface).
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+commonLabels: {}
+commonAnnotations: {}

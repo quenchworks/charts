@@ -1,0 +1,137 @@
+name: release-kyverno
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/kyverno/**"
+      - ".github/workflows/release-kyverno.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/kyverno
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          # The 22 CRDs install from crds/ before the templates; all four
+          # deployments must reach Ready under --wait.
+          helm install rtest "${CHART_DIR}" -n kyverno --create-namespace \
+            -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          for c in admission background cleanup reports; do
+            kubectl rollout status "deployment/rtest-kyverno-${c}-controller" -n kyverno --timeout=300s
+          done
+
+          # Helm keeps the whole chart in the release Secret and a Secret is
+          # capped at 1 MiB. Kyverno's CRDs are big enough that this is a real
+          # failure mode, so assert the headroom instead of hoping.
+          size="$(kubectl get secret sh.helm.release.v1.rtest.v1 -n kyverno -o jsonpath='{.data.release}' | wc -c)"
+          echo "release Secret: ${size} bytes of 1048576"
+          test "${size}" -lt 838860   # fail at 80% of the cap, not at 100%
+
+          # The real gate. Ready is not proof the webhook is wired: install a
+          # policy in Enforce mode and prove BOTH directions of the round trip.
+          kubectl apply -f - <<'EOF'
+          apiVersion: kyverno.io/v1
+          kind: ClusterPolicy
+          metadata: { name: require-team-label }
+          spec:
+            validationFailureAction: Enforce
+            background: false
+            rules:
+              - name: check-team-label
+                match: { any: [ { resources: { kinds: [Pod] } } ] }
+                validate:
+                  message: "every Pod must carry the label `team`"
+                  pattern: { metadata: { labels: { team: "?*" } } }
+          EOF
+          kubectl wait --for=condition=Ready clusterpolicy/require-team-label --timeout=180s
+
+          # (a) a violating Pod MUST be rejected, by Kyverno, with Kyverno's message
+          if kubectl run bad-pod --image=registry.k8s.io/pause:3.10 -n default \
+               --command -- sleep 3600 2>err.txt; then
+            echo "::error::a Pod violating an Enforce policy was ADMITTED"; exit 1
+          fi
+          cat err.txt
+          grep -q 'denied the request' err.txt
+          grep -q 'require-team-label' err.txt
+
+          # (b) a compliant Pod MUST be admitted
+          kubectl run good-pod --image=registry.k8s.io/pause:3.10 -n default \
+            --labels team=platform --command -- sleep 3600
+
+          # no crashes anywhere
+          test "$(kubectl get pods -n kyverno \
+            -o jsonpath='{range .items[*]}{.status.containerStatuses[*].restartCount}{"\n"}{end}' \
+            | sort -u | tr -d '\n')" = "0"
+
+          # Uninstall must not leave a webhook configuration behind: a stale
+          # failurePolicy=Fail webhook pointing at a dead Service rejects every
+          # matching request. Deliberately uninstall with the Enforce policy still
+          # live -- the worst case, and the one users actually hit.
+          helm uninstall rtest -n kyverno --wait --timeout 5m
+          left="$(kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations \
+            -l webhook.kyverno.io/managed-by=kyverno -o name | wc -l)"
+          echo "kyverno webhook configurations left after uninstall: ${left}"
+          test "${left}" -eq 0
+          # and the cluster still admits Pods
+          kubectl run canary --image=registry.k8s.io/pause:3.10 -n default --command -- sleep 30
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/kyverno-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/kyverno@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/kyverno:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

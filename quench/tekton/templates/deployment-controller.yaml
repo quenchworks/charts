@@ -1,0 +1,144 @@
+{{/*
+Tekton Pipelines controller: the reconciler that turns a TaskRun into a pod and
+watches it to completion. Runs /usr/bin/controller.
+
+THE CRUX OF THIS CHART is the four -*-image flags below. The controller does not
+just run its own binary: it INJECTS helper containers into every TaskRun pod --
+`prepare` (workingdirinit), the per-step `entrypoint` wrapper, `nop` to stop
+sidecars, and `sidecarlogresults` to harvest results. Each of those is a separate
+image reference the controller stamps into the pod it creates. Left at their
+built-in defaults they point at upstream registry images we do not publish, and
+every TaskRun would sit in Init:ImagePullBackOff. Pointing them at our own image
+(by digest) is what makes a run work: the image carries all four binaries and
+symlinks them at the /ko-app/<helper> paths Tekton hardcodes.
+
+-shell-image is the one exception: `script:` steps need a POSIX shell for the
+injected place-scripts init container, so it gets our busybox image.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "tekton.controllerName" . }}
+  labels:
+    {{- include "tekton.componentLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+spec:
+  replicas: {{ .Values.controller.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "tekton.componentSelectorLabels" (dict "ctx" . "component" "controller") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "tekton.componentSelectorLabels" (dict "ctx" . "component" "controller") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "tekton.controllerServiceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: controller
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/controller"]
+          args:
+            # All four helpers live in THIS image, at the /ko-app paths Tekton
+            # expects. Same digest as the controller, so a run can never drift
+            # from the controller that scheduled it.
+            - "-entrypoint-image={{ include "quench-common.image" . }}"
+            - "-nop-image={{ include "quench-common.image" . }}"
+            - "-sidecarlogresults-image={{ include "quench-common.image" . }}"
+            - "-workingdirinit-image={{ include "quench-common.image" . }}"
+            # place-scripts needs a real shell; the Tekton image has none.
+            - "-shell-image={{ include "tekton.shellImage" . }}"
+            # Not optional: the controller exits at startup if this flag is
+            # unset. Linux-only clusters never pull it. See values.yaml.
+            - "-shell-image-win={{ required "controller.shellImageWin is required: the Tekton controller refuses to start without -shell-image-win" .Values.controller.shellImageWin }}"
+            {{- range .Values.controller.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: SYSTEM_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # These name the ConfigMaps rendered by templates/configmaps.yaml.
+            - name: CONFIG_DEFAULTS_NAME
+              value: config-defaults
+            - name: CONFIG_LOGGING_NAME
+              value: config-logging
+            - name: CONFIG_OBSERVABILITY_NAME
+              value: config-observability
+            - name: CONFIG_FEATURE_FLAGS_NAME
+              value: feature-flags
+            - name: CONFIG_LEADERELECTION_NAME
+              value: config-leader-election-controller
+            - name: CONFIG_SPIRE
+              value: config-spire
+            # A `cert` key in config-registry-cert lands here; when the key is
+            # absent the file does not exist and Go falls back to SSL_CERT_DIR,
+            # i.e. the image's own CA bundle.
+            - name: SSL_CERT_FILE
+              value: /etc/config-registry-cert/cert
+            - name: SSL_CERT_DIR
+              value: /etc/ssl/certs
+            - name: METRICS_DOMAIN
+              value: tekton.dev/pipeline
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+            - name: profiling
+              containerPort: 8008
+              protocol: TCP
+            - name: probes
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: probes
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: probes
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          volumeMounts:
+            - name: config-logging
+              mountPath: /etc/config-logging
+              readOnly: true
+            - name: config-registry-cert
+              mountPath: /etc/config-registry-cert
+              readOnly: true
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: config-logging
+          configMap:
+            name: config-logging
+        - name: config-registry-cert
+          configMap:
+            name: config-registry-cert
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

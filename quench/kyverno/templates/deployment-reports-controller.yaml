@@ -1,0 +1,99 @@
+{{- if .Values.reportsController.enabled }}
+{{/*
+The reports controller: /usr/bin/reports-controller out of the same image.
+
+It turns the admission controller's per-request ephemeral reports, plus its own
+periodic background scan of resources already in the cluster, into
+PolicyReport / ClusterPolicyReport objects. Serves no webhook, so no probes.
+
+It gets the sigstore emptyDir for the same reason the admission controller does:
+image verification policies are re-evaluated during the background scan, and
+sigstore's TUF client needs a writable TUF_ROOT under a read-only rootfs.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kyverno.reportsName" . }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "reports-controller") | nindent 4 }}
+spec:
+  replicas: {{ .Values.reportsController.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "kyverno.componentSelectorLabels" (dict "ctx" . "component" "reports-controller") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "kyverno.componentSelectorLabels" (dict "ctx" . "component" "reports-controller") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "kyverno.reportsServiceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: controller
+          image: {{ include "kyverno.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/bin/reports-controller"]
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - "--admissionReports={{ .Values.admissionController.admissionReports }}"
+            - "--aggregateReports=true"
+            - "--policyReports=true"
+            - "--backgroundScan={{ .Values.reportsController.backgroundScan }}"
+            - "--backgroundScanWorkers={{ .Values.reportsController.backgroundScanWorkers }}"
+            - "--backgroundScanInterval={{ .Values.reportsController.backgroundScanInterval }}"
+            - "--metricsPort={{ .Values.reportsController.metricsPort }}"
+            - "--otelConfig=prometheus"
+            - "--loggingFormat=text"
+            - "--v={{ .Values.reportsController.logLevel }}"
+            {{- range .Values.reportsController.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: INIT_CONFIG
+              value: {{ include "kyverno.configMapName" . }}
+            - name: METRICS_CONFIG
+              value: {{ include "kyverno.metricsConfigMapName" . }}
+            - name: KYVERNO_DEPLOYMENT
+              value: {{ include "kyverno.reportsName" . }}
+            - name: KYVERNO_SERVICEACCOUNT_NAME
+              value: {{ include "kyverno.reportsServiceAccountName" . }}
+            - name: KYVERNO_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: KYVERNO_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: TUF_ROOT
+              value: /.sigstore
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.reportsController.metricsPort }}
+              protocol: TCP
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.reportsController.resources | nindent 12 }}
+          volumeMounts:
+            - name: sigstore
+              mountPath: /.sigstore
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: sigstore
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
+{{- end }}

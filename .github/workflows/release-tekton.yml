@@ -1,0 +1,136 @@
+name: release-tekton
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/tekton/**"
+      - ".github/workflows/release-tekton.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/tekton
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          kubectl rollout status deployment/rtest-tekton-controller --timeout=300s
+          kubectl rollout status deployment/rtest-tekton-webhook --timeout=300s
+
+          # The webhook must have issued its own cert and patched the caBundle +
+          # intercept rules into its configurations. Ready proves neither.
+          for i in $(seq 1 30); do
+            ca="$(kubectl get validatingwebhookconfiguration validation.webhook.pipeline.tekton.dev \
+                    -o jsonpath='{.webhooks[0].clientConfig.caBundle}')"
+            [ -n "$ca" ] && break
+            sleep 5
+          done
+          test -n "$ca"
+          kubectl get validatingwebhookconfiguration validation.webhook.pipeline.tekton.dev \
+            -o jsonpath='{.webhooks[0].rules[*].resources}' | grep -q taskruns
+
+          # THE gate: a real TaskRun to completion. A TaskRun that hangs in
+          # Init:ImagePullBackOff is exactly what this catches -- the controller
+          # injects entrypoint/nop/workingdirinit from our own image, and
+          # place-scripts from our busybox, so a wrong -*-image flag fails here.
+          # The sidecar is here to exercise -nop-image. Note the run POD ends up
+          # in phase Failed: stopping a sidecar swaps its image to nop while
+          # keeping the sidecar's own command, which no distroless nop image can
+          # exec. That is upstream Tekton behaviour; the TaskRun still succeeds,
+          # which is what is asserted below.
+          kubectl apply -f - <<'EOF'
+          apiVersion: tekton.dev/v1
+          kind: TaskRun
+          metadata:
+            name: gate
+          spec:
+            taskSpec:
+              results:
+                - name: greeting
+              sidecars:
+                - name: idler
+                  image: ghcr.io/quenchworks/images/busybox@sha256:e15887b82fd68a38d7570e8dd0687fc35e3e47507de89719210d8df394190e7f
+                  script: |
+                    while true; do sleep 5; done
+              steps:
+                - name: say
+                  image: ghcr.io/quenchworks/images/busybox@sha256:e15887b82fd68a38d7570e8dd0687fc35e3e47507de89719210d8df394190e7f
+                  script: |
+                    echo -n "hi-from-step" > "$(results.greeting.path)"
+                    echo "QUENCHWORKS TEKTON SMOKE OK"
+          EOF
+          kubectl wait --for=condition=Succeeded --timeout=300s taskrun/gate
+          kubectl logs -l tekton.dev/taskRun=gate -c step-say | grep -q "QUENCHWORKS TEKTON SMOKE OK"
+          # Results round-trip proves the entrypoint wrapper and the sidecar stop
+          # (nop) worked, not just that the pod exited 0.
+          kubectl get taskrun gate -o jsonpath='{.status.results[0].value}' | grep -q hi-from-step
+          # Every container in the run pod -- the injected helpers included --
+          # must come from an image we publish.
+          foreign="$(kubectl get pod -l tekton.dev/taskRun=gate \
+            -o jsonpath='{range .items[0].spec.initContainers[*]}{.image}{"\n"}{end}{range .items[0].spec.containers[*]}{.image}{"\n"}{end}' \
+            | grep -v '^ghcr.io/quenchworks/images/' || true)"
+          test -z "$foreign" || { echo "foreign image in run pod: $foreign"; exit 1; }
+          # No crash-looping control plane.
+          restarts="$(kubectl get pods -l app.kubernetes.io/instance=rtest \
+            -o jsonpath='{.items[*].status.containerStatuses[*].restartCount}' | tr ' ' '\n' | sort -u | tr -d '\n')"
+          test "$restarts" = "0" || { echo "restartCount != 0: $restarts"; exit 1; }
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/tekton-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/tekton@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/tekton:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

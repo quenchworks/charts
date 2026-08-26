@@ -1,0 +1,75 @@
+Quenchworks Kyverno is installed as {{ include "quench-common.fullname" . }}.
+
+One hardened image, {{ .Values.image.repository }}, runs as
+{{ if .Values.backgroundController.enabled }}{{ if .Values.cleanupController.enabled }}{{ if .Values.reportsController.enabled }}four{{ else }}three{{ end }}{{ else }}three{{ end }}{{ else }}two{{ end }} deployments, each picking a different binary:
+
+  {{ include "kyverno.admissionName" . }}   webhook server + policy engine (:443 -> {{ .Values.admissionController.webhookServerPort }})
+{{- if .Values.backgroundController.enabled }}
+  {{ include "kyverno.backgroundName" . }}   generate / mutate-existing, out of band
+{{- end }}
+{{- if .Values.cleanupController.enabled }}
+  {{ include "kyverno.cleanupName" . }}   cleanup + TTL schedules (own webhook on :443)
+{{- end }}
+{{- if .Values.reportsController.enabled }}
+  {{ include "kyverno.reportsName" . }}   PolicyReport aggregation + background scan
+{{- end }}
+
+No cert-manager is needed. The admission controller generates its own CA and
+serving certificate into the Secrets
+
+  {{ include "kyverno.admissionCASecretName" . }}
+  {{ include "kyverno.admissionTLSSecretName" . }}
+
+and registers its own webhook configurations with that CA bundle.
+
+Prove it works -- both directions, not just one:
+
+  kubectl apply -f - <<'EOF'
+  apiVersion: kyverno.io/v1
+  kind: ClusterPolicy
+  metadata:
+    name: require-team-label
+  spec:
+    validationFailureAction: Enforce
+    rules:
+      - name: check-team-label
+        match:
+          any:
+            - resources:
+                kinds: [Pod]
+        validate:
+          message: "every Pod must carry the label `team`"
+          pattern:
+            metadata:
+              labels:
+                team: "?*"
+  EOF
+
+  # rejected -- the apply must FAIL with the message above
+  kubectl run bad --image=ghcr.io/quenchworks/images/kubectl -n default --command -- sleep 1
+
+  # admitted
+  kubectl run good --image=ghcr.io/quenchworks/images/kubectl -n default \
+    --labels team=platform --command -- sleep 1
+
+A newly created policy takes a few seconds to show up: Kyverno has to add the
+rule to its webhook configuration before the API server starts calling it. Watch
+for it with
+
+  kubectl get clusterpolicy require-team-label -o jsonpath='{.status.ready}'
+
+Uninstalling: `helm uninstall` runs a post-delete Job that removes the webhook
+configurations Kyverno registered for itself, because Helm does not own them and
+a leftover one rejects every matching request. Check it did its job:
+
+  kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations \
+    -l webhook.kyverno.io/managed-by=kyverno
+
+The CRDs and your policies are deliberately left in place -- Helm never deletes
+anything in crds/. Remove them yourself when you mean it.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

@@ -1,0 +1,95 @@
+apiVersion: v2
+name: tekton
+description: "Tekton Pipelines: the Kubernetes-native CI/CD engine. Installs the Task/TaskRun/Pipeline/PipelineRun/StepAction CRDs plus the reconciler and the admission webhook, so builds run as plain Pods with no external build service. Hardened by QuenchWorks as a minimal, nonroot, 0-CVE image, cosign-signed and pinned by digest. The single image also carries the helper binaries the controller injects into every TaskRun pod (entrypoint, nop, sidecarlogresults, workingdirinit), and the chart points the controller at itself by digest, so a run never reaches for an upstream registry."
+type: application
+version: 0.0.1
+appVersion: "1.14.0"
+keywords:
+  - tekton
+  - tekton-pipelines
+  - ci
+  - cd
+  - pipelines
+  - build
+  - continuous-integration
+  - continuous-delivery
+  - kubernetes
+maintainers:
+  - name: QuenchWorks
+    email: info@quench-works.com
+    url: https://github.com/quenchworks
+icon: https://raw.githubusercontent.com/quenchworks/.github/main/profile/assets/chart-icon.png
+home: https://quench-works.com
+sources:
+  - https://github.com/quenchworks/charts
+  - https://github.com/tektoncd/pipeline
+annotations:
+  artifacthub.io/category: integration-delivery
+  artifacthub.io/changes: |
+    - kind: added
+      description: "Initial release of the QuenchWorks Tekton Pipelines chart: controller + admission webhook, the tekton.dev CRDs, and the config-* ConfigMaps the controller requires to start."
+    - kind: added
+      description: "The controller is pointed at this chart's own image by digest for the pod-injected helpers (-entrypoint-image, -nop-image, -sidecarlogresults-image, -workingdirinit-image), so TaskRun pods never pull an upstream registry image."
+    - kind: security
+      description: "Pinned to the 0-CVE Tekton Pipelines 1.14.0 image: built from source on Wolfi, nonroot, read-only root filesystem, cosign-signed, referenced by digest."
+  artifacthub.io/images: |
+    - name: tekton
+      image: ghcr.io/quenchworks/images/tekton@sha256:3b749beca2c9aeef4ffde8590c6189330e4883d1a3c2c7a46925bae1ddf5143a
+    - name: busybox
+      image: ghcr.io/quenchworks/images/busybox@sha256:e15887b82fd68a38d7570e8dd0687fc35e3e47507de89719210d8df394190e7f
+  artifacthub.io/crds: |
+    - kind: Task
+      version: v1
+      name: tasks.tekton.dev
+      displayName: Task
+      description: An ordered list of steps, each run as a container in one pod.
+    - kind: TaskRun
+      version: v1
+      name: taskruns.tekton.dev
+      displayName: TaskRun
+      description: One execution of a Task; the controller turns it into a pod and tracks it to completion.
+    - kind: Pipeline
+      version: v1
+      name: pipelines.tekton.dev
+      displayName: Pipeline
+      description: A graph of Tasks with their ordering, parameters and workspaces.
+    - kind: PipelineRun
+      version: v1
+      name: pipelineruns.tekton.dev
+      displayName: PipelineRun
+      description: One execution of a Pipeline, creating a TaskRun per Task in the graph.
+    - kind: StepAction
+      version: v1
+      name: stepactions.tekton.dev
+      displayName: StepAction
+      description: A reusable, independently versioned single step that a Task step can reference.
+    - kind: CustomRun
+      version: v1beta1
+      name: customruns.tekton.dev
+      displayName: CustomRun
+      description: An execution handled by a third-party custom-task controller instead of the Tekton reconciler.
+    - kind: ResolutionRequest
+      version: v1beta1
+      name: resolutionrequests.resolution.tekton.dev
+      displayName: ResolutionRequest
+      description: A request for a remote Task or Pipeline definition, fulfilled by a resolver.
+    - kind: VerificationPolicy
+      version: v1alpha1
+      name: verificationpolicies.tekton.dev
+      displayName: VerificationPolicy
+      description: Signing keys and patterns used to verify trusted remote resources.
+  artifacthub.io/operator: "true"
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/quenchworks/charts
+    - name: image
+      url: https://github.com/quenchworks/images
+  artifacthub.io/signKey: |
+    fingerprint: keyless (cosign / Sigstore)
+    url: https://github.com/quenchworks/.github/blob/main/SECURITY.md
+dependencies:
+  - name: quench-common
+    version: 0.0.8
+    repository: oci://ghcr.io/quenchworks/charts

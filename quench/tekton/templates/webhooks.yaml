@@ -1,0 +1,79 @@
+{{/*
+The webhook's own plumbing, shipped deliberately INERT.
+
+  * The Secret is empty. The webhook has get/update on it but not create, so it
+    must already exist; it fills it with the CA + serving cert it generates.
+  * The three webhook configurations carry NO caBundle and NO rules. A webhook
+    entry with no rules intercepts nothing, which is what makes a fresh install
+    safe: the ConfigMaps and CRs this chart creates are not held hostage by a
+    webhook whose pod has not started yet. Once the webhook is up it patches in
+    both the caBundle and the rules, and validation starts for real.
+
+  Verify after install (not just "Ready"):
+    kubectl get validatingwebhookconfiguration validation.webhook.pipeline.tekton.dev \
+      -o jsonpath='{.webhooks[0].clientConfig.caBundle}' | head -c 20
+
+The three names are computed by the webhook binary from
+webhook.admissionControllerName, so they are fixed and cluster-scoped: one Tekton
+Pipelines install per cluster.
+*/}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ include "tekton.webhookCertsSecretName" . }}
+  labels:
+    {{- include "tekton.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+# Populated at runtime by the webhook itself.
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "tekton.mutatingWebhookName" . }}
+  labels:
+    {{- include "tekton.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+webhooks:
+  - name: {{ include "tekton.mutatingWebhookName" . }}
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      service:
+        name: {{ include "tekton.webhookName" . }}
+        namespace: {{ .Release.Namespace }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "tekton.validatingWebhookName" . }}
+  labels:
+    {{- include "tekton.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+webhooks:
+  - name: {{ include "tekton.validatingWebhookName" . }}
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      service:
+        name: {{ include "tekton.webhookName" . }}
+        namespace: {{ .Release.Namespace }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "tekton.configWebhookName" . }}
+  labels:
+    {{- include "tekton.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+webhooks:
+  - name: {{ include "tekton.configWebhookName" . }}
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    # Only Tekton's own config-* ConfigMaps, matched by the part-of label this
+    # chart stamps on them (.Values.partOf).
+    objectSelector:
+      matchLabels:
+        app.kubernetes.io/part-of: {{ .Values.partOf }}
+    clientConfig:
+      service:
+        name: {{ include "tekton.webhookName" . }}
+        namespace: {{ .Release.Namespace }}

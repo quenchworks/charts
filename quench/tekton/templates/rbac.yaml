@@ -1,0 +1,247 @@
+{{- if .Values.rbac.create }}
+{{- /*
+Clean-room RBAC, authored from what each Tekton binary documents it needs.
+
+  * controller  watches the tekton.dev + resolution.tekton.dev API surface
+                cluster-wide, and creates/owns the Pods, PVCs and affinity-
+                assistant StatefulSets that back a run. It also reads the
+                config-* ConfigMaps in its own namespace and takes a Lease.
+  * webhook     touches almost nothing of the workload API. It maintains its own
+                admission plumbing: patching the CA bundle it generates into the
+                three webhook configurations and into the conversion stanza of
+                each tekton.dev CRD, and reading/updating its own certs Secret.
+
+Both roles are per-ServiceAccount; nothing is aggregated into cluster-admin.
+*/}}
+{{- $crds := list
+  "tasks.tekton.dev"
+  "taskruns.tekton.dev"
+  "pipelines.tekton.dev"
+  "pipelineruns.tekton.dev"
+  "stepactions.tekton.dev"
+  "customruns.tekton.dev"
+  "verificationpolicies.tekton.dev"
+  "resolutionrequests.resolution.tekton.dev" -}}
+# =====================================================================
+# Controller
+# =====================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "tekton.controllerName" . }}
+  labels:
+    {{- include "tekton.componentLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+rules:
+  # The Tekton API surface the reconciler owns, plus status and finalizers.
+  - apiGroups: ["tekton.dev"]
+    resources:
+      - "tasks"
+      - "taskruns"
+      - "pipelines"
+      - "pipelineruns"
+      - "customruns"
+      - "stepactions"
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["tekton.dev"]
+    resources:
+      - "tasks/status"
+      - "taskruns/status"
+      - "pipelines/status"
+      - "pipelineruns/status"
+      - "customruns/status"
+      - "stepactions/status"
+      - "verificationpolicies/status"
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["tekton.dev"]
+    resources: ["taskruns/finalizers", "pipelineruns/finalizers", "customruns/finalizers"]
+    verbs: ["get", "list", "watch", "update", "patch", "delete"]
+  # Signature-verification policies for trusted remote resources: read-only.
+  - apiGroups: ["tekton.dev"]
+    resources: ["verificationpolicies"]
+    verbs: ["get", "list", "watch"]
+  # Remote resolution: the reconciler files ResolutionRequests and reads results.
+  - apiGroups: ["resolution.tekton.dev"]
+    resources: ["resolutionrequests", "resolutionrequests/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # One pod per TaskRun, and PVCs for PVC-backed workspaces. Cluster-wide,
+  # because runs live in whatever namespace the user creates them in.
+  - apiGroups: [""]
+    resources: ["pods", "persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Affinity assistant: a StatefulSet pinning a run's pods to one node.
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Run progress is reported as Events on the run object.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "update", "patch"]
+  # Read-only inputs to pod construction: the step/sidecar config, LimitRange
+  # defaults, the run's ServiceAccount and the credential Secrets it references.
+  - apiGroups: [""]
+    resources: ["configmaps", "limitranges", "secrets", "serviceaccounts"]
+    verbs: ["get", "list", "watch"]
+  # Cordoned nodes are skipped when placing a run's pods.
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "tekton.controllerName" . }}
+  labels:
+    {{- include "tekton.componentLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "tekton.controllerName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "tekton.controllerServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# =====================================================================
+# Webhook
+# =====================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "tekton.webhookName" . }}
+  labels:
+    {{- include "tekton.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+rules:
+  # The webhook is also the CRD conversion webhook: it writes its CA bundle into
+  # spec.conversion of each tekton.dev CRD it serves. Narrowed to those CRDs.
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions", "customresourcedefinitions/status"]
+    resourceNames:
+      {{- range $crds }}
+      - {{ . }}
+      {{- end }}
+    verbs: ["get", "update", "patch"]
+  # knative's informers need cluster-wide list/watch to build their caches.
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
+    verbs: ["list", "watch"]
+  # Reconciling its OWN configurations: the webhook patches in the caBundle and
+  # the intercept rules, which is why this chart ships them empty.
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["mutatingwebhookconfigurations"]
+    resourceNames: [{{ include "tekton.mutatingWebhookName" . | quote }}]
+    verbs: ["get", "update", "delete"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingwebhookconfigurations"]
+    resourceNames:
+      - {{ include "tekton.validatingWebhookName" . | quote }}
+      - {{ include "tekton.configWebhookName" . | quote }}
+    verbs: ["get", "update", "delete"]
+  # The webhook sets its own namespace as the ownerRef of the cluster-scoped
+  # objects above, so it must be able to read that namespace and set finalizers.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    resourceNames: [{{ .Release.Namespace | quote }}]
+    verbs: ["get"]
+  - apiGroups: [""]
+    resources: ["namespaces/finalizers"]
+    resourceNames: [{{ .Release.Namespace | quote }}]
+    verbs: ["update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "tekton.webhookName" . }}
+  labels:
+    {{- include "tekton.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "tekton.webhookName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "tekton.webhookServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# =====================================================================
+# Namespaced: config ConfigMaps, leader-election Leases, webhook certs
+# =====================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  # Both components run a config watcher over the config-* ConfigMaps.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames:
+      {{- range $name, $_ := .Values.config }}
+      - {{ $name }}
+      {{- end }}
+    verbs: ["get"]
+  # Leader election is Lease-based and scoped to this namespace.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "tekton.controllerServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+  - kind: ServiceAccount
+    name: {{ include "tekton.webhookServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "tekton.webhookName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tekton.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+rules:
+  # The webhook reconciles its serving certificate into this one Secret; it
+  # never creates Secrets, which is why the chart ships an empty one.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["list", "watch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: [{{ include "tekton.webhookCertsSecretName" . | quote }}]
+    verbs: ["get", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "tekton.webhookName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "tekton.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "tekton.webhookName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "tekton.webhookServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

@@ -1,0 +1,51 @@
+{{/*
+Two Services, one per component.
+
+  operator            :{{ .Values.operator.grpcPort }} gRPC metrics service (mTLS, dialed by the adapter)
+                      :{{ .Values.operator.metricsPort }} Prometheus metrics
+  metrics-apiserver   :443 -> :{{ .Values.metricsApiserver.securePort }} the aggregated API the kube-apiserver dials
+                      :{{ .Values.metricsApiserver.metricsPort }} Prometheus metrics
+
+Both Services' DNS names are SANs on the shared certificate; the adapter is
+pointed at the operator's Service explicitly (--metrics-service-address), so
+neither component depends on KEDA's upstream default object names.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "keda.operatorName" . }}
+  labels:
+    {{- include "keda.componentLabels" (dict "ctx" . "component" "operator") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: grpc
+      port: {{ .Values.operator.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.operator.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "keda.componentSelectorLabels" (dict "ctx" . "component" "operator") | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "keda.metricsName" . }}
+  labels:
+    {{- include "keda.componentLabels" (dict "ctx" . "component" "metrics-apiserver") | nindent 4 }}
+spec:
+  type: {{ .Values.metricsApiserver.service.type }}
+  ports:
+    - name: https
+      port: 443
+      targetPort: https
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.metricsApiserver.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "keda.componentSelectorLabels" (dict "ctx" . "component" "metrics-apiserver") | nindent 4 }}

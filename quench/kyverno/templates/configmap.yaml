@@ -1,0 +1,55 @@
+{{/*
+The two ConfigMaps every controller watches. They are read live, so editing them
+changes Kyverno's behaviour without a restart -- which also means a bad edit
+takes effect immediately.
+
+The two entries this template adds on its own are the ones that keep a policy
+from locking out the cluster or Kyverno itself:
+
+  * the release namespace is prepended to resourceFilters, so no policy ever
+    evaluates Kyverno's own pods, secrets or leases;
+  * the release namespace is appended to the generated webhooks' namespaceSelector,
+    so the API server never calls Kyverno about a change to Kyverno.
+
+Without them a failurePolicy=Fail policy plus a Kyverno restart is a deadlock:
+the webhook rejects the pod that would serve the webhook.
+*/}}
+{{- $ns := .Release.Namespace -}}
+{{- $fullname := include "quench-common.fullname" . -}}
+{{- $filters := concat
+      (list
+        (printf "[*/*,%s,*]" $ns)
+        (printf "[ClusterRole,*,%s:*]" $fullname)
+        (printf "[ClusterRoleBinding,*,%s:*]" $fullname))
+      .Values.config.resourceFilters -}}
+{{- $webhooks := deepCopy .Values.config.webhooks -}}
+{{- $selector := (get $webhooks "namespaceSelector") | default dict -}}
+{{- $_ := set $selector "matchExpressions" (append ((get $selector "matchExpressions") | default list)
+      (dict "key" "kubernetes.io/metadata.name" "operator" "NotIn" "values" (list $ns))) -}}
+{{- $_ := set $webhooks "namespaceSelector" $selector -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kyverno.configMapName" . }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "config") | nindent 4 }}
+data:
+  resourceFilters: {{ join " " $filters | quote }}
+  excludeGroups: {{ .Values.config.excludeGroups | quote }}
+  generateSuccessEvents: {{ .Values.config.generateSuccessEvents | quote }}
+  enableDefaultRegistryMutation: {{ .Values.config.enableDefaultRegistryMutation | quote }}
+  defaultRegistry: {{ .Values.config.defaultRegistry | quote }}
+  updateRequestThreshold: {{ .Values.config.updateRequestThreshold | quote }}
+  webhooks: {{ toJson $webhooks | quote }}
+  webhookAnnotations: {{ toJson .Values.config.webhookAnnotations | quote }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kyverno.metricsConfigMapName" . }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "config") | nindent 4 }}
+data:
+  namespaces: {{ toJson .Values.metricsConfig.namespaces | quote }}
+  metricsExposure: {{ toJson .Values.metricsConfig.metricsExposure | quote }}
+  bucketBoundaries: {{ .Values.metricsConfig.bucketBoundaries | quote }}

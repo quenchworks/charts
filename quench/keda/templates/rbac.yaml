@@ -1,0 +1,192 @@
+{{- if .Values.rbac.create }}
+{{- /*
+Clean-room RBAC, authored from KEDA's documented controller needs:
+
+  * every scaler reads config from ConfigMaps/Secrets and resolves targets, so
+    cluster-wide read on the core objects it may be pointed at;
+  * scaling is done through the /scale subresource of arbitrary kinds, so the
+    scale grant is necessarily wildcard -- that is how a generic autoscaler
+    works;
+  * the operator creates and owns one HorizontalPodAutoscaler per ScaledObject,
+    and one Job per ScaledJob unit of work;
+  * the adapter is an aggregated API server, so it needs auth-delegator plus
+    read access to the kube-system extension-apiserver-authentication ConfigMap.
+
+Deliberately NOT granted, because this chart does not use the features:
+  apiservices / validatingwebhookconfigurations patch (KEDA's cert rotation is
+  off -- the chart issues the certificates and sets the caBundle itself) and
+  namespaced Secret writes (only the rotator wrote those).
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  # Scaler configuration and the objects triggers point at.
+  - apiGroups: [""]
+    resources: ["configmaps", "configmaps/status", "external", "pods", "secrets", "services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["limitranges", "serviceaccounts"]
+    verbs: ["list", "watch"]
+  # Generic read of any kind a ScaledObject/ScaledJob may reference.
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get"]
+  # The actual scaling path: any kind exposing a /scale subresource.
+  - apiGroups: ["*"]
+    resources: ["*/scale"]
+    verbs: ["get", "list", "patch", "update", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["list", "watch"]
+  # One HPA per ScaledObject, owned and reconciled by the operator.
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  # One Job per ScaledJob unit of work.
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  # KEDA's own API surface.
+  - apiGroups: ["keda.sh"]
+    resources:
+      - "scaledobjects"
+      - "scaledobjects/status"
+      - "scaledobjects/finalizers"
+      - "scaledjobs"
+      - "scaledjobs/status"
+      - "scaledjobs/finalizers"
+      - "triggerauthentications"
+      - "triggerauthentications/status"
+      - "clustertriggerauthentications"
+      - "clustertriggerauthentications/status"
+    verbs: ["get", "list", "patch", "update", "watch"]
+  - apiGroups: ["eventing.keda.sh"]
+    resources:
+      - "cloudeventsources"
+      - "cloudeventsources/status"
+      - "clustercloudeventsources"
+      - "clustercloudeventsources/status"
+    verbs: ["get", "list", "patch", "update", "watch"]
+  # Reconcile events, on both event APIs (the recorder may use either).
+  - apiGroups: ["events.k8s.io", ""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "keda.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+{{/* Leader election Lease, in the release namespace only. */}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "keda.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+{{/*
+Aggregated-API plumbing for the adapter: delegate authn/authz decisions to the
+kube-apiserver, and read the requestheader CA config it publishes in kube-system.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}-auth-delegator
+  labels:
+    {{- include "keda.componentLabels" (dict "ctx" . "component" "metrics-apiserver") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "keda.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}-auth-reader
+  namespace: kube-system
+  labels:
+    {{- include "keda.componentLabels" (dict "ctx" . "component" "metrics-apiserver") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "keda.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.rbac.createHpaControllerBinding }}
+---
+{{/*
+The HPA controller reads external metrics through the aggregation layer as the
+kube-system horizontal-pod-autoscaler ServiceAccount. Without this grant every
+KEDA-managed HPA reports "unable to fetch metrics from external metrics API:
+forbidden".
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" . }}-external-metrics-reader
+  labels:
+    {{- include "keda.componentLabels" (dict "ctx" . "component" "metrics-apiserver") | nindent 4 }}
+rules:
+  - apiGroups: ["external.metrics.k8s.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}-hpa-controller-external-metrics
+  labels:
+    {{- include "keda.componentLabels" (dict "ctx" . "component" "metrics-apiserver") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quench-common.fullname" . }}-external-metrics-reader
+subjects:
+  - kind: ServiceAccount
+    name: horizontal-pod-autoscaler
+    namespace: kube-system
+{{- end }}
+{{- end }}

@@ -1,0 +1,52 @@
+Quenchworks KEDA is installed as {{ include "quench-common.fullname" . }}.
+
+Two deployments run from the one hardened image:
+
+  {{ include "keda.operatorName" . }}   the reconciler; owns one HPA per ScaledObject
+  {{ include "keda.metricsName" . }}   aggregated external.metrics.k8s.io API server
+
+The CRDs (ScaledObject, ScaledJob, TriggerAuthentication,
+ClusterTriggerAuthentication, CloudEventSource, ClusterCloudEventSource) are
+installed from the chart's crds/ directory.
+
+First thing to check -- the adapter must actually be serving, or nothing scales:
+
+  kubectl get apiservice v1beta1.external.metrics.k8s.io \
+    -o jsonpath='{.status.conditions[?(@.type=="Available")].status}'   # True
+
+Try it with a cron trigger, which needs no external system:
+
+  kubectl apply -f - <<'EOF'
+  apiVersion: keda.sh/v1alpha1
+  kind: ScaledObject
+  metadata:
+    name: example
+    namespace: {{ .Release.Namespace }}
+  spec:
+    scaleTargetRef:
+      name: <your-deployment>
+    minReplicaCount: 1
+    maxReplicaCount: 5
+    triggers:
+      - type: cron
+        metadata:
+          timezone: UTC
+          start: "0 6 * * *"
+          end: "0 20 * * *"
+          desiredReplicas: "3"
+  EOF
+
+  kubectl wait --for=condition=Ready scaledobject/example -n {{ .Release.Namespace }} --timeout=120s
+  kubectl get hpa -n {{ .Release.Namespace }}     # keda-hpa-example, created and owned by KEDA
+
+TLS: the chart issues the CA and keypair that secure the operator's gRPC service
+and the adapter's API server, stores them in the Secret
+{{ include "keda.certSecretName" . }}, and pins the CA in the APIService
+caBundle. They are reused across upgrades. To rotate, delete that Secret, run
+`helm upgrade`, then restart both deployments.
+
+The image is pinned by digest and signed. Verify it with:
+
+  cosign verify ghcr.io/quenchworks/images/keda \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

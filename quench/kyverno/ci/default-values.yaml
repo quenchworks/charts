@@ -1,0 +1,20 @@
+# Standalone install gate. No image override: the install pulls the chart's real,
+# CI-maintained digest from values.yaml, so the gate exercises the actual signed
+# image. All four deployments must reach Ready under --wait.
+#
+# Ready is not the gate, though. The gate that matters is the round trip run after
+# this installs: apply a ClusterPolicy in Enforce mode, prove a violating Pod is
+# REJECTED by the admission webhook and a compliant one is ADMITTED, then delete
+# the policy and confirm `helm uninstall` leaves no webhook configuration behind.
+# Only that proves the webhook is registered, reachable, TLS-valid and evaluating.
+admissionController:
+  replicaCount: 1
+backgroundController:
+  enabled: true
+  replicaCount: 1
+cleanupController:
+  enabled: true
+  replicaCount: 1
+reportsController:
+  enabled: true
+  replicaCount: 1

@@ -1,0 +1,91 @@
+{{- if .Values.backgroundController.enabled }}
+{{/*
+The background controller. Same image as the admission controller, different
+binary: /usr/bin/background-controller, selected with `command` because the
+image's entrypoint is the admission controller.
+
+It never sees an admission request. It watches UpdateRequests that the admission
+controller queues and applies generate / mutate-existing rules out of band, which
+is why it needs write access to the kinds your policies produce (see the
+aggregation note in rbac.yaml) and why it serves no webhook and has no probes:
+there is no HTTP server to probe.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kyverno.backgroundName" . }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "background-controller") | nindent 4 }}
+spec:
+  replicas: {{ .Values.backgroundController.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "kyverno.componentSelectorLabels" (dict "ctx" . "component" "background-controller") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "kyverno.componentSelectorLabels" (dict "ctx" . "component" "background-controller") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "kyverno.backgroundServiceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: controller
+          image: {{ include "kyverno.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/bin/background-controller"]
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - "--metricsPort={{ .Values.backgroundController.metricsPort }}"
+            - "--otelConfig=prometheus"
+            - "--loggingFormat=text"
+            - "--v={{ .Values.backgroundController.logLevel }}"
+            {{- range .Values.backgroundController.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: INIT_CONFIG
+              value: {{ include "kyverno.configMapName" . }}
+            - name: METRICS_CONFIG
+              value: {{ include "kyverno.metricsConfigMapName" . }}
+            - name: KYVERNO_DEPLOYMENT
+              value: {{ include "kyverno.backgroundName" . }}
+            - name: KYVERNO_SERVICEACCOUNT_NAME
+              value: {{ include "kyverno.backgroundServiceAccountName" . }}
+            - name: KYVERNO_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: KYVERNO_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.backgroundController.metricsPort }}
+              protocol: TCP
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.backgroundController.resources | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- include "quench-common.extraVolumeMounts" $ | nindent 12 }}
+          {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- include "quench-common.extraVolumes" $ | nindent 8 }}
+      {{- end }}
+{{- end }}

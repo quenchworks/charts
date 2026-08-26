@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Quenchworks Kyverno values",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["image"],
+  "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "digest"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "pullPolicy": { "$ref": "#/$defs/pullPolicy" },
+        "registry": { "type": "string" },
+        "pullSecrets": { "type": "array" }
+      }
+    },
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+    "webhookCleanup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "image"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "image": { "$ref": "#/$defs/image" },
+        "resources": { "$ref": "#/$defs/resources" }
+      }
+    },
+    "admissionController": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "logLevel": { "type": "integer", "minimum": 0, "maximum": 6 },
+        "webhookServerPort": { "$ref": "#/$defs/port" },
+        "metricsPort": { "$ref": "#/$defs/port" },
+        "service": { "$ref": "#/$defs/service" },
+        "admissionReports": { "type": "boolean" },
+        "generateValidatingAdmissionPolicy": { "type": "boolean" },
+        "generateMutatingAdmissionPolicy": { "type": "boolean" },
+        "forceFailurePolicyIgnore": { "type": "boolean" },
+        "extraArgs": { "type": "array", "items": { "type": "string" } },
+        "resources": { "$ref": "#/$defs/resources" }
+      }
+    },
+    "backgroundController": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "logLevel": { "type": "integer", "minimum": 0, "maximum": 6 },
+        "metricsPort": { "$ref": "#/$defs/port" },
+        "extraArgs": { "type": "array", "items": { "type": "string" } },
+        "resources": { "$ref": "#/$defs/resources" }
+      }
+    },
+    "cleanupController": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "logLevel": { "type": "integer", "minimum": 0, "maximum": 6 },
+        "webhookServerPort": { "$ref": "#/$defs/port" },
+        "metricsPort": { "$ref": "#/$defs/port" },
+        "service": { "$ref": "#/$defs/service" },
+        "ttlReconciliationInterval": { "type": "string", "pattern": "^[0-9]+(ns|us|ms|s|m|h)$" },
+        "extraArgs": { "type": "array", "items": { "type": "string" } },
+        "resources": { "$ref": "#/$defs/resources" }
+      }
+    },
+    "reportsController": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "logLevel": { "type": "integer", "minimum": 0, "maximum": 6 },
+        "metricsPort": { "$ref": "#/$defs/port" },
+        "backgroundScan": { "type": "boolean" },
+        "backgroundScanWorkers": { "type": "integer", "minimum": 1 },
+        "backgroundScanInterval": { "type": "string", "pattern": "^[0-9]+(ns|us|ms|s|m|h)$" },
+        "extraArgs": { "type": "array", "items": { "type": "string" } },
+        "resources": { "$ref": "#/$defs/resources" }
+      }
+    },
+    "config": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resourceFilters": { "type": "array", "items": { "type": "string" } },
+        "excludeGroups": { "type": "string" },
+        "webhooks": { "type": "object" },
+        "webhookAnnotations": { "type": "object", "additionalProperties": { "type": "string" } },
+        "generateSuccessEvents": { "type": "boolean" },
+        "enableDefaultRegistryMutation": { "type": "boolean" },
+        "defaultRegistry": { "type": "string", "minLength": 1 },
+        "updateRequestThreshold": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "metricsConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "namespaces": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "include": { "type": "array", "items": { "type": "string" } },
+            "exclude": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "metricsExposure": { "type": "object" },
+        "bucketBoundaries": { "type": "string" }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "annotations": { "type": "object" }
+          }
+        }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "annotations": { "type": "object" }
+      }
+    },
+    "rbac": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "bindViewRole": { "type": "boolean" }
+      }
+    },
+    "podLabels": { "type": "object" },
+    "podAnnotations": { "type": "object" },
+    "nodeSelector": { "type": "object" },
+    "affinity": { "type": "object" },
+    "tolerations": { "type": "array" },
+    "topologySpreadConstraints": { "type": "array" },
+    "priorityClassName": { "type": "string" },
+    "schedulerName": { "type": "string" },
+    "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 },
+    "updateStrategy": { "type": "object" },
+    "extraEnvVars": { "type": "array" },
+    "extraEnvVarsCM": { "type": "string" },
+    "extraEnvVarsSecret": { "type": "string" },
+    "extraVolumes": { "type": "array" },
+    "extraVolumeMounts": { "type": "array" },
+    "initContainers": { "type": "array" },
+    "sidecars": { "type": "array" },
+    "lifecycleHooks": { "type": "object" },
+    "podSecurityContext": { "type": "object" },
+    "containerSecurityContext": { "type": "object" },
+    "commonLabels": { "type": "object" },
+    "commonAnnotations": { "type": "object" },
+    "selectorLabels": { "type": "object" },
+    "partOf": { "type": "string" }
+  },
+  "$defs": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "digest"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+        "pullPolicy": { "$ref": "#/$defs/pullPolicy" }
+      }
+    },
+    "pullPolicy": {
+      "type": "string",
+      "enum": ["Always", "IfNotPresent", "Never"]
+    },
+    "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+        "annotations": { "type": "object" }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "requests": { "type": "object" },
+        "limits": { "type": "object" }
+      }
+    }
+  }
+}

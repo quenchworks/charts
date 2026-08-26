@@ -1,0 +1,65 @@
+Quenchworks Tekton Pipelines is installed as {{ include "quench-common.fullname" . }}.
+
+Two deployments, both from the single hardened image:
+
+  {{ include "tekton.controllerName" . }}   reconciles TaskRun/PipelineRun into pods
+  {{ include "tekton.webhookName" . }}      defaulting + validating admission and CRD conversion
+
+The controller injects its helper containers into every run pod from the SAME
+image, by digest, so a run never pulls from an upstream registry:
+
+  entrypoint / nop / sidecarlogresults / workingdirinit
+    {{ include "quench-common.image" . }}
+  place-scripts (only for `script:` steps, needs a shell)
+    {{ include "tekton.shellImage" . }}
+
+The webhook issues its own serving certificate into the Secret
+{{ include "tekton.webhookCertsSecretName" . }} and patches that CA into
+{{ include "tekton.mutatingWebhookName" . }}, {{ include "tekton.validatingWebhookName" . }}
+and {{ include "tekton.configWebhookName" . }}. Confirm it actually happened:
+
+  kubectl get validatingwebhookconfiguration {{ include "tekton.validatingWebhookName" . }} \
+    -o jsonpath='{.webhooks[0].clientConfig.caBundle}' | head -c 20
+
+Run something end to end:
+
+  kubectl apply -f - <<'EOF'
+  apiVersion: tekton.dev/v1
+  kind: Task
+  metadata:
+    name: hello
+    namespace: {{ .Release.Namespace }}
+  spec:
+    steps:
+      - name: say
+        image: {{ include "tekton.shellImage" . }}
+        script: |
+          echo "hello from tekton"
+  ---
+  apiVersion: tekton.dev/v1
+  kind: TaskRun
+  metadata:
+    name: hello-run
+    namespace: {{ .Release.Namespace }}
+  spec:
+    taskRef:
+      name: hello
+  EOF
+
+  kubectl wait --for=condition=Succeeded --timeout=300s taskrun/hello-run -n {{ .Release.Namespace }}
+  kubectl logs -n {{ .Release.Namespace }} -l tekton.dev/taskRun=hello-run -c step-say
+
+Runtime configuration lives in the config-* ConfigMaps in {{ .Release.Namespace }}
+(config-defaults, feature-flags, config-logging, ...). Set them through
+.Values.config rather than editing them in place, so an upgrade does not revert
+your change.
+
+The CRDs (Task, TaskRun, Pipeline, PipelineRun, StepAction, CustomRun,
+ResolutionRequest, VerificationPolicy) come from the chart's crds/ directory.
+Helm does not delete CRDs on uninstall, so your run history survives.
+
+The images are pinned by digest and signed. Verify:
+
+  cosign verify ghcr.io/quenchworks/images/tekton \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

@@ -1,0 +1,116 @@
+{{/*
+KEDA metrics adapter: an aggregated API server for external.metrics.k8s.io,
+backing the APIService in templates/certificates.yaml. The HPA controller asks
+it for every KEDA-managed HPA's metric; it answers by calling the operator's
+gRPC metrics service. If this is unhealthy, ScaledObjects still reconcile and
+HPAs still exist, but nothing ever scales -- which is why the install gate
+asserts the APIService reports Available=True rather than just Ready pods.
+
+Same image as the operator, different binary: /usr/bin/keda-adapter.
+
+It uses the shared keypair three ways: as its HTTPS serving certificate
+(--tls-cert-file/--tls-private-key-file, validated by the kube-apiserver against
+the APIService caBundle), as its client certificate to the operator's gRPC
+service (--cert-dir), and as an additional client CA (--client-ca-file).
+The rootfs is read-only, so /tmp is an emptyDir.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "keda.metricsName" . }}
+  labels:
+    {{- include "keda.componentLabels" (dict "ctx" . "component" "metrics-apiserver") | nindent 4 }}
+spec:
+  replicas: {{ .Values.metricsApiserver.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "keda.componentSelectorLabels" (dict "ctx" . "component" "metrics-apiserver") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "keda.componentSelectorLabels" (dict "ctx" . "component" "metrics-apiserver") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "keda.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: metrics-apiserver
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/keda-adapter"]
+          args:
+            - "--port={{ .Values.metricsApiserver.metricsPort }}"
+            - "--secure-port={{ .Values.metricsApiserver.securePort }}"
+            - "--zap-log-level={{ .Values.metricsApiserver.logLevel }}"
+            - "--metrics-service-address={{ include "keda.metricsServiceAddress" . }}"
+            - "--client-ca-file=/certs/ca.crt"
+            - "--tls-cert-file=/certs/tls.crt"
+            - "--tls-private-key-file=/certs/tls.key"
+            - "--cert-dir=/certs"
+            {{- range .Values.metricsApiserver.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: WATCH_NAMESPACE
+              value: {{ .Values.operator.watchNamespace | quote }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: https
+              containerPort: {{ .Values.metricsApiserver.securePort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.metricsApiserver.metricsPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.metricsApiserver.resources | nindent 12 }}
+          volumeMounts:
+            - name: certificates
+              mountPath: /certs
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: certificates
+          secret:
+            secretName: {{ include "keda.certSecretName" . }}
+            defaultMode: 420
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

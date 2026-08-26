@@ -1,0 +1,132 @@
+{{- if .Values.cleanupController.enabled }}
+{{/*
+The cleanup controller: /usr/bin/cleanup-controller out of the same image.
+
+It runs CleanupPolicy / ClusterCleanupPolicy / DeletingPolicy schedules and
+deletes resources when their cleanup.kyverno.io/ttl label comes due. It also
+serves its OWN admission webhook -- validating those policies, and validating the
+ttl label as it is set -- so like the admission controller it mints its own CA
+and serving keypair into two Secrets and registers its own webhook
+configurations. That is why it has a :443 Service and HTTPS probes while the
+background and reports controllers have neither.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "kyverno.cleanupName" . }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "cleanup-controller") | nindent 4 }}
+spec:
+  replicas: {{ .Values.cleanupController.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "kyverno.componentSelectorLabels" (dict "ctx" . "component" "cleanup-controller") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "kyverno.componentSelectorLabels" (dict "ctx" . "component" "cleanup-controller") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "kyverno.cleanupServiceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: controller
+          image: {{ include "kyverno.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/bin/cleanup-controller"]
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - "--caSecretName={{ include "kyverno.cleanupCASecretName" . }}"
+            - "--tlsSecretName={{ include "kyverno.cleanupTLSSecretName" . }}"
+            - "--tlsKeyAlgorithm=RSA"
+            - "--servicePort=443"
+            - "--cleanupServerPort={{ .Values.cleanupController.webhookServerPort }}"
+            - "--ttlReconciliationInterval={{ .Values.cleanupController.ttlReconciliationInterval }}"
+            - "--metricsPort={{ .Values.cleanupController.metricsPort }}"
+            - "--otelConfig=prometheus"
+            - "--loggingFormat=text"
+            - "--v={{ .Values.cleanupController.logLevel }}"
+            {{- range .Values.cleanupController.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: INIT_CONFIG
+              value: {{ include "kyverno.configMapName" . }}
+            - name: METRICS_CONFIG
+              value: {{ include "kyverno.metricsConfigMapName" . }}
+            {{- /* Its own Service, not the admission controller's: this is what
+                   ends up in the cleanup webhook configurations' clientConfig. */}}
+            - name: KYVERNO_SVC
+              value: {{ include "kyverno.cleanupName" . }}
+            - name: KYVERNO_DEPLOYMENT
+              value: {{ include "kyverno.cleanupName" . }}
+            - name: KYVERNO_SERVICEACCOUNT_NAME
+              value: {{ include "kyverno.cleanupServiceAccountName" . }}
+            - name: KYVERNO_ROLE_NAME
+              value: {{ printf "%s:cleanup-controller" (include "quench-common.fullname" .) }}
+            - name: KYVERNO_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: KYVERNO_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: https
+              containerPort: {{ .Values.cleanupController.webhookServerPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.cleanupController.metricsPort }}
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /health/liveness
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 2
+            periodSeconds: 6
+            failureThreshold: 20
+          livenessProbe:
+            httpGet:
+              path: /health/liveness
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 2
+          readinessProbe:
+            httpGet:
+              path: /health/readiness
+              port: https
+              scheme: HTTPS
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.cleanupController.resources | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- include "quench-common.extraVolumeMounts" $ | nindent 12 }}
+          {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- include "quench-common.extraVolumes" $ | nindent 8 }}
+      {{- end }}
+{{- end }}

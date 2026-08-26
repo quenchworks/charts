@@ -1,0 +1,173 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+#
+# ONE image, MANY binaries. This image carries the whole Tekton Pipelines command
+# set: `controller` and `webhook` (the two Deployments below) plus the four
+# helpers the controller INJECTS into every TaskRun pod -- entrypoint, nop,
+# sidecarlogresults and workingdirinit. The controller is handed this same image,
+# by digest, through its -entrypoint-image / -nop-image / -sidecarlogresults-image
+# / -workingdirinit-image flags (see templates/deployment-controller.yaml), so a
+# TaskRun never reaches for the upstream gcr.io/ghcr.io images we do not publish.
+image:
+  repository: ghcr.io/quenchworks/images/tekton
+  digest: "sha256:3b749beca2c9aeef4ffde8590c6189330e4883d1a3c2c7a46925bae1ddf5143a"
+  pullPolicy: IfNotPresent
+
+# The one helper image that is NOT the Tekton image: when a Task step uses
+# `script:`, the controller injects a `place-scripts` init container that needs a
+# POSIX shell to write the scripts out. Our hardened busybox fills that role
+# (upstream points at a Chainguard busybox). Pinned by digest like everything else.
+shellImage:
+  repository: ghcr.io/quenchworks/images/busybox
+  digest: "sha256:e15887b82fd68a38d7570e8dd0687fc35e3e47507de89719210d8df394190e7f"
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Tekton labels its own objects app.kubernetes.io/part-of: tekton-pipelines, and
+# the config-validation webhook selects the ConfigMaps it validates by exactly
+# that label. Overriding this makes the config-* ConfigMaps invisible to that
+# webhook, so leave it alone unless you know why you are changing it.
+partOf: tekton-pipelines
+
+# Controller: the reconciler for TaskRun/PipelineRun/CustomRun. It creates one
+# pod per TaskRun and injects the helper containers from `image` above.
+controller:
+  replicaCount: 1
+  # Extra flags appended to the controller command, e.g. ["-threads-per-controller=4"].
+  extraArgs: []
+  # Passed to the controller as -shell-image-win, the place-scripts image for
+  # `script:` steps scheduled onto WINDOWS nodes. The controller refuses to start
+  # with this flag unset ("found unset image flags: [shell-image-win]"), so it
+  # cannot simply be omitted. QuenchWorks publishes Linux images only, so the
+  # default is the same Windows PowerShell image Tekton itself pins -- pinned by
+  # digest like everything else. On a Linux-only cluster it is never pulled. Set
+  # it to your own Windows image if you run Windows nodes.
+  shellImageWin: "mcr.microsoft.com/powershell:nanoserver@sha256:b6d5ff841b78bdf2dfed7550000fd4f3437385b8fa686ec0f010be24777654d6"
+  resources:
+    requests: { cpu: 100m, memory: 100Mi }
+    limits: { cpu: 1000m, memory: 1Gi }
+
+# Webhook: the defaulting + validating admission webhook for the tekton.dev
+# types, plus the CRD conversion webhook. It generates its own serving
+# certificate, stores it in the Secret named below, and patches the caBundle and
+# the intercept rules into the three webhook configurations at runtime -- which
+# is why this chart ships those configurations with an empty caBundle and no
+# rules. No cert-manager dependency.
+webhook:
+  replicaCount: 1
+  # Fail is the safe default: a broken webhook must not let unvalidated
+  # TaskRuns/PipelineRuns through.
+  failurePolicy: Fail
+  # The base name of the admission controllers. Tekton derives all three
+  # configuration names from it: "<name>" (mutating), "validation.<name>" and
+  # "config.<name>". These are CLUSTER-SCOPED names, so two installs in one
+  # cluster would fight over them -- one Tekton Pipelines per cluster.
+  admissionControllerName: webhook.pipeline.tekton.dev
+  service:
+    type: ClusterIP
+  resources:
+    requests: { cpu: 100m, memory: 100Mi }
+    limits: { cpu: 500m, memory: 500Mi }
+
+# Tekton's runtime configuration. Each key here becomes a ConfigMap of that exact
+# name in the release namespace, and the controller/webhook look them up by those
+# names (they are wired through the CONFIG_*_NAME environment variables). They
+# must all exist: the components log loudly and refuse to start their config
+# watchers when one is missing, which is why the empty ones below are still
+# rendered. An empty map means "every key at its built-in default".
+#
+# Add a key to any of these maps to override that single setting, e.g.
+#   config:
+#     config-defaults:
+#       default-timeout-minutes: "30"
+#     feature-flags:
+#       enable-cel-in-whenexpression: "true"
+config:
+  # Cluster-wide defaults for TaskRun/PipelineRun (timeouts, service account,
+  # pod template, max matrix combinations, ...).
+  config-defaults: {}
+  # Tekton feature flags. Empty = upstream defaults for this appVersion.
+  feature-flags: {}
+  # zap logging configuration, shared by the controller and the webhook.
+  config-logging:
+    zap-logger-config: |
+      {
+        "level": "info",
+        "development": false,
+        "sampling": { "initial": 100, "thereafter": 100 },
+        "outputPaths": ["stdout"],
+        "errorOutputPaths": ["stderr"],
+        "encoding": "json",
+        "encoderConfig": {
+          "timeKey": "timestamp",
+          "levelKey": "severity",
+          "nameKey": "logger",
+          "callerKey": "caller",
+          "messageKey": "message",
+          "stacktraceKey": "stacktrace",
+          "lineEnding": "",
+          "levelEncoder": "",
+          "timeEncoder": "iso8601",
+          "durationEncoder": "",
+          "callerEncoder": ""
+        }
+      }
+    loglevel.controller: "info"
+    loglevel.webhook: "info"
+  # Metrics/profiling backend. Prometheus scraping on the metrics port.
+  config-observability:
+    metrics-protocol: prometheus
+  # Leader-election (Lease-based) tuning, one ConfigMap per component.
+  config-leader-election-controller: {}
+  config-leader-election-webhook: {}
+  # A `cert` key here is mounted at /etc/config-registry-cert/cert and used as
+  # SSL_CERT_FILE by the controller, for a registry with a self-signed CA.
+  config-registry-cert: {}
+  # SPIRE workload-attestation settings (only used with nonfalsifiable provenance).
+  config-spire: {}
+  # Distributed tracing (Jaeger endpoint) for the reconciler.
+  config-tracing: {}
+  # CloudEvents sink and formats.
+  config-events: {}
+  # Backoff used when `enable-wait-exponential-backoff` is on.
+  config-wait-exponential-backoff: {}
+
+serviceAccount:
+  create: true
+  # Override the derived per-component ServiceAccount names. Empty = derived.
+  controllerName: ""
+  webhookName: ""
+  annotations: {}
+
+# RBAC is required. The controller needs cluster-wide access to the tekton.dev
+# API surface and to the pods/PVCs it creates for runs; the webhook needs to
+# patch its own webhook configurations and CRD conversion stanzas with the CA
+# bundle it generates.
+rbac:
+  create: true
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+# These apply to both deployments (shared pod-spec surface).
+podLabels: {}
+podAnnotations: {}
+commonLabels: {}
+commonAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}

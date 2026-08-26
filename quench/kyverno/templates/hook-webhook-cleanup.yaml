@@ -1,0 +1,111 @@
+{{- if .Values.webhookCleanup.enabled }}
+{{/*
+The uninstall footgun, defused.
+
+Kyverno registers its own ValidatingWebhookConfigurations and
+MutatingWebhookConfigurations at runtime, under names compiled into the binary
+(kyverno-resource-validating-webhook-cfg, kyverno-policy-validating-webhook-cfg,
+kyverno-exception-validating-webhook-cfg, kyverno-cel-exception-...,
+kyverno-global-context-..., kyverno-verify-mutating-..., and from the cleanup
+controller kyverno-cleanup-validating-... and kyverno-ttl-validating-...). Helm
+never created them, so `helm uninstall` never deletes them. What is left behind
+is a set of failurePolicy=Fail webhooks pointing at a Service that no longer
+exists, and the API server dutifully rejects every matching request -- which is
+how removing Kyverno takes the cluster with it.
+
+Kyverno labels every one of them webhook.kyverno.io/managed-by=kyverno, so one
+labelled delete cleans up all of them regardless of how many it made.
+
+This runs post-delete, not pre-delete: at pre-delete time the controllers are
+still running and would simply re-create what the Job removed. post-delete runs
+after the Deployments are gone, so the delete sticks. That means the Job's own
+ServiceAccount and RBAC must be hook objects too -- the release's are already
+deleted by then -- hence the hook-weights below (RBAC first, Job second) and the
+hook-delete-policy that clears all four away afterwards.
+*/}}
+{{- $name := printf "%s-webhook-cleanup" (include "quench-common.fullname" .) -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "webhook-cleanup") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-delete
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: hook-succeeded,before-hook-creation
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "webhook-cleanup") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-delete
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: hook-succeeded,before-hook-creation
+rules:
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["validatingwebhookconfigurations", "mutatingwebhookconfigurations"]
+    verbs: ["list", "delete", "deletecollection"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "webhook-cleanup") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-delete
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: hook-succeeded,before-hook-creation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "kyverno.componentLabels" (dict "ctx" . "component" "webhook-cleanup") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-delete
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: hook-succeeded,before-hook-creation
+spec:
+  backoffLimit: 2
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        {{- include "kyverno.componentSelectorLabels" (dict "ctx" . "component" "webhook-cleanup") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ $name }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: kubectl
+          image: {{ include "kyverno.cleanupHookImage" . }}
+          imagePullPolicy: {{ .Values.webhookCleanup.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- /* Exec kubectl directly. No `sh -c`: the argv is fixed, and a shell
+                 wrapper is one more thing that can be missing from a minimal image. */}}
+          command:
+            - /usr/bin/kubectl
+            - delete
+            - validatingwebhookconfigurations,mutatingwebhookconfigurations
+            - --selector=webhook.kyverno.io/managed-by=kyverno
+            - --ignore-not-found
+          resources:
+            {{- toYaml .Values.webhookCleanup.resources | nindent 12 }}
+{{- end }}

@@ -1,0 +1,231 @@
+# Kyverno ships ONE binary set in ONE image: the admission controller is the
+# image's default entrypoint, and background-controller / cleanup-controller /
+# reports-controller sit next to it on PATH. Each deployment therefore reuses the
+# same digest and picks its binary with `command`. CI rewrites the digest from the
+# image-published dispatch after every green image build; it is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/kyverno
+  digest: "sha256:90c78c2401575be2e2f496a491e242fbd4ba051decd98ba25b46fc1931c816dd"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Kyverno registers its OWN webhook configurations at runtime, under names that
+# are compiled into the binary (kyverno-resource-validating-webhook-cfg and
+# friends), so Helm does not own them and `helm uninstall` cannot remove them. A
+# webhook configuration left pointing at a deleted Service is how a cluster ends
+# up rejecting every create, so this chart runs a post-delete hook that deletes
+# everything labelled webhook.kyverno.io/managed-by=kyverno. Turn it off only if
+# you clean those up some other way.
+webhookCleanup:
+  enabled: true
+  image:
+    repository: ghcr.io/quenchworks/images/kubectl
+    digest: "sha256:b98289383cc7f088e2c7d5e263ed3b0b10566b73761a86b11cac28caa0c4a1bc"
+    pullPolicy: IfNotPresent
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+
+# The admission controller: the validating + mutating webhook server, the policy
+# cache, and the controller that keeps the webhook configurations in sync with
+# the policies that actually exist. It generates its own CA and serving keypair
+# into two Secrets in the release namespace and injects the CA bundle into the
+# webhook configurations itself, so there is no cert-manager dependency and
+# nothing to mount. This deployment is mandatory.
+admissionController:
+  replicaCount: 1
+  logLevel: 2
+  # Port the webhook server listens on; the Service publishes it as :443.
+  webhookServerPort: 9443
+  metricsPort: 8000
+  service:
+    type: ClusterIP
+    annotations: {}
+  # Emit an admission report per admission request (consumed by the reports
+  # controller to build PolicyReports).
+  admissionReports: true
+  # Compile matching policies down to native ValidatingAdmissionPolicies where
+  # the policy allows it, so the API server evaluates them without a round trip.
+  generateValidatingAdmissionPolicy: true
+  generateMutatingAdmissionPolicy: false
+  # Treat every policy as failurePolicy=Ignore. An escape hatch for recovering a
+  # cluster whose webhook is wedged; it silently disables enforcement, so it is
+  # off here.
+  forceFailurePolicyIgnore: false
+  extraArgs: []
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { memory: 384Mi }
+
+# The background controller: applies generate and mutate-existing rules outside
+# the admission path, driven by UpdateRequests. Disable it if you only ever run
+# validate rules. Note that generating arbitrary resource kinds needs permissions
+# this chart cannot know in advance: grant them by creating a ClusterRole labelled
+# rbac.kyverno.io/aggregate-to-background-controller: "true".
+backgroundController:
+  enabled: true
+  replicaCount: 1
+  logLevel: 2
+  metricsPort: 8000
+  extraArgs: []
+  resources:
+    requests: { cpu: 100m, memory: 64Mi }
+    limits: { memory: 128Mi }
+
+# The cleanup controller: executes CleanupPolicy / ClusterCleanupPolicy /
+# DeletingPolicy schedules and honours the cleanup.kyverno.io/ttl label. It runs
+# its own admission webhook (to validate cleanup policies and TTL labels) and,
+# like the admission controller, mints its own CA and serving certificate.
+# Deleting arbitrary resource kinds needs the same aggregation treatment:
+# rbac.kyverno.io/aggregate-to-cleanup-controller: "true".
+cleanupController:
+  enabled: true
+  replicaCount: 1
+  logLevel: 2
+  webhookServerPort: 9443
+  metricsPort: 8000
+  service:
+    type: ClusterIP
+    annotations: {}
+  # How often TTL-labelled resources are re-checked.
+  ttlReconciliationInterval: 1m
+  extraArgs: []
+  resources:
+    requests: { cpu: 100m, memory: 64Mi }
+    limits: { memory: 128Mi }
+
+# The reports controller: aggregates admission reports and background scans into
+# PolicyReport / ClusterPolicyReport. Disable it to drop reporting entirely (and
+# the background scan load that comes with it).
+reportsController:
+  enabled: true
+  replicaCount: 1
+  logLevel: 2
+  metricsPort: 8000
+  # Periodically re-evaluate existing resources against current policies, not
+  # just resources passing through admission.
+  backgroundScan: true
+  backgroundScanWorkers: 2
+  backgroundScanInterval: 1h
+  extraArgs: []
+  resources:
+    requests: { cpu: 100m, memory: 64Mi }
+    limits: { memory: 128Mi }
+
+# The `kyverno` ConfigMap, read live by every controller: changing it takes
+# effect without a restart.
+config:
+  # Resources Kyverno never looks at, as [Kind,Namespace,Name] triples with
+  # wildcards. The release's own namespace and objects are excluded below at
+  # render time, because a policy that matched Kyverno's own pods would deadlock
+  # the cluster. Keep those entries if you extend the list.
+  resourceFilters:
+    - "[Event,*,*]"
+    - "[*/*,kube-system,*]"
+    - "[*/*,kube-public,*]"
+    - "[*/*,kube-node-lease,*]"
+    - "[Node,*,*]"
+    - "[Node/?*,*,*]"
+    - "[APIService,*,*]"
+    - "[APIService/?*,*,*]"
+    - "[TokenReview,*,*]"
+    - "[SubjectAccessReview,*,*]"
+    - "[SelfSubjectAccessReview,*,*]"
+    - "[Binding,*,*]"
+    - "[Pod/binding,*,*]"
+    - "[ReplicaSet,*,*]"
+    - "[ReplicaSet/?*,*,*]"
+    - "[EphemeralReport,*,*]"
+    - "[ClusterEphemeralReport,*,*]"
+  # Groups whose requests bypass policy evaluation entirely.
+  excludeGroups: "system:nodes"
+  # Written into every webhook configuration Kyverno generates. The default
+  # excludes kube-system and the release namespace, which is what stops a bad
+  # policy from locking out the control plane or Kyverno itself.
+  webhooks:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: ["kube-system"]
+  # Annotations added to every generated webhook configuration. The default one
+  # tells GKE's admission enforcer not to strip Kyverno's webhooks.
+  webhookAnnotations:
+    admissions.enforcer/disabled: "true"
+  # Record an Event for every rule that passes, not just failures. Noisy.
+  generateSuccessEvents: false
+  # Rewrite bare image references (nginx:latest) to this registry before policy
+  # evaluation, so image rules see a fully qualified name.
+  enableDefaultRegistryMutation: true
+  defaultRegistry: docker.io
+  # Refuse to queue more than this many UpdateRequests for one policy.
+  updateRequestThreshold: 1000
+
+# The `kyverno-metrics` ConfigMap: which namespaces are measured and which label
+# dimensions are dropped. The defaults drop the high-cardinality namespace and
+# operation labels; add them back only if your Prometheus can afford them.
+metricsConfig:
+  namespaces:
+    include: []
+    exclude: []
+  metricsExposure:
+    kyverno_admission_requests_total: { disabledLabelDimensions: ["resource_namespace"] }
+    kyverno_admission_review_duration_seconds: { disabledLabelDimensions: ["resource_namespace"] }
+    kyverno_cleanup_controller_deletedobjects_total: { disabledLabelDimensions: ["resource_namespace", "policy_namespace"] }
+    kyverno_policy_execution_duration_seconds: { disabledLabelDimensions: ["resource_namespace", "resource_request_operation"] }
+    kyverno_policy_results_total: { disabledLabelDimensions: ["resource_namespace", "policy_namespace"] }
+    kyverno_policy_rule_info_total: { disabledLabelDimensions: ["resource_namespace", "policy_namespace"] }
+  bucketBoundaries: "0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15, 20, 25, 30"
+
+# Per-component metrics Services on :8000. Only the two webhook Services are
+# required for Kyverno to work; these exist so a ServiceMonitor has something to
+# select.
+metrics:
+  service:
+    enabled: true
+    annotations: {}
+
+serviceAccount:
+  create: true
+  annotations: {}
+
+# RBAC is not optional in practice: the admission controller cannot create its
+# own webhook configurations or TLS Secrets without it, and the other three
+# cannot read policies. Each component gets an aggregated ClusterRole so you can
+# widen it from outside the chart -- create a ClusterRole labelled
+# rbac.kyverno.io/aggregate-to-<component>: "true" and it is picked up.
+rbac:
+  create: true
+  # Bind each controller to the built-in `view` ClusterRole. Kyverno needs to
+  # read arbitrary resources for context lookups (context.apiCall, background
+  # scans, mutate-existing targets); without it those rules fail at runtime.
+  bindViewRole: true
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+# These apply to all four deployments.
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+# Kyverno reads a projected ServiceAccount token from
+# /var/run/secrets/kyverno/apicall/token when a CEL policy makes an outbound HTTP
+# call and wants to authenticate. It is optional and absent by default; add it
+# through extraVolumes/extraVolumeMounts if you use that feature.
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}

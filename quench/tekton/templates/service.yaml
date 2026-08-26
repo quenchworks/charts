@@ -1,0 +1,62 @@
+{{/*
+Controller Service: metrics, pprof and the probe endpoint. Nothing dials the
+controller to make it work -- this exists so Prometheus can scrape it and so a
+service mesh sees a real port.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tekton.controllerName" . }}
+  labels:
+    {{- include "tekton.componentLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http-metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+    - name: http-profiling
+      port: 8008
+      targetPort: profiling
+      protocol: TCP
+    - name: probes
+      port: 8080
+      targetPort: probes
+      protocol: TCP
+  selector:
+    {{- include "tekton.componentSelectorLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+---
+{{/*
+Webhook Service. The apiserver dials :443 here for every admission review and for
+CRD conversion. Its name MUST equal WEBHOOK_SERVICE_NAME on the webhook
+Deployment: that is the SAN the webhook writes into its self-issued certificate,
+and the endpoint it programs into the webhook configurations' clientConfig.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "tekton.webhookName" . }}
+  labels:
+    {{- include "tekton.componentLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}
+spec:
+  type: {{ .Values.webhook.service.type }}
+  ports:
+    - name: https-webhook
+      port: 443
+      targetPort: https-webhook
+      protocol: TCP
+    - name: http-metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+    - name: http-profiling
+      port: 8008
+      targetPort: profiling
+      protocol: TCP
+    - name: probes
+      port: 8080
+      targetPort: probes
+      protocol: TCP
+  selector:
+    {{- include "tekton.componentSelectorLabels" (dict "ctx" . "component" "webhook") | nindent 4 }}

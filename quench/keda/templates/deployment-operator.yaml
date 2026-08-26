@@ -1,0 +1,117 @@
+{{/*
+KEDA operator: the reconcile loop for ScaledObject / ScaledJob /
+(Cluster)TriggerAuthentication / (Cluster)CloudEventSource. For each ScaledObject
+it creates and owns a standard HorizontalPodAutoscaler pointing at the external
+metrics API, evaluates the configured scalers, and serves their values to the
+metrics adapter over mTLS gRPC on the grpc port.
+
+One image ships both KEDA binaries, so the binary is selected explicitly:
+/usr/bin/keda here, /usr/bin/keda-adapter in the other Deployment. The image has
+no shell -- the binary is exec'd directly, never through `sh -c`.
+
+--enable-cert-rotation is left at its default (false): the chart issues the
+mTLS material (see templates/certificates.yaml). The mount is read-only, which
+is exactly what this component needs -- it only reads the keypair to serve gRPC.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "keda.operatorName" . }}
+  labels:
+    {{- include "keda.componentLabels" (dict "ctx" . "component" "operator") | nindent 4 }}
+spec:
+  replicas: {{ .Values.operator.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "keda.componentSelectorLabels" (dict "ctx" . "component" "operator") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "keda.componentSelectorLabels" (dict "ctx" . "component" "operator") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "keda.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: operator
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/keda"]
+          args:
+            - "--zap-log-level={{ .Values.operator.logLevel }}"
+            - "--zap-encoder={{ .Values.operator.logEncoder }}"
+            - "--zap-time-encoding=rfc3339"
+            - "--leader-elect={{ .Values.operator.leaderElect }}"
+            - "--metrics-bind-address=:{{ .Values.operator.metricsPort }}"
+            - "--health-probe-bind-address=:{{ .Values.operator.healthPort }}"
+            - "--metrics-service-bind-address=:{{ .Values.operator.grpcPort }}"
+            - "--cert-dir=/certs"
+            - "--k8s-cluster-domain={{ .Values.clusterDomain }}"
+            {{- range .Values.operator.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: WATCH_NAMESPACE
+              value: {{ .Values.operator.watchNamespace | quote }}
+            - name: KEDA_HTTP_DEFAULT_TIMEOUT
+              value: {{ .Values.operator.httpDefaultTimeout | quote }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.operator.metricsPort }}
+              protocol: TCP
+            - name: health
+              containerPort: {{ .Values.operator.healthPort }}
+              protocol: TCP
+            - name: grpc
+              containerPort: {{ .Values.operator.grpcPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+              scheme: HTTP
+            initialDelaySeconds: 25
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.operator.resources | nindent 12 }}
+          volumeMounts:
+            - name: certificates
+              mountPath: /certs
+              readOnly: true
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: certificates
+          secret:
+            secretName: {{ include "keda.certSecretName" . }}
+            defaultMode: 420
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

@@ -1,0 +1,33 @@
+{{/*
+Tekton's runtime configuration. Every key of .Values.config becomes a ConfigMap
+of exactly that name: the controller and webhook resolve them by name through the
+CONFIG_DEFAULTS_NAME / CONFIG_LOGGING_NAME / CONFIG_OBSERVABILITY_NAME /
+CONFIG_FEATURE_FLAGS_NAME / CONFIG_LEADERELECTION_NAME / CONFIG_SPIRE env vars
+and their config stores watch the rest. They are NOT release-prefixed on purpose
+-- Tekton looks them up by these literal names, so one install per namespace.
+
+They must all exist even when empty: a missing ConfigMap makes the component's
+config watcher fail on start ("configmap ... not found"), which is why the empty
+maps in values.yaml still render a ConfigMap with no data.
+
+The app.kubernetes.io/part-of label comes from .Values.partOf (tekton-pipelines)
+and is what the config-validation webhook's objectSelector matches on, so edits to
+these ConfigMaps are schema-checked once the webhook is up.
+*/}}
+{{- range $name, $data := .Values.config }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+  {{- with (include "quench-common.commonAnnotations" $) }}
+  annotations:
+    {{- . | nindent 4 }}
+  {{- end }}
+{{- with $data }}
+data:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end }}
