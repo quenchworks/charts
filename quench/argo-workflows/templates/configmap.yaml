@@ -1,0 +1,18 @@
+{{- if not .Values.controller.existingConfigMap }}
+{{/*
+The workflow-controller ConfigMap. Argo accepts either one `config` key holding
+the whole document, or one key per top-level setting -- never both. The single
+`config` key is used here because it round-trips a values map exactly, and
+because the controller parses it with strict YAML: a typo fails the controller
+at startup instead of being silently dropped.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "argo-workflows.configMapName" . }}
+  labels:
+    {{- include "argo-workflows.componentLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+data:
+  config: |
+    {{- include "argo-workflows.controllerConfig" . | nindent 4 }}
+{{- end }}

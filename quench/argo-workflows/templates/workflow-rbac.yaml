@@ -1,0 +1,43 @@
+{{- if and .Values.workflowRBAC.create .Values.workflowRBAC.serviceAccountNames }}
+{{/*
+Permissions for the pods a WORKFLOW runs, not for Argo's own components.
+
+The emissary executor reports each step's outcome by creating and patching a
+WorkflowTaskResult on behalf of the pod's own ServiceAccount. Without this the
+step's process runs, the pod even exits 0, and the workflow then fails with
+"workflowtaskresults.argoproj.io is forbidden" -- a confusing failure that is
+worth granting two verbs in the release namespace to avoid.
+
+A Workflow that sets no serviceAccountName runs as `default`, which is why that
+is the name bound by default. Add your own names to
+workflowRBAC.serviceAccountNames, and replicate this Role in any other namespace
+you submit workflows into.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "argo-workflows.workflowRoleName" . }}
+  labels:
+    {{- include "argo-workflows.componentLabels" (dict "ctx" . "component" "workflow") | nindent 4 }}
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflowtaskresults"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "argo-workflows.workflowRoleName" . }}
+  labels:
+    {{- include "argo-workflows.componentLabels" (dict "ctx" . "component" "workflow") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "argo-workflows.workflowRoleName" . }}
+subjects:
+  {{- range .Values.workflowRBAC.serviceAccountNames }}
+  - kind: ServiceAccount
+    name: {{ . }}
+    namespace: {{ $.Release.Namespace }}
+  {{- end }}
+{{- end }}

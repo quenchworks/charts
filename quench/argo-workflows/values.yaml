@@ -1,0 +1,161 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+#
+# ONE image, THREE roles. The QuenchWorks argo-workflows image ships every binary
+# Argo Workflows needs:
+#   /usr/bin/workflow-controller  the controller Deployment
+#   /usr/bin/argo                 the CLI and, as `argo server`, the API/UI server
+#   /usr/bin/argoexec             the executor injected into every workflow pod
+# so the same digest is used for all three. See executor.* below -- that is the
+# part that must never be left to the app's own default.
+image:
+  repository: ghcr.io/quenchworks/images/argo-workflows
+  digest: "sha256:8510261ae7b90ae586bd744e419483e9faf5aee71a1cc61c7168d89ffd27d343"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+# --- Executor (argoexec) -----------------------------------------------------
+# THE critical setting in this chart. For every workflow pod the controller
+# injects an `init` container, a `wait` container, and rewrites the main
+# container's command to run through /var/run/argo/argoexec. All of that comes
+# from ONE image. If it is not set, Argo Workflows falls back to
+# `quay.io/argoproj/argoexec:<version>` -- an upstream image QuenchWorks does not
+# build, scan or sign, and which a private/air-gapped cluster cannot pull. Every
+# workflow would sit in Pending on ImagePullBackOff.
+#
+# The chart therefore always passes --executor-image to the controller, resolved
+# from image.repository + image.digest above. The CLI flag deliberately takes
+# precedence over the controller ConfigMap, so an operator editing `config`
+# cannot accidentally un-pin the executor. Point executor.image at a different
+# repository/digest only if you genuinely ship argoexec separately.
+executor:
+  image:
+    # Empty -> use the chart's own image.repository / image.digest.
+    repository: ""
+    digest: ""
+  pullPolicy: IfNotPresent
+  # Resources for the injected init/wait containers of every workflow pod.
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+# --- Workflow controller -----------------------------------------------------
+controller:
+  replicaCount: 1
+  # Log level for the controller and for the executor containers it injects.
+  logLevel: info
+  # Prometheus metrics port (also the port used by the built-in metrics server).
+  metricsPort: 9090
+  # Fixed healthz port of the controller's built-in health server.
+  healthzPort: 6060
+  # Max concurrently running workflows across the cluster. 0 = unlimited.
+  parallelism: 0
+  # Free-form workflow-controller configuration, rendered into the controller
+  # ConfigMap's single `config` key. Anything documented in the Argo Workflows
+  # "workflow-controller-configmap" reference goes here (artifactRepository,
+  # workflowDefaults, persistence, metricsConfig, nodeEvents, sso, ...).
+  # Parsed with strict YAML unmarshalling, so an unknown key fails the
+  # controller loudly rather than being ignored.
+  config: {}
+  # Point at an externally-managed ConfigMap instead of rendering one. Must
+  # contain a single `config` key (or the per-key layout Argo also accepts).
+  existingConfigMap: ""
+  extraArgs: []
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 1, memory: 512Mi }
+
+# --- Argo server (REST/gRPC API + web UI) ------------------------------------
+server:
+  enabled: true
+  replicaCount: 1
+  # API authentication mode; any combination of client, server, sso.
+  #
+  #   client  every request must carry the caller's own Kubernetes bearer token
+  #           and acts with that identity. Most secure, but the UI then prompts
+  #           for a token and CI callers must mint one.
+  #   server  requests are served using the argo-server's OWN ServiceAccount.
+  #           This is the conventional chart default and what makes the bundled
+  #           UI usable out of the box -- but it means ANYONE who can reach the
+  #           Service can act with the server's permissions (list/create/delete
+  #           workflows, read pod logs). Keep the Service ClusterIP-only, or
+  #           switch to client/sso before exposing it outside the cluster.
+  #   sso     OIDC login; configure `sso:` under controller.config.
+  authModes:
+    - server
+  # HTTPS with a self-signed certificate when true. Default false: the Service is
+  # ClusterIP and TLS is normally terminated at the ingress. Setting this true
+  # also flips the readiness probe to HTTPS.
+  secure: false
+  # Value for <base href> when serving the UI under a sub-path behind a proxy.
+  baseHref: "/"
+  extraArgs: []
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  service:
+    type: ClusterIP
+    port: 2746
+
+serviceAccount:
+  create: true
+  # Override the derived per-component ServiceAccount names.
+  controllerName: ""
+  serverName: ""
+  annotations: {}
+
+# Per-component RBAC. Required: the controller creates and deletes workflow pods
+# cluster-wide, and the server reads workflows, pods and pod logs.
+rbac:
+  create: true
+
+# RBAC for the pods that WORKFLOWS run. Argo's emissary executor reports each
+# step's result by creating a WorkflowTaskResult, so the ServiceAccount a
+# workflow pod runs as needs that permission or every step fails at the end with
+# a forbidden error. Workflows that set no serviceAccountName run as `default`,
+# which is why that is the name bound here.
+workflowRBAC:
+  create: true
+  serviceAccountNames:
+    - default
+
+# --- Common production knobs, wired through quench-common (all optional) ------
+# These apply to both deployments (shared pod-spec surface).
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+# Optional Ingress in front of the argo-server UI/API. Disabled by default, so
+# enabling it is an explicit operator decision. Read server.authModes first:
+# with the default `server` mode an Ingress publishes an unauthenticated API.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []

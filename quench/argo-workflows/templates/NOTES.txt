@@ -1,0 +1,58 @@
+Quenchworks Argo Workflows {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }}.
+
+Components
+  {{ include "argo-workflows.controllerName" . }}   the workflow controller
+{{- if .Values.server.enabled }}
+  {{ include "argo-workflows.serverName" . }}   the API + web UI on port {{ .Values.server.service.port }}
+{{- end }}
+
+Workflow pods run the executor from the SAME signed digest as the controller:
+
+  {{ include "argo-workflows.executorImage" . }}
+
+passed as --executor-image, so nothing is ever pulled from quay.io.
+
+Submit a workflow:
+
+  cat <<'EOF' | kubectl -n {{ .Release.Namespace }} create -f -
+  apiVersion: argoproj.io/v1alpha1
+  kind: Workflow
+  metadata:
+    generateName: hello-
+  spec:
+    entrypoint: main
+    templates:
+      - name: main
+        container:
+          image: ghcr.io/quenchworks/images/busybox@sha256:96bfb56285a65f978985de00bec071bb9e52d3c588cd26febed64ff36651c526
+          command: ["/bin/echo"]
+          args: ["hello from argo"]
+  EOF
+
+  kubectl -n {{ .Release.Namespace }} get workflows -w
+{{ if .Values.server.enabled }}
+Reach the API and the UI:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "argo-workflows.serverName" . }} {{ .Values.server.service.port }}:{{ .Values.server.service.port }}
+  curl {{ if .Values.server.secure }}-k https{{ else }}http{{ end }}://127.0.0.1:{{ .Values.server.service.port }}/api/v1/info
+{{- if has "server" .Values.server.authModes }}
+
+  SECURITY: server.authModes is ["server"], so the API answers ANY caller that can
+  reach the Service, acting with the argo-server's own ServiceAccount. That is fine
+  for a ClusterIP inside a trusted namespace. Before exposing it through an Ingress
+  or a LoadBalancer, switch to server.authModes=["client"] (callers present their
+  own Kubernetes token) or configure SSO.
+{{- end }}
+{{- end }}
+{{ if .Values.workflowRBAC.create }}
+Workflows in {{ .Release.Namespace }} may run as: {{ join ", " .Values.workflowRBAC.serviceAccountNames }}.
+To submit workflows into ANOTHER namespace, create the same Role/RoleBinding there
+({{ include "argo-workflows.workflowRoleName" . }}); without it every step fails on
+"workflowtaskresults.argoproj.io is forbidden".
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/argo-workflows \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

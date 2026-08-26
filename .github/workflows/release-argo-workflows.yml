@@ -1,0 +1,133 @@
+name: release-argo-workflows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/argo-workflows/**"
+      - ".github/workflows/release-argo-workflows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/argo-workflows
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+  # A step image we publish ourselves. The gate must never reach for an upstream
+  # example image (docker/whalesay and friends).
+  STEP_IMAGE: ghcr.io/quenchworks/images/busybox@sha256:96bfb56285a65f978985de00bec071bb9e52d3c588cd26febed64ff36651c526
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          kubectl rollout status deployment/rtest-argo-workflows-controller --timeout=300s
+          kubectl rollout status deployment/rtest-argo-workflows-server --timeout=300s
+
+          # ---------------------------------------------------------------
+          # The real gate: run a workflow. Ready pods prove nothing here --
+          # the controller injects the argoexec executor into every workflow
+          # pod, and if that image is wrong or missing the workflow sits in
+          # Pending/Error while both Deployments stay perfectly healthy.
+          # ---------------------------------------------------------------
+          cat <<EOF | kubectl create -f -
+          apiVersion: argoproj.io/v1alpha1
+          kind: Workflow
+          metadata:
+            name: smoke
+          spec:
+            entrypoint: main
+            templates:
+              - name: main
+                container:
+                  image: ${STEP_IMAGE}
+                  command: ["/bin/sh", "-c"]
+                  args: ["echo QUENCHWORKS-ARGO-SMOKE-OK"]
+          EOF
+
+          for i in $(seq 1 60); do
+            phase="$(kubectl get workflow smoke -o jsonpath='{.status.phase}' || true)"
+            echo "t=$((i*5))s phase=${phase:-<none>}"
+            case "$phase" in
+              Succeeded) break ;;
+              Failed|Error)
+                kubectl get workflow smoke -o yaml
+                kubectl describe pod smoke || true
+                echo "workflow did not succeed (phase=$phase)"; exit 1 ;;
+            esac
+            sleep 5
+          done
+
+          test "$(kubectl get workflow smoke -o jsonpath='{.status.phase}')" = "Succeeded"
+          # the step really ran: its own stdout must be in the pod log
+          kubectl logs smoke -c main | tee /tmp/step.log
+          grep -q QUENCHWORKS-ARGO-SMOKE-OK /tmp/step.log
+          # and it ran from OUR executor image, not quay.io
+          kubectl get pod smoke -o jsonpath='{.spec.initContainers[0].image}' | tee /tmp/exec.img
+          grep -q '^ghcr.io/quenchworks/images/argo-workflows@sha256:' /tmp/exec.img
+
+          # the server answers with real JSON over the Service
+          kubectl port-forward svc/rtest-argo-workflows-server 2746:2746 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS http://127.0.0.1:2746/api/v1/info | tee /tmp/info.json
+          grep -q '{' /tmp/info.json
+          curl -fsS http://127.0.0.1:2746/api/v1/workflows/default | grep -q '"name":"smoke"'
+
+          # nothing crash-looped
+          test -z "$(kubectl get pods -o jsonpath='{range .items[*]}{range .status.containerStatuses[*]}{.restartCount}{"\n"}{end}{end}' | grep -v '^0$')"
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/argo-workflows-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/argo-workflows@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/argo-workflows:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

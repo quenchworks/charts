@@ -1,0 +1,91 @@
+{{/*
+The workflow controller: it watches Workflow/CronWorkflow objects and turns each
+step into a pod. Runs /usr/bin/workflow-controller from the shared image.
+
+--executor-image is the load-bearing flag here: it is what every workflow pod's
+init/wait containers -- and the argoexec wrapper around the step's own command --
+are pulled from. Passed as a flag rather than via the ConfigMap because the flag
+wins, so no config edit can un-pin it. See values.yaml `executor:`.
+
+The controller writes nothing to disk, so it keeps the hardened read-only rootfs.
+*/}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "argo-workflows.controllerName" . }}
+  labels:
+    {{- include "argo-workflows.componentLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+spec:
+  replicas: {{ .Values.controller.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "argo-workflows.componentSelectorLabels" (dict "ctx" . "component" "controller") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "argo-workflows.componentSelectorLabels" (dict "ctx" . "component" "controller") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "argo-workflows.controllerServiceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: workflow-controller
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/workflow-controller"]
+          args:
+            - "--configmap={{ include "argo-workflows.configMapName" . }}"
+            - "--executor-image={{ include "argo-workflows.executorImage" . }}"
+            - "--executor-image-pull-policy={{ .Values.executor.pullPolicy }}"
+            - "--loglevel={{ .Values.controller.logLevel }}"
+            {{- range .Values.controller.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            {{- /* Leader election needs a stable per-replica identity. */}}
+            - name: LEADER_ELECTION_IDENTITY
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.name
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.controller.metricsPort }}
+              protocol: TCP
+            - name: healthz
+              containerPort: {{ .Values.controller.healthzPort }}
+              protocol: TCP
+          {{- /* /healthz reports "unhealthy" only when the controller has stopped
+                 reconciling; it is deliberately slow to fail, hence the long
+                 period and high initial delay upstream also uses. */}}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" (dict "httpGet" (dict "path" "/healthz" "port" "healthz") "initialDelaySeconds" 90 "periodSeconds" 60 "timeoutSeconds" 30 "failureThreshold" 3)) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- include "quench-common.extraVolumeMounts" $ | nindent 12 }}
+          {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- include "quench-common.extraVolumes" $ | nindent 8 }}
+      {{- end }}

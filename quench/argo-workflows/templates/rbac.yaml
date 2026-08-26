@@ -1,0 +1,171 @@
+{{- if .Values.rbac.create }}
+{{- /*
+Clean-room RBAC, authored from the Argo Workflows project's own documented
+per-component permissions:
+
+  * controller  reconciles the argoproj.io API surface and owns the lifecycle of
+                the pods each workflow step runs in (create/delete cluster-wide),
+                plus the PVCs a workflow declares as volumeClaimTemplates.
+  * server      serves the API/UI: reads and writes workflow objects, reads pods
+                and pod logs, and mints ServiceAccount tokens for auth-mode=client.
+
+Leader election is Lease-based and namespaced, so it is a Role in the release
+namespace rather than a cluster-wide grant.
+*/}}
+{{- $ctrl := include "argo-workflows.controllerName" . -}}
+{{- $srv := include "argo-workflows.serverName" . -}}
+# =====================================================================
+# Workflow controller
+# =====================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-%s" $ctrl .Release.Namespace | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "argo-workflows.componentLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+rules:
+  # Workflow step pods: created, watched, signalled (pods/exec) and deleted.
+  - apiGroups: [""]
+    resources: ["pods", "pods/exec"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  # volumeClaimTemplates declared by a Workflow.
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims", "persistentvolumeclaims/finalizers"]
+    verbs: ["create", "update", "delete", "get"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  # The argoproj.io objects the controller drives.
+  - apiGroups: ["argoproj.io"]
+    resources:
+      - "workflows"
+      - "workflows/finalizers"
+      - "workflowtasksets"
+      - "workflowtasksets/finalizers"
+      - "workflowartifactgctasks"
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["argoproj.io"]
+    resources:
+      - "workflowtemplates"
+      - "workflowtemplates/finalizers"
+      - "clusterworkflowtemplates"
+      - "clusterworkflowtemplates/finalizers"
+    verbs: ["get", "list", "watch"]
+  # Step results reported by the executor; the controller collects and reaps them.
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflowtaskresults"]
+    verbs: ["list", "watch", "deletecollection"]
+  - apiGroups: ["argoproj.io"]
+    resources: ["cronworkflows", "cronworkflows/finalizers"]
+    verbs: ["get", "list", "watch", "update", "patch", "delete"]
+  # PDBs a Workflow asks for, to protect its pods from eviction while running.
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["create", "get", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  {{- /* Cluster-scoped names are global: carry the namespace so two releases in
+         different namespaces cannot steal each other's binding. */}}
+  name: {{ printf "%s-%s" $ctrl .Release.Namespace | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "argo-workflows.componentLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-%s" $ctrl .Release.Namespace | trunc 63 | trimSuffix "-" }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "argo-workflows.controllerServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $ctrl }}
+  labels:
+    {{- include "argo-workflows.componentLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+rules:
+  # Leader election between controller replicas.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create", "get", "update"]
+  # Credentials for the configured artifact repository, and the agent CA.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $ctrl }}
+  labels:
+    {{- include "argo-workflows.componentLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $ctrl }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "argo-workflows.controllerServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.server.enabled }}
+---
+# =====================================================================
+# Argo server (API + UI)
+# =====================================================================
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-%s" $srv .Release.Namespace | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "argo-workflows.componentLabels" (dict "ctx" . "component" "server") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch"]
+  # `create` covers minting ServiceAccount tokens for auth-mode=client/sso.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create"]
+  - apiGroups: [""]
+    resources: ["pods", "pods/exec", "pods/log"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["watch", "create", "patch"]
+  - apiGroups: [""]
+    resources: ["serviceaccounts"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["argoproj.io"]
+    resources:
+      - "workflows"
+      - "workfloweventbindings"
+      - "workflowtemplates"
+      - "cronworkflows"
+      - "clusterworkflowtemplates"
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-%s" $srv .Release.Namespace | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "argo-workflows.componentLabels" (dict "ctx" . "component" "server") | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-%s" $srv .Release.Namespace | trunc 63 | trimSuffix "-" }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "argo-workflows.serverServiceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}
