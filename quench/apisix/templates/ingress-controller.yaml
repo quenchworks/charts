@@ -1,0 +1,214 @@
+{{- if .Values.ingressController.enabled }}
+{{/*
+The APISIX Ingress Controller, OFF by default.
+
+It reconciles the apisix.apache.org CRDs (ApisixRoute, ApisixUpstream,
+GatewayProxy, ...) and Gateway API v1.6 into this release's Admin API. Those CRD
+bundles are cluster-scoped singletons owned by exactly one chart, so this one does
+NOT install them -- install quench/gateway-api-crds and the controller's own
+config/crd first, then create a GatewayProxy pointing at the Admin API Service.
+
+This component is not covered by the chart's install gate; treat it as
+operator-driven.
+*/}}
+{{- $name := include "apisix.ingressController.name" . -}}
+{{- $c := .Values.ingressController -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress-controller
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress-controller
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces", "pods", "services", "endpoints", "secrets", "configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "ingressclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses/status"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["apisix.apache.org"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  # Cluster-scoped names are global, so this carries the namespace: two releases in
+  # two namespaces would otherwise fight over one object.
+  name: {{ printf "%s-%s" $name .Release.Namespace | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  # Leader election leases live in the release namespace.
+  name: {{ $name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress-controller
+rules:
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress-controller
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $name }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress-controller
+data:
+  config.yaml: |-
+    {{- include "apisix.ingressController.configYaml" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress-controller
+spec:
+  type: ClusterIP
+  ports:
+    - name: probe
+      port: {{ $c.containerPorts.probe }}
+      targetPort: probe
+      protocol: TCP
+    - name: metrics
+      port: {{ $c.containerPorts.metrics }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "apisix.ingressController.selectorLabels" . | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ingress-controller
+spec:
+  replicas: {{ $c.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "apisix.ingressController.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include "apisix.ingressController.configYaml" . | sha256sum }}
+        {{- with $c.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "apisix.ingressController.selectorLabels" . | nindent 8 }}
+        {{- with $c.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ $name }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with $c.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: ingress-controller
+          image: {{ include "apisix.ingressController.image" . }}
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          # The image's entrypoint IS the controller binary; upstream passes the
+          # config file the same way.
+          args:
+            - -c
+            - /etc/apisix-ingress-controller/config.yaml
+          ports:
+            - name: probe
+              containerPort: {{ $c.containerPorts.probe }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ $c.containerPorts.metrics }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: probe
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: probe
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/apisix-ingress-controller
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $name }}
+{{- end }}

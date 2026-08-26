@@ -1,0 +1,68 @@
+QuenchWorks Contour {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }}.
+
+Control plane: Deployment {{ include "quench-common.fullname" . }} ({{ .Values.contour.replicaCount }} replica(s)), xDS on
+{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.contour.service.port }}
+{{ if .Values.envoy.enabled -}}
+Data plane:    DaemonSet {{ include "contour.envoyName" . }} (one Envoy per node)
+{{- else -}}
+Data plane:    DISABLED (envoy.enabled=false). Contour will compute and publish routing
+               configuration, but nothing is serving traffic until an Envoy fleet
+               bootstrapped against this control plane connects to the xDS Service above.
+{{- end }}
+
+Confirm the controller is really reconciling -- not merely Ready -- by giving it an
+HTTPProxy and reading back the status it writes:
+
+  kubectl -n {{ .Release.Namespace }} apply -f - <<'EOF'
+  apiVersion: projectcontour.io/v1
+  kind: HTTPProxy
+  metadata:
+    name: example
+  spec:
+    virtualhost:
+      fqdn: example.local
+    routes:
+      - conditions: [{prefix: /}]
+        services:
+          - name: my-app
+            port: 80
+  EOF
+  kubectl -n {{ .Release.Namespace }} get httpproxy example -o jsonpath='{.status.currentStatus} {.status.description}'
+
+A "valid" status means Contour parsed the object and programmed it. "invalid" with a
+description naming a missing Service means Contour is working and your backend is not.
+{{ if .Values.envoy.enabled }}
+Reach the data plane:
+{{- if eq (toString .Values.envoy.service.type) "LoadBalancer" }}
+  kubectl -n {{ .Release.Namespace }} get svc {{ include "contour.envoyName" . }} -w   # wait for EXTERNAL-IP
+{{- else if eq (toString .Values.envoy.service.type) "NodePort" }}
+  kubectl -n {{ .Release.Namespace }} get svc {{ include "contour.envoyName" . }} -o jsonpath='{.spec.ports[*].nodePort}'
+{{- else }}
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "contour.envoyName" . }} 8888:{{ .Values.envoy.service.httpPort }}
+  curl -H 'Host: example.local' http://127.0.0.1:8888/
+{{- end }}
+{{- end }}
+
+Route Ingress objects here with ingressClassName: {{ include "contour.ingressClassName" . }}
+{{- if not .Values.ingressClass.name }} (Contour also picks up Ingresses that carry no class at all){{ end }}.
+{{ if and .Values.xdsTLS.certgen.enabled (not .Values.xdsTLS.contourSecretName) }}
+The Contour<->Envoy xDS mTLS keypairs were minted in-cluster by a `contour certgen` hook
+Job into Secrets {{ include "contour.contourCertSecretName" . }} and {{ include "contour.envoyCertSecretName" . }}.
+They are valid for {{ .Values.xdsTLS.certgen.certificateLifetime }} days and are NOT owned by this Helm release, so
+`helm uninstall` leaves them behind. The hook does not overwrite them, so upgrades are a
+no-op; rotating means minting a new CA AND restarting both workloads, because a running
+Envoy keeps trusting the retired one:
+
+  helm upgrade ... --set xdsTLS.certgen.overwrite=true
+  kubectl -n {{ .Release.Namespace }} rollout restart deployment/{{ include "quench-common.fullname" . }}{{ if .Values.envoy.enabled }} daemonset/{{ include "contour.envoyName" . }}{{ end }}
+{{- end }}
+
+The CRDs (HTTPProxy, ContourConfiguration, ExtensionService, TLSCertificateDelegation)
+were installed from crds/. Helm never upgrades or deletes files in crds/, so a Contour
+upgrade that changes a CRD schema needs them applied by hand.
+
+The images are pinned by digest and signed. Verify them:
+
+  cosign verify ghcr.io/quenchworks/images/contour \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

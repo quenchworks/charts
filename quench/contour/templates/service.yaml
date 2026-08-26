@@ -1,0 +1,25 @@
+{{/* The xDS gRPC endpoint Envoy dials. ClusterIP only, deliberately: it hands out the
+     whole cluster's routing configuration and must never leave the cluster. */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "contour.componentLabels" (dict "ctx" . "component" "contour") | nindent 4 }}
+  {{- with .Values.contour.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: xds
+      port: {{ .Values.contour.service.port }}
+      targetPort: xds
+      protocol: TCP
+    - name: metrics
+      port: 8000
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "contour.componentSelectorLabels" (dict "ctx" . "component" "contour") | nindent 4 }}

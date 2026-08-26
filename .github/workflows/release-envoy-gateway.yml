@@ -1,0 +1,172 @@
+name: release-envoy-gateway
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/envoy-gateway/**"
+      - ".github/workflows/release-envoy-gateway.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/envoy-gateway
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          # The Gateway API CRDs are cluster-scoped singletons owned by a different
+          # chart. This chart does not bundle them and cannot start without them.
+          helm install gwapi quench/gateway-api-crds --wait --timeout 5m
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          kubectl rollout status deployment/rtest-envoy-gateway --timeout=300s
+
+          # A Ready pod proves nothing. An ACCEPTED GatewayClass proves the
+          # controller is reconciling. Start with a bare GatewayClass -- no
+          # parametersRef -- so the Envoy fleet is built from the chart's own
+          # defaults and we can assert it runs the QuenchWorks data-plane image.
+          kubectl apply -f - <<'EOF'
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: GatewayClass
+          metadata: { name: rtest }
+          spec:
+            controllerName: gateway.envoyproxy.io/gatewayclass-controller
+          ---
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: Gateway
+          metadata: { name: example, namespace: default }
+          spec:
+            gatewayClassName: rtest
+            listeners:
+              - name: http
+                protocol: HTTP
+                port: 80
+          EOF
+
+          kubectl wait --for=condition=Accepted --timeout=120s gatewayclass/rtest
+          kubectl wait --for=condition=Ready --timeout=300s \
+            pod -l gateway.envoyproxy.io/owning-gateway-name=example
+
+          proxy_image="$(helm get values rtest -a -o json \
+            | python3 -c 'import json,sys;v=json.load(sys.stdin)["envoyProxy"]["image"];print(v["repository"]+"@"+v["digest"])')"
+          kubectl get pod -l gateway.envoyproxy.io/owning-gateway-name=example \
+            -o jsonpath='{.items[0].spec.containers[?(@.name=="envoy")].image}' | grep -qxF "$proxy_image"
+
+          # kind has no LoadBalancer, so a Gateway never gets an address and never
+          # reaches Programmed. Attach an EnvoyProxy that provisions a ClusterIP
+          # instead. NOTE: a GatewayClass parametersRef REPLACES the chart's
+          # default envoyProxy config wholesale rather than merging with it, so
+          # the image has to be repeated here.
+          kubectl apply -f - <<EOF
+          apiVersion: gateway.envoyproxy.io/v1alpha1
+          kind: EnvoyProxy
+          metadata: { name: clusterip, namespace: default }
+          spec:
+            provider:
+              type: Kubernetes
+              kubernetes:
+                envoyService: { type: ClusterIP }
+                envoyDeployment:
+                  container:
+                    image: ${proxy_image}
+          EOF
+          kubectl patch gatewayclass rtest --type merge \
+            -p '{"spec":{"parametersRef":{"group":"gateway.envoyproxy.io","kind":"EnvoyProxy","name":"clusterip","namespace":"default"}}}'
+          kubectl wait --for=condition=Programmed --timeout=300s gateway/example
+
+          # End to end: the provisioned Envoy fleet must serve a route it was
+          # given over xDS. A direct response needs no backend image and
+          # exercises this chart's own HTTPRouteFilter CRD at the same time.
+          kubectl apply -f - <<'EOF'
+          apiVersion: gateway.envoyproxy.io/v1alpha1
+          kind: HTTPRouteFilter
+          metadata: { name: hello, namespace: default }
+          spec:
+            directResponse:
+              contentType: text/plain
+              statusCode: 200
+              body: { type: Inline, inline: "quenchworks-envoy-gateway-ok" }
+          ---
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: HTTPRoute
+          metadata: { name: hello, namespace: default }
+          spec:
+            parentRefs: [{ name: example }]
+            rules:
+              - matches: [{ path: { type: PathPrefix, value: / } }]
+                filters:
+                  - type: ExtensionRef
+                    extensionRef:
+                      group: gateway.envoyproxy.io
+                      kind: HTTPRouteFilter
+                      name: hello
+          EOF
+          kubectl wait --for=condition=Ready --timeout=300s \
+            pod -l gateway.envoyproxy.io/owning-gateway-name=example
+
+          svc="$(kubectl get svc -l gateway.envoyproxy.io/owning-gateway-name=example -o name | head -1)"
+          kubectl port-forward "$svc" 8080:80 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --retry 10 --retry-delay 3 --retry-all-errors http://127.0.0.1:8080/ \
+            | grep -qx 'quenchworks-envoy-gateway-ok'
+
+          # Nothing crash-looped on the way here.
+          test -z "$(kubectl get pods -o jsonpath='{range .items[*].status.containerStatuses[*]}{.restartCount}{"\n"}{end}' | grep -v '^0$')"
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/envoy-gateway-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/envoy-gateway@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/envoy-gateway:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

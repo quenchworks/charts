@@ -1,0 +1,26 @@
+Quenchworks Blackbox Exporter is installed as {{ include "quench-common.fullname" . }}.
+
+The exporter runs nonroot on container port {{ .Values.containerPort }}; the Service
+exposes it on port {{ .Values.service.port }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Probe a target over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl 'http://127.0.0.1:{{ .Values.service.port }}/probe?target=https://example.com&module=http_2xx'
+
+The response is Prometheus text; `probe_success 1` means the probe passed. The
+exporter's own metrics (not probe results) are at /metrics, and /-/healthy answers
+200 once the config has parsed.
+
+{{ if not .Values.config.yaml }}No configuration was supplied, so the image's built-in
+blackbox.yml is in use: a single `http_2xx` module. Set `config.yaml` to a full modules
+document, or point `config.existingConfigMap` at your own ConfigMap (key blackbox.yml),
+to define more modules.
+{{- else }}Your `config.yaml` is mounted at /config/blackbox.yml.
+{{- end }}
+
+Scrape it from Prometheus with the standard relabel pattern: scrape the exporter,
+pass the real target in the `target` query parameter, and relabel `__address__` to
+this Service.

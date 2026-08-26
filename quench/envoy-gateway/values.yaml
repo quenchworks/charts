@@ -1,0 +1,161 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+#
+# This one image plays two roles: the control-plane Deployment runs
+# `envoy-gateway server`, and the controller injects the SAME image as the
+# `shutdown-manager` sidecar of every Envoy pod it provisions (bare command
+# `envoy-gateway`, args `envoy shutdown-manager`). That is why the entrypoint of
+# the image is the bare binary with no baked-in subcommand.
+image:
+  repository: ghcr.io/quenchworks/images/envoy-gateway
+  digest: "sha256:1543e1b67da2a8a3322978ca4ecdb9ba56e24d7a91f6582ad0e3d8fd8530433c"
+  pullPolicy: IfNotPresent
+
+# The Envoy DATA PLANE image. Envoy Gateway does not run Envoy itself: it
+# provisions a Deployment of Envoy pods per Gateway, and the image for those pods
+# comes from the EnvoyGateway config file, not from this chart's pod spec. This
+# block is written into that config as
+# `envoyProxy.provider.kubernetes.envoyDeployment.container.image`, so every
+# Gateway provisioned by this control plane runs the QuenchWorks Envoy image
+# pinned by digest.
+#
+# Set digest to "" to drop the override and use the upstream image compiled into
+# Envoy Gateway (docker.io/envoyproxy/envoy:distroless-v1.39.0 for 1.9.0).
+#
+# This is the DEFAULT EnvoyProxy config, and it applies only while a GatewayClass
+# has no parametersRef. A GatewayClass that points at an EnvoyProxy resource
+# replaces this block wholesale instead of merging with it, so that EnvoyProxy
+# must repeat the image or its fleet silently falls back to the upstream one.
+envoyProxy:
+  image:
+    repository: ghcr.io/quenchworks/images/envoy
+    digest: "sha256:99cf0132c2d9521d564329f78512f5ba521d8e147a824bf64f3c27352efbc0af"
+
+nameOverride: ""
+
+# The control plane is stateless and leader-elected: extra replicas are warm
+# standbys, not extra reconcile throughput.
+replicaCount: 1
+
+# The GatewayClass controllerName this control plane claims. A GatewayClass is
+# reconciled by this install only if its spec.controllerName matches exactly.
+# Change it (on BOTH sides) to run several independent Envoy Gateway installs in
+# one cluster.
+controllerName: gateway.envoyproxy.io/gatewayclass-controller
+
+# Log level for the control plane: debug, info, warn, error.
+logLevel: info
+
+# Cluster DNS domain. Used to build the xDS server name the provisioned Envoy
+# pods dial, and the SANs certgen puts in the control-plane certificate.
+kubernetesClusterDomain: cluster.local
+
+# Extra EnvoyGateway spec fields, deep-merged OVER the config this chart
+# generates (gateway.controllerName, logging.level.default, provider.kubernetes
+# with the shutdownManager and envoyProxy images, and proxyTopologyInjector).
+# Everything at
+# https://gateway.envoyproxy.io/docs/api/extension_types/#envoygateway is valid
+# here, e.g. rate limiting, extension APIs, or restricting watched namespaces:
+#
+#   config:
+#     provider:
+#       kubernetes:
+#         watch:
+#           type: Namespaces
+#           namespaces: [team-a, team-b]
+config: {}
+
+# `envoy-gateway certgen` run as a pre-install/pre-upgrade hook. It mints the CA
+# and the control-plane serving certificate into the Secret named below, which
+# the controller mounts at /certs and every provisioned Envoy pod mounts for xDS
+# mTLS. certgen never overwrites an existing Secret, so pre-creating that Secret
+# with cert-manager (or any other PKI) and leaving this enabled is supported.
+certgen:
+  enabled: true
+  # Secret certgen writes and the controller mounts. The name is fixed upstream;
+  # it is exposed only so an externally-managed Secret can be pointed at.
+  secretName: envoy-gateway
+  ttlSecondsAfterFinished: 30
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: 1, memory: 1Gi }
+
+# The Service is named `envoy-gateway` regardless of the release name, and that
+# is not an oversight: certgen issues the control-plane certificate for the SANs
+# `envoy-gateway[.<namespace>[.svc[.<domain>]]]`, and the provisioned Envoy pods
+# dial `envoy-gateway.<namespace>.svc.<domain>` for xDS and verify that name.
+# Only one Envoy Gateway control plane can therefore live in a namespace.
+service:
+  type: ClusterIP
+  annotations: {}
+  # xDS to the Envoy fleet.
+  xdsPort: 18000
+  # Rate-limit xDS to the (optional) ratelimit deployment.
+  ratelimitPort: 18001
+  # Wasm module HTTP cache the Envoy pods fetch from.
+  wasmPort: 18002
+  # Prometheus metrics.
+  metricsPort: 19001
+
+# Volume backing the Wasm module cache at /var/lib/eg/wasm. Required because the
+# root filesystem is read-only. Replace with a persistentVolumeClaim to keep the
+# cache across restarts.
+wasmCacheVolume:
+  emptyDir: {}
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "19001"
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 10
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+startupProbe: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # The controller IS an API-server client: it watches Gateway API objects and
+  # creates the Envoy Deployments/Services. It needs its token.
+  automountServiceAccountToken: true
+
+# The controller cannot function without these. Turn off only to bind a
+# pre-existing ClusterRole/Role of your own to serviceAccount.name.
+rbac:
+  create: true
+
+# The Envoy fleet dials the xDS port from whatever namespace its Gateway lives
+# in, so ingress is allowed cluster-wide by default.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

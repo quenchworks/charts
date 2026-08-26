@@ -1,0 +1,17 @@
+{{- if .Values.ingressClass.create }}
+{{/* IngressClass is cluster-scoped, so a second release in another namespace needs its
+     own ingressClass.name (and the matching --ingress-class-name, which the Deployment
+     passes automatically when the name is set). */}}
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: {{ include "contour.ingressClassName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- if .Values.ingressClass.default }}
+  annotations:
+    ingressclass.kubernetes.io/is-default-class: "true"
+  {{- end }}
+spec:
+  controller: projectcontour.io/ingress-controller
+{{- end }}

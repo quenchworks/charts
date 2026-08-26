@@ -1,0 +1,71 @@
+Quenchworks Envoy Gateway {{ .Chart.AppVersion }} is installed as
+{{ include "quench-common.fullname" . }} in namespace {{ .Release.Namespace }}.
+
+The control plane runs nonroot with a read-only root filesystem and serves xDS to
+the Envoy fleet on envoy-gateway.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}:{{ .Values.service.xdsPort }}.
+
+THE GATEWAY API CRDs ARE NOT PART OF THIS CHART. They are cluster-scoped
+singletons owned by the quench gateway-api-crds chart, and nothing below works
+without them:
+
+  helm install gateway-api-crds oci://ghcr.io/quenchworks/charts/gateway-api-crds
+
+Envoy Gateway's own eight gateway.envoyproxy.io CRDs DO ship here, in crds/.
+Helm installs those once and never upgrades them; on a chart upgrade that moves
+appVersion, re-apply them yourself:
+
+  kubectl apply --server-side -f https://raw.githubusercontent.com/quenchworks/charts/main/quench/envoy-gateway/crds/envoy-gateway.crds.yaml
+
+Nothing is provisioned until a GatewayClass claims this controller. Create one,
+then a Gateway, and the control plane creates the Envoy Deployment and Service
+for it in namespace {{ .Release.Namespace }}:
+
+  kubectl apply -f - <<'EOF'
+  apiVersion: gateway.networking.k8s.io/v1
+  kind: GatewayClass
+  metadata:
+    name: {{ .Release.Name }}
+  spec:
+    controllerName: {{ .Values.controllerName }}
+  ---
+  apiVersion: gateway.networking.k8s.io/v1
+  kind: Gateway
+  metadata:
+    name: example
+  spec:
+    gatewayClassName: {{ .Release.Name }}
+    listeners:
+      - name: http
+        protocol: HTTP
+        port: 80
+  EOF
+
+Confirm the controller accepted them -- Ready alone proves nothing, an accepted
+GatewayClass proves it is reconciling:
+
+  kubectl get gatewayclass {{ .Release.Name }} -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}'
+  kubectl get gateway example -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}'
+{{ if .Values.certgen.enabled }}
+The xDS CA and certificates were minted by a pre-install `envoy-gateway certgen`
+Job into Secret {{ .Values.certgen.secretName }}. It is NOT owned by this release: certgen
+never overwrites it, so you may replace it with a cert-manager-issued Secret, and
+`helm uninstall` deliberately leaves it behind rather than invalidating the
+certificates of Envoy pods that are still running.
+{{- else }}
+certgen is disabled, so Secret {{ .Values.certgen.secretName }} must already exist with ca.crt,
+tls.crt and tls.key for the SANs envoy-gateway.{{ .Release.Namespace }}.svc.{{ .Values.kubernetesClusterDomain }}. The
+controller will not become ready without it.
+{{- end }}
+{{- if not (include "envoy-gateway.envoyProxyImage" .) }}
+
+envoyProxy.image.digest is empty: provisioned Envoy pods will run the upstream
+image compiled into Envoy Gateway, not a QuenchWorks 0-CVE one.
+{{- end }}
+
+The proxy topology injector is off and this chart installs no admission webhook.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/envoy-gateway \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

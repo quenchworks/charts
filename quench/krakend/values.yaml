@@ -1,0 +1,141 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/krakend.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/krakend
+  digest: "sha256:76a71b7451694e61c99434b1a5f3dc77bc8e1ffdf9c04735bb52e911ab4b3b0d"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# KrakenD holds no state: every request is served from the config file loaded at
+# boot. Plain Deployment, scale horizontally, no volumes.
+replicaCount: 1
+
+# Port KrakenD listens on. Injected into the rendered krakend.json as `port`, so
+# the config and the container port can never drift. Unprivileged because the
+# image runs as nonroot uid 1001.
+containerPort: 8080
+
+# --- Gateway config ---------------------------------------------------------
+# KrakenD will not start without a config file. The map below is rendered to
+# JSON, written to a ConfigMap and mounted read-only at /etc/krakend/krakend.json
+# -- the path the image entrypoint already loads
+# (`krakend run -c /etc/krakend/krakend.json`).
+#
+# The default is a REAL, bootable gateway, not a stub: it declares one sample
+# endpoint that proxies an HTTP backend and returns its JSON. The backend is the
+# gateway's own built-in /__health, so a default install works with no upstream
+# to deploy. Replace `endpoints` with your own routes; everything under `config`
+# is yours to overwrite.
+#
+# Two keys are managed by the chart and overwritten on render:
+#   port  <- .Values.containerPort
+# If you change containerPort, also update the sample backend host below (or
+# just replace the sample endpoint, which is the point of it).
+config:
+  version: 3
+  name: quench-krakend
+  timeout: 3s
+  cache_ttl: 300s
+  extra_config:
+    telemetry/logging:
+      level: INFO
+      prefix: "[KRAKEND]"
+      syslog: false
+      stdout: true
+  endpoints:
+    - endpoint: /quench/sample
+      method: GET
+      output_encoding: json
+      backend:
+        - host:
+            - http://127.0.0.1:8080
+          url_pattern: /__health
+          encoding: json
+
+# Escape hatch: serve krakend.json from an externally-managed ConfigMap instead
+# of the inline `config` above. When set, `config` is not rendered at all and no
+# ConfigMap is created by this chart.
+existingConfigMap: ""
+# Key inside existingConfigMap holding the config document. It is mounted as
+# /etc/krakend/krakend.json regardless of the key's name.
+existingConfigMapKey: krakend.json
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 1000m, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 80
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # An API gateway is usually reached from outside the cluster. Set true to allow
+  # ingress from any source; the default restricts clients to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Optional Ingress (HTTP only). Disabled by default, so enabling it is an explicit
+# operator decision and this chart's behaviour is unchanged until then.
+ingress:
+  enabled: false
+  # IngressClass to claim this Ingress. Empty -> the cluster default applies.
+  className: ""
+  annotations: {}
+  # Service port to route to. Unset -> resolved from service.port.
+  servicePort: null
+  # e.g. [{host: api.example.com, paths: [{path: /, pathType: Prefix}]}]
+  # `paths` may be omitted for the common "/" Prefix case.
+  hosts: []
+  # Standard Ingress TLS list, e.g. [{hosts: [api.example.com], secretName: api-tls}]
+  tls: []

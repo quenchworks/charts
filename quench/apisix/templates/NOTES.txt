@@ -1,0 +1,47 @@
+Quenchworks Apache APISIX is installed as {{ include "quench-common.fullname" . }}.
+
+The gateway runs nonroot on a read-only rootfs and proxies traffic on Service port
+{{ .Values.service.port }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Configuration lives in etcd{{ if .Values.etcd.enabled }}, served by the bundled quench/etcd release
+{{ .Release.Name }}-etcd{{ else }} at {{ join ", " .Values.etcdClient.hosts }}{{ end }}. Routes come from the Admin API, not from this
+chart's values -- APISIX is configured at runtime.
+
+{{ if .Values.admin.enabled -}}
+Read the Admin API key:
+
+  kubectl get secret {{ include "apisix.adminSecretName" . }} -n {{ .Release.Namespace }} \
+    -o jsonpath='{.data.{{ include "apisix.adminSecretKey" . }}}' | base64 -d; echo
+
+Create a route and call it through the proxy:
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.adminPort }}:{{ .Values.service.adminPort }} {{ .Values.service.port }}:{{ .Values.service.port }}
+
+  curl -X PUT http://127.0.0.1:{{ .Values.service.adminPort }}/apisix/admin/routes/1 \
+    -H "X-API-KEY: $ADMIN_KEY" \
+    -d '{"uri":"/echo","upstream":{"type":"roundrobin","nodes":{"httpbin.org:80":1}}}'
+
+  curl http://127.0.0.1:{{ .Values.service.port }}/echo
+{{- else -}}
+The Admin API is disabled (admin.enabled=false), so this release is a data plane
+only: write its configuration into etcd from elsewhere.
+{{- end }}
+
+{{ if .Values.metrics.enabled -}}
+Prometheus metrics: port {{ .Values.service.metricsPort }}, path /apisix/prometheus/metrics.
+{{- end }}
+
+{{ if .Values.ingressController.enabled -}}
+WARNING: ingressController.enabled=true. The controller needs the Gateway API and
+apisix.apache.org CRDs, which this chart does NOT install, plus a GatewayProxy
+resource pointing at the Admin API above. Without them it will start and never
+become ready.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/apisix \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "Quenchworks contour values",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contour", "envoy"],
+      "properties": {
+        "contour": { "$ref": "#/definitions/imageRef" },
+        "envoy": { "$ref": "#/definitions/imageRef" },
+        "pullPolicy": {
+          "type": "string",
+          "enum": ["Always", "IfNotPresent", "Never"]
+        },
+        "registry": { "type": "string" },
+        "pullSecrets": { "type": "array" }
+      }
+    },
+    "nameOverride": { "type": "string" },
+    "fullnameOverride": { "type": "string" },
+    "contour": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "config": { "type": "object" },
+        "existingConfigMap": { "type": "string" },
+        "watchNamespaces": { "type": "array", "items": { "type": "string" } },
+        "rootNamespaces": { "type": "array", "items": { "type": "string" } },
+        "debug": { "type": "boolean" },
+        "logFormat": { "type": "string", "enum": ["text", "json"] },
+        "extraArgs": { "type": "array", "items": { "type": "string" } },
+        "resources": { "type": "object" },
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "annotations": { "type": "object", "additionalProperties": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "envoy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "logLevel": {
+          "type": "string",
+          "enum": ["trace", "debug", "info", "warning", "warn", "error", "critical", "off"]
+        },
+        "extraArgs": { "type": "array", "items": { "type": "string" } },
+        "resources": { "type": "object" },
+        "shutdownManager": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "resources": { "type": "object" } }
+        },
+        "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 },
+        "updateStrategy": { "type": "object" },
+        "hostPorts": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "http": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "https": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          }
+        },
+        "service": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "type": { "type": "string", "enum": ["ClusterIP", "NodePort", "LoadBalancer"] },
+            "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
+            "externalTrafficPolicy": { "type": "string", "enum": ["Cluster", "Local"] },
+            "httpPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "httpsPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+            "httpNodePort": { "type": ["integer", "null"], "minimum": 1, "maximum": 65535 },
+            "httpsNodePort": { "type": ["integer", "null"], "minimum": 1, "maximum": 65535 },
+            "loadBalancerIP": { "type": "string" },
+            "loadBalancerSourceRanges": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "nodeSelector": { "type": "object", "additionalProperties": { "type": "string" } },
+        "tolerations": { "type": "array" }
+      }
+    },
+    "xdsTLS": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "certgen": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "certificateLifetime": { "type": "integer", "minimum": 1 },
+            "overwrite": { "type": "boolean" },
+            "resources": { "type": "object" }
+          }
+        },
+        "contourSecretName": { "type": "string" },
+        "envoySecretName": { "type": "string" }
+      }
+    },
+    "ingressClass": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "default": { "type": "boolean" }
+      }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "create": { "type": "boolean" },
+        "name": { "type": "string" },
+        "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
+        "automountServiceAccountToken": { "type": "boolean" }
+      }
+    },
+    "rbac": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "create": { "type": "boolean" } }
+    },
+    "podDisruptionBudget": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "minAvailable": { "type": ["integer", "string"] },
+        "maxUnavailable": { "type": ["integer", "string"] }
+      }
+    },
+    "podLabels": { "type": "object", "additionalProperties": { "type": "string" } },
+    "podAnnotations": { "type": "object", "additionalProperties": { "type": "string" } },
+    "commonLabels": { "type": "object", "additionalProperties": { "type": "string" } },
+    "commonAnnotations": { "type": "object", "additionalProperties": { "type": "string" } },
+    "selectorLabels": { "type": "object", "additionalProperties": { "type": "string" } },
+    "nodeSelector": { "type": "object", "additionalProperties": { "type": "string" } },
+    "affinity": { "type": "object" },
+    "tolerations": { "type": "array" },
+    "topologySpreadConstraints": { "type": "array" },
+    "priorityClassName": { "type": "string" },
+    "schedulerName": { "type": "string" },
+    "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 },
+    "updateStrategy": { "type": "object" },
+    "extraEnvVars": { "type": "array" },
+    "extraEnvVarsCM": { "type": "string" },
+    "extraEnvVarsSecret": { "type": "string" },
+    "extraVolumes": { "type": "array" },
+    "extraVolumeMounts": { "type": "array" },
+    "initContainers": { "type": "array" },
+    "sidecars": { "type": "array" },
+    "lifecycleHooks": { "type": "object" },
+    "podSecurityContext": { "type": "object" },
+    "containerSecurityContext": { "type": "object" },
+    "livenessProbe": { "type": "object" },
+    "readinessProbe": { "type": "object" },
+    "customLivenessProbe": { "type": "object" },
+    "customReadinessProbe": { "type": "object" },
+    "customStartupProbe": { "type": "object" },
+    "imagePullSecrets": { "type": "array" },
+    "partOf": { "type": "string" }
+  },
+  "definitions": {
+    "imageRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "digest"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+      }
+    }
+  }
+}

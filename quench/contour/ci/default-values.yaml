@@ -1,0 +1,28 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digests from values.yaml, so the gate pulls the actual signed images.
+#
+# Two deviations from the shipped defaults, both forced by kind and neither of them
+# weakening what the gate proves:
+#
+#   * envoy.service.type: ClusterIP -- kind has no load-balancer controller, so a
+#     LoadBalancer Service never gets an ingress address and `helm install --wait`
+#     would block on it until timeout. The DaemonSet, its bootstrap and its xDS
+#     session are unchanged.
+#   * contour.replicaCount: 1 -- a single-node cluster, and leader election is not
+#     what this gate is testing.
+contour:
+  replicaCount: 1
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+envoy:
+  enabled: true
+  service:
+    type: ClusterIP
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+podDisruptionBudget:
+  enabled: false

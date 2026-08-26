@@ -1,0 +1,91 @@
+name: release-blackbox-exporter
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/blackbox-exporter/**"
+      - ".github/workflows/release-blackbox-exporter.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/blackbox-exporter
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/rtest-blackbox-exporter --timeout=300s
+          # probe over a port-forward (the runtime image has no HTTP client)
+          kubectl port-forward deployment/rtest-blackbox-exporter 9115:9115 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          # /-/healthy answers 200 only once the config has parsed
+          curl -fsS http://127.0.0.1:9115/-/healthy >/dev/null
+          # the real check: run an actual probe with the image's built-in http_2xx
+          # module against the exporter's own /metrics, and require it to SUCCEED.
+          # A reachable port proves nothing; probe_success 1 proves the prober works.
+          probe="$(curl -fsS 'http://127.0.0.1:9115/probe?target=http://127.0.0.1:9115/metrics&module=http_2xx')"
+          grep -q '^probe_success 1' <<<"$probe"
+          grep -q '^probe_http_status_code 200' <<<"$probe"
+          # no crash-looping behind the Ready gate
+          test "$(kubectl get pods -l app.kubernetes.io/name=blackbox-exporter \
+            -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}')" = 0
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/blackbox-exporter-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/blackbox-exporter@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/blackbox-exporter:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

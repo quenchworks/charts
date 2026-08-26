@@ -1,0 +1,217 @@
+# The digests below are the contract with the image factory. CI rewrites them from
+# the image-published dispatch after every green image build. They are never tags.
+#
+# Contour hard-pairs each release with one Envoy minor: Contour 1.33.6 expects the
+# Envoy 1.38 line. Do not float the envoy image to a different minor without moving
+# the contour image with it.
+image:
+  contour:
+    repository: ghcr.io/quenchworks/images/contour
+    digest: "sha256:164415ff4982ef39881beea5d2c5e13cfecabf31ab035141dcbcf720d3fa20f5"
+  envoy:
+    repository: ghcr.io/quenchworks/images/envoy
+    digest: "sha256:99cf0132c2d9521d564329f78512f5ba521d8e147a824bf64f3c27352efbc0af"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+# --- Contour: the xDS control plane (Deployment) ---
+#
+# Contour watches Ingress/HTTPProxy/Service/EndpointSlice/Secret, builds the routing
+# DAG, writes status back onto the objects, and serves the result to Envoy over a
+# mutually-authenticated gRPC xDS stream. It holds no state, so it scales horizontally;
+# a leader election lease decides which replica writes object status.
+contour:
+  replicaCount: 2
+
+  # Contour's own configuration file, rendered into a ConfigMap and mounted at
+  # /config/contour.yaml (`contour serve --config-path`). Keys are Contour's, e.g.
+  #   disablePermitInsecure: false
+  #   accesslog-format: envoy
+  #   timeouts: { request-timeout: 30s }
+  # See https://projectcontour.io/docs/1.33/configuration/ . Empty is valid and means
+  # "all defaults".
+  config: {}
+  # Mount an externally-managed ConfigMap (key `contour.yaml`) instead of the one this
+  # chart renders.
+  existingConfigMap: ""
+
+  # Restrict the controller to these namespaces. Empty watches the whole cluster.
+  watchNamespaces: []
+  # Namespaces that may hold ROOT HTTPProxies; other namespaces can then only be
+  # delegated to. Empty allows roots anywhere.
+  rootNamespaces: []
+
+  # Verbose controller logging (`--debug`).
+  debug: false
+  # text or json
+  logFormat: text
+
+  # Appended verbatim to `contour serve`.
+  extraArgs: []
+
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+  # The xDS gRPC Service Envoy dials. ClusterIP only: it carries no user traffic and
+  # must never be exposed outside the cluster.
+  service:
+    port: 8001
+    annotations: {}
+
+# --- Envoy: the data plane (DaemonSet) ---
+#
+# One Envoy per node, bootstrapped by an initContainer that runs `contour bootstrap`
+# from the SAME contour image, then configured entirely over xDS. Disable it only if
+# you run an Envoy fleet managed elsewhere that points at this control plane.
+envoy:
+  enabled: true
+
+  logLevel: info
+  # Appended verbatim to the envoy command line.
+  extraArgs: []
+
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 1, memory: 1Gi }
+
+  # The shutdown-manager sidecar (contour image). Envoy's preStop hook calls it so the
+  # proxy drains open connections before the pod goes away, instead of cutting them.
+  shutdownManager:
+    resources:
+      requests: { cpu: 10m, memory: 32Mi }
+      limits: { cpu: 100m, memory: 128Mi }
+
+  # Envoy needs the full drain window; the default 30s would defeat the drain above.
+  terminationGracePeriodSeconds: 300
+
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 10%
+
+  # Bind the listeners on the node's own network as well as through the Service.
+  # Off by default: the Service below is the supported path, and hostPort makes the
+  # DaemonSet unschedulable wherever :80/:443 are already taken. Turn it on for
+  # bare-metal clusters that have no LoadBalancer.
+  hostPorts:
+    enabled: false
+    http: 80
+    https: 443
+
+  service:
+    # LoadBalancer is the cloud default. Use NodePort (or hostPorts above) where the
+    # cluster has no load-balancer controller.
+    type: LoadBalancer
+    annotations: {}
+    # Preserves the client source IP and avoids a second hop. Only meaningful for
+    # LoadBalancer/NodePort.
+    externalTrafficPolicy: Local
+    httpPort: 80
+    httpsPort: 443
+    # Fixed node ports, when type is NodePort. Null lets Kubernetes allocate.
+    httpNodePort: null
+    httpsNodePort: null
+    loadBalancerIP: ""
+    loadBalancerSourceRanges: []
+
+  # Scheduling for the DaemonSet. A data plane usually wants to run on tainted nodes
+  # too, so these are separate from the controller's pod knobs further down.
+  nodeSelector: {}
+  tolerations: []
+
+# --- Contour <-> Envoy xDS mTLS ---
+#
+# The xDS stream is mutually authenticated. `contour certgen` mints a self-signed CA
+# and a keypair for each side and writes them straight to Secrets from a pre-install /
+# pre-upgrade hook Job, so the workloads never start without their certs.
+#
+# Bring your own instead (cert-manager, Vault, ...) by setting the secret names below.
+# Both must be kubernetes.io/tls Secrets carrying ca.crt, tls.crt and tls.key, and the
+# CONTOUR certificate MUST carry the DNS SAN "contour": the Envoy bootstrap pins that
+# exact SAN and no flag changes it.
+xdsTLS:
+  certgen:
+    enabled: true
+    # Days.
+    certificateLifetime: 365
+    # Re-mint even when the Secrets already exist. OFF, and that default is load
+    # bearing: certgen mints a fresh CA every run, and a running Envoy will NOT pick
+    # the new one up. Envoy watches the SDS descriptor files that the bootstrap wrote,
+    # not the ca.crt they point at, so a rotated CA leaves the xDS stream failing
+    # CERTIFICATE_VERIFY_FAILED until the Envoy pods are restarted. Left off, the hook
+    # mints once and every later `helm upgrade` is a no-op.
+    #
+    # To actually rotate (the certificates are good for certificateLifetime days):
+    #   helm upgrade ... --set xdsTLS.certgen.overwrite=true
+    #   kubectl rollout restart deployment/<release>-contour daemonset/<release>-contour-envoy
+    overwrite: false
+    resources:
+      requests: { cpu: 10m, memory: 32Mi }
+      limits: { cpu: 200m, memory: 128Mi }
+  # Override the generated Secret names. Empty -> the chart's release-scoped names.
+  contourSecretName: ""
+  envoySecretName: ""
+
+# The IngressClass this controller claims. Contour with no configured class matches
+# objects that carry the class "contour" or no class at all, which is what an empty
+# name selects here. Set a name to run several Contours side by side; the object is
+# cluster-scoped, so the name must be unique across the cluster.
+ingressClass:
+  create: true
+  name: ""
+  # Mark it the cluster's default IngressClass.
+  default: false
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # Contour talks to the API server, so its pods need a token.
+  automountServiceAccountToken: true
+
+# The controller watches cluster-wide and writes status subresources; it cannot work
+# without RBAC. Disable only to supply your own ClusterRole out of band.
+rbac:
+  create: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+# These apply to the Contour Deployment. The Envoy DaemonSet takes its scheduling
+# from envoy.nodeSelector / envoy.tolerations above.
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 50%
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+commonLabels: {}
+commonAnnotations: {}
+selectorLabels: {}

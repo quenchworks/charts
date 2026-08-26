@@ -1,0 +1,19 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+{{/* Guards the control plane only. The Envoy DaemonSet is one pod per node and is
+     drained by the shutdown-manager, not by an eviction budget. */}}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "contour.componentLabels" (dict "ctx" . "component" "contour") | nindent 4 }}
+spec:
+  {{- if .Values.podDisruptionBudget.maxUnavailable }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable }}
+  {{- else }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable | default 1 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "contour.componentSelectorLabels" (dict "ctx" . "component" "contour") | nindent 6 }}
+{{- end }}

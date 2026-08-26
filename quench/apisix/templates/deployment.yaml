@@ -1,0 +1,162 @@
+{{/* The control API answers /v1/healthcheck with 200 once the Lua stack is up. The
+     proxy port is deliberately NOT used: with no route matching "/" APISIX answers
+     404 there, which an httpGet probe reads as failure, and a tcpSocket probe on it
+     would pass while the gateway is broken. */}}
+{{- $handler := dict "httpGet" (dict "path" "/v1/healthcheck" "port" "control") -}}
+{{- $liveness := merge (dict "initialDelaySeconds" 15 "periodSeconds" 20 "failureThreshold" 6) (deepCopy $handler) -}}
+{{- $readiness := merge (dict "initialDelaySeconds" 5 "periodSeconds" 10 "failureThreshold" 6) (deepCopy $handler) -}}
+{{- $etcdHosts := include "apisix.etcdHosts" . | fromJsonArray -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Roll the pods when the rendered config.yaml changes; APISIX only reads it
+        # at startup.
+        checksum/config: {{ include "apisix.configYaml" . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "apisix.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        # `apisix init_etcd` talks to etcd before the gateway starts and exits when
+        # it cannot, so without this the pod CrashLoopBackOffs its way through the
+        # store's own startup. Helm installs Deployments before StatefulSets, so on
+        # a fresh install etcd is always the later of the two.
+        - name: wait-for-etcd
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          # bash, not a network tool: this image ships no curl/wget, but bash's
+          # /dev/tcp is a real TCP connect.
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -u
+              {{- range $etcdHosts }}
+              {{- $hp := . | trimPrefix "http://" | trimPrefix "https://" | trimSuffix "/" }}
+              host="{{ (splitList ":" $hp) | first }}"
+              port="{{ (splitList ":" $hp) | last }}"
+              until (exec 3<>"/dev/tcp/$host/$port") 2>/dev/null; do
+                echo "waiting for etcd at $host:$port"
+                sleep 2
+              done
+              exec 3>&-
+              echo "etcd at $host:$port is accepting connections"
+              {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: apisix
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- include "quench-common.args" . | nindent 10 }}
+          env:
+            # The image is standalone (file-driven) by default; "false" is what makes
+            # the entrypoint also run `apisix init_etcd` for the etcd-backed topology.
+            - name: APISIX_STAND_ALONE
+              value: "false"
+            {{- if .Values.admin.enabled }}
+            # config.yaml carries ${{ "{{" }}APISIX_ADMIN_KEY{{ "}}" }}, which APISIX interpolates from
+            # the environment, so the key never lands in a ConfigMap.
+            - name: APISIX_ADMIN_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "apisix.adminSecretName" . }}
+                  key: {{ include "apisix.adminSecretKey" . }}
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.containerPorts.http }}
+              protocol: TCP
+            {{- if .Values.tls.enabled }}
+            - name: https
+              containerPort: {{ .Values.containerPorts.https }}
+              protocol: TCP
+            {{- end }}
+            {{- if .Values.admin.enabled }}
+            - name: admin
+              containerPort: {{ .Values.containerPorts.admin }}
+              protocol: TCP
+            {{- end }}
+            - name: control
+              containerPort: {{ .Values.containerPorts.control }}
+              protocol: TCP
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.containerPorts.metrics }}
+              protocol: TCP
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # conf/ and logs/ ship EMPTY on purpose and are the only two writable
+            # paths APISIX needs: `apisix init` regenerates conf/nginx.conf on every
+            # start, and logs/ holds the error log plus the worker_events sockets.
+            - name: conf
+              mountPath: /usr/local/apisix/conf
+            - name: logs
+              mountPath: /usr/local/apisix/logs
+            # nginx's five temp paths are pointed here by config.yaml, because the
+            # rootfs is read-only.
+            - name: tmp
+              mountPath: /tmp
+            # Mounted INSIDE the conf emptyDir: kubelet mounts the shorter path
+            # first, so this file lands on top and the entrypoint's `cp -rn` leaves
+            # it alone while filling in the rest of conf/ from conf.default/.
+            - name: config
+              mountPath: /usr/local/apisix/conf/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: conf
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: {{ include "apisix.configMapName" . }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

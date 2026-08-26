@@ -1,0 +1,101 @@
+apiVersion: v2
+name: envoy-gateway
+description: "Envoy Gateway, the CNCF Gateway API control plane that provisions and configures fleets of Envoy proxies from GatewayClass/Gateway/HTTPRoute and its own gateway.envoyproxy.io policy CRDs. Hardened by QuenchWorks as a minimal, nonroot, 0-CVE image, cosign-signed and pinned by digest. Ships only Envoy Gateway's own CRDs -- the Gateway API CRDs are owned by the separate quench gateway-api-crds chart and must be installed first."
+type: application
+version: 0.0.1
+appVersion: "1.9.0"
+kubeVersion: ">=1.29.0-0"
+keywords:
+  - envoy-gateway
+  - envoy
+  - gateway-api
+  - ingress
+  - api-gateway
+  - control-plane
+  - networking
+  - proxy
+maintainers:
+  - name: QuenchWorks
+    email: info@quench-works.com
+    url: https://github.com/quenchworks
+icon: https://raw.githubusercontent.com/quenchworks/.github/main/profile/assets/chart-icon.png
+home: https://quench-works.com
+sources:
+  - https://github.com/quenchworks/charts
+  - https://github.com/envoyproxy/gateway
+annotations:
+  artifacthub.io/category: networking
+  artifacthub.io/changes: |
+    - kind: added
+      description: "First release: the Envoy Gateway 1.9.0 control plane as a single Deployment running `envoy-gateway server --config-path=/config/envoy-gateway.yaml`, on the QuenchWorks 0-CVE image pinned by digest. Nonroot (uid 1001), read-only root filesystem, all capabilities dropped, with an emptyDir over /var/lib/eg/wasm for the Wasm module cache."
+    - kind: added
+      description: "Ships Envoy Gateway's own eight gateway.envoyproxy.io CRDs (Backend, BackendTrafficPolicy, ClientTrafficPolicy, EnvoyExtensionPolicy, EnvoyPatchPolicy, EnvoyProxy, HTTPRouteFilter, SecurityPolicy) vendored byte for byte from the upstream v1.9.0 gateway-crds-helm chart. They live in crds/ rather than templates/ because the bundle is 2.5 MiB of source: as templates it renders into the Helm release Secret twice and blows the 1 MiB Secret ceiling (measured ~1.10 MiB stored versus 1002 KiB from crds/, against a 1 MiB ceiling). The Gateway API CRDs are NOT bundled -- the quench gateway-api-crds chart owns those cluster-scoped singletons and must be installed first."
+    - kind: added
+      description: "A pre-install/pre-upgrade `envoy-gateway certgen` Job mints the control-plane xDS CA and serving certificates into the `envoy-gateway` Secret, which both the controller and every provisioned Envoy proxy mount for mTLS. Because certgen hard-codes the SAN `envoy-gateway.<namespace>.svc.<domain>`, the Service this chart creates is named `envoy-gateway` regardless of release name; everything else is release-prefixed as usual."
+    - kind: added
+      description: "The managed Envoy data plane and the shutdown-manager sidecar default to QuenchWorks images pinned by digest (envoy 1.38.1 and this chart's own envoy-gateway image), written into the EnvoyGateway config as provider.kubernetes.envoyDeployment.container.image and provider.kubernetes.shutdownManager.image. Set envoyProxy.image.digest to \"\" to fall back to the upstream image compiled into Envoy Gateway."
+    - kind: added
+      description: "The proxy topology injector is disabled by default. It is an optional zone-affinity optimisation that would otherwise require a cluster-wide MutatingWebhookConfiguration on pod creation; leaving it off keeps the install to one Deployment, one Service and one Job with no admission webhook in the request path."
+  artifacthub.io/images: |
+    - name: envoy-gateway
+      image: ghcr.io/quenchworks/images/envoy-gateway@sha256:1543e1b67da2a8a3322978ca4ecdb9ba56e24d7a91f6582ad0e3d8fd8530433c
+    - name: envoy
+      image: ghcr.io/quenchworks/images/envoy@sha256:99cf0132c2d9521d564329f78512f5ba521d8e147a824bf64f3c27352efbc0af
+  artifacthub.io/crds: |
+    - kind: EnvoyProxy
+      version: v1alpha1
+      name: envoyproxies.gateway.envoyproxy.io
+      displayName: EnvoyProxy
+      description: Infrastructure and bootstrap settings for the Envoy fleet a GatewayClass or Gateway provisions.
+    - kind: EnvoyPatchPolicy
+      version: v1alpha1
+      name: envoypatchpolicies.gateway.envoyproxy.io
+      displayName: EnvoyPatchPolicy
+      description: JSON patches applied to the generated xDS configuration, for settings with no first-class API.
+    - kind: ClientTrafficPolicy
+      version: v1alpha1
+      name: clienttrafficpolicies.gateway.envoyproxy.io
+      displayName: ClientTrafficPolicy
+      description: Downstream connection behaviour for a Gateway -- TLS parameters, keep-alives, proxy protocol, client IP detection.
+    - kind: BackendTrafficPolicy
+      version: v1alpha1
+      name: backendtrafficpolicies.gateway.envoyproxy.io
+      displayName: BackendTrafficPolicy
+      description: Upstream behaviour for a route or Gateway -- load balancing, circuit breaking, retries, rate limiting, health checks.
+    - kind: SecurityPolicy
+      version: v1alpha1
+      name: securitypolicies.gateway.envoyproxy.io
+      displayName: SecurityPolicy
+      description: Authentication and authorization for a route or Gateway -- JWT, OIDC, API keys, basic auth, CORS, external authz.
+    - kind: EnvoyExtensionPolicy
+      version: v1alpha1
+      name: envoyextensionpolicies.gateway.envoyproxy.io
+      displayName: EnvoyExtensionPolicy
+      description: Wasm modules and external processing extensions attached to a route or Gateway.
+    - kind: Backend
+      version: v1alpha1
+      name: backends.gateway.envoyproxy.io
+      displayName: Backend
+      description: A routing destination outside the cluster -- fixed IPs, hostnames or Unix sockets -- usable as a route backendRef.
+    - kind: HTTPRouteFilter
+      version: v1alpha1
+      name: httproutefilters.gateway.envoyproxy.io
+      displayName: HTTPRouteFilter
+      description: Envoy Gateway specific HTTPRoute filters, such as URL rewrites and direct responses, referenced as an extensionRef.
+  artifacthub.io/operator: "true"
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/quenchworks/charts
+    - name: image
+      url: https://github.com/quenchworks/images
+    - name: upstream
+      url: https://github.com/envoyproxy/gateway
+  artifacthub.io/signKey: |
+    fingerprint: keyless (cosign / Sigstore)
+    url: https://github.com/quenchworks/.github/blob/main/SECURITY.md
+dependencies:
+  - name: quench-common
+    version: 0.0.8
+    repository: oci://ghcr.io/quenchworks/charts

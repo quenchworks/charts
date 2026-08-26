@@ -1,0 +1,203 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/apisix
+  digest: "sha256:2b242df1ab22aa04f193a55d28cdb949421d8b8c8ce42012a85ca43a9b790ab8"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# APISIX keeps every route, upstream and plugin config in etcd, so the gateway
+# pods hold no state of their own: this is a Deployment and it scales
+# horizontally. All replicas watch the same etcd prefix.
+replicaCount: 1
+
+# Bundled control-plane store (the quench/etcd chart, pulled in as a subchart).
+# Any key under here is passed straight through to it -- replicaCount 3 is its own
+# default and gives you a real Raft quorum; 1 is fine for a dev install.
+# Set enabled=false and fill in etcdClient.hosts to use an existing cluster.
+etcd:
+  enabled: true
+
+# How APISIX talks to etcd. prefix and timeout apply to the bundled cluster too.
+etcdClient:
+  # Full client URLs of an EXISTING etcd, e.g. ["http://etcd.example.com:2379"].
+  # Required when etcd.enabled=false; ignored while the bundled chart is on.
+  hosts: []
+  # Key prefix APISIX owns inside etcd.
+  prefix: /apisix
+  # Seconds APISIX waits on an etcd call.
+  timeout: 30
+
+# Admin API (the REST interface that writes routes/upstreams into etcd).
+admin:
+  enabled: true
+  # CIDRs allowed to call it. The Service is ClusterIP, so this is the
+  # in-cluster pod range; narrow it if you expose the port beyond the cluster.
+  allowAdmin:
+    - 0.0.0.0/0
+  # The X-API-KEY value. Leave empty and the chart generates a random 32-character
+  # key at install time and re-reads it from its own Secret on every upgrade, so it
+  # is stable. Read it with:
+  #   kubectl get secret <release>-apisix-admin -o jsonpath='{.data.admin-key}' | base64 -d
+  key: ""
+  # Use a Secret you manage instead. It must hold the key under existingSecretKey.
+  existingSecret: ""
+  existingSecretKey: admin-key
+
+# HTTPS on the proxy port. Off by default: APISIX serves TLS from certificates
+# stored in etcd (Admin API /apisix/admin/ssls), so turning this on without
+# loading any certificate would open a listener that can only fail a handshake.
+tls:
+  enabled: false
+
+# Prometheus. APISIX exports on its own address, separate from the proxy port.
+# The endpoint is /apisix/prometheus/metrics.
+metrics:
+  enabled: true
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+
+# Container ports. These are APISIX's own defaults and all sit above 1024, so the
+# nonroot user binds them with no capability granted.
+containerPorts:
+  http: 9080
+  https: 9443
+  admin: 9180
+  # Control API. Always on -- the liveness/readiness probes hit /v1/healthcheck
+  # here, and it is bound to 0.0.0.0 (APISIX defaults it to 127.0.0.1, which a
+  # kubelet probe cannot reach).
+  control: 9090
+  metrics: 9091
+
+# Extra APISIX configuration, deep-merged OVER everything the chart renders (your
+# keys win). This is the escape hatch for anything the values above do not model:
+# plugins lists, discovery, nginx_config tuning, deployment.etcd TLS, ...
+#   config:
+#     extra:
+#       apisix:
+#         enable_ipv6: false
+#       plugin_attr:
+#         log-rotate:
+#           interval: 3600
+config:
+  extra: {}
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  # HTTP proxy (the data plane). Also the port quench-common's Ingress fronts.
+  port: 9080
+  httpsPort: 9443
+  adminPort: 9180
+  metricsPort: 9091
+
+# Optional horizontal autoscaling on CPU.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- APISIX Ingress Controller (optional, OFF by default) -------------------
+#
+# UNVERIFIED IN THIS CHART'S INSTALL GATE. Controller 2.2.0 reconciles the
+# apisix.apache.org CRDs (ApisixRoute, GatewayProxy, ...) and Gateway API v1.6;
+# this chart installs NEITHER bundle, and a cluster-scoped CRD belongs to exactly
+# one owner. Before enabling it, install the CRDs yourself:
+#   * Gateway API: the catalogue's quench/gateway-api-crds chart (v1.6.1)
+#   * APISIX:      config/crd from the apache/apisix-ingress-controller 2.2.0
+#                  source release
+# then create a GatewayProxy pointing at this release's Admin API. Until then the
+# controller will start, fail to establish its watches and never become ready.
+ingressController:
+  enabled: false
+  image:
+    repository: ghcr.io/quenchworks/images/apisix-ingress-controller
+    digest: "sha256:ddde66c228afa4e945716c81f67ad1baa16370540c60f5dc0c2d84dea7166756"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  logLevel: info
+  # How often the controller re-syncs its full state into the data plane.
+  syncPeriod: 1h
+  # Extra controller configuration, deep-merged over what the chart renders.
+  config: {}
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+  containerPorts:
+    probe: 8081
+    metrics: 8080
+  podLabels: {}
+  podAnnotations: {}
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# A gateway exists to be called from outside its own namespace, so ingress is
+# open by default. Set allowExternal=false to restrict it to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Optional Ingress in front of the proxy port (HTTP only). Disabled by default.
+ingress:
+  enabled: false
+  # IngressClass to claim this Ingress. Empty -> the cluster default applies.
+  className: ""
+  annotations: {}
+  # Service port to route to. Unset -> resolved from service.port.
+  servicePort: null
+  # e.g. [{host: api.example.com, paths: [{path: /, pathType: Prefix}]}]
+  hosts: []
+  # Standard Ingress TLS list, e.g. [{hosts: [api.example.com], secretName: api-tls}]
+  tls: []

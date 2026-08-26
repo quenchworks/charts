@@ -1,0 +1,118 @@
+{{/*
+xDS mTLS bootstrap.
+
+Contour and Envoy authenticate each other on the xDS gRPC stream, so both need a
+keypair before either can start. `contour certgen --kube` mints a self-signed CA and
+the two leaf certificates and writes them straight into Secrets -- no files, so it is
+happy on a read-only root filesystem as an unprivileged uid.
+
+It runs as a pre-install/pre-upgrade hook rather than an ordinary Job: Helm finishes
+the hook before it applies the release, so the Deployment and DaemonSet never come up
+into a namespace where their cert Secrets do not exist yet.
+
+By default it does NOT overwrite Secrets that already exist, so the hook mints once on
+install and no-ops on every upgrade. Overwriting would mint a fresh CA each time and
+break the live xDS stream: Envoy watches the SDS descriptor files its bootstrap wrote,
+not the ca.crt they point at, so it keeps trusting the retired CA and every stream fails
+CERTIFICATE_VERIFY_FAILED until the pods are restarted. See xdsTLS.certgen.overwrite.
+
+The hook's own ServiceAccount is separate from Contour's because it is the one identity
+here allowed to write Secrets; it is deleted again once the hook succeeds.
+
+Skipped entirely when xdsTLS.contourSecretName / envoySecretName point at Secrets you
+manage yourself, since certgen only ever names its output "contourcert<suffix>".
+*/}}
+{{- if and .Values.xdsTLS.certgen.enabled (not .Values.xdsTLS.contourSecretName) (not .Values.xdsTLS.envoySecretName) }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "contour.certgenName" . }}
+  labels:
+    {{- include "contour.componentLabels" (dict "ctx" . "component" "certgen") | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "contour.certgenName" . }}
+  labels:
+    {{- include "contour.componentLabels" (dict "ctx" . "component" "certgen") | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-4"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "contour.certgenName" . }}
+  labels:
+    {{- include "contour.componentLabels" (dict "ctx" . "component" "certgen") | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-3"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "contour.certgenName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "contour.certgenName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "contour.certgenName" . }}
+  labels:
+    {{- include "contour.componentLabels" (dict "ctx" . "component" "certgen") | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      labels:
+        {{- include "contour.componentSelectorLabels" (dict "ctx" . "component" "certgen") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "contour.certgenName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: certgen
+          image: {{ include "contour.image" (dict "ctx" . "component" "contour") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{/* The image entrypoint is the bare binary with no default subcommand, so
+               every argument -- including the subcommand -- is passed here. It ships no
+               shell, so this must stay in exec form. */}}
+          args:
+            - "certgen"
+            - "--kube"
+            - "--incluster"
+            {{- if .Values.xdsTLS.certgen.overwrite }}
+            - "--overwrite"
+            {{- end }}
+            - "--secrets-format=compact"
+            - "--namespace={{ .Release.Namespace }}"
+            - "--secrets-name-suffix={{ include "contour.certSecretSuffix" . }}"
+            - "--certificate-lifetime={{ .Values.xdsTLS.certgen.certificateLifetime }}"
+          resources:
+            {{- toYaml .Values.xdsTLS.certgen.resources | nindent 12 }}
+{{- end }}

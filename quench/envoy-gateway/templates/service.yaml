@@ -1,0 +1,38 @@
+{{/*
+Fixed name, on purpose. `envoy-gateway certgen` issues the control-plane
+certificate for the SANs envoy-gateway[.<ns>[.svc[.<domain>]]], and the Envoy
+pods this control plane provisions dial
+envoy-gateway.<ns>.svc.<domain>:{{ .Values.service.xdsPort }} for xDS and verify that name. A
+release-prefixed Service name would leave the whole fleet unable to connect.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: envoy-gateway
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: xds
+      port: {{ .Values.service.xdsPort }}
+      targetPort: xds
+      protocol: TCP
+    - name: ratelimit
+      port: {{ .Values.service.ratelimitPort }}
+      targetPort: ratelimit
+      protocol: TCP
+    - name: wasm
+      port: {{ .Values.service.wasmPort }}
+      targetPort: wasm
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.service.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

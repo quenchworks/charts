@@ -1,0 +1,137 @@
+{{/*
+The Contour control plane.
+
+/healthz on the health port answers as soon as the process is serving, so it is the
+liveness signal; readiness is a TCP connect to the xDS port, because "ready" here means
+"an Envoy could actually open a stream", which an HTTP health check does not prove.
+*/}}
+{{- $liveness := dict "httpGet" (dict "path" "/healthz" "port" "metrics") "initialDelaySeconds" 15 "periodSeconds" 10 -}}
+{{- $readiness := dict "tcpSocket" (dict "port" "xds") "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "contour.componentLabels" (dict "ctx" . "component" "contour") | nindent 4 }}
+spec:
+  replicas: {{ .Values.contour.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "contour.componentSelectorLabels" (dict "ctx" . "component" "contour") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "contour.componentSelectorLabels" (dict "ctx" . "component" "contour") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "contour.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: contour
+          image: {{ include "contour.image" (dict "ctx" . "component" "contour") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{/* The image entrypoint is the bare binary with no default subcommand, so
+               `serve` is supplied here. The image ships no shell: exec form only. */}}
+          args:
+            - "serve"
+            - "--incluster"
+            - "--xds-address=0.0.0.0"
+            - "--xds-port=8001"
+            - "--contour-cafile=/certs/ca.crt"
+            - "--contour-cert-file=/certs/tls.crt"
+            - "--contour-key-file=/certs/tls.key"
+            - "--config-path=/config/contour.yaml"
+            {{/* Contour reads this Service's status to fill in the address it reports
+                 on every Ingress/HTTPProxy it programs.
+
+                 Do NOT add --envoy-service-http-port here. Despite the name, it sets the
+                 port Envoy's own listener BINDS, not the Service port: passing the
+                 Service's 80/443 moved the data plane onto :80/:443 inside the pod,
+                 where nothing matched the 8080/8443 containerPorts the Service targets.
+                 The listener ports stay at Envoy's defaults; the Service maps to them. */}}
+            {{- if .Values.envoy.enabled }}
+            - "--envoy-service-name={{ include "contour.envoyName" . }}"
+            - "--envoy-service-namespace=$(CONTOUR_NAMESPACE)"
+            {{- end }}
+            {{/* Both are release-scoped so parallel installs never contend for one
+                 lease, and namespaced so the lease lives where the RoleBinding is. */}}
+            - "--leader-election-resource-name={{ include "quench-common.fullname" . }}"
+            - "--leader-election-resource-namespace=$(CONTOUR_NAMESPACE)"
+            - "--log-format={{ .Values.contour.logFormat }}"
+            {{- if .Values.contour.debug }}
+            - "--debug"
+            {{- end }}
+            {{- with .Values.ingressClass.name }}
+            - "--ingress-class-name={{ . }}"
+            {{- end }}
+            {{- with .Values.contour.watchNamespaces }}
+            - "--watch-namespaces={{ join "," . }}"
+            {{- end }}
+            {{- with .Values.contour.rootNamespaces }}
+            - "--root-namespaces={{ join "," . }}"
+            {{- end }}
+            {{- range .Values.contour.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: CONTOUR_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: xds
+              containerPort: 8001
+              protocol: TCP
+            - name: metrics
+              containerPort: 8000
+              protocol: TCP
+            - name: debug
+              containerPort: 6060
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.contour.resources | nindent 12 }}
+          volumeMounts:
+            - name: contourcert
+              mountPath: /certs
+              readOnly: true
+            - name: config
+              mountPath: /config
+              readOnly: true
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: contourcert
+          secret:
+            secretName: {{ include "contour.contourCertSecretName" . }}
+        - name: config
+          configMap:
+            name: {{ include "contour.configMapName" . }}
+            items:
+              - key: contour.yaml
+                path: contour.yaml
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

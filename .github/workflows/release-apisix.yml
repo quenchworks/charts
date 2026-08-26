@@ -1,0 +1,117 @@
+name: release-apisix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/apisix/**"
+      - ".github/workflows/release-apisix.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/apisix
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          kubectl rollout status deployment/rtest-apisix --timeout=300s
+
+          # A real upstream to route to. Ready before APISIX is asked to reach it.
+          kubectl create deployment gate-upstream --image=nginx:alpine
+          kubectl expose deployment gate-upstream --port=80
+          kubectl wait --for=condition=available deploy/gate-upstream --timeout=300s
+
+          key="$(kubectl get secret rtest-apisix-admin -o jsonpath='{.data.admin-key}' | base64 -d)"
+          test -n "$key"
+
+          # The runtime image ships no HTTP client, so drive both ports from a
+          # curl pod inside the cluster.
+          kubectl run gate-client --image=curlimages/curl:latest --restart=Never --command -- sleep 900
+          kubectl wait --for=condition=ready pod/gate-client --timeout=300s
+          k() { kubectl exec gate-client -- "$@"; }
+
+          # 1. Admin API writes the route into etcd.
+          k curl -fsS -X PUT "http://rtest-apisix:9180/apisix/admin/routes/1" \
+            -H "X-API-KEY: ${key}" \
+            -d '{"uri":"/get","plugins":{"proxy-rewrite":{"uri":"/"}},"upstream":{"type":"roundrobin","nodes":{"gate-upstream:80":1}}}'
+
+          # 2. The DATA PLANE actually routes it. A 404 here means routing is
+          #    broken, so assert the upstream's own body, not just a status code.
+          for i in $(seq 1 30); do
+            body="$(k curl -sS http://rtest-apisix:9080/get || true)"
+            case "$body" in *"Welcome to nginx"*) break ;; esac
+            sleep 2
+          done
+          case "$body" in
+            *"Welcome to nginx"*) echo "proxy round trip OK" ;;
+            *) echo "FAIL: the data plane did not route to the upstream: ${body:0:200}"
+               kubectl logs deployment/rtest-apisix --tail=50; exit 1 ;;
+          esac
+
+          # 3. The Admin API is really key-protected.
+          code="$(k curl -sS -o /dev/null -w '%{http_code}' -H 'X-API-KEY: wrong' http://rtest-apisix:9180/apisix/admin/routes)"
+          test "$code" = "401" || { echo "FAIL: a bad admin key returned ${code}, not 401"; exit 1; }
+
+          # 4. Nothing crash-looped on the way here.
+          restarts="$(kubectl get pods -o jsonpath='{range .items[*]}{.status.containerStatuses[*].restartCount}{"\n"}{end}' | tr -d '\n' | tr -s ' ')"
+          case "$restarts" in *[1-9]*) kubectl get pods; echo "FAIL: a container restarted"; exit 1 ;; esac
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/apisix-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/apisix@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/apisix:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

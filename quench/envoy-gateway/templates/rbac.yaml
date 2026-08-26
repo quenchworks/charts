@@ -1,0 +1,183 @@
+{{- if .Values.rbac.create }}
+{{- /*
+Clean-room RBAC, authored from Envoy Gateway's documented API needs.
+
+Two roles, split by what they do rather than by component -- there is only one
+component:
+
+  * ClusterRole  the WATCH surface. The controller reads Gateway API and
+                 gateway.envoyproxy.io objects from every namespace and writes
+                 their status, and reads nodes/namespaces to compute addresses
+                 and namespace selectors. Cluster-wide because a Gateway or a
+                 route may live anywhere. Narrow it by setting
+                 config.provider.kubernetes.watch and binding your own Roles.
+  * Role         the WRITE surface, and it is namespaced deliberately: the Envoy
+                 Deployments, Services, ServiceAccounts, ConfigMaps, HPAs and
+                 PDBs the controller provisions are all created in ITS OWN
+                 namespace, so nothing here grants workload creation anywhere
+                 else. Leader election (Lease/ConfigMap) and Event emission are
+                 in the same namespace and live here too.
+
+Gateway-namespace-mode -- provisioning each Envoy fleet into its Gateway's own
+namespace -- would need these write rules cluster-wide. It is not the default and
+this chart does not grant it; bind an equivalent ClusterRole yourself if you turn
+it on.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  # Referenced by routes and policies: backing Services, EndpointSlices, TLS and
+  # auth Secrets, and ConfigMaps holding CA bundles.
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets", "services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  # Node addresses (NodePort Gateway addresses) and namespace labels (route
+  # attachment via namespace selectors).
+  - apiGroups: [""]
+    resources: ["nodes", "namespaces"]
+    verbs: ["get", "list", "watch"]
+  # Observe the workloads it provisions, to reconcile drift.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets"]
+    verbs: ["get", "list", "watch"]
+  # Gateway API: GatewayClass is cluster-scoped and is also PATCHED, because the
+  # controller sets the finalizer that stops a class being deleted out from under
+  # live Gateways.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gatewayclasses"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gatewayclasses/status"]
+    verbs: ["update"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources:
+      - "gateways"
+      - "listenersets"
+      - "httproutes"
+      - "grpcroutes"
+      - "tcproutes"
+      - "tlsroutes"
+      - "udproutes"
+      - "backendtlspolicies"
+      - "referencegrants"
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources:
+      - "gateways/status"
+      - "listenersets/status"
+      - "httproutes/status"
+      - "grpcroutes/status"
+      - "tcproutes/status"
+      - "tlsroutes/status"
+      - "udproutes/status"
+      - "backendtlspolicies/status"
+    verbs: ["update"]
+  # Envoy Gateway's own extension APIs, shipped as CRDs by this chart.
+  - apiGroups: ["gateway.envoyproxy.io"]
+    resources:
+      - "envoyproxies"
+      - "envoypatchpolicies"
+      - "clienttrafficpolicies"
+      - "backendtrafficpolicies"
+      - "securitypolicies"
+      - "envoyextensionpolicies"
+      - "backends"
+      - "httproutefilters"
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["gateway.envoyproxy.io"]
+    resources:
+      - "envoyproxies/status"
+      - "envoypatchpolicies/status"
+      - "clienttrafficpolicies/status"
+      - "backendtrafficpolicies/status"
+      - "securitypolicies/status"
+      - "envoyextensionpolicies/status"
+      - "backends/status"
+    verbs: ["update"]
+  # Multi-cluster Services, usable as a route backendRef where the MCS API is
+  # installed. Harmless when the CRD is absent.
+  - apiGroups: ["multicluster.x-k8s.io"]
+    resources: ["serviceimports"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  {{/* Cluster-scoped names are global, so the binding carries the namespace:
+       two releases in different namespaces must not fight over one object. */}}
+  name: {{ printf "%s-%s" (include "quench-common.fullname" .) .Release.Namespace | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  # The Envoy fleet: one Deployment (or DaemonSet), Service, ServiceAccount and
+  # bootstrap ConfigMap per Gateway, plus optional HPA and PDB. deletecollection
+  # is how the controller garbage-collects the resources of a deleted Gateway.
+  - apiGroups: [""]
+    resources: ["serviceaccounts", "services", "configmaps"]
+    verbs: ["create", "get", "list", "watch", "patch", "delete", "deletecollection"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets"]
+    verbs: ["create", "get", "list", "watch", "patch", "delete", "deletecollection"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["create", "get", "list", "watch", "patch", "delete", "deletecollection"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["create", "get", "list", "watch", "patch", "delete", "deletecollection"]
+  # Cluster trust bundles, for validating upstream TLS against a cluster CA.
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["clustertrustbundles"]
+    verbs: ["get", "list", "watch"]
+  # Validates the projected token an Envoy pod presents when fetching its xDS
+  # certificate over SDS.
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  # Leader election among control-plane replicas.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

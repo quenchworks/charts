@@ -1,0 +1,104 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/blackbox-exporter
+  digest: "sha256:07a5a2e032ae4e5136432d945ab5e6048fd3b1fa5c955e356dd7fcc5f5a304f0"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The exporter holds no state: it probes targets on demand and answers over HTTP,
+# so this is a plain Deployment behind a ClusterIP Service.
+replicaCount: 1
+
+# Port the exporter listens on inside the container.
+containerPort: 9115
+
+# Blackbox exporter configuration (the `modules:` document).
+#
+# Left empty, the container uses the minimal blackbox.yml the image ships (one
+# `http_2xx` module), so the chart is bootable with no configuration at all. Set
+# config.yaml to a full modules document to replace it -- it is written to a
+# ConfigMap and mounted at /config/blackbox.yml. Point config.existingConfigMap at
+# an externally-managed ConfigMap (key `blackbox.yml`) to use that instead.
+config:
+  yaml: ""
+  existingConfigMap: ""
+extraArgs: []
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: 250m, memory: 128Mi }
+
+service:
+  type: ClusterIP
+  # Prometheus scrapes /probe and /metrics on this port.
+  port: 9115
+
+# Optional horizontal autoscaling on CPU.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Prometheus commonly scrapes this from another namespace, so allow external
+# ingress by default. Set allowExternal=false to restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Optional Ingress (HTTP only). Disabled by default, so enabling it is an explicit
+# operator decision and this chart's behaviour is unchanged until then.
+ingress:
+  enabled: false
+  # IngressClass to claim this Ingress. Empty -> the cluster default applies.
+  className: ""
+  annotations: {}
+  # Service port to route to. Unset -> resolved from service.port, then
+  # service.ports.http / .https.
+  servicePort: null
+  # e.g. [{host: app.example.com, paths: [{path: /, pathType: Prefix}]}]
+  # `paths` may be omitted for the common "/" Prefix case.
+  hosts: []
+  # Standard Ingress TLS list, e.g. [{hosts: [app.example.com], secretName: app-tls}]
+  tls: []

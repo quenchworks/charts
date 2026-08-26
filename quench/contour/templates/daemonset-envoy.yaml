@@ -1,0 +1,187 @@
+{{- if .Values.envoy.enabled }}
+{{/*
+The Envoy data plane, one pod per node.
+
+Envoy ships with no configuration of its own here. The `envoy-initconfig` initContainer
+runs `contour bootstrap` from the SAME contour image -- an entirely offline code path --
+to write the bootstrap document and the two SDS resource files into a shared emptyDir;
+everything after that arrives over xDS from Contour.
+
+Three things this pod needs that are easy to get wrong:
+
+  * /admin is an emptyDir shared with the shutdown-manager, because Envoy's admin
+    interface is a unix socket, not a port. Both containers must see the same file.
+  * The root filesystem is read-only, so /config and /admin are the only writable paths
+    and they are volumes.
+  * Envoy's preStop is an HTTP call INTO the shutdown-manager sidecar, not an exec:
+    the Envoy image ships no shell and no contour binary. The sidecar then drains
+    Envoy over the admin socket and only then lets the pod die, which is also why the
+    termination grace period is minutes rather than seconds.
+*/}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "contour.envoyName" . }}
+  labels:
+    {{- include "contour.componentLabels" (dict "ctx" . "component" "envoy") | nindent 4 }}
+spec:
+  {{- with .Values.envoy.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "contour.componentSelectorLabels" (dict "ctx" . "component" "envoy") | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "contour.componentSelectorLabels" (dict "ctx" . "component" "envoy") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "contour.serviceAccountName" . }}
+      {{/* Envoy never calls the API server; Contour feeds it everything over xDS. */}}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.envoy.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      {{- with .Values.envoy.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.envoy.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      initContainers:
+        - name: envoy-initconfig
+          image: {{ include "contour.image" (dict "ctx" . "component" "contour") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - "bootstrap"
+            - "/config/envoy.json"
+            - "--xds-address={{ include "quench-common.fullname" . }}"
+            - "--xds-port={{ .Values.contour.service.port }}"
+            - "--xds-resource-version=v3"
+            - "--resources-dir=/config/resources"
+            - "--envoy-cafile=/certs/ca.crt"
+            - "--envoy-cert-file=/certs/tls.crt"
+            - "--envoy-key-file=/certs/tls.key"
+          env:
+            - name: CONTOUR_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            {{- toYaml .Values.envoy.shutdownManager.resources | nindent 12 }}
+          volumeMounts:
+            - name: envoy-config
+              mountPath: /config
+            - name: envoycert
+              mountPath: /certs
+              readOnly: true
+      containers:
+        - name: shutdown-manager
+          image: {{ include "contour.image" (dict "ctx" . "component" "contour") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args: ["envoy", "shutdown-manager"]
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/usr/bin/contour", "envoy", "shutdown"]
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8090
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.envoy.shutdownManager.resources | nindent 12 }}
+          volumeMounts:
+            - name: envoy-admin
+              mountPath: /admin
+        - name: envoy
+          image: {{ include "contour.image" (dict "ctx" . "component" "envoy") }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - "-c"
+            - "/config/envoy.json"
+            - "--service-cluster"
+            - "$(CONTOUR_NAMESPACE)"
+            - "--service-node"
+            - "$(ENVOY_POD_NAME)"
+            - "--log-level"
+            - {{ .Values.envoy.logLevel | quote }}
+            {{- range .Values.envoy.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: CONTOUR_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: ENVOY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+              {{- if .Values.envoy.hostPorts.enabled }}
+              hostPort: {{ .Values.envoy.hostPorts.http }}
+              {{- end }}
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+              {{- if .Values.envoy.hostPorts.enabled }}
+              hostPort: {{ .Values.envoy.hostPorts.https }}
+              {{- end }}
+            - name: metrics
+              containerPort: 8002
+              protocol: TCP
+          {{/* /ready is served by the static stats listener the bootstrap document
+               declares, so it answers before the first xDS response arrives. */}}
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: 3
+            periodSeconds: 4
+          lifecycle:
+            preStop:
+              httpGet:
+                path: /shutdown
+                port: 8090
+                scheme: HTTP
+          resources:
+            {{- toYaml .Values.envoy.resources | nindent 12 }}
+          volumeMounts:
+            - name: envoy-config
+              mountPath: /config
+              readOnly: true
+            - name: envoycert
+              mountPath: /certs
+              readOnly: true
+            - name: envoy-admin
+              mountPath: /admin
+      volumes:
+        - name: envoy-config
+          emptyDir: {}
+        - name: envoy-admin
+          emptyDir: {}
+        - name: envoycert
+          secret:
+            secretName: {{ include "contour.envoyCertSecretName" . }}
+{{- end }}

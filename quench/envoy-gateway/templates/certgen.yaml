@@ -1,0 +1,111 @@
+{{- if .Values.certgen.enabled }}
+{{- /*
+`envoy-gateway certgen` mints the xDS CA, the control-plane serving certificate
+and the Envoy client certificate into the Secret named
+.Values.certgen.secretName. The controller mounts it at /certs and refuses to
+serve xDS without it, so this has to run BEFORE the Deployment -- hence a
+pre-install/pre-upgrade hook, with its ServiceAccount and Role at a lower weight
+so they exist when the Job's pod starts.
+
+The Job creates the Secret but does not own it: it never overwrites an existing
+one, which is what makes "bring your own PKI" work -- pre-create the Secret and
+certgen leaves it alone. The flip side is that `helm uninstall` leaves the Secret
+behind. That is deliberate too; deleting it would invalidate the certificates of
+every Envoy pod still running.
+
+--disable-topology-injector is passed because this chart installs no
+MutatingWebhookConfiguration; without the flag certgen fails looking for one.
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "quench-common.fullname" . }}-certgen
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "quench-common.fullname" . }}-certgen
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}-certgen
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "quench-common.fullname" . }}-certgen
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.fullname" . }}-certgen
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "quench-common.fullname" . }}-certgen
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 1
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: {{ .Values.certgen.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: certgen
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "quench-common.fullname" . }}-certgen
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: certgen
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/envoy-gateway"]
+          args:
+            - "certgen"
+            - "--disable-topology-injector"
+          env:
+            - name: ENVOY_GATEWAY_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  apiVersion: v1
+                  fieldPath: metadata.namespace
+            - name: KUBERNETES_CLUSTER_DOMAIN
+              value: {{ .Values.kubernetesClusterDomain | quote }}
+          resources:
+            {{- toYaml .Values.certgen.resources | nindent 12 }}
+{{- end }}

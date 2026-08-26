@@ -1,0 +1,41 @@
+Quenchworks KrakenD is installed as {{ include "quench-common.fullname" . }}.
+
+Reach the gateway from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Port-forward it to your workstation:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  curl http://127.0.0.1:8080/__health          # -> {"status":"ok",...}
+{{- if not .Values.existingConfigMap }}
+{{- range .Values.config.endpoints }}
+  curl http://127.0.0.1:8080{{ .endpoint }}
+{{- end }}
+{{- end }}
+
+{{ if .Values.existingConfigMap -}}
+Config: existing ConfigMap "{{ .Values.existingConfigMap }}" (key
+{{ .Values.existingConfigMapKey }}), projected to /etc/krakend/krakend.json.
+{{- else -}}
+Config: rendered from `config` into ConfigMap "{{ include "krakend.configMapName" . }}"
+and mounted at /etc/krakend/krakend.json. The shipped `endpoints` list is a
+working SAMPLE that proxies the gateway's own /__health so a default install is
+bootable with no upstream; replace it with your own routes. `port` is always
+taken from containerPort ({{ .Values.containerPort }}), never from `config`.
+
+Validate a config before rolling it out:
+
+  krakend check -c krakend.json
+{{- end }}
+
+KrakenD reads its config once at boot. The pod template carries a checksum of
+the rendered config, so `helm upgrade` restarts the pods on any config change.
+
+The image is nonroot (uid 1001) and runs on a read-only root filesystem with no
+writable volumes -- KrakenD writes nothing at runtime. It is pinned by digest
+and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

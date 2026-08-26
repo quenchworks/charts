@@ -1,0 +1,44 @@
+{{- if .Values.envoy.enabled }}
+{{/* The front door: this is the Service whose address Contour publishes into the
+     status of every Ingress and HTTPProxy it programs. */}}
+{{- $svc := .Values.envoy.service -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "contour.envoyName" . }}
+  labels:
+    {{- include "contour.componentLabels" (dict "ctx" . "component" "envoy") | nindent 4 }}
+  {{- with $svc.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $svc.type }}
+  {{- if and $svc.externalTrafficPolicy (ne (toString $svc.type) "ClusterIP") }}
+  externalTrafficPolicy: {{ $svc.externalTrafficPolicy }}
+  {{- end }}
+  {{- with $svc.loadBalancerIP }}
+  loadBalancerIP: {{ . }}
+  {{- end }}
+  {{- with $svc.loadBalancerSourceRanges }}
+  loadBalancerSourceRanges:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  ports:
+    - name: http
+      port: {{ $svc.httpPort }}
+      targetPort: http
+      protocol: TCP
+      {{- if and $svc.httpNodePort (eq (toString $svc.type) "NodePort") }}
+      nodePort: {{ $svc.httpNodePort }}
+      {{- end }}
+    - name: https
+      port: {{ $svc.httpsPort }}
+      targetPort: https
+      protocol: TCP
+      {{- if and $svc.httpsNodePort (eq (toString $svc.type) "NodePort") }}
+      nodePort: {{ $svc.httpsNodePort }}
+      {{- end }}
+  selector:
+    {{- include "contour.componentSelectorLabels" (dict "ctx" . "component" "envoy") | nindent 4 }}
+{{- end }}

@@ -1,0 +1,25 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+replicaCount: 1
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+# Single-node etcd with no PVC: a kind node has no default StorageClass worth
+# waiting on, and the gate only needs a working control-plane store.
+etcd:
+  replicaCount: 1
+  persistence:
+    enabled: false
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+  podDisruptionBudget:
+    enabled: false
+
+# A fixed key so the gate can call the Admin API without reading the Secret back.
+admin:
+  key: "gate-admin-key-0123456789abcdef"
+
+podDisruptionBudget:
+  enabled: false

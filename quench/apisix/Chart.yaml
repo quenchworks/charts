@@ -1,0 +1,61 @@
+apiVersion: v2
+name: apisix
+description: "Apache APISIX, the cloud-native API gateway built on OpenResty/LuaJIT: dynamic routing, load balancing, authentication and observability driven by an etcd-backed control plane and a REST Admin API. Hardened by QuenchWorks as a minimal, nonroot, 0-CVE image, cosign-signed and pinned by digest."
+type: application
+version: 0.0.1
+appVersion: "3.18.0"
+keywords:
+  - apisix
+  - api-gateway
+  - gateway
+  - openresty
+  - proxy
+  - ingress
+  - networking
+maintainers:
+  - name: QuenchWorks
+    email: info@quench-works.com
+    url: https://github.com/quenchworks
+icon: https://raw.githubusercontent.com/quenchworks/.github/main/profile/assets/chart-icon.png
+home: https://quench-works.com
+sources:
+  - https://github.com/quenchworks/charts
+  - https://github.com/apache/apisix
+annotations:
+  artifacthub.io/changes: |
+    - kind: added
+      description: "Initial release: Apache APISIX 3.18.0 as an etcd-backed gateway (Deployment + Admin API + control API probes), with the hardened quench/etcd chart bundled as the control-plane store."
+    - kind: added
+      description: "Admin API key kept in a Secret and injected into config.yaml through APISIX's ${{ENV}} interpolation; a random 32-character key is generated at install when none is supplied and preserved across upgrades."
+    - kind: added
+      description: "Optional APISIX Ingress Controller 2.2.0 deployment, disabled by default because it requires the apisix.apache.org CRDs and the Gateway API bundle, which this chart does not install."
+  artifacthub.io/category: networking
+  artifacthub.io/images: |
+    - name: apisix
+      image: ghcr.io/quenchworks/images/apisix@sha256:2b242df1ab22aa04f193a55d28cdb949421d8b8c8ce42012a85ca43a9b790ab8
+    - name: apisix-ingress-controller
+      image: ghcr.io/quenchworks/images/apisix-ingress-controller@sha256:ddde66c228afa4e945716c81f67ad1baa16370540c60f5dc0c2d84dea7166756
+  artifacthub.io/operator: "false"
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/quenchworks/charts
+    - name: image
+      url: https://github.com/quenchworks/images
+  artifacthub.io/signKey: |
+    fingerprint: keyless (cosign / Sigstore)
+    url: https://github.com/quenchworks/.github/blob/main/SECURITY.md
+dependencies:
+  - name: quench-common
+    version: 0.0.8
+    repository: oci://ghcr.io/quenchworks/charts
+  # APISIX's control plane is etcd. We depend on the catalogue's own hardened etcd
+  # chart rather than vendoring a second StatefulSet: same 0-CVE image, same digest
+  # pinning, same Raft/HA path. Point externalEtcd.hosts at your own cluster and set
+  # etcd.enabled=false to run against an existing store.
+  - name: etcd
+    alias: etcd
+    version: 0.0.17
+    repository: oci://ghcr.io/quenchworks/charts
+    condition: etcd.enabled
