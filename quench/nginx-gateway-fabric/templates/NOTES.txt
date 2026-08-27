@@ -1,0 +1,93 @@
+Quenchworks NGINX Gateway Fabric {{ .Chart.AppVersion }} is installed as
+{{ include "quench-common.fullname" . }} in namespace {{ .Release.Namespace }}.
+
+WHAT IS RUNNING: only the control plane. It is nonroot with a read-only root
+filesystem and listens for data-plane agents on
+{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}:{{ .Values.service.port }}.
+
+THE GATEWAY API CRDs ARE NOT PART OF THIS CHART. They are cluster-scoped
+singletons owned by the quench gateway-api-crds chart, and nothing below works
+without them:
+
+  helm install gateway-api-crds oci://ghcr.io/quenchworks/charts/gateway-api-crds
+
+NGF's own eleven gateway.nginx.org CRDs DO ship here, in crds/. Helm installs
+those once and never upgrades them; on a chart upgrade that moves appVersion,
+re-apply them yourself. Use --server-side: the NginxProxy CRD alone is 664 KB,
+well past kubectl's 262,144-byte last-applied-configuration annotation, so a
+client-side apply is rejected outright.
+
+  kubectl apply --server-side -f https://raw.githubusercontent.com/quenchworks/charts/main/quench/nginx-gateway-fabric/crds/nginx-gateway-fabric.crds.yaml
+{{ if .Values.gatewayClass.create }}
+GatewayClass {{ .Values.gatewayClass.name }} was created for controller
+{{ .Values.controllerName }}, pointing at NginxProxy
+{{ include "nginx-gateway-fabric.proxyConfigName" . }}. Create a Gateway and the control plane
+provisions an nginx {{ .Values.nginx.kind }} for it IN THE GATEWAY'S NAMESPACE:
+
+  kubectl apply -f - <<'EOF'
+  apiVersion: gateway.networking.k8s.io/v1
+  kind: Gateway
+  metadata:
+    name: example
+  spec:
+    gatewayClassName: {{ .Values.gatewayClass.name }}
+    listeners:
+      - name: http
+        protocol: HTTP
+        port: 80
+  EOF
+{{- else }}
+gatewayClass.create is false, so nothing is provisioned until you create a
+GatewayClass with controllerName {{ .Values.controllerName }}. It MUST carry
+
+  parametersRef:
+    group: gateway.nginx.org
+    kind: NginxProxy
+    name: {{ include "nginx-gateway-fabric.proxyConfigName" . }}
+    namespace: {{ .Release.Namespace }}
+
+or the data plane silently falls back to NGF's built-in defaults, including the
+upstream nginx image instead of the digest-pinned QuenchWorks one.
+{{- end }}
+
+Ready pods prove nothing. Check that the controller is reconciling:
+
+  kubectl get gatewayclass {{ .Values.gatewayClass.name }} -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}'
+  kubectl get gateway example -o jsonpath='{.status.conditions[?(@.type=="Programmed")].status}'
+
+Two things that regularly look like bugs and are not:
+
+  * SupportedVersion=False on the GatewayClass while Accepted=True. NGF {{ .Chart.AppVersion }}
+    is built against Gateway API v1.5.x; the quench gateway-api-crds chart ships
+    v1.6.x. A MINOR skew is accepted "best effort" by design -- only a MAJOR one
+    makes the class unusable.
+  * A Gateway stuck at Programmed=False with no address, on a cluster with no
+    LoadBalancer controller (kind, bare metal without MetalLB). Set
+    nginx.service.type to NodePort or ClusterIP.
+{{ if .Values.certGenerator.enabled }}
+The control plane <-> agent mTLS material was minted by a pre-install
+`gateway generate-certs` Job into Secrets {{ .Values.certGenerator.serverTLSSecretName }} and {{ .Values.certGenerator.agentTLSSecretName }}.
+They are NOT owned by this release: with certGenerator.overwrite false (the
+default) the Job never replaces them, so you may substitute cert-manager-issued
+Secrets, and `helm uninstall` deliberately leaves them behind rather than cutting
+the config channel of nginx pods that are still serving.
+{{- else }}
+certGenerator is disabled, so Secrets {{ .Values.certGenerator.serverTLSSecretName }} and {{ .Values.certGenerator.agentTLSSecretName }} must already
+exist, signed by one CA, with the server certificate valid for
+{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc. The control plane will not become ready without them.
+{{- end }}
+{{- if not .Values.nginx.image.digest }}
+
+nginx.image.digest is empty: provisioned nginx pods will run the UPSTREAM F5
+image, not a QuenchWorks 0-CVE one.
+{{- end }}
+
+Tracing is not available: the QuenchWorks data-plane image does not build
+ngx_otel_module, and setting nginx.config.telemetry.exporter is rejected by the
+values schema rather than being allowed to break the next nginx reload.
+
+The images are pinned by digest and signed. Verify them:
+
+  cosign verify ghcr.io/quenchworks/images/nginx-gateway-fabric \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

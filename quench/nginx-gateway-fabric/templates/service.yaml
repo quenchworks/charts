@@ -1,0 +1,30 @@
+{{/*
+The control-plane Service, and it carries more weight than its size suggests: its name
+is (a) the SAN the cert Job puts in the server certificate, (b) the host the generated
+nginx-agent config dials, and (c) the audience of the projected ServiceAccount token
+each data-plane pod presents. All three come from the same --service flag on the
+container, so they cannot drift -- but renaming the release rotates all three at once,
+which is why certGenerator must run on upgrade too.
+
+Port 443 -> 8443 is not tunable in practice: the agent config the control plane
+generates hardcodes port 443.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: agent-grpc
+      port: {{ .Values.service.port }}
+      protocol: TCP
+      targetPort: agent-grpc

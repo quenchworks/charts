@@ -1,0 +1,116 @@
+apiVersion: v2
+name: nginx-gateway-fabric
+description: "NGINX Gateway Fabric, the F5/NGINX Gateway API implementation: a control plane that watches GatewayClass, Gateway, HTTPRoute and its own gateway.nginx.org policy CRDs, provisions an nginx data plane per Gateway, and configures it over an nginx-agent gRPC stream. Both halves are hardened by QuenchWorks as minimal, nonroot, 0-CVE images, cosign-signed and pinned by digest. Ships only NGF's own CRDs -- the Gateway API CRDs are owned by the separate quench gateway-api-crds chart and must be installed first."
+type: application
+version: 0.0.1
+appVersion: "2.6.7"
+kubeVersion: ">=1.29.0-0"
+keywords:
+  - nginx-gateway-fabric
+  - nginx
+  - gateway-api
+  - ingress
+  - api-gateway
+  - control-plane
+  - networking
+  - proxy
+maintainers:
+  - name: QuenchWorks
+    email: info@quench-works.com
+    url: https://github.com/quenchworks
+icon: https://raw.githubusercontent.com/quenchworks/.github/main/profile/assets/chart-icon.png
+home: https://quench-works.com
+sources:
+  - https://github.com/quenchworks/charts
+  - https://github.com/nginx/nginx-gateway-fabric
+annotations:
+  artifacthub.io/category: networking
+  artifacthub.io/changes: |
+    - kind: added
+      description: "First release: the NGINX Gateway Fabric 2.6.7 control plane as a single Deployment running `gateway controller`, on the QuenchWorks 0-CVE image pinned by digest. Nonroot, read-only root filesystem, all capabilities dropped. It runs as uid 101 / gid 1001 rather than the usual 1001 because the same image is injected as the init container of every data-plane pod, where the provisioner hardcodes that uid."
+    - kind: added
+      description: "The nginx data plane is NOT this chart's pod: NGF provisions a Deployment per Gateway and configures it over gRPC to an nginx-agent running beside nginx. That data plane needs nginx built with the njs module plus nginx-agent, which the general-purpose quench nginx image does not have, so it ships as its own image (nginx-gateway-fabric-nginx) and this chart pins it by digest inside the NginxProxy resource."
+    - kind: added
+      description: "Ships NGF's eleven gateway.nginx.org CRDs vendored byte for byte from the upstream v2.6.7 chart. They live in crds/, matching upstream and the envoy-gateway chart, because the bundle is 909,971 bytes of source and Helm stores every release in a Secret capped at 1,048,576 bytes: from crds/ a measured install stores 405,564 bytes, leaving real headroom, while rendering the same bundle through templates/ would add it to the manifest as well. NginxProxy alone is 664,168 bytes, which also puts it past kubectl's 262,144-byte last-applied-configuration annotation, so re-apply CRDs with --server-side. The Gateway API CRDs are NOT bundled -- the quench gateway-api-crds chart owns those cluster-scoped singletons and must be installed first."
+    - kind: added
+      description: "A pre-install/pre-upgrade `gateway generate-certs` Job mints the control-plane server certificate and the data-plane client certificate into two Secrets, which the control plane and every provisioned nginx pod mount for the mTLS-plus-projected-token gRPC channel. certGenerator.overwrite defaults to false on purpose: re-minting on every upgrade would hand the control plane a new CA while the running nginx pods still trust the old one, and the config stream silently stops until every data-plane pod is restarted."
+    - kind: added
+      description: "Tracing is deliberately unsupported: the QuenchWorks data-plane image does not build ngx_otel_module, and NGF emits its `load_module` line only when an NginxProxy sets telemetry.exporter.endpoint. values.schema.json rejects that field rather than letting the next nginx reload fail on a missing module. Prometheus metrics (agent-collected, port 9113) are unaffected and on by default."
+  artifacthub.io/images: |
+    - name: nginx-gateway-fabric
+      image: ghcr.io/quenchworks/images/nginx-gateway-fabric@sha256:d6c053f9eb818b4b09c2f8874389b02de98fe58a64ce8e07b0baa47e3d6a508a
+    - name: nginx-gateway-fabric-nginx
+      image: ghcr.io/quenchworks/images/nginx-gateway-fabric-nginx@sha256:28f46367ba5da843bafc0a8d454de03a61414e0049de236cbb428a3f9a5f35d0
+  artifacthub.io/crds: |
+    - kind: NginxProxy
+      version: v1alpha2
+      name: nginxproxies.gateway.nginx.org
+      displayName: NginxProxy
+      description: Data-plane settings for a GatewayClass or Gateway -- the nginx workload it provisions, its Service, logging, metrics and global nginx tuning.
+    - kind: NginxGateway
+      version: v1alpha1
+      name: nginxgateways.gateway.nginx.org
+      displayName: NginxGateway
+      description: Dynamic configuration of the control plane itself, principally its log level, changeable without a restart.
+    - kind: ClientSettingsPolicy
+      version: v1alpha1
+      name: clientsettingspolicies.gateway.nginx.org
+      displayName: ClientSettingsPolicy
+      description: Downstream client behaviour for a Gateway or route -- body size and buffering limits, keep-alives.
+    - kind: ObservabilityPolicy
+      version: v1alpha2
+      name: observabilitypolicies.gateway.nginx.org
+      displayName: ObservabilityPolicy
+      description: Per-route tracing settings. Requires ngx_otel_module, which the QuenchWorks data-plane image does not build.
+    - kind: UpstreamSettingsPolicy
+      version: v1alpha1
+      name: upstreamsettingspolicies.gateway.nginx.org
+      displayName: UpstreamSettingsPolicy
+      description: Upstream behaviour for the Services a route points at -- connection pooling, zone size.
+    - kind: ProxySettingsPolicy
+      version: v1alpha1
+      name: proxysettingspolicies.gateway.nginx.org
+      displayName: ProxySettingsPolicy
+      description: Proxy timeouts and buffering for a Gateway or route.
+    - kind: RateLimitPolicy
+      version: v1alpha1
+      name: ratelimitpolicies.gateway.nginx.org
+      displayName: RateLimitPolicy
+      description: nginx limit_req rate limiting attached to a Gateway or route.
+    - kind: AuthenticationFilter
+      version: v1alpha1
+      name: authenticationfilters.gateway.nginx.org
+      displayName: AuthenticationFilter
+      description: Request authentication (JWT, basic) referenced from an HTTPRoute as an extensionRef filter.
+    - kind: SnippetsFilter
+      version: v1alpha1
+      name: snippetsfilters.gateway.nginx.org
+      displayName: SnippetsFilter
+      description: Raw nginx directives injected at a route's location, as an extensionRef filter. Disabled unless snippetsFilters.enabled is set.
+    - kind: SnippetsPolicy
+      version: v1alpha1
+      name: snippetspolicies.gateway.nginx.org
+      displayName: SnippetsPolicy
+      description: Raw nginx directives injected at the http/server/main level. Disabled unless snippets.enabled is set.
+    - kind: WAFPolicy
+      version: v1alpha1
+      name: wafpolicies.gateway.nginx.org
+      displayName: WAFPolicy
+      description: NGINX App Protect WAF enforcement. Requires NGINX Plus, which this chart does not ship; the CRD is installed because the controller watches the type unconditionally.
+  artifacthub.io/operator: "true"
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/quenchworks/charts
+    - name: image
+      url: https://github.com/quenchworks/images
+    - name: upstream
+      url: https://github.com/nginx/nginx-gateway-fabric
+  artifacthub.io/signKey: |
+    fingerprint: keyless (cosign / Sigstore)
+    url: https://github.com/quenchworks/.github/blob/main/SECURITY.md
+dependencies:
+  - name: quench-common
+    version: 0.0.8
+    repository: oci://ghcr.io/quenchworks/charts

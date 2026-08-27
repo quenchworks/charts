@@ -1,0 +1,119 @@
+{{- if .Values.certGenerator.enabled }}
+{{- /*
+`gateway generate-certs` mints a CA and two leaf certificates into
+.Values.certGenerator.{serverTLSSecretName,agentTLSSecretName}: the control plane
+mounts the server pair, every provisioned nginx pod mounts the agent pair, and the
+gRPC config stream between them is mTLS on top of a projected ServiceAccount token.
+The control plane will not serve without them, so this runs as a pre-install hook with
+its ServiceAccount and Role at a lower weight.
+
+It also runs pre-UPGRADE, and that is deliberate: a release rename changes the Service
+name, which changes the certificate SANs. Without --overwrite the Job is a no-op on an
+existing Secret, so the normal upgrade path touches nothing.
+
+Do not set certGenerator.overwrite unless you are prepared to restart every nginx pod:
+a fresh CA leaves the already-running data planes trusting the old one, and their gRPC
+stream fails verification silently -- traffic keeps flowing on the last good config
+while new routes never arrive.
+
+The Secrets are created but not owned by the release, so `helm uninstall` leaves them
+behind rather than cutting the config channel of nginx pods that are still serving.
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "quench-common.fullname" . }}-cert-generator
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "quench-common.fullname" . }}-cert-generator
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}-cert-generator
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "quench-common.fullname" . }}-cert-generator
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.fullname" . }}-cert-generator
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "quench-common.fullname" . }}-cert-generator
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 1
+  completions: 1
+  parallelism: 1
+  ttlSecondsAfterFinished: {{ .Values.certGenerator.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: cert-generator
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "quench-common.fullname" . }}-cert-generator
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: cert-generator
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/gateway"]
+          args:
+            - "generate-certs"
+            {{/* Must be the SAME name as the Service and the --service flag on the
+                 controller: this is what goes into the certificate SANs. */}}
+            - "--service={{ include "quench-common.fullname" . }}"
+            - "--cluster-domain={{ .Values.clusterDomain }}"
+            - "--server-tls-secret={{ .Values.certGenerator.serverTLSSecretName }}"
+            - "--agent-tls-secret={{ .Values.certGenerator.agentTLSSecretName }}"
+            {{- if .Values.certGenerator.overwrite }}
+            - "--overwrite"
+            {{- end }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          resources:
+            {{- toYaml .Values.certGenerator.resources | nindent 12 }}
+{{- end }}

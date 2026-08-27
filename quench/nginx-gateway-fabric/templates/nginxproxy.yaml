@@ -1,0 +1,30 @@
+{{/*
+The data plane, declared rather than templated.
+
+This chart does NOT create the nginx Deployment, Service or pods. The control plane
+provisions one nginx workload per Gateway, in the Gateway's own namespace, from this
+NginxProxy resource -- so everything about the data plane (its image, its kind, its
+replica count, the Service type it gets) is set here and nowhere else in the chart.
+
+.Values.nginx.config is merged UNDER the kubernetes: block below, so an operator can
+add logging, rewriteClientIP, ipFamily or a container patch without having to restate
+the image.
+*/}}
+{{- $container := dict "image" (dict
+      "repository" (include "nginx-gateway-fabric.dataPlaneRepository" .)
+      "tag" (include "nginx-gateway-fabric.dataPlaneTag" .)
+      "pullPolicy" .Values.nginx.image.pullPolicy) -}}
+{{- $workload := dict "container" $container -}}
+{{- if eq .Values.nginx.kind "deployment" -}}
+{{- $_ := set $workload "replicas" (int .Values.nginx.replicas) -}}
+{{- end -}}
+{{- $kube := dict .Values.nginx.kind $workload "service" (dict "type" .Values.nginx.service.type) -}}
+{{- $spec := mergeOverwrite (deepCopy (.Values.nginx.config | default dict)) (dict "kubernetes" $kube) -}}
+apiVersion: gateway.nginx.org/v1alpha2
+kind: NginxProxy
+metadata:
+  name: {{ include "nginx-gateway-fabric.proxyConfigName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  {{- toYaml $spec | nindent 2 }}

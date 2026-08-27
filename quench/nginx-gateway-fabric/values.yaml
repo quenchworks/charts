@@ -1,0 +1,228 @@
+# The digests below are the contract with the image factory. CI rewrites them from the
+# image-published dispatch after every green image build. They are never tags.
+#
+# THIS CHART PINS TWO IMAGES, and they are not interchangeable.
+#
+# 1. image -- the CONTROL PLANE (`gateway`). It plays three roles: the Deployment here
+#    runs `gateway controller`, the pre-install Job runs `gateway generate-certs`, and
+#    the control plane injects this SAME image as the init container of every data-plane
+#    pod it provisions (`gateway initialize`), reading it from the IMAGE_NAME env var
+#    below. That is why the image entrypoint is the bare binary with no baked subcommand.
+image:
+  repository: ghcr.io/quenchworks/images/nginx-gateway-fabric
+  digest: "sha256:d6c053f9eb818b4b09c2f8874389b02de98fe58a64ce8e07b0baa47e3d6a508a"
+  pullPolicy: IfNotPresent
+
+# 2. nginx.image -- the DATA PLANE, and it is a different image from the general-purpose
+#    quench nginx chart/image. NGF 2.x does not template nginx.conf into a ConfigMap: it
+#    opens a gRPC stream to an nginx-agent process running beside nginx in the same
+#    container and the agent writes the config. So the data-plane image has to contain
+#    nginx-agent, the njs dynamic module (NGF's nginx.conf will not even start without
+#    it) and NGF's own njs scripts. ghcr.io/quenchworks/images/nginx has none of those.
+#
+# NGF does not create the nginx workload from this chart's templates either. It
+# provisions a Deployment (or DaemonSet) per Gateway from the NginxProxy resource below,
+# so this image reference is written INTO that resource, not into a pod spec here.
+#
+# The digest is expressed as `repository@sha256` + `tag: <hex>` in the NginxProxy,
+# because NginxProxy's image field has only repository/tag and the controller joins them
+# with a colon (provisioner DetermineNginxImageName). The result is a real digest
+# reference; the chart validates the digest shape rather than trusting it.
+#
+# Clear nginx.image.digest to fall back to the upstream F5 image compiled into the
+# control plane (ghcr.io/nginx/nginx-gateway-fabric/nginx:<appVersion>) -- that is NOT a
+# QuenchWorks 0-CVE image.
+nginx:
+  image:
+    repository: ghcr.io/quenchworks/images/nginx-gateway-fabric-nginx
+    digest: "sha256:28f46367ba5da843bafc0a8d454de03a61414e0049de236cbb428a3f9a5f35d0"
+    pullPolicy: IfNotPresent
+
+  # deployment or daemonSet. One nginx workload is provisioned per Gateway, in the
+  # Gateway's own namespace.
+  kind: deployment
+
+  # Replicas per provisioned nginx Deployment (ignored for daemonSet).
+  replicas: 1
+
+  # The Service NGF creates in front of each Gateway's nginx pods. LoadBalancer is the
+  # upstream default and the only type that gets a Gateway to Programmed=True on a cloud
+  # provider; on kind or any cluster with no LoadBalancer controller, use ClusterIP or
+  # NodePort -- a Gateway with no address never programs.
+  service:
+    type: LoadBalancer
+
+  # Extra NginxProxy spec, deep-merged UNDER the kubernetes: block this chart generates
+  # (which owns the workload kind, replicas, the Service type and the image). Everything
+  # at https://docs.nginx.com/nginx-gateway-fabric/reference/api/ is valid here, e.g.
+  # logging, rewriteClientIP, ipFamily, disableHTTP2, metrics.
+  #
+  # telemetry.exporter is REJECTED by values.schema.json: NGF would emit
+  # `load_module modules/ngx_otel_module.so;` and the QuenchWorks data-plane image does
+  # not build that module, so nginx would fail its next reload. Metrics are separate and
+  # already on -- the agent scrapes nginx and exposes Prometheus on metrics.port.
+  config: {}
+
+# The GatewayClass controllerName this control plane claims. A GatewayClass is
+# reconciled by this install only if its spec.controllerName matches EXACTLY. Change it
+# (on both sides) to run several independent NGF installs in one cluster.
+controllerName: gateway.nginx.org/nginx-gateway-controller
+
+# The GatewayClass this chart creates, with a parametersRef pointing at the NginxProxy
+# it also creates. Without that parametersRef the data plane falls back to NGF's
+# built-in defaults -- including the UPSTREAM nginx image -- so if you disable creation
+# here, your own GatewayClass must carry the parametersRef.
+gatewayClass:
+  create: true
+  name: nginx
+  annotations: {}
+
+# Namespaces the control plane watches for Gateway API resources. Empty = all.
+# NOTE: RBAC stays cluster-wide either way. Upstream narrows to per-namespace Roles when
+# this is set; this chart keeps one ClusterRole, which is a superset of what a narrowed
+# install needs, and lets `rbac.create: false` cover the case where you want to bind
+# tighter roles yourself.
+watchNamespaces: []
+
+# Control-plane log level: info, debug, error. Written into the NginxGateway resource,
+# which the control plane re-reads at runtime -- editing it does not need a restart.
+logLevel: info
+
+# Cluster DNS domain. Used for the SANs in the certificate the cert Job mints and for
+# the address the nginx-agent dials.
+clusterDomain: cluster.local
+
+# Prometheus metrics on the control plane. The data plane's own metrics are separate and
+# collected by nginx-agent (also port 9113, on the nginx pods).
+metrics:
+  enabled: true
+  port: 9113
+  # Serve metrics over HTTPS with a self-signed certificate. Off by default; most
+  # scrapers need explicit configuration for it.
+  secure: false
+
+# Readiness endpoint (/readyz) port. The probe is pod-local, not on the Service.
+healthPort: 8081
+
+# Leader election between control-plane replicas. Extra replicas are warm standbys, not
+# extra reconcile throughput.
+leaderElection:
+  enabled: true
+
+# Product telemetry to F5. Off by default. The QuenchWorks image is also built with no
+# telemetry endpoint compiled in, so even enabling this only logs a report at debug level.
+productTelemetry:
+  enabled: false
+
+# SnippetsFilter (per-route raw nginx directives, via an extensionRef filter).
+snippetsFilters:
+  enabled: false
+
+# SnippetsPolicy (raw nginx directives at the main/http/server level).
+snippets:
+  enabled: false
+
+# Gateway API experimental-channel features (TCPRoute, UDPRoute). Requires the
+# gateway-api-crds chart installed from the EXPERIMENTAL channel; with the Standard
+# channel the extra watches simply find no CRDs.
+gatewayApiExperimentalFeatures:
+  enabled: false
+
+# `gateway generate-certs` run as a pre-install/pre-upgrade hook. It mints a CA and two
+# leaf certificates into the two Secrets below: the control plane mounts the server one,
+# and every provisioned nginx pod mounts the agent one. The gRPC channel between them is
+# mTLS PLUS a projected ServiceAccount token, so both halves must trust the same CA.
+certGenerator:
+  enabled: true
+  serverTLSSecretName: server-tls
+  agentTLSSecretName: agent-tls
+  # LEAVE THIS FALSE. With overwrite the Job re-mints the CA on every `helm upgrade`,
+  # and the nginx pods that are already running keep the old material: the agent's gRPC
+  # stream then fails TLS verification and the data plane silently stops receiving
+  # config until every nginx pod is restarted. False also makes "bring your own PKI"
+  # work -- pre-create the Secrets and the Job leaves them alone.
+  overwrite: false
+  ttlSecondsAfterFinished: 30
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+# The control plane is stateless and leader-elected.
+replicaCount: 1
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: 1, memory: 512Mi }
+
+# The control-plane Service. This is NOT a data-plane Service: it exists only so the
+# nginx-agent in each data-plane pod can dial the control plane, and its name is baked
+# into the certificate SANs and the projected token audience.
+service:
+  type: ClusterIP
+  annotations: {}
+  # Service port -> container 8443. The agent config the control plane generates dials
+  # port 443, so changing this breaks the data plane.
+  port: 443
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+nameOverride: ""
+fullnameOverride: ""
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+
+# uid 101 / gid 1001, NOT the house 1001, and it is forced rather than chosen: the same
+# image runs as the init container of every data-plane pod, where the provisioner
+# hardcodes runAsUser 101 / runAsGroup 1001. fsGroup 1001 is what makes the mounted
+# certificate Secret readable.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 101
+  runAsGroup: 1001
+  fsGroup: 1001
+containerSecurityContext: {}
+
+startupProbe: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # The controller IS an API-server client: it watches Gateway API objects and creates
+  # the nginx Deployments, Services, Secrets and ConfigMaps. It needs its token.
+  automountServiceAccountToken: true
+
+# The controller cannot function without these. Turn off only to bind a pre-existing
+# ClusterRole/Role of your own to serviceAccount.name.
+rbac:
+  create: true
+
+# nginx pods dial the control plane's agent-grpc port from whatever namespace their
+# Gateway lives in, so ingress is allowed cluster-wide by default.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

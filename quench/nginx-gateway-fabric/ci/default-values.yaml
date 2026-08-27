@@ -1,0 +1,15 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digests from values.yaml, so the gate pulls the actual signed images --
+# both the control plane and the nginx data plane it provisions.
+#
+# The gate installs the quench gateway-api-crds chart FIRST. Those CRDs are not part of
+# this chart and the controller cannot sync its caches without them.
+#
+# nginx.service.type is the ONE override that matters on a throwaway cluster: kind has
+# no LoadBalancer controller, so a Gateway would never get an address and never reach
+# Programmed=True. NodePort programs and is reachable through a port-forward, which is
+# what lets the gate serve a real request through nginx.
+nginx:
+  service:
+    type: NodePort
+replicaCount: 1

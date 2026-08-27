@@ -1,0 +1,28 @@
+{{- if .Values.gatewayClass.create }}
+{{/*
+The GatewayClass is CLUSTER-SCOPED, so its name is global: two releases in one cluster
+must set different gatewayClass.name values, and the controllerName on both sides has
+to match or nothing reconciles.
+
+The parametersRef is what binds this class to the NginxProxy above. Drop it and the
+provisioned data plane silently reverts to NGF's compiled-in defaults -- including the
+upstream F5 nginx image instead of the digest-pinned QuenchWorks one.
+*/}}
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: {{ .Values.gatewayClass.name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.gatewayClass.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  controllerName: {{ .Values.controllerName }}
+  parametersRef:
+    group: gateway.nginx.org
+    kind: NginxProxy
+    name: {{ include "nginx-gateway-fabric.proxyConfigName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

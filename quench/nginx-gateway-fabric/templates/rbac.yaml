@@ -1,0 +1,201 @@
+{{- if .Values.rbac.create }}
+{{- /*
+Clean-room RBAC, authored from what the NGF control plane documents it does.
+
+Two roles, split by SCOPE rather than by component -- there is one component:
+
+  * ClusterRole  everything, because unlike a controller that provisions into its own
+                 namespace, NGF creates the nginx Deployment, Service, ServiceAccount,
+                 ConfigMaps and Secrets in the GATEWAY's namespace, and a Gateway may
+                 live anywhere. Narrowing the write surface therefore means narrowing
+                 which namespaces may hold Gateways, which is watchNamespaces plus your
+                 own Roles -- set rbac.create: false and bind them to
+                 serviceAccount.name.
+  * Role         nothing that needs to be namespaced remains except leader election,
+                 and it is kept separate so a `rbac.create: false` install that only
+                 wants HA in one namespace has an obvious template to copy.
+
+Three rules are easy to mistake for excess and are not:
+  - tokenreviews/create: the control plane authenticates each agent's projected
+    ServiceAccount token before accepting its gRPC stream.
+  - customresourcedefinitions list/watch: NGF reads the Gateway API CRDs' bundle-version
+    annotation to decide whether the installed Gateway API matches the one it was built
+    against, and sets the GatewayClass SupportedVersion condition from it.
+  - replicasets get/list: used to walk Deployment -> ReplicaSet -> Pod when reporting
+    the state of the data planes it provisioned.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  # The data plane it provisions, in the Gateway's namespace: workload, Service,
+  # ServiceAccount, the generated agent/nginx ConfigMaps and the TLS Secrets it copies.
+  - apiGroups: [""]
+    resources: ["secrets", "configmaps", "serviceaccounts", "services"]
+    verbs: ["create", "update", "delete", "get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets"]
+    verbs: ["create", "update", "delete", "get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["create", "update", "delete", "get", "list", "watch"]
+  - apiGroups: ["events.k8s.io", ""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  # Namespace labels (route attachment by selector) and node addresses.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  {{- if .Values.productTelemetry.enabled }}
+  {{/* Node count is part of the telemetry report and is read for nothing else. */}}
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["list"]
+  {{- end }}
+  # Authenticates the projected token each nginx-agent presents on its gRPC stream.
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  # Reads the Gateway API CRDs' bundle-version annotation to set the GatewayClass
+  # SupportedVersion condition.
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["list", "watch"]
+  # Backend resolution for routes.
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["list", "watch"]
+  # Gateway API. GatewayClass is cluster-scoped; the rest are namespaced but may live
+  # in any namespace.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gatewayclasses"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gatewayclasses/status"]
+    verbs: ["update"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources:
+      - "gateways"
+      - "httproutes"
+      - "grpcroutes"
+      - "tlsroutes"
+      - "referencegrants"
+      - "backendtlspolicies"
+      - "listenersets"
+      {{- if .Values.gatewayApiExperimentalFeatures.enabled }}
+      - "tcproutes"
+      - "udproutes"
+      {{- end }}
+    verbs: ["list", "watch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources:
+      - "gateways/status"
+      - "gateways/finalizers"
+      - "httproutes/status"
+      - "grpcroutes/status"
+      - "tlsroutes/status"
+      - "backendtlspolicies/status"
+      - "listenersets/status"
+      {{- if .Values.gatewayApiExperimentalFeatures.enabled }}
+      - "tcproutes/status"
+      - "udproutes/status"
+      {{- end }}
+    verbs: ["update"]
+  # NGF's own CRDs, shipped by this chart in crds/. The controller watches every type
+  # it knows about at startup, so a CRD missing from the cluster is a cache-sync error,
+  # not a skipped feature -- which is why wafpolicies is installed even though it needs
+  # NGINX Plus.
+  - apiGroups: ["gateway.nginx.org"]
+    resources: ["nginxgateways"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["gateway.nginx.org"]
+    resources:
+      - "nginxproxies"
+      - "clientsettingspolicies"
+      - "observabilitypolicies"
+      - "upstreamsettingspolicies"
+      - "authenticationfilters"
+      - "proxysettingspolicies"
+      - "ratelimitpolicies"
+      - "wafpolicies"
+      {{- if or .Values.snippetsFilters.enabled .Values.snippets.enabled }}
+      - "snippetsfilters"
+      {{- end }}
+      {{- if .Values.snippets.enabled }}
+      - "snippetspolicies"
+      {{- end }}
+    verbs: ["list", "watch"]
+  - apiGroups: ["gateway.nginx.org"]
+    resources:
+      - "nginxgateways/status"
+      - "clientsettingspolicies/status"
+      - "observabilitypolicies/status"
+      - "upstreamsettingspolicies/status"
+      - "authenticationfilters/status"
+      - "proxysettingspolicies/status"
+      - "ratelimitpolicies/status"
+      - "wafpolicies/status"
+      {{- if or .Values.snippetsFilters.enabled .Values.snippets.enabled }}
+      - "snippetsfilters/status"
+      {{- end }}
+      {{- if .Values.snippets.enabled }}
+      - "snippetspolicies/status"
+      {{- end }}
+    verbs: ["update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  {{/* Cluster-scoped names are global, so the binding carries the namespace: two
+       releases in different namespaces must not fight over one object. */}}
+  name: {{ include "quench-common.fullname" . }}-{{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.leaderElection.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  # Leader election among control-plane replicas. Namespaced: the Lease lives beside
+  # the Deployment.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create", "get", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

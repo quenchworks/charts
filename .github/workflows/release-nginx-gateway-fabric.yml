@@ -1,0 +1,206 @@
+name: release-nginx-gateway-fabric
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/nginx-gateway-fabric/**"
+      - ".github/workflows/release-nginx-gateway-fabric.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/nginx-gateway-fabric
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+  # A public 0-CVE quench image that serves HTTP on 8080 with no configuration, used as
+  # the route backend in the gate. Not part of the chart.
+  ECHO_IMAGE: ghcr.io/quenchworks/images/nginx:1.30.4
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # This chart is authored BEFORE its two images exist on GHCR, so values.yaml can
+      # legitimately carry a PENDING placeholder in the repo for a while. Publishing
+      # that would ship a chart whose only symptom is ImagePullBackOff in someone's
+      # cluster, so fail here with the fix rather than at the pull.
+      - name: Refuse to release an unpinned chart
+        run: |
+          if grep -n 'PENDING_FIRST_IMAGE_PUBLISH' "${CHART_DIR}/values.yaml" "${CHART_DIR}/Chart.yaml"; then
+            echo "::error::both images must be published and pinned first: run scripts/repin.py for the control plane and set nginx.image.digest for the data plane."
+            exit 1
+          fi
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          # The Gateway API CRDs are cluster-scoped singletons owned by a different
+          # chart. This chart does not bundle them and the controller cannot sync its
+          # caches without them.
+          helm install gwapi quench/gateway-api-crds --wait --timeout 5m
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          kubectl rollout status deployment/rtest-nginx-gateway-fabric --timeout=300s
+
+          # A Ready pod proves nothing. An ACCEPTED GatewayClass proves the controller
+          # is reconciling. The chart creates GatewayClass `nginx` with a parametersRef
+          # to its NginxProxy, so this also proves that resource is valid.
+          kubectl wait --for=condition=Accepted --timeout=120s gatewayclass/nginx
+
+          # Expected to be False, and that is not a failure: NGF 2.6.x is built against
+          # Gateway API v1.5.x while the gateway-api-crds chart ships v1.6.x, and NGF
+          # grades a MINOR skew as "accepted, best effort". Printed so a future MAJOR
+          # skew -- which flips Accepted to False and fails the wait above -- is easy to
+          # tell apart from this.
+          kubectl get gatewayclass nginx \
+            -o jsonpath='{range .status.conditions[*]}{.type}={.status} {end}{"\n"}'
+
+          # A backend to route to, and a Gateway + HTTPRoute in front of it. The Gateway
+          # is what makes NGF provision an nginx workload at all.
+          kubectl create deployment echo --image="${ECHO_IMAGE}" --port=8080
+          kubectl expose deployment echo --port=8080
+          kubectl apply -f - <<'EOF'
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: Gateway
+          metadata: { name: example, namespace: default }
+          spec:
+            gatewayClassName: nginx
+            listeners:
+              - name: http
+                protocol: HTTP
+                port: 80
+          ---
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: HTTPRoute
+          metadata: { name: hello, namespace: default }
+          spec:
+            parentRefs: [{ name: example }]
+            rules:
+              - matches: [{ path: { type: PathPrefix, value: / } }]
+                backendRefs: [{ name: echo, port: 8080 }]
+          EOF
+
+          # `kubectl wait` on a LABEL SELECTOR fails instantly with "no matching
+          # resources found" when nothing matches yet -- it does not wait for the
+          # resource to appear. NGF provisions the nginx Deployment asynchronously after
+          # the Gateway is created, so the pod is not there the moment we ask. Poll for
+          # existence first, then wait on the condition.
+          # NOTE: capture-then-grep, never `kubectl ... | grep -q`: under pipefail grep
+          # exits at the first match, kubectl takes SIGPIPE, and the pipeline fails
+          # BECAUSE the pattern matched.
+          await_pods() {
+            for _ in $(seq 1 60); do
+              out="$(kubectl get pod -l "$1" -o name 2>/dev/null || true)"
+              case "$out" in *pod/*) return 0;; esac
+              sleep 5
+            done
+            echo "no pod ever appeared for selector: $1"
+            kubectl get pods -A
+            kubectl logs deployment/rtest-nginx-gateway-fabric --tail=50
+            return 1
+          }
+
+          await_pods gateway.networking.k8s.io/gateway-name=example
+          kubectl wait --for=condition=Ready --timeout=300s \
+            pod -l gateway.networking.k8s.io/gateway-name=example
+
+          # The provisioned pod must run the digest-pinned QuenchWorks data plane, not
+          # the upstream F5 image NGF falls back to. NginxProxy has no digest field --
+          # the chart splits the digest across repository@sha256 + tag -- so this is
+          # also the check that the split produced a real reference.
+          want="$(helm get values rtest -a -o json \
+            | python3 -c 'import json,sys;v=json.load(sys.stdin)["nginx"]["image"];print(v["repository"]+"@"+v["digest"])')"
+          got="$(kubectl get pod -l gateway.networking.k8s.io/gateway-name=example \
+            -o jsonpath='{.items[0].spec.containers[?(@.name=="nginx")].image}')"
+          echo "data plane image: $got"
+          test "$got" = "$want" || { echo "expected $want"; exit 1; }
+
+          # And the init container must be the CONTROL PLANE image: NGF reads it from
+          # its own IMAGE_NAME env var, so a wrong value gives every nginx pod an
+          # Init:ImagePullBackOff.
+          cp_want="$(helm get values rtest -a -o json \
+            | python3 -c 'import json,sys;v=json.load(sys.stdin)["image"];print(v["repository"]+"@"+v["digest"])')"
+          cp_got="$(kubectl get pod -l gateway.networking.k8s.io/gateway-name=example \
+            -o jsonpath='{.items[0].spec.initContainers[0].image}')"
+          echo "init container image: $cp_got"
+          test "$cp_got" = "$cp_want" || { echo "expected $cp_want"; exit 1; }
+
+          # Programmed=True means the listener is live AND the Gateway has an address.
+          # kind has no LoadBalancer controller, which is why ci/default-values.yaml
+          # sets nginx.service.type=NodePort -- with the upstream LoadBalancer default a
+          # Gateway here would sit at Programmed=False forever.
+          kubectl wait --for=condition=Programmed --timeout=300s gateway/example
+
+          # End to end: a real request served through nginx. This is the step that
+          # proves the whole chain -- the agent received a generated config over gRPC,
+          # nginx reloaded it, and the njs-enabled nginx actually proxies.
+          kubectl wait --for=condition=Available --timeout=120s deployment/echo
+          kubectl port-forward svc/example-nginx 8080:80 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          body="$(curl -fsS --retry 15 --retry-delay 3 --retry-all-errors http://127.0.0.1:8080/)"
+          printf '%s\n' "$body" | head -5
+          printf '%s' "$body" | grep -q 'Quenchworks nginx' \
+            || { echo "the route did not reach the backend"; kubectl logs -l gateway.networking.k8s.io/gateway-name=example --tail=50; exit 1; }
+
+          # Nothing crash-looped on the way here.
+          test -z "$(kubectl get pods -o jsonpath='{range .items[*].status.containerStatuses[*]}{.restartCount}{"\n"}{end}' | grep -v '^0$')"
+
+          # The CRD bundle is 909,971 bytes of source and lives in crds/ for that
+          # reason. Print what the release Secret actually costs, so a future move of
+          # the CRDs into templates/ cannot quietly walk into Helm's 1,048,576-byte
+          # ceiling the way it did on the envoy-gateway chart.
+          kubectl get secret -l owner=helm,name=rtest \
+            -o jsonpath='{range .items[*]}{.metadata.name}{" "}{.data.release}{"\n"}{end}' \
+            | awk '{ printf "%s stored=%d bytes (base64) of the 1048576 Secret cap\n", $1, length($2) }'
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/nginx-gateway-fabric-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/nginx-gateway-fabric@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/nginx-gateway-fabric:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
