@@ -79,19 +79,20 @@ config:
 
 ## Ingress controller
 
-`ingressController.enabled=true` adds the APISIX Ingress Controller 2.2.0, which
-turns `ApisixRoute` and Gateway API resources into Admin API calls. It is **off
-by default and is not covered by this chart's install gate.** It needs two CRD
-bundles that this chart deliberately does not install, because cluster-scoped
-CRDs must have exactly one owner:
+The APISIX Ingress Controller is a **separate chart**,
+[`apisix-ingress-controller`](../apisix-ingress-controller). It was an optional
+component of this chart in 0.0.1 and never worked: the controller cannot sync
+without its `adc` sidecar, which this chart did not run, and it owns twelve
+cluster-scoped `apisix.apache.org` CRDs plus an IngressClass — objects a data-plane
+chart must not claim if you ever want two APISIX releases in one cluster.
 
-* Gateway API v1.6 — the catalogue's [quench/gateway-api-crds](../gateway-api-crds) chart
-* `apisix.apache.org` — `config/crd` from the apache/apisix-ingress-controller
-  2.2.0 source release
+Install it alongside and point it at this release's Admin API:
 
-plus a `GatewayProxy` resource pointing at this release's Admin API Service.
-Install those first; without them the controller starts, fails to establish its
-watches and never becomes ready.
+```bash
+helm install aic oci://ghcr.io/quenchworks/charts/apisix-ingress-controller \
+  --set dataPlane.endpoints[0]=http://<release>-apisix:9180 \
+  --set dataPlane.adminKey.existingSecret=<release>-apisix-admin
+```
 
 ## Verify the image
 
@@ -137,13 +138,6 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/apisix --owner quen
 | `autoscaling.minReplicas` | `1` | |
 | `autoscaling.maxReplicas` | `5` | |
 | `autoscaling.targetCPUUtilizationPercentage` | `80` | |
-| `ingressController.enabled` | `false` | Optional controller. See the section above — it needs CRDs this chart does not install. |
-| `ingressController.image.repository` | `ghcr.io/quenchworks/images/apisix-ingress-controller` | |
-| `ingressController.image.digest` | (CI-written) | |
-| `ingressController.replicaCount` | `1` | |
-| `ingressController.logLevel` | `info` | |
-| `ingressController.syncPeriod` | `1h` | Full re-sync interval into the data plane. |
-| `ingressController.config` | `{}` | Deep-merged over the controller's rendered config. |
 | `serviceAccount.create` | `true` | Token automount is off; APISIX itself never calls the API server. |
 | `serviceAccount.name` | `""` | Use an existing ServiceAccount. |
 | `rbac.create` | `false` | Minimal Role/RoleBinding. |

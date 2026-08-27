@@ -1,0 +1,75 @@
+Quenchworks Apache APISIX Ingress Controller {{ .Chart.AppVersion }} is installed as
+{{ include "quench-common.fullname" . }} in namespace {{ .Release.Namespace }}.
+
+The pod runs two containers, both nonroot on a read-only rootfs: the controller,
+and the adc sidecar it hands every sync to over
+{{ .Values.adc.socketPath }}. Neither works without the other.
+{{ if .Values.gatewayAPI.enabled }}
+Gateway API support is ON, and the Gateway API CRDs are NOT part of this chart.
+They are cluster-scoped singletons owned by the quench gateway-api-crds chart:
+
+  helm install gateway-api-crds oci://ghcr.io/quenchworks/charts/gateway-api-crds
+
+Set gatewayAPI.enabled=false to run on the apisix.apache.org CRDs and native
+Ingress alone.
+{{- end }}
+
+The twelve apisix.apache.org CRDs DO ship here, in crds/. Helm installs those
+once and never upgrades them; on a chart upgrade that moves appVersion, re-apply
+them yourself:
+
+  helm show crds oci://ghcr.io/quenchworks/charts/apisix-ingress-controller | kubectl apply --server-side -f -
+{{ if .Values.dataPlane.create }}
+This release drives the APISIX data plane at
+{{ if .Values.dataPlane.endpoints }}{{ join ", " .Values.dataPlane.endpoints }}{{ else }}Service {{ .Values.dataPlane.service.name }}:{{ .Values.dataPlane.service.port }}{{ end }}
+in {{ .Values.dataPlane.mode }} mode, through GatewayProxy {{ include "apisix-ingress-controller.gatewayProxyName" . }}.
+{{- if .Values.ingressClass.create }}
+
+Routes reach it by naming IngressClass {{ .Values.ingressClass.name }}{{ if .Values.ingressClass.default }} (the cluster default, so a
+route that names no class at all is claimed too){{ end }}:
+
+  kubectl apply -f - <<'YAML'
+  apiVersion: apisix.apache.org/v2
+  kind: ApisixRoute
+  metadata:
+    name: example
+  spec:
+    ingressClassName: {{ .Values.ingressClass.name }}
+    http:
+      - name: rule
+        match:
+          paths: ["/get"]
+        backends:
+          - serviceName: httpbin
+            servicePort: 80
+  YAML
+
+A Ready pod proves nothing. An ACCEPTED route proves the controller reconciled it
+AND that adc pushed it to APISIX -- the condition is only set True after the sync
+succeeds:
+
+  kubectl get apisixroute example -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}{"\n"}'
+
+If that says False, read the message next to it, then the log:
+
+  kubectl get apisixroute example -o jsonpath='{.status.conditions[?(@.type=="Accepted")].message}{"\n"}'
+  kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "quench-common.fullname" . }} -c apisix-ingress-controller
+{{- end }}
+{{- if .Values.gatewayClass.create }}
+
+GatewayClass {{ .Values.gatewayClass.name }} is created too. Confirm the controller claimed it:
+
+  kubectl get gatewayclass {{ .Values.gatewayClass.name }} -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}{"\n"}'
+{{- end }}
+{{- else }}
+dataPlane.create=false, so this release drives NOTHING yet. The controller finds
+APISIX only through a GatewayProxy resolved from an IngressClass or GatewayClass,
+so create all three yourself -- an ApisixRoute with no matching IngressClass is
+dropped with Accepted=False while the pod stays Ready.
+{{- end }}
+
+Both images are pinned by digest and signed. Verify them:
+
+  cosign verify ghcr.io/quenchworks/images/apisix-ingress-controller \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

@@ -33,12 +33,12 @@ only: write its configuration into etcd from elsewhere.
 Prometheus metrics: port {{ .Values.service.metricsPort }}, path /apisix/prometheus/metrics.
 {{- end }}
 
-{{ if .Values.ingressController.enabled -}}
-WARNING: ingressController.enabled=true. The controller needs the Gateway API and
-apisix.apache.org CRDs, which this chart does NOT install, plus a GatewayProxy
-resource pointing at the Admin API above. Without them it will start and never
-become ready.
-{{- end }}
+The APISIX Ingress Controller is a separate chart. Install it alongside this
+release to drive it from ApisixRoute / Ingress / Gateway API objects:
+
+  helm install aic oci://ghcr.io/quenchworks/charts/apisix-ingress-controller \
+    --set dataPlane.endpoints[0]=http://{{ include "quench-common.fullname" . }}:{{ .Values.service.adminPort }} \
+    --set dataPlane.adminKey.existingSecret={{ include "apisix.adminSecretName" . }}
 
 The image is pinned by digest and signed. Verify it:
 

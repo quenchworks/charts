@@ -86,35 +86,3 @@ read-only conf.default/ and then runs `apisix init`.
 {{- $cfg = mergeOverwrite $cfg (deepCopy (.Values.config.extra | default dict)) -}}
 {{- toYaml $cfg -}}
 {{- end -}}
-
-{{/* --- Ingress controller (optional component) --- */}}
-
-{{- define "apisix.ingressController.name" -}}
-{{- printf "%s-ingress-controller" (include "quench-common.fullname" .) | trunc 63 | trimSuffix "-" -}}
-{{- end -}}
-
-{{/* Its pods need their own selector, since they share the chart's release. */}}
-{{- define "apisix.ingressController.selectorLabels" -}}
-{{ include "quench-common.selectorLabels" . }}
-app.kubernetes.io/component: ingress-controller
-{{- end -}}
-
-{{- define "apisix.ingressController.image" -}}
-{{- $img := .Values.ingressController.image -}}
-{{- $repo := required "ingressController.image.repository is required" $img.repository -}}
-{{- $digest := required "ingressController.image.digest is required (QuenchWorks pins by digest, never a tag)" $img.digest -}}
-{{- printf "%s@%s" $repo $digest -}}
-{{- end -}}
-
-{{- define "apisix.ingressController.configYaml" -}}
-{{- $c := .Values.ingressController -}}
-{{- $cfg := dict
-      "log_level" $c.logLevel
-      "probe_addr" (printf ":%v" $c.containerPorts.probe)
-      "metrics_addr" (printf ":%v" $c.containerPorts.metrics)
-      "leader_election" (dict "disable" false)
-      "provider" (dict "type" "apisix" "sync_period" $c.syncPeriod)
--}}
-{{- $cfg = mergeOverwrite $cfg (deepCopy ($c.config | default dict)) -}}
-{{- toYaml $cfg -}}
-{{- end -}}

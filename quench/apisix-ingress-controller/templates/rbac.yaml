@@ -1,0 +1,157 @@
+{{- if .Values.rbac.create }}
+{{- /*
+RBAC transcribed from the controller's OWN kubebuilder //+kubebuilder:rbac
+markers at release 2.2.0 (which is what generates upstream's config/rbac/role.yaml),
+not inferred from what a Kubernetes controller "probably" needs. Every rule below
+has a marker behind it.
+
+Two roles:
+
+  * ClusterRole  everything the controller READS and every status it writes.
+                 Cluster-wide because an ApisixRoute, an HTTPRoute or a Secret may
+                 live in any namespace, and IngressClass / GatewayClass are
+                 cluster-scoped to begin with. It grants no create/delete on any
+                 workload: this controller writes to APISIX, not to Kubernetes.
+  * Role         leader election only, in the release namespace. Upstream grants
+                 leases cluster-wide; the Deployment sets POD_NAMESPACE, which is
+                 the manager's LeaderElectionNamespace, so the narrower grant is
+                 sufficient and the two have to stay in step -- drop POD_NAMESPACE
+                 and this Role stops covering the Lease.
+
+Deliberately NOT granted, and it matters: nothing writes ApisixRoute/HTTPRoute
+spec, and nothing at all is granted on core endpoints (backend resolution goes
+through discovery.k8s.io EndpointSlices).
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  # Referenced by routes and upstreams: backing Services and their pods, TLS and
+  # auth Secrets, ConfigMaps holding CA bundles, namespace labels for selectors.
+  - apiGroups: [""]
+    resources: ["configmaps", "namespaces", "pods", "secrets", "services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  # Backend resolution.
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  # This chart's own CRDs. GatewayProxy carries the data plane's Admin API
+  # address and admin key, so it is read on every reconcile.
+  - apiGroups: ["apisix.apache.org"]
+    resources:
+      - "apisixconsumers"
+      - "apisixglobalrules"
+      - "apisixpluginconfigs"
+      - "apisixroutes"
+      - "apisixtlses"
+      - "apisixupstreams"
+      - "backendtrafficpolicies"
+      - "consumers"
+      - "gatewayproxies"
+      - "httproutepolicies"
+      - "l4routepolicies"
+      - "pluginconfigs"
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apisix.apache.org"]
+    resources:
+      - "apisixconsumers/status"
+      - "apisixglobalrules/status"
+      - "apisixpluginconfigs/status"
+      - "apisixroutes/status"
+      - "apisixtlses/status"
+      - "apisixupstreams/status"
+      - "backendtrafficpolicies/status"
+      - "consumers/status"
+      - "httproutepolicies/status"
+      - "l4routepolicies/status"
+    verbs: ["get", "update"]
+  # Native Ingress.
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingressclasses", "ingresses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses/status"]
+    verbs: ["get", "update"]
+  {{- if .Values.gatewayAPI.enabled }}
+  # Gateway API. GatewayClass also needs `update`, and not for its status: the
+  # controller puts the apisix.apache.org/gc-protection finalizer on a class it
+  # claims so the class cannot be deleted out from under live Gateways.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gatewayclasses"]
+    verbs: ["get", "list", "watch", "update"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources:
+      - "gateways"
+      - "grpcroutes"
+      - "httproutes"
+      - "referencegrants"
+      - "tcproutes"
+      - "tlsroutes"
+      - "udproutes"
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources:
+      - "gatewayclasses/status"
+      - "gateways/status"
+      - "grpcroutes/status"
+      - "httproutes/status"
+      - "referencegrants/status"
+      - "tcproutes/status"
+      - "tlsroutes/status"
+      - "udproutes/status"
+    verbs: ["get", "update"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  {{/* Cluster-scoped names are global, so the binding carries the namespace:
+       two releases in different namespaces must not fight over one object. */}}
+  name: {{ printf "%s-%s" (include "quench-common.fullname" .) .Release.Namespace | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.leaderElection.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  # `delete` is what lets a terminating leader release the lease instead of
+  # leaving the next one to wait out lease_duration.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create", "get", "list", "watch", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

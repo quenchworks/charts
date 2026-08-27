@@ -1,0 +1,74 @@
+{{/*
+The wiring that makes this controller point at an APISIX data plane, and the
+class names that select it. Three objects, one concern.
+
+A route does not reach APISIX because the controller is running. It reaches
+APISIX because it names an IngressClass (or a GatewayClass) whose parametersRef
+resolves to a GatewayProxy that carries the Admin API address and the admin key.
+With none of that in place an ApisixRoute is reconciled and immediately dropped
+with Accepted=False "no matching IngressClass", the pod staying perfectly Ready.
+*/}}
+{{- if .Values.dataPlane.create }}
+apiVersion: apisix.apache.org/v1alpha1
+kind: GatewayProxy
+metadata:
+  name: {{ include "apisix-ingress-controller.gatewayProxyName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  provider:
+    type: ControlPlane
+    controlPlane:
+      {{- include "apisix-ingress-controller.controlPlane" . | nindent 6 }}
+  {{- with .Values.dataPlane.pluginMetadata }}
+  pluginMetadata:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- if .Values.ingressClass.create }}
+---
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: {{ .Values.ingressClass.name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    {{/* The GatewayProxy is namespaced and spec.parameters.namespace is honoured,
+         but the controller ALSO reads this annotation and lets it win, so both
+         are set to the release namespace and cannot disagree. */}}
+    apisix.apache.org/parameters-namespace: {{ .Release.Namespace }}
+    {{- if .Values.ingressClass.default }}
+    ingressclass.kubernetes.io/is-default-class: "true"
+    {{- end }}
+spec:
+  controller: {{ .Values.controllerName }}
+  parameters:
+    apiGroup: apisix.apache.org
+    kind: GatewayProxy
+    name: {{ include "apisix-ingress-controller.gatewayProxyName" . }}
+    namespace: {{ .Release.Namespace }}
+    scope: Namespace
+{{- end }}
+{{- if .Values.gatewayClass.create }}
+{{- if not .Values.gatewayAPI.enabled }}
+{{- fail "gatewayClass.create=true needs gatewayAPI.enabled=true, otherwise the controller never watches GatewayClass and the class stays unaccepted forever." }}
+{{- end }}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: {{ .Values.gatewayClass.name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{/* The controller adds an apisix.apache.org/gc-protection finalizer to a class
+       it claims, so `helm uninstall` can only remove this once no Gateway
+       references it. */}}
+spec:
+  controllerName: {{ .Values.controllerName }}
+  parametersRef:
+    group: apisix.apache.org
+    kind: GatewayProxy
+    name: {{ include "apisix-ingress-controller.gatewayProxyName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

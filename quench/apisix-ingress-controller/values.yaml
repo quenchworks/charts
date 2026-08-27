@@ -1,0 +1,202 @@
+# The digests below are the contract with the image factory. CI rewrites them
+# from the image-published dispatch after every green image build. Never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/apisix-ingress-controller
+  digest: "sha256:ddde66c228afa4e945716c81f67ad1baa16370540c60f5dc0c2d84dea7166756"
+  pullPolicy: IfNotPresent
+
+# The adc SIDECAR, and it is NOT optional. The controller does not talk to APISIX
+# itself: it translates Kubernetes objects into a declarative document and hands
+# it to `adc server` over a Unix socket (internal/adc/client), which is what
+# actually calls the Admin API. Upstream's own Deployment
+# (config/manager/manager.yaml at tag 2.2.0) is the same two-container pod, and
+# the controller release pins the sidecar version (Makefile ADC_VERSION), so
+# these two digests move together or not at all.
+adc:
+  image:
+    repository: ghcr.io/quenchworks/images/adc
+    digest: "sha256:83bdee16c435da77fd717424d70a3d7da06afb371e91cd18b45631dcc69e93cc"
+    pullPolicy: IfNotPresent
+  # Socket both containers share through an emptyDir. The controller reaches it
+  # as ADC_SERVER_URL=unix:<socketPath>.
+  socketPath: /sockets/adc.sock
+  # adc's own HTTP status listener, which serves GET /healthz/ready. The Unix
+  # socket carries PUT /sync and PUT /validate only, so the probes have to use
+  # this port.
+  statusPort: 3001
+  logLevel: info
+  # Experimental flags upstream enables for the ingress running mode.
+  # remote-state-file keeps adc's last-synced state in the data plane instead of
+  # on local disk, which is what lets this container run a read-only rootfs.
+  featureFlags: "remote-state-file,parallel-backend-request"
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+nameOverride: ""
+fullnameOverride: ""
+
+# The controller is leader-elected: extra replicas are warm standbys, not extra
+# reconcile throughput.
+replicaCount: 1
+
+# The controller name this install claims. An IngressClass or GatewayClass is
+# reconciled here only if its spec.controller / spec.controllerName matches
+# exactly. Change it (on both sides) to run several independent installs in one
+# cluster.
+controllerName: apisix.apache.org/apisix-ingress-controller
+
+logLevel: info
+
+leaderElection:
+  enabled: true
+  id: apisix-ingress-controller-leader
+
+# The period between two full re-syncs into the data plane. Upstream's default,
+# 1h, effectively means "event-driven only"; lower it to repair drift faster.
+syncPeriod: 1h
+# Delay before the first full sync after start-up.
+initSyncDelay: 20m
+# How long a single adc sync may take before the controller gives up on it.
+execAdcTimeout: 15s
+
+# Gateway API support. Requires the Gateway API CRDs, which this chart does NOT
+# bundle -- install the quench gateway-api-crds chart (1.6.1, the version this
+# controller release targets) first. Turn this off to run the controller on the
+# apisix.apache.org CRDs and native Ingress alone.
+gatewayAPI:
+  enabled: true
+
+# Extra controller configuration, deep-merged OVER everything the chart renders
+# above. The full surface is upstream's config/manager/config.yaml, e.g.
+#   config:
+#     listener_port_match_mode: explicit
+#     leader_election: { lease_duration: 60s }
+config: {}
+
+# ---------------------------------------------------------------------------
+# The APISIX data plane this controller drives.
+#
+# The controller does not find APISIX by convention: every route it reconciles
+# resolves, through its IngressClass or GatewayClass, to a GatewayProxy that
+# names the Admin API endpoints and the admin key. Without one, an ApisixRoute
+# gets Accepted=False "no matching IngressClass" and nothing reaches APISIX.
+# ---------------------------------------------------------------------------
+dataPlane:
+  # Create the GatewayProxy, and the IngressClass/GatewayClass pointing at it.
+  # Set false to manage those three objects yourself.
+  create: true
+  # Sync mode. "apisix" drives the classic Admin API of an etcd-backed APISIX --
+  # what the quench apisix chart installs. "apisix-standalone" drives the
+  # file-driven standalone Admin API instead (APISIX 3.13+ with
+  # config_provider: yaml) and makes the controller resolve pod endpoints itself.
+  # This is also the controller's default provider.type; it is IMMUTABLE on an
+  # existing GatewayProxy, so switching means recreating it.
+  mode: apisix
+  # Admin API endpoints, e.g.
+  #   ["http://apisix-admin.apisix.svc.cluster.local:9180"]
+  # Exactly one of endpoints or service must be set (a CEL rule on the CRD
+  # enforces it).
+  endpoints: []
+  # Alternative to endpoints: a Service in THIS namespace, {name, port}.
+  service: {}
+  # Verify the Admin API's TLS certificate. Only relevant for https endpoints.
+  tlsVerify: false
+  adminKey:
+    # Inline key. Convenient for a throwaway cluster, visible in the object --
+    # prefer existingSecret.
+    value: ""
+    # Secret holding the Admin API key. The quench apisix chart generates one at
+    # "<release>-apisix-admin", key "admin-key".
+    existingSecret: ""
+    existingSecretKey: admin-key
+  # Plugin metadata pushed to the data plane, keyed by plugin name, e.g.
+  #   pluginMetadata:
+  #     http-logger: {log_format: {host: "$host"}}
+  pluginMetadata: {}
+
+ingressClass:
+  create: true
+  name: apisix
+  # Claim resources that name no class at all (ApisixRoutes with no
+  # ingressClassName, Ingresses with no ingressClassName).
+  default: false
+
+# Gateway API entrypoint. Off by default: a GatewayClass is a cluster-scoped
+# singleton and only some installs want the Gateway API surface. Needs
+# gatewayAPI.enabled and the quench gateway-api-crds chart.
+gatewayClass:
+  create: false
+  name: apisix
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { cpu: 500m, memory: 512Mi }
+
+containerPorts:
+  # controller-runtime health server: /healthz and /readyz. Pod-local.
+  probe: 8081
+  metrics: 8080
+
+service:
+  type: ClusterIP
+  annotations: {}
+  metricsPort: 8080
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 10
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Both containers of this pod run as uid/gid 1001, and the adc socket is chmod
+# 0660 the moment adc binds it, so fsGroup 1001 (the quench-common default) is
+# what lets the controller dial it. Upstream needs fsGroup 2000 only because its
+# two upstream images run as different users. Do not raise runAsUser on one
+# container without doing the same to the other.
+podSecurityContext: {}
+containerSecurityContext: {}
+startupProbe: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # The controller IS an API-server client. It cannot work without its token.
+  automountServiceAccountToken: true
+
+# The controller cannot function without these. Turn off only to bind a
+# pre-existing ClusterRole/Role of your own to serviceAccount.name.
+rbac:
+  create: true
+
+# Nothing outside the pod needs to reach this control plane -- it is a client of
+# the API server and of the data plane's Admin API, not a server. Only the
+# metrics port is exposed, so ingress is namespace-local by default.
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

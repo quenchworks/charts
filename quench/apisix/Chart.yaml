@@ -2,7 +2,7 @@ apiVersion: v2
 name: apisix
 description: "Apache APISIX, the cloud-native API gateway built on OpenResty/LuaJIT: dynamic routing, load balancing, authentication and observability driven by an etcd-backed control plane and a REST Admin API. Hardened by QuenchWorks as a minimal, nonroot, 0-CVE image, cosign-signed and pinned by digest."
 type: application
-version: 0.0.1
+version: 0.0.2
 appVersion: "3.18.0"
 keywords:
   - apisix
@@ -27,14 +27,12 @@ annotations:
       description: "Initial release: Apache APISIX 3.18.0 as an etcd-backed gateway (Deployment + Admin API + control API probes), with the hardened quench/etcd chart bundled as the control-plane store."
     - kind: added
       description: "Admin API key kept in a Secret and injected into config.yaml through APISIX's ${{ENV}} interpolation; a random 32-character key is generated at install when none is supplied and preserved across upgrades."
-    - kind: added
-      description: "Optional APISIX Ingress Controller 2.2.0 deployment, disabled by default because it requires the apisix.apache.org CRDs and the Gateway API bundle, which this chart does not install."
+    - kind: removed
+      description: "The optional APISIX Ingress Controller component is gone; it moved to its own chart, quench/apisix-ingress-controller. It was disabled by default and could never have worked: the controller hands every sync to an adc sidecar that this chart did not run, so it would have reported Ready and synced nothing. It also owns twelve cluster-scoped apisix.apache.org CRDs and an IngressClass, which a data-plane chart must not claim if two APISIX releases are ever to coexist in one cluster. Install the new chart alongside this one and point dataPlane.endpoints at this release's Admin API Service."
   artifacthub.io/category: networking
   artifacthub.io/images: |
     - name: apisix
       image: ghcr.io/quenchworks/images/apisix@sha256:2b242df1ab22aa04f193a55d28cdb949421d8b8c8ce42012a85ca43a9b790ab8
-    - name: apisix-ingress-controller
-      image: ghcr.io/quenchworks/images/apisix-ingress-controller@sha256:ddde66c228afa4e945716c81f67ad1baa16370540c60f5dc0c2d84dea7166756
   artifacthub.io/operator: "false"
   artifacthub.io/prerelease: "false"
   artifacthub.io/license: Apache-2.0

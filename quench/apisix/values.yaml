@@ -104,40 +104,16 @@ autoscaling:
   maxReplicas: 5
   targetCPUUtilizationPercentage: 80
 
-# --- APISIX Ingress Controller (optional, OFF by default) -------------------
+# The APISIX Ingress Controller is a SEPARATE chart, quench/apisix-ingress-controller.
+# It was an optional component here in 0.0.1 and never worked: the controller cannot
+# sync without its adc sidecar, which this chart did not run, and it owns twelve
+# cluster-scoped CRDs plus an IngressClass, which a data-plane chart must not claim if
+# you ever want two APISIX releases in one cluster. Install it alongside and point it
+# at this release:
 #
-# UNVERIFIED IN THIS CHART'S INSTALL GATE. Controller 2.2.0 reconciles the
-# apisix.apache.org CRDs (ApisixRoute, GatewayProxy, ...) and Gateway API v1.6;
-# this chart installs NEITHER bundle, and a cluster-scoped CRD belongs to exactly
-# one owner. Before enabling it, install the CRDs yourself:
-#   * Gateway API: the catalogue's quench/gateway-api-crds chart (v1.6.1)
-#   * APISIX:      config/crd from the apache/apisix-ingress-controller 2.2.0
-#                  source release
-# then create a GatewayProxy pointing at this release's Admin API. Until then the
-# controller will start, fail to establish its watches and never become ready.
-ingressController:
-  enabled: false
-  image:
-    repository: ghcr.io/quenchworks/images/apisix-ingress-controller
-    digest: "sha256:ddde66c228afa4e945716c81f67ad1baa16370540c60f5dc0c2d84dea7166756"
-    pullPolicy: IfNotPresent
-  replicaCount: 1
-  logLevel: info
-  # How often the controller re-syncs its full state into the data plane.
-  syncPeriod: 1h
-  # Extra controller configuration, deep-merged over what the chart renders.
-  config: {}
-  resources:
-    requests: { cpu: 50m, memory: 128Mi }
-    limits: { cpu: 500m, memory: 256Mi }
-  containerPorts:
-    probe: 8081
-    metrics: 8080
-  podLabels: {}
-  podAnnotations: {}
-  nodeSelector: {}
-  affinity: {}
-  tolerations: []
+#   helm install aic oci://ghcr.io/quenchworks/charts/apisix-ingress-controller \
+#     --set dataPlane.endpoints[0]=http://<release>-apisix:9180 \
+#     --set dataPlane.adminKey.existingSecret=<release>-apisix-admin
 
 # --- Common production knobs, wired through quench-common (all optional) ---
 podLabels: {}

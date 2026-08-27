@@ -1,0 +1,124 @@
+apiVersion: v2
+name: apisix-ingress-controller
+description: "The Apache APISIX Ingress Controller: the Kubernetes control plane that reconciles the apisix.apache.org CRDs (ApisixRoute, ApisixUpstream, ApisixConsumer, GatewayProxy, ...), native Ingress and Gateway API into an APISIX data plane's Admin API. Runs the controller with its required adc sidecar, ships the twelve apisix.apache.org CRDs, and wires an IngressClass and GatewayProxy at the APISIX of your choice. Hardened by QuenchWorks as minimal, nonroot, 0-CVE images, cosign-signed and pinned by digest."
+type: application
+version: 0.0.1
+appVersion: "2.2.0"
+# Upstream compiles a Kubernetes floor into the binary (Makefile MIN_K8S_VERSION);
+# below it the controller warns on every start.
+kubeVersion: ">=1.31.0-0"
+keywords:
+  - apisix
+  - apisix-ingress-controller
+  - ingress-controller
+  - gateway-api
+  - api-gateway
+  - control-plane
+  - networking
+maintainers:
+  - name: QuenchWorks
+    email: info@quench-works.com
+    url: https://github.com/quenchworks
+icon: https://raw.githubusercontent.com/quenchworks/.github/main/profile/assets/chart-icon.png
+home: https://quench-works.com
+sources:
+  - https://github.com/quenchworks/charts
+  - https://github.com/apache/apisix-ingress-controller
+annotations:
+  artifacthub.io/category: networking
+  artifacthub.io/changes: |
+    - kind: added
+      description: "First release: Apache APISIX Ingress Controller 2.2.0 as a single leader-elected Deployment on the QuenchWorks 0-CVE image pinned by digest. Nonroot (uid 1001), read-only root filesystem, all capabilities dropped."
+    - kind: added
+      description: "The pod carries the adc 0.27.1 sidecar the controller cannot work without. The controller translates Kubernetes objects into a declarative document and hands it to `adc server` over a shared Unix socket -- adc is what calls the APISIX Admin API. The controller release pins the sidecar version (Makefile ADC_VERSION), so both digests move together. A single-container Deployment would come up Ready and silently sync nothing."
+    - kind: added
+      description: "Ships the twelve apisix.apache.org CRDs of release 2.2.0, vendored from the ASF source release's config/crd/bases with the two config/crd/patches schema validations folded in. The Gateway API CRDs are NOT bundled: the quench gateway-api-crds chart (1.6.1, the version this release targets) owns those cluster-scoped singletons and must be installed first when gatewayAPI.enabled is left on."
+    - kind: added
+      description: "Creates the GatewayProxy, IngressClass and (optionally) GatewayClass that point the controller at a data plane. Set dataPlane.endpoints to the APISIX Admin API and dataPlane.adminKey.existingSecret to its key Secret -- the quench apisix chart generates one at <release>-apisix-admin/admin-key. Without a GatewayProxy an ApisixRoute is reconciled and dropped with Accepted=False, so this is not optional wiring."
+    - kind: added
+      description: "RBAC transcribed from the controller's own kubebuilder rbac markers at release 2.2.0 rather than inferred: read-only cluster-wide on everything it watches, status-update on the ten CRDs plus Ingress and the Gateway API kinds, `update` on GatewayClass for its gc-protection finalizer, and leader-election Leases in the release namespace only. The Deployment sets POD_NAMESPACE, which is the manager's LeaderElectionNamespace and defaults to \"default\" -- without it the controller reports Ready and fails every Lease call as forbidden."
+    - kind: added
+      description: "Install gate proves reconciliation end to end on kind: an ApisixRoute reaches Accepted=True, the route serves a request through the APISIX data plane, an unrouted path 404s, and the controller log is asserted free of `forbidden` and `cannot list`."
+  artifacthub.io/images: |
+    - name: apisix-ingress-controller
+      image: ghcr.io/quenchworks/images/apisix-ingress-controller@sha256:ddde66c228afa4e945716c81f67ad1baa16370540c60f5dc0c2d84dea7166756
+    - name: adc
+      image: ghcr.io/quenchworks/images/adc@sha256:83bdee16c435da77fd717424d70a3d7da06afb371e91cd18b45631dcc69e93cc
+  artifacthub.io/crds: |
+    - kind: ApisixRoute
+      version: v2
+      name: apisixroutes.apisix.apache.org
+      displayName: ApisixRoute
+      description: HTTP and stream routing rules -- host/path/method/header matches, backends, plugins -- translated into APISIX routes and upstreams.
+    - kind: ApisixUpstream
+      version: v2
+      name: apisixupstreams.apisix.apache.org
+      displayName: ApisixUpstream
+      description: Per-Service upstream behaviour -- load balancing, retries, timeouts, health checks, TLS to the backend, subsets and service discovery.
+    - kind: ApisixConsumer
+      version: v2
+      name: apisixconsumers.apisix.apache.org
+      displayName: ApisixConsumer
+      description: An API consumer and its credentials (key-auth, basic-auth, jwt-auth, hmac-auth, ldap-auth) for the authentication plugins.
+    - kind: ApisixPluginConfig
+      version: v2
+      name: apisixpluginconfigs.apisix.apache.org
+      displayName: ApisixPluginConfig
+      description: A reusable named plugin set that ApisixRoute rules reference instead of repeating plugin configuration.
+    - kind: ApisixGlobalRule
+      version: v2
+      name: apisixglobalrules.apisix.apache.org
+      displayName: ApisixGlobalRule
+      description: Plugins applied to every request the data plane serves, regardless of which route matched.
+    - kind: ApisixTls
+      version: v2
+      name: apisixtlses.apisix.apache.org
+      displayName: ApisixTls
+      description: TLS certificates for SNI-based termination, and optional mutual TLS against a client CA, sourced from Kubernetes Secrets.
+    - kind: GatewayProxy
+      version: v1alpha1
+      name: gatewayproxies.apisix.apache.org
+      displayName: GatewayProxy
+      description: The data plane an IngressClass or GatewayClass drives -- Admin API endpoints, admin key, sync mode and global plugin metadata.
+    - kind: BackendTrafficPolicy
+      version: v1alpha1
+      name: backendtrafficpolicies.apisix.apache.org
+      displayName: BackendTrafficPolicy
+      description: Upstream behaviour for Gateway API backendRefs -- load balancing, retries, timeouts, passive and active health checks.
+    - kind: HTTPRoutePolicy
+      version: v1alpha1
+      name: httproutepolicies.apisix.apache.org
+      displayName: HTTPRoutePolicy
+      description: APISIX-specific matching and priority attached to an HTTPRoute or Ingress rule, such as nginx variable expressions.
+    - kind: L4RoutePolicy
+      version: v1alpha1
+      name: l4routepolicies.apisix.apache.org
+      displayName: L4RoutePolicy
+      description: APISIX-specific settings attached to a Gateway API TCPRoute, TLSRoute or UDPRoute.
+    - kind: Consumer
+      version: v1alpha1
+      name: consumers.apisix.apache.org
+      displayName: Consumer
+      description: The Gateway API flavoured consumer -- credentials attached to a Gateway rather than to an IngressClass.
+    - kind: PluginConfig
+      version: v1alpha1
+      name: pluginconfigs.apisix.apache.org
+      displayName: PluginConfig
+      description: A reusable named plugin set for the Gateway API surface, referenced from HTTPRoute filters and policies.
+  artifacthub.io/operator: "true"
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/quenchworks/charts
+    - name: image
+      url: https://github.com/quenchworks/images
+    - name: upstream
+      url: https://github.com/apache/apisix-ingress-controller
+  artifacthub.io/signKey: |
+    fingerprint: keyless (cosign / Sigstore)
+    url: https://github.com/quenchworks/.github/blob/main/SECURITY.md
+dependencies:
+  - name: quench-common
+    version: 0.0.8
+    repository: oci://ghcr.io/quenchworks/charts

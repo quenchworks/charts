@@ -1,0 +1,166 @@
+{{/*
+Two containers, and the second one is load-bearing.
+
+`manager` translates Kubernetes objects into a declarative document; `adc-server`
+is what actually calls the APISIX Admin API. They share a Unix socket on an
+emptyDir. A single-container Deployment comes up Ready, both probes pass, and
+every sync fails -- so this is the shape upstream ships
+(config/manager/manager.yaml at tag 2.2.0) and the shape this chart ships.
+
+Probes: the controller-runtime health server answers /healthz once the manager is
+up and /readyz once the caches have synced; adc answers /healthz/ready on its own
+status port. Neither is on the Service.
+*/}}
+{{- $probe := .Values.containerPorts.probe -}}
+{{- $startup := dict "httpGet" (dict "path" "/healthz" "port" "probe") "periodSeconds" 2 "timeoutSeconds" 1 "failureThreshold" 30 -}}
+{{- $liveness := dict "httpGet" (dict "path" "/healthz" "port" "probe") "periodSeconds" 20 "timeoutSeconds" 1 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/readyz" "port" "probe") "periodSeconds" 10 "timeoutSeconds" 1 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      {{/* fsGroup (1001 by default) is what makes the shared socket work: adc
+           chmods it 0660 as soon as it binds, so the controller reaches it only
+           through a shared uid or gid. */}}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: apisix-ingress-controller
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{/* The image entrypoint is the bare binary; upstream's CMD is the
+               same -c flag. */}}
+          args:
+            - "-c"
+            - "/etc/apisix-ingress-controller/config.yaml"
+          env:
+            {{/* NOT decoration: POD_NAMESPACE is the manager's
+                 LeaderElectionNamespace and it defaults to "default", not to the
+                 pod's own namespace. Omit it and the controller tries to take a
+                 Lease in "default", where this release's namespaced Role grants
+                 nothing -- the pod stays Ready and reconciles nothing while the
+                 log fills with `leases.coordination.k8s.io ... is forbidden`. */}}
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ADC_SERVER_URL
+              value: unix:{{ .Values.adc.socketPath }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: probe
+              containerPort: {{ $probe }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.containerPorts.metrics }}
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "startup" "default" $startup) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/apisix-ingress-controller
+              readOnly: true
+            - name: sockets
+              mountPath: {{ dir .Values.adc.socketPath }}
+            {{/* Every sync writes the translated document to a temp file under
+                 os.TempDir() before handing it to adc, so /tmp has to be
+                 writable. Upstream never notices -- its distroless container has
+                 a writable rootfs -- but with readOnlyRootFilesystem the pod
+                 comes up 2/2 Ready, the GatewayClass reaches Accepted=True, and
+                 every single sync fails with
+                   open /tmp/adc-task-<n>.json: read-only file system
+                 while nothing in the pod's status hints at it. */}}
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        - name: adc-server
+          image: {{ include "apisix-ingress-controller.adcImage" . }}
+          imagePullPolicy: {{ .Values.adc.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{/* ADC_RUNNING_MODE=ingress is not cosmetic: only the ingress program
+               registers the `server` subcommand, and without it the container
+               dies with `unknown command 'server'`. */}}
+          env:
+            - name: ADC_RUNNING_MODE
+              value: ingress
+            - name: ADC_EXPERIMENTAL_FEATURE_FLAGS
+              value: {{ .Values.adc.featureFlags | quote }}
+            - name: ADC_INGRESS_LOG_LEVEL
+              value: {{ .Values.adc.logLevel | quote }}
+          args:
+            - "server"
+            - "--listen"
+            - "unix:{{ .Values.adc.socketPath }}"
+            - "--listen-status"
+            - "{{ .Values.adc.statusPort }}"
+          ports:
+            - name: adc-status
+              containerPort: {{ .Values.adc.statusPort }}
+              protocol: TCP
+          {{/* /healthz/ready is served on the status port only -- probing the
+               Unix socket listener for it 404s. */}}
+          livenessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: adc-status
+            periodSeconds: 10
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz/ready
+              port: adc-status
+            periodSeconds: 5
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.adc.resources | nindent 12 }}
+          volumeMounts:
+            - name: sockets
+              mountPath: {{ dir .Values.adc.socketPath }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "apisix-ingress-controller.configMapName" . }}
+        - name: sockets
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

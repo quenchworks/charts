@@ -1,0 +1,29 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digests from values.yaml, so the gate pulls the actual signed
+# controller and adc images.
+#
+# The gate installs two other charts FIRST, and this file assumes their release
+# names:
+#   * quench/gateway-api-crds as `gwapi`  -- cluster-scoped singletons this chart
+#     does not bundle, and Gateway API support is on by default.
+#   * quench/apisix as `dp`               -- the data plane. There is nothing to
+#     prove without one: the controller's whole job is pushing configuration into
+#     an APISIX Admin API.
+#
+# Everything else is used as shipped, so the gate tests what ships.
+dataPlane:
+  endpoints:
+    - http://dp-apisix:9180
+  adminKey:
+    existingSecret: dp-apisix-admin
+    existingSecretKey: admin-key
+
+# Repair drift fast enough that a gate does not have to wait out the 1h default.
+syncPeriod: 60s
+initSyncDelay: 10s
+
+# The gate creates a Gateway API GatewayClass too, so both entrypoints are
+# exercised, not just the IngressClass one.
+gatewayClass:
+  create: true
+  name: apisix
