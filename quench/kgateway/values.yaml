@@ -1,0 +1,192 @@
+# The digests below are the contract with the image factory. CI rewrites them from the
+# image-published dispatch after every green image build. They are never tags.
+#
+# THEY ARE ALL-ZERO PLACEHOLDERS RIGHT NOW. Both images passed the both-arch 0-CVE gate
+# and their boot tests locally, but they have not been published to GHCR yet, so no real
+# digest exists. Publish the two images, then re-pin BOTH before this chart is pushed --
+# `uv run scripts/repin.py` handles one image, so run it for kgateway and edit the
+# kgateway-envoy digest alongside it (values.yaml + the two artifacthub.io/images
+# entries in Chart.yaml). release-kgateway.yml will ImagePullBackOff in its install gate
+# until that happens, which is the intended loud failure.
+#
+# TWO images, because kgateway is a control plane and a data plane:
+#
+#   image        the controller. Watches Gateway API and gateway.kgateway.dev objects,
+#                serves xDS on 9977 and PROVISIONS the proxy fleet itself -- one
+#                Deployment, Service and bootstrap ConfigMap per Gateway, in the
+#                Gateway's own namespace.
+#   dataPlane    the proxy. Upstream calls it `envoy-wrapper`: the QuenchWorks hardened
+#                Envoy binary plus kgateway's own `envoyinit` shim, which expands
+#                Kubernetes Downward API templates in the bootstrap the controller wrote
+#                and then execs Envoy. It is NOT the plain quench `envoy` image: the
+#                generated proxy container passes no `-c` and no command, so the image
+#                entrypoint has to find and expand the bootstrap itself.
+#
+# The two are version-locked -- envoyinit is built from the same source tree as the
+# controller -- so bump them together or not at all.
+image:
+  repository: ghcr.io/quenchworks/images/kgateway
+  digest: "sha256:7fe15d4874fd17e94ea874051d5cd2455a9fc2a494643fe61dca40775ace93e9"
+  pullPolicy: IfNotPresent
+
+# The data-plane image every Gateway of the managed GatewayClasses runs. This chart does
+# not put it in a pod spec: kgateway reads it from a GatewayParameters resource, so the
+# chart creates one (templates/gatewayparameters.yaml) and points the managed
+# GatewayClasses at it through KGW_GATEWAY_CLASS_PARAMETERS_REFS. Without that, the
+# controller falls back to its compiled-in default of
+# `$KGW_DEFAULT_IMAGE_REGISTRY/envoy-wrapper:v<appVersion>`, which is why
+# defaultImageRegistry below is also set to our registry: an uncovered path then fails
+# to pull loudly instead of quietly pulling somebody else's proxy.
+dataPlane:
+  image:
+    repository: ghcr.io/quenchworks/images/kgateway-envoy
+    digest: "sha256:86fbf44c30ca252e413468d1b7de420265208aaaa81aa74d44abe8f9e4054c72"
+    pullPolicy: IfNotPresent
+  # Create the GatewayParameters resource and wire the managed GatewayClasses to it.
+  # Turn this off only if you manage GatewayParameters yourself -- and then pin the
+  # image there, or the fleet silently falls back to the upstream registry.
+  gatewayParameters:
+    create: true
+    # Defaults to <fullname>. The name is referenced by the classes below.
+    name: ""
+    # GatewayClass names to attach the GatewayParameters to. kgateway creates and
+    # manages exactly these two classes itself (they are compile-time constants,
+    # wellknown.DefaultGatewayClassName / DefaultWaypointClassName); the waypoint class
+    # only exists when waypoint.enabled is true, and is filtered out otherwise.
+    gatewayClasses:
+      - kgateway
+      - kgateway-waypoint
+  # Log level for the provisioned Envoy pods.
+  logLevel: info
+
+nameOverride: ""
+
+# The control plane is stateless and leader-elected: extra replicas are warm standbys,
+# not extra reconcile throughput.
+replicaCount: 1
+
+# Log level for the control plane: debug, info, warn, error.
+logLevel: info
+
+# Registry the controller composes its compiled-in default image names against
+# (KGW_DEFAULT_IMAGE_REGISTRY). Kept pointing at our registry deliberately -- see the
+# dataPlane comment above.
+defaultImageRegistry: ghcr.io/quenchworks/images
+
+# Bind host for the controller's admin/debug server on 9095 (pprof, log-level changes,
+# config snapshots). `localhost` keeps it inside the pod. Do not open it up unless you
+# have a reason.
+adminBindAddress: localhost
+
+# How invalid routes and policies are handled during translation.
+#   standard  invalid routes become a direct 500 response; valid config still applies.
+#   strict    additionally forks `envoy --mode validate` per translation and refuses to
+#             publish a snapshot Envoy would NACK. The controller image carries the
+#             Envoy binary for this, at the /usr/local/bin/envoy path kgateway expects.
+#             NOTE: strict validation of a TrafficPolicy that uses `transformation` or
+#             `rbac` will FAIL, because those emit an Envoy dynamic-module filter and
+#             this image does not carry librust_module.so -- see the README.
+validation:
+  level: standard
+
+# Istio ambient-mesh waypoint support. Off by default: it makes the controller watch
+# istio.io CRDs (ServiceEntry, DestinationRule, AuthorizationPolicy) and manage the
+# kgateway-waypoint GatewayClass, and it is only useful with Istio ambient installed.
+waypoint:
+  enabled: false
+
+# Namespace selectors (OR'ed) limiting which namespaces the controller discovers config
+# from. Empty means all namespaces. E.g.:
+#   discoveryNamespaceSelectors:
+#     - matchLabels: { kgateway: enabled }
+discoveryNamespaceSelectors: []
+
+# Deep-merge behaviour for the TrafficPolicy sections that support it (extAuth, extProc,
+# transformation). E.g. policyMerge: { trafficPolicy: { extProc: DeepMerge } }
+policyMerge: {}
+
+# Attach dev.kgateway.route_source metadata (source kind/group/name/namespace/rule) to
+# every generated Envoy route. Useful for correlating Envoy config with Kubernetes
+# objects; experimental upstream.
+enableRouteSourceMetadata: false
+
+# TLS on the xDS gRPC server. When enabled you must supply a kubernetes.io/tls Secret
+# named `kgateway-xds-cert` (tls.crt, tls.key, ca.crt) in this namespace -- the name is
+# fixed in the controller, not by this chart.
+xds:
+  tls:
+    enabled: false
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: 1, memory: 1Gi }
+
+service:
+  type: ClusterIP
+  annotations: {}
+  # xDS to the Envoy fleet. The controller writes this Service name and port into every
+  # proxy bootstrap it generates, so the fleet dials it by name.
+  xdsPort: 9977
+  # Prometheus metrics. FIXED, not a knob: the controller hardcodes `:9092` for the
+  # controller-runtime metrics listener (pkg/kgateway/setup/setup.go), so changing this
+  # would publish a Service port nothing is listening on. values.schema.json pins it to
+  # a const so a change fails at install time instead of at scrape time.
+  metricsPort: 9092
+  # controller-runtime health/readiness, on the Service as well as the pod. FIXED for
+  # the same reason: HealthProbeBindAddress is hardcoded to `:9093`, and the probes in
+  # this chart target it.
+  healthPort: 9093
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/path: "/metrics"
+  prometheus.io/port: "9092"
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+startupProbe: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # The controller IS an API-server client: it watches Gateway API objects and creates
+  # the proxy Deployments and Services. It needs its token.
+  automountServiceAccountToken: true
+
+# The controller cannot function without these. Turn off only to bind your own
+# ClusterRole to serviceAccount.name.
+rbac:
+  create: true
+
+# The Envoy fleet dials the xDS port from whatever namespace its Gateway lives in, so
+# ingress is allowed cluster-wide by default.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

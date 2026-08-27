@@ -1,0 +1,32 @@
+{{/* The controller writes THIS Service's name and xDS port into every proxy bootstrap
+     it generates (KGW_XDS_SERVICE_NAME / KGW_XDS_SERVICE_PORT below), so the whole
+     Envoy fleet dials it by name from whatever namespace its Gateway lives in. Renaming
+     it means renaming it in the Deployment env too, which is why both come from the
+     same fullname helper. */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: grpc-xds
+      port: {{ .Values.service.xdsPort }}
+      targetPort: grpc-xds
+      protocol: TCP
+    - name: metrics
+      port: {{ .Values.service.metricsPort }}
+      targetPort: metrics
+      protocol: TCP
+    - name: health
+      port: {{ .Values.service.healthPort }}
+      targetPort: health
+      protocol: TCP
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

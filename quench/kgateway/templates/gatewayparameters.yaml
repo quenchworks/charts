@@ -1,0 +1,39 @@
+{{- if .Values.dataPlane.gatewayParameters.create }}
+{{/*
+The one place the QuenchWorks data-plane image enters the cluster.
+
+kgateway does not run Envoy itself: for every Gateway it provisions a Deployment,
+Service and bootstrap ConfigMap, and the image for those proxy pods comes from a
+GatewayParameters resource -- not from this chart's own pod spec. The controller starts
+from a GatewayParameters it builds in code (pkg/deployer/gateway_parameters.go), whose
+envoyContainer.image defaults to `<KGW_DEFAULT_IMAGE_REGISTRY>/envoy-wrapper:<tag>`, and
+merges the GatewayClass's parametersRef over it FIELD BY FIELD. So this resource only
+has to state what we want to change, and the Deployment's
+KGW_GATEWAY_CLASS_PARAMETERS_REFS is what attaches it to the managed classes.
+
+`tag: ""` next to the digest is explicit rather than load-bearing, and the distinction
+is worth writing down because the API's own doc comment reads the other way. Tag and
+digest are coupled at merge time (pkg/deployer/merge.go DeepMergeImage): a non-empty
+digest with the tag ABSENT already clears the inherited tag, and a tag set to the empty
+string sets it to empty as well. Both spellings render `repo@digest`; this one says so
+out loud, so nobody "tidies away" a line that would then look load-bearing.
+
+An extra GatewayClass of your own with controllerName kgateway.dev/kgateway will NOT
+pick this up -- kgateway only manages the two classes it creates. Point that class's
+spec.parametersRef at this same resource (group gateway.kgateway.dev, kind
+GatewayParameters) or its fleet falls back to the compiled-in image name.
+*/}}
+apiVersion: gateway.kgateway.dev/v1alpha1
+kind: GatewayParameters
+metadata:
+  name: {{ include "kgateway.gatewayParametersName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  kube:
+    envoyContainer:
+      image:
+        {{- include "kgateway.dataPlaneImage" . | nindent 8 }}
+      bootstrap:
+        logLevel: {{ .Values.dataPlane.logLevel | quote }}
+{{- end }}

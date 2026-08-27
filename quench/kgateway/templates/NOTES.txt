@@ -1,0 +1,43 @@
+kgateway {{ .Chart.AppVersion }} is installed as release {{ .Release.Name }} in namespace {{ .Release.Namespace }}.
+
+The controller creates its own GatewayClasses. Check it is reconciling:
+
+  kubectl get gatewayclass kgateway -o jsonpath='{.status.conditions[?(@.type=="Accepted")].status}{"\n"}'
+
+An `Accepted=True` GatewayClass is the real readiness signal -- a Ready pod only means
+the process started. Then create a Gateway and a route:
+
+  kubectl apply -f - <<'EOF2'
+  apiVersion: gateway.networking.k8s.io/v1
+  kind: Gateway
+  metadata:
+    name: http
+  spec:
+    gatewayClassName: kgateway
+    listeners:
+      - name: http
+        protocol: HTTP
+        port: 80
+  EOF2
+
+kgateway provisions a Deployment and Service named after the Gateway, in the Gateway's
+own namespace, running the QuenchWorks data-plane image
+{{ .Values.dataPlane.image.repository }}@{{ .Values.dataPlane.image.digest }}:
+
+  kubectl get deploy,svc,pod -l app.kubernetes.io/managed-by=kgateway
+
+On a cluster with no LoadBalancer implementation the Gateway never gets an address and
+so never reaches Programmed=True. Provision a ClusterIP or NodePort instead by creating
+a GatewayParameters with spec.kube.service.type and pointing the Gateway's
+spec.infrastructure.parametersRef at it.
+
+WHAT THIS CHART DOES NOT INSTALL
+
+  * The Gateway API CRDs (gateway.networking.k8s.io). They are cluster-scoped singletons
+    owned by the quench `gateway-api-crds` chart and must be installed FIRST. kgateway
+    {{ .Chart.AppVersion }} is conformant against Gateway API v1.6.1.
+  * librust_module.so, the Envoy dynamic module upstream bundles. TrafficPolicy
+    `transformation` and `rbac` need it and will be rejected by Envoy without it;
+    everything else works. See the README for why.
+  * The `sds` sidecar image, so the Istio-ambient auto-mTLS path is unavailable even
+    with waypoint.enabled.

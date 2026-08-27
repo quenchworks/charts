@@ -1,0 +1,166 @@
+{{- if .Values.rbac.create }}
+{{- /*
+Clean-room RBAC, authored from the API surface the kgateway controller actually uses.
+
+EVERYTHING IS CLUSTER-SCOPED HERE, and that is a real difference from the sibling
+envoy-gateway chart rather than laziness. kgateway provisions each Envoy fleet into ITS
+GATEWAY'S OWN NAMESPACE -- a Gateway in `team-a` gets a Deployment, Service,
+ServiceAccount and bootstrap ConfigMap in `team-a`. A namespaced Role in the release
+namespace could not create any of it. Narrow the blast radius with
+discoveryNamespaceSelectors, or set rbac.create=false and bind your own ClusterRole.
+
+The three groups below, and why each one is needed:
+
+  READ, cluster-wide      Gateway API objects and kgateway's own policy CRDs may live in
+                          any namespace; so may the Services, EndpointSlices, Secrets and
+                          ConfigMaps a route or policy references. Nodes and namespaces
+                          are read to compute Gateway addresses and to evaluate namespace
+                          selectors. CRDs are read so the controller can skip watches for
+                          APIs (ListenerSet, the istio.io kinds) that are not installed.
+  WRITE, cluster-wide     The workloads it provisions, plus status subresources on
+                          everything it reconciles. `create` on gatewayclasses is how the
+                          `kgateway` (and, with waypoint enabled, `kgateway-waypoint`)
+                          GatewayClass appears at all: the controller creates its own
+                          classes rather than the chart shipping them.
+  ISTIO, read-only        ServiceEntry / DestinationRule / AuthorizationPolicy, for the
+                          ambient-mesh waypoint integration. Kept even when
+                          waypoint.enabled is false: a rule for an absent CRD is inert,
+                          and dropping it would make enabling waypoint a two-step change
+                          that fails with an opaque RBAC error the first time.
+*/}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  {{/* Cluster-scoped names are GLOBAL: carry the namespace so two installs cannot
+       fight over one object. */}}
+  name: {{ printf "%s-%s" (include "quench-common.fullname" .) .Release.Namespace | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  # --- read: what routes and policies reference -----------------------------
+  - apiGroups: [""]
+    resources: ["endpoints", "namespaces", "nodes", "pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["get", "list", "watch"]
+
+  # --- write: the proxy fleet, created in each Gateway's namespace -----------
+  - apiGroups: [""]
+    resources: ["configmaps", "services"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: [""]
+    resources: ["secrets", "serviceaccounts"]
+    verbs: ["create", "delete", "get", "list", "patch", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["autoscaling.k8s.io"]
+    resources: ["verticalpodautoscalers"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  # Validates the projected token a proxy pod presents when fetching its xDS
+  # certificate.
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  # Leader election among control-plane replicas.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["create", "get", "update"]
+
+  # --- Gateway API ----------------------------------------------------------
+  # GatewayClass is cluster-scoped AND created by the controller: `kgateway` and
+  # `kgateway-waypoint` are the classes it manages, and it also patches the finalizer
+  # that stops a class being deleted out from under live Gateways.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gatewayclasses"]
+    verbs: ["create", "get", "list", "patch", "update", "watch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources:
+      - "gateways"
+      - "listenersets"
+      - "httproutes"
+      - "grpcroutes"
+      - "tcproutes"
+      - "tlsroutes"
+      - "backendtlspolicies"
+      - "referencegrants"
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources:
+      - "gatewayclasses/status"
+      - "gateways/status"
+      - "listenersets/status"
+      - "httproutes/status"
+      - "grpcroutes/status"
+      - "tcproutes/status"
+      - "tlsroutes/status"
+      - "backendtlspolicies/status"
+    verbs: ["patch", "update"]
+  # The experimental ListenerSet API, when its CRD is installed.
+  - apiGroups: ["gateway.networking.x-k8s.io"]
+    resources: ["xlistenersets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["gateway.networking.x-k8s.io"]
+    resources: ["xlistenersets/status"]
+    verbs: ["patch", "update"]
+
+  # --- kgateway's own extension APIs, shipped as CRDs by this chart ---------
+  - apiGroups: ["gateway.kgateway.dev"]
+    resources:
+      - "backends"
+      - "backendconfigpolicies"
+      - "directresponses"
+      - "gatewayextensions"
+      - "gatewayparameters"
+      - "httplistenerpolicies"
+      - "listenerpolicies"
+      - "trafficpolicies"
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["gateway.kgateway.dev"]
+    resources:
+      - "backends/status"
+      - "backendconfigpolicies/status"
+      - "directresponses/status"
+      - "gatewayextensions/status"
+      - "gatewayparameters/status"
+      - "httplistenerpolicies/status"
+      - "listenerpolicies/status"
+      - "trafficpolicies/status"
+    verbs: ["get", "patch", "update"]
+
+  # --- Istio ambient-mesh waypoint integration (inert without the CRDs) -----
+  - apiGroups: ["networking.istio.io"]
+    resources: ["destinationrules", "serviceentries", "workloadentries"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["security.istio.io"]
+    resources: ["authorizationpolicies"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-%s" (include "quench-common.fullname" .) .Release.Namespace | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-%s" (include "quench-common.fullname" .) .Release.Namespace | trunc 63 | trimSuffix "-" }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

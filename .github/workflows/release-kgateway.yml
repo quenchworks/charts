@@ -1,0 +1,191 @@
+name: release-kgateway
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/kgateway/**"
+      - ".github/workflows/release-kgateway.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/kgateway
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          # The Gateway API CRDs are cluster-scoped singletons owned by a different
+          # chart. This chart does not bundle them and the controller cannot start its
+          # caches without them.
+          helm install gwapi quench/gateway-api-crds --wait --timeout 5m
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          kubectl rollout status deployment/rtest-kgateway --timeout=300s
+
+          # A Ready pod proves nothing. kgateway CREATES its own GatewayClass, so an
+          # ACCEPTED `kgateway` class is proof the controller reconciled at least once
+          # -- and it also proves the RBAC in this chart is sufficient, because
+          # creating a cluster-scoped GatewayClass is the first thing it does.
+          kubectl wait --for=condition=Accepted --timeout=180s gatewayclass/kgateway
+
+          # kind has no LoadBalancer, so a Gateway with the default Service type never
+          # gets an address and never reaches Programmed. A GatewayParameters in the
+          # Gateway's own namespace DEEP-MERGES over the one this chart attached to the
+          # GatewayClass, so the digest-pinned data-plane image is inherited and must
+          # NOT be repeated here -- unlike the envoy-gateway chart, where a
+          # GatewayClass parametersRef replaces the defaults wholesale.
+          kubectl apply -f - <<'EOF'
+          apiVersion: gateway.kgateway.dev/v1alpha1
+          kind: GatewayParameters
+          metadata: { name: clusterip, namespace: default }
+          spec:
+            kube:
+              service: { type: ClusterIP }
+          ---
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: Gateway
+          metadata: { name: example, namespace: default }
+          spec:
+            gatewayClassName: kgateway
+            infrastructure:
+              parametersRef:
+                group: gateway.kgateway.dev
+                kind: GatewayParameters
+                name: clusterip
+            listeners:
+              - name: http
+                protocol: HTTP
+                port: 80
+          EOF
+
+          # `kubectl wait` on a LABEL SELECTOR fails instantly with "no matching
+          # resources found" when nothing matches yet -- it does not wait for the
+          # resource to appear. kgateway provisions the proxy fleet asynchronously
+          # after the Gateway is created, so the pod is not there the moment we ask.
+          # Poll for existence first, then wait on the condition.
+          # NOTE: capture-then-grep, never `kubectl ... | grep -q`: under pipefail
+          # grep exits at the first match, kubectl takes SIGPIPE, and the pipeline
+          # fails BECAUSE the pattern matched.
+          await_pods() {
+            for _ in $(seq 1 60); do
+              out="$(kubectl get pod -l "$1" -o name 2>/dev/null || true)"
+              case "$out" in *pod/*) return 0;; esac
+              sleep 5
+            done
+            echo "no pod ever appeared for selector: $1"
+            kubectl get pods -A
+            kubectl get gateway,gatewayparameters -A -o yaml
+            return 1
+          }
+
+          await_pods gateway.networking.k8s.io/gateway-name=example
+          kubectl wait --for=condition=Ready --timeout=300s \
+            pod -l gateway.networking.k8s.io/gateway-name=example
+          kubectl wait --for=condition=Programmed --timeout=300s gateway/example
+
+          # The fleet must be running OUR digest-pinned data-plane image, inherited
+          # from the chart's GatewayParameters. If the merge or the env wiring broke,
+          # kgateway would fall back to <KGW_DEFAULT_IMAGE_REGISTRY>/envoy-wrapper:<tag>
+          # and this is the assertion that catches it.
+          dp_image="$(helm get values rtest -a -o json \
+            | python3 -c 'import json,sys;v=json.load(sys.stdin)["dataPlane"]["image"];print(v["repository"]+"@"+v["digest"])')"
+          kubectl get pod -l gateway.networking.k8s.io/gateway-name=example \
+            -o jsonpath='{.items[0].spec.containers[?(@.name=="kgateway-proxy")].image}' | grep -qxF "$dp_image"
+
+          # End to end: the provisioned Envoy fleet must serve a route it was given
+          # over xDS. A DirectResponse needs no backend image and exercises this
+          # chart's own CRD at the same time.
+          kubectl apply -f - <<'EOF'
+          apiVersion: gateway.kgateway.dev/v1alpha1
+          kind: DirectResponse
+          metadata: { name: hello, namespace: default }
+          spec:
+            status: 200
+            body: "quenchworks-kgateway-ok"
+          ---
+          apiVersion: gateway.networking.k8s.io/v1
+          kind: HTTPRoute
+          metadata: { name: hello, namespace: default }
+          spec:
+            parentRefs: [{ name: example }]
+            rules:
+              - matches: [{ path: { type: PathPrefix, value: / } }]
+                filters:
+                  - type: ExtensionRef
+                    extensionRef:
+                      group: gateway.kgateway.dev
+                      kind: DirectResponse
+                      name: hello
+          EOF
+          # no kubectl wait on the HTTPRoute: its Accepted condition lives under
+          # status.parents[].conditions, per parent, which `kubectl wait
+          # --for=condition=` cannot read. The curl below is the assertion. 
+          await_pods gateway.networking.k8s.io/gateway-name=example
+          kubectl wait --for=condition=Ready --timeout=300s \
+            pod -l gateway.networking.k8s.io/gateway-name=example
+
+          kubectl port-forward svc/example 8080:80 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --retry 20 --retry-delay 3 --retry-all-errors http://127.0.0.1:8080/ \
+            | grep -qx 'quenchworks-kgateway-ok'
+
+          # Nothing crash-looped on the way here.
+          test -z "$(kubectl get pods -o jsonpath='{range .items[*].status.containerStatuses[*]}{.restartCount}{"\n"}{end}' | grep -v '^0$')"
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/kgateway-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/kgateway@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/kgateway:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

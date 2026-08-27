@@ -1,0 +1,148 @@
+{{/* controller-runtime's health server listens on 9093: /healthz once the manager is
+     up, /readyz once the caches have synced and the xDS server is serving. Upstream
+     probes /readyz for both startup and readiness and ships no liveness probe; this
+     chart adds one on /healthz, which is the liveness signal controller-runtime
+     actually exposes. failureThreshold 600 on startup matches upstream -- a cold
+     controller has to list every Gateway API object in the cluster before it is
+     ready, and on a large cluster that is minutes, not seconds. */}}
+{{- $startup := dict "httpGet" (dict "path" "/readyz" "port" "health") "periodSeconds" 1 "timeoutSeconds" 2 "failureThreshold" 600 -}}
+{{- $liveness := dict "httpGet" (dict "path" "/healthz" "port" "health") "periodSeconds" 20 "timeoutSeconds" 2 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/readyz" "port" "health") "periodSeconds" 10 "timeoutSeconds" 2 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: kgateway
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{/* The image entrypoint IS the controller; there is no subcommand. Everything
+               is configured through KGW_* environment variables (api/settings). */}}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{/* Go respects the cgroup limits the pod actually has rather than the
+                 node's, which is what keeps a 1Gi controller from OOM-killing itself
+                 under a large cache sync. */}}
+            - name: GOMEMLIMIT
+              valueFrom:
+                resourceFieldRef:
+                  divisor: "1"
+                  resource: limits.memory
+            - name: GOMAXPROCS
+              valueFrom:
+                resourceFieldRef:
+                  divisor: "1"
+                  resource: limits.cpu
+            - name: KGW_LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            - name: KGW_ADMIN_BIND_ADDRESS
+              value: {{ .Values.adminBindAddress | quote }}
+            {{/* Written into every generated proxy bootstrap as the xDS endpoint the
+                 fleet dials, so it must name the Service this chart creates. */}}
+            - name: KGW_XDS_SERVICE_NAME
+              value: {{ include "quench-common.fullname" . }}
+            - name: KGW_XDS_SERVICE_PORT
+              value: {{ .Values.service.xdsPort | quote }}
+            {{/* Fallback for any code path not covered by our GatewayParameters. Points
+                 at our registry so it fails to pull loudly rather than quietly pulling
+                 the upstream proxy image. */}}
+            - name: KGW_DEFAULT_IMAGE_REGISTRY
+              value: {{ .Values.defaultImageRegistry | quote }}
+            - name: KGW_DEFAULT_IMAGE_TAG
+              value: {{ printf "v%s" .Chart.AppVersion | quote }}
+            - name: KGW_DEFAULT_IMAGE_PULL_POLICY
+              value: {{ .Values.dataPlane.image.pullPolicy | default "IfNotPresent" | quote }}
+            - name: KGW_GATEWAY_CLASS_PARAMETERS_REFS
+              value: {{ include "kgateway.gatewayClassParametersRefs" . | quote }}
+            - name: KGW_DISCOVERY_NAMESPACE_SELECTORS
+              value: {{ .Values.discoveryNamespaceSelectors | toJson | quote }}
+            - name: KGW_POLICY_MERGE
+              value: {{ .Values.policyMerge | toJson | quote }}
+            - name: KGW_VALIDATION_MODE
+              value: {{ .Values.validation.level | lower | quote }}
+            {{- if .Values.enableRouteSourceMetadata }}
+            - name: KGW_ENABLE_ROUTE_SOURCE_METADATA
+              value: "true"
+            {{- end }}
+            {{- if .Values.waypoint.enabled }}
+            - name: KGW_ENABLE_WAYPOINT
+              value: "true"
+            {{- end }}
+            {{- if .Values.xds.tls.enabled }}
+            - name: KGW_XDS_TLS
+              value: "true"
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: grpc-xds
+              containerPort: {{ .Values.service.xdsPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.service.metricsPort }}
+              protocol: TCP
+            - name: health
+              containerPort: {{ .Values.service.healthPort }}
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "startup" "default" $startup) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{/* The root filesystem is read-only. `validation.level: strict` forks
+                 `envoy --mode validate` per translation, and Envoy wants a writable
+                 temp dir; give it one unconditionally rather than making the switch a
+                 two-step change. */}}
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.xds.tls.enabled }}
+            - name: xds-tls
+              mountPath: /etc/xds-tls
+              readOnly: true
+            {{- end }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.xds.tls.enabled }}
+        - name: xds-tls
+          secret:
+            {{/* The name is fixed in the controller, not configurable here. */}}
+            secretName: kgateway-xds-cert
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
