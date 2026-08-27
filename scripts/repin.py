@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -47,6 +48,32 @@ def main() -> int:
     if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
         print(f"!! refusing a malformed digest: {digest!r}")
         return 3
+
+    # A format check is not an existence check. On 2026-08-27 a well-formed but
+    # INVENTED digest (a real 12-char prefix with the remaining 52 chars made up)
+    # sailed through the regex and re-pinned a chart to an image that does not exist.
+    # Nothing downstream would have caught it either: helm lint and helm template
+    # never resolve the digest, so it would have surfaced as ImagePullBackOff in the
+    # release gate at the earliest, and in a user's cluster at worst. Ask the registry.
+    if "--skip-verify" not in sys.argv:
+        ref = f"ghcr.io/quenchworks/images/{chart}@{digest}"
+        probe = subprocess.run(
+            ["docker", "buildx", "imagetools", "inspect", ref, "--format", "{{.Manifest.Digest}}"],
+            capture_output=True, text=True,
+        )
+        if probe.returncode != 0:
+            # A multi-image chart legitimately pins a digest whose repository is not
+            # named after the chart, so a lookup miss is only fatal when the name matches.
+            vtext_probe = (ROOT / "quench" / chart / "values.yaml")
+            names = re.findall(r"ghcr\.io/quenchworks/images/([\w.-]+)", vtext_probe.read_text()) if vtext_probe.exists() else []
+            if chart in names:
+                print(f"!! {chart}: the registry does not have {digest[:19]}...")
+                print(f"   {probe.stderr.strip().splitlines()[-1] if probe.stderr.strip() else 'no output'}")
+                print("   Pass the digest from `docker buildx imagetools inspect ... --format '{{.Manifest.Digest}}'`,")
+                print("   never a hand-typed one. Use --skip-verify only when offline.")
+                return 3
+            print(f"note: could not verify {digest[:19]}... against images/{chart} "
+                  f"(multi-image chart; verify the owning repository yourself)")
 
     cdir = ROOT / "quench" / chart
     cy, vy = cdir / "Chart.yaml", cdir / "values.yaml"
