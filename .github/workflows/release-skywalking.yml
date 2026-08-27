@@ -38,7 +38,7 @@ jobs:
 
       - name: Lint and template
         run: |
-          # pulls quench-common + the bundled elasticsearch subchart into charts/
+          # pulls quench-common + the bundled opensearch subchart into charts/
           helm dependency build "${CHART_DIR}"
           helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
           helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
@@ -60,15 +60,25 @@ jobs:
         run: |
           set -o pipefail
           # SkyWalking 10.2+ has no embedded store, so the gate enables the bundled
-          # Elasticsearch subchart. --wait blocks until BOTH Elasticsearch and OAP are Ready.
-          # OAP only becomes Ready once it connects to ES, creates its indices, and opens the
-          # query port (12800) — the real integration test. The OAP image is pre-warmed above.
+          # OpenSearch subchart. --wait blocks until BOTH OpenSearch and OAP are Ready.
+          # OAP only becomes Ready once it connects to the store, creates its indices, and
+          # opens the query port (12800) — the real integration test. OAP 10.4 rejects
+          # Elasticsearch 9, which is why the bundled backend is OpenSearch.
+          # The OAP image is pre-warmed above.
           helm install rtest "${CHART_DIR}" -n skywalking --create-namespace -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 15m
           kubectl rollout status deployment/rtest-skywalking -n skywalking --timeout=780s
           # --- confirm the container runs as the nonroot uid 1001 ---
           uid="$(kubectl get pod -n skywalking -l app.kubernetes.io/name=skywalking -o jsonpath='{.items[0].spec.securityContext.runAsUser}')"
           echo "runAsUser: $uid"
           test "$uid" = "1001"
+          # --- prove OAP is really on the bundled store, not just Ready ---
+          # Two distinct regressions this catches: a storage backend OAP refuses (the ES 9
+          # pairing this chart shipped until 0.0.5 died here with "Unsupported version:
+          # ElasticSearch 9.4"), and a handshake that succeeds but writes nothing.
+          kubectl logs -n skywalking -l app.kubernetes.io/name=skywalking --tail=-1 > /tmp/oap.log
+          grep -a "ElasticSearch version is: opensearch" /tmp/oap.log
+          grep -aqE "index (template )?finished, isAcknowledged: true" /tmp/oap.log
+          echo "OAP created its indices in the bundled OpenSearch"
           # --- smoke: the OAP GraphQL query endpoint answers on 12800 ---
           kubectl port-forward -n skywalking svc/rtest-skywalking 12800:12800 >/tmp/pf12800.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
@@ -86,8 +96,8 @@ jobs:
           echo "=== oap describe ==="; kubectl describe pod -n skywalking -l app.kubernetes.io/name=skywalking || true
           echo "=== oap logs ==="; kubectl logs -n skywalking -l app.kubernetes.io/name=skywalking --tail=100 || true
           echo "=== oap previous logs ==="; kubectl logs -n skywalking -l app.kubernetes.io/name=skywalking --previous --tail=80 || true
-          echo "=== elasticsearch describe ==="; kubectl describe pod -n skywalking -l app.kubernetes.io/name=elasticsearch || true
-          echo "=== elasticsearch logs ==="; kubectl logs -n skywalking -l app.kubernetes.io/name=elasticsearch --tail=60 || true
+          echo "=== opensearch describe ==="; kubectl describe pod -n skywalking -l app.kubernetes.io/name=opensearch || true
+          echo "=== opensearch logs ==="; kubectl logs -n skywalking -l app.kubernetes.io/name=opensearch --tail=60 || true
 
       - name: Package and push (OCI)
         id: push

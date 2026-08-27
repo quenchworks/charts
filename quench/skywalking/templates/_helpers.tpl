@@ -3,15 +3,16 @@
 {{- end -}}
 
 {{/*
-Elasticsearch storage nodes OAP connects to (SW_STORAGE_ES_CLUSTER_NODES). When the bundled
-subchart is enabled its HTTP Service is "<release>-elasticsearch" on 9200 (the subchart's
-quench-common.fullname resolves against its own chart name "elasticsearch"). Otherwise the
-external cluster is taken from storage.elasticsearch.clusterNodes (may be empty, in which case
-OAP falls back to its own default and no cluster env is emitted).
+Storage nodes OAP connects to (SW_STORAGE_ES_CLUSTER_NODES — the env name is ES-flavoured
+because OAP drives OpenSearch with the same Elasticsearch client). When the bundled subchart is
+enabled its HTTP Service is "<release>-opensearch" on 9200 (the subchart's quench-common.fullname
+resolves against its own chart name "opensearch"). Otherwise the external cluster is taken from
+storage.elasticsearch.clusterNodes (may be empty, in which case OAP falls back to its own default
+and no cluster env is emitted).
 */}}
 {{- define "skywalking.esNodes" -}}
-{{- if .Values.elasticsearch.enabled -}}
-{{- printf "%s-elasticsearch:9200" .Release.Name -}}
+{{- if .Values.opensearch.enabled -}}
+{{- printf "%s-opensearch:9200" .Release.Name -}}
 {{- else -}}
 {{- .Values.storage.elasticsearch.clusterNodes -}}
 {{- end -}}

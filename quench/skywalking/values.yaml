@@ -21,16 +21,26 @@ oap:
 
 # --- Storage backend ---
 # SkyWalking 10.2+ REMOVED the H2 embedded store; OAP has NO built-in storage and REQUIRES
-# an external backend to become Ready. This chart wires Elasticsearch (SW_STORAGE=elasticsearch),
-# the only bundled option. Set elasticsearch.enabled=true to run the Quenchworks Elasticsearch
-# subchart in-cluster (self-contained), or leave it disabled and point storage.elasticsearch.clusterNodes
-# at an external ES/OpenSearch cluster. Other selectors (banyandb, mysql, postgresql) are
-# reachable via storage.type + extraEnvVars, but only Elasticsearch is first-class wired here.
+# an external backend to become Ready.
+#
+# storage.type is the SW_STORAGE selector and stays "elasticsearch": OAP 10.4 has no separate
+# opensearch selector — its Elasticsearch client reads the distribution off the cluster root and
+# switches dialect, so the same driver serves both. What it will NOT serve is Elasticsearch 9;
+# ElasticSearchVersion accepts ES 6/7/8 and any OpenSearch, and throws
+# "Unsupported version: ElasticSearch 9.4" on anything newer. The Quenchworks Elasticsearch
+# chart ships ES 9, so the bundled backend here is OpenSearch (opensearch.* below).
+#
+# Either bundle it (opensearch.enabled=true, self-contained) or point
+# storage.elasticsearch.clusterNodes at an external cluster — an OpenSearch cluster or a real
+# Elasticsearch 8, both of which OAP supports. Other selectors (banyandb, mysql, postgresql)
+# are reachable via storage.type + extraEnvVars, but only the ES/OpenSearch driver is
+# first-class wired here.
 storage:
   type: elasticsearch
   elasticsearch:
-    # host:port (comma-separated) of an EXTERNAL cluster. Used only when elasticsearch.enabled=false.
-    # When elasticsearch.enabled=true the chart wires OAP to the bundled "<release>-elasticsearch:9200".
+    # host:port (comma-separated) of an EXTERNAL cluster. Used only when opensearch.enabled=false.
+    # When opensearch.enabled=true the chart wires OAP to the bundled "<release>-opensearch:9200".
+    # An external Elasticsearch must be 8.x or older — OAP 10.4 rejects ES 9.
     clusterNodes: ""
     protocol: http
     namespace: ""
@@ -40,12 +50,23 @@ storage:
     existingSecret: ""        # a Secret already holding the ES password
     existingSecretPasswordKey: "es-password"
 
-# --- Bundled Elasticsearch storage (OPTIONAL, disabled by default) ---
-# When enabled, the Quenchworks Elasticsearch subchart is deployed and OAP is wired to it.
-# Disabled by default so the default render is dependency-light; production should enable it
-# (or supply an external cluster via storage.elasticsearch.clusterNodes).
-elasticsearch:
+# --- Bundled OpenSearch storage (OPTIONAL, disabled by default) ---
+# When enabled, the Quenchworks OpenSearch subchart is deployed and OAP is wired to
+# "<release>-opensearch:9200". Disabled by default so the default render is dependency-light;
+# production should enable it (or supply an external cluster via storage.elasticsearch.clusterNodes).
+#
+# The subchart's 0.1.x layout: `mode` picks the topology and heap/persistence live under the
+# matching section; `config` is clusterName/extraConfig/securityDisabled only. `single` is the
+# right shape for a bundled backend — switch to mode: ha (and size master/data) or move to an
+# external cluster when OAP's ingest outgrows one node.
+opensearch:
   enabled: false
+  mode: single
+  single:
+    heapSize: 1g
+    persistence:
+      enabled: true
+      size: 16Gi
 
 # Resources. OAP idles ~500MB-1GB heap; grows with ingest volume and query load. Defaults
 # schedule anywhere; the CI gate overrides them smaller.
@@ -96,7 +117,7 @@ readinessProbe: {}
 customLivenessProbe: {}
 customReadinessProbe: {}
 # OAP's first boot is slow: JVM start, then connect to storage and create/verify all indices
-# before the query port opens — often 60-180s on a fresh Elasticsearch. A startup probe gates
+# before the query port opens — often 60-180s on a fresh store. A startup probe gates
 # liveness/readiness on the query port until OAP is actually up, so the slow boot isn't killed
 # mid-init. Up to 600s grace (60 x 10s); after it passes, normal probe timing resumes.
 customStartupProbe:
@@ -116,7 +137,7 @@ rbac:
 
 # Ingress opens the agent (gRPC 11800) and query (HTTP 12800) ports. Default restricts them
 # to the release namespace (allowExternal: false); set true when agents/UI live in other
-# namespaces or you front OAP with a gateway. Egress opens DNS + the ES port plus general egress.
+# namespaces or you front OAP with a gateway. Egress opens DNS + the store port plus general egress.
 networkPolicy:
   enabled: true
   allowExternal: false

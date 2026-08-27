@@ -4,6 +4,12 @@
      kubelet does the TCP checks; the image ships no shell probe client. */}}
 {{- $liveness := dict "tcpSocket" (dict "port" "grpc") "initialDelaySeconds" 40 "periodSeconds" 20 "timeoutSeconds" 5 "failureThreshold" 6 -}}
 {{- $readiness := dict "tcpSocket" (dict "port" "rest") "initialDelaySeconds" 30 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+{{/* Upgrades from <=0.0.4 carry an `elasticsearch:` block that this chart no longer reads --
+     the bundled backend is now `opensearch:`. Left silent, the release would come up with no
+     storage at all, so fail the render and name the replacement. */}}
+{{- if hasKey .Values "elasticsearch" -}}
+{{- fail "skywalking: the bundled `elasticsearch` subchart was replaced by `opensearch` in chart 0.0.5, because OAP 10.4 rejects Elasticsearch 9 and that is the only major the quench/elasticsearch chart ships. Move `elasticsearch.enabled` to `opensearch.enabled` (heap/persistence now live under `opensearch.single`), or drop the block and point storage.elasticsearch.clusterNodes at an external OpenSearch / Elasticsearch 8 cluster." -}}
+{{- end -}}
 {{- $esNodes := include "skywalking.esNodes" . -}}
 apiVersion: apps/v1
 kind: Deployment

@@ -1,8 +1,8 @@
 apiVersion: v2
 name: skywalking
-description: Hardened Apache SkyWalking OAP (Observability Analysis Platform) backend — APM metrics/traces/logs collector — on a 0-CVE nonroot image, with an optional bundled Elasticsearch storage backend.
+description: Hardened Apache SkyWalking OAP (Observability Analysis Platform) backend — APM metrics/traces/logs collector — on a 0-CVE nonroot image, with an optional bundled OpenSearch storage backend.
 type: application
-version: 0.0.4
+version: 0.0.5
 appVersion: "10.4.0"
 kubeVersion: ">=1.23.0-0"
 home: https://quench-works.com
@@ -22,8 +22,10 @@ maintainers:
     email: info@quench-works.com
 annotations:
   artifacthub.io/changes: |
-    - kind: security
-      description: "Re-pinned to 10.4.0 rebuilt 0-CVE: 68 findings cleared via same-major jar swaps plus removal of the unused zookeeper and consul coordinator islands."
+    - kind: fixed
+      description: "Bundled storage moved from the elasticsearch subchart to opensearch 0.1.5 (OpenSearch 3.8.0). OAP 10.4 only accepts Elasticsearch 6/7/8 or any OpenSearch distribution; every quench/elasticsearch release ships Elasticsearch 9, so the self-contained path died at boot with \"Unsupported version: ElasticSearch 9.4\". OAP keeps the elasticsearch driver (SW_STORAGE=elasticsearch), which detects the OpenSearch distribution and speaks its v8.1 request dialect."
+    - kind: changed
+      description: "values: elasticsearch.* replaced by opensearch.* (mode: single by default, heap and persistence under the matching section). storage.elasticsearch.* is unchanged and still points OAP at an external cluster, including a real Elasticsearch 8. An upgrade that still passes an elasticsearch block now fails the render with the migration instead of quietly installing with no storage."
   category: monitoring-logging
   licenses: Apache-2.0
   artifacthub.io/category: monitoring-logging
@@ -41,12 +43,14 @@ annotations:
   artifacthub.io/images: |
     - name: skywalking
       image: ghcr.io/quenchworks/images/skywalking@sha256:92d7131dd02a99da25913a2ee091ccc4a0b7a968bcfff3c5f34d4a9bb7821a96
+    - name: opensearch
+      image: ghcr.io/quenchworks/images/opensearch@sha256:45c60f2fc239ae611ce1c9a829c639e3a1dab7ee21ca4186fff457907076395f
 dependencies:
   - name: quench-common
     version: 0.0.8
     repository: oci://ghcr.io/quenchworks/charts
-  - name: elasticsearch
-    alias: elasticsearch
-    version: 0.0.10
+  - name: opensearch
+    alias: opensearch
+    version: 0.1.5
     repository: oci://ghcr.io/quenchworks/charts
-    condition: elasticsearch.enabled
+    condition: opensearch.enabled

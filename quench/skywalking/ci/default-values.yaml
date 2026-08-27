@@ -3,20 +3,23 @@
 #
 # SkyWalking 10.2+ removed the embedded H2 store, so OAP has NO storage of its own and
 # cannot reach Ready without a backend. There is therefore no dependency-free gate: this
-# enables the bundled Quenchworks Elasticsearch subchart (ephemeral, single node, small
-# heap) so the gate proves the whole path end to end — OAP connects to ES, creates its
-# indices, and opens the query port. Resources are trimmed for the runner; the startup
+# enables the bundled Quenchworks OpenSearch subchart (single node, small heap) so the gate
+# proves the whole path end to end — OAP detects the OpenSearch distribution, creates its
+# indices, and opens the query port. OpenSearch (not the Quenchworks Elasticsearch chart,
+# which is ES 9) is what OAP 10.4 accepts. Resources are trimmed for the runner; the startup
 # probe (values.yaml default: up to 600s on the query port) covers the slow OAP boot +
-# fresh-ES index creation.
-elasticsearch:
+# fresh-store index creation.
+opensearch:
   enabled: true
-  persistence:
-    enabled: false
-  config:
+  mode: single
+  single:
     heapSize: 512m
-  resources:
-    requests: { cpu: 250m, memory: 768Mi }
-    limits: { cpu: "2", memory: 1536Mi }
+    persistence:
+      enabled: true
+      size: 2Gi
+    resources:
+      requests: { cpu: 250m, memory: 1Gi }
+      limits: { cpu: "2", memory: 1536Mi }
 
 oap:
   javaOpts: "-Xms256M -Xmx1024M"

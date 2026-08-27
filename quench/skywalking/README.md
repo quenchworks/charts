@@ -6,14 +6,13 @@ trace/metric/log data from SkyWalking agents and serves it over a GraphQL query
 API. The chart deploys the OAP server only; the Quenchworks image ships the OAP
 backend and drops the Rocketbot web UI, so there is no UI workload here.
 
-> **Status: held.** The OAP image is not currently released as a verified 0-CVE
-> build. OAP 10.4 supports Elasticsearch 6/7/8 and OpenSearch only — not the
-> Elasticsearch 9 the Quenchworks catalog ships — so the self-contained storage
-> path cannot become Ready and the chart is on hold pending an OAP release that
-> supports ES9 (or a supported bundled backend). The image aims to be minimal,
-> nonroot, cosign-signed (keyless / Sigstore), and pinned by digest like the rest
-> of the catalog; treat the hardening and provenance notes below as the intended
-> contract for when it ships, not a current guarantee.
+> **Storage note.** OAP 10.4 accepts Elasticsearch 6/7/8 or any OpenSearch
+> distribution, and refuses Elasticsearch 9 outright
+> (`UnsupportedOperationException: Unsupported version: ElasticSearch 9.4`). Every
+> release of the Quenchworks `elasticsearch` chart ships Elasticsearch 9, so the
+> bundled backend here is **OpenSearch** (`opensearch.enabled=true`). An external
+> Elasticsearch stays a first-class option as long as it is 8.x or older — see
+> [Configuration examples](#configuration-examples).
 
 OAP exposes two ports:
 
@@ -27,21 +26,22 @@ a scalable `Deployment`.
 ## Install
 
 ```bash
-# self-contained: bundles an in-cluster Elasticsearch backend
+# self-contained: bundles an in-cluster OpenSearch backend
 helm install apm oci://ghcr.io/quenchworks/charts/skywalking \
-  --set elasticsearch.enabled=true
+  --set opensearch.enabled=true
 
-# or point at an external Elasticsearch/OpenSearch cluster
+# or point at an external OpenSearch / Elasticsearch 8 cluster
 helm install apm oci://ghcr.io/quenchworks/charts/skywalking \
-  --set storage.elasticsearch.clusterNodes="es-host:9200"
+  --set storage.elasticsearch.clusterNodes="os-host:9200"
 ```
 
 SkyWalking 10.2+ removed the embedded H2 store, so OAP has no built-in storage
-and will not become Ready without an external backend. This chart wires
-Elasticsearch (`SW_STORAGE=elasticsearch`), the only bundled option. The bundled
-subchart is disabled by default to keep the default render dependency-light.
-See the status note above: the bundled Elasticsearch is ES9-era, which OAP 10.4
-does not support.
+and will not become Ready without a backend. `storage.type` stays
+`elasticsearch` either way: OAP 10.4 has no separate `opensearch` selector — its
+Elasticsearch client reads the distribution off the cluster root and switches to
+the OpenSearch dialect, so one driver serves both. The bundled subchart is
+disabled by default to keep the default render dependency-light; enable it, or
+supply a cluster via `storage.elasticsearch.clusterNodes`.
 
 ## Verify the image
 
@@ -71,15 +71,18 @@ gh attestation verify oci://ghcr.io/quenchworks/images/skywalking \
 | `nameOverride` | `""` | Override the chart name in resource names. |
 | `replicaCount` | `1` | OAP replicas (stateless; scales out). |
 | `oap.javaOpts` | `-Xms256M -Xmx2048M` | OAP JVM heap options; raise the max for higher ingest. |
-| `storage.type` | `elasticsearch` | `SW_STORAGE` selector. |
-| `storage.elasticsearch.clusterNodes` | `""` | External ES `host:port` (used when the bundle is disabled). |
+| `storage.type` | `elasticsearch` | `SW_STORAGE` selector. Serves OpenSearch too — OAP has no separate `opensearch` selector. |
+| `storage.elasticsearch.clusterNodes` | `""` | External OpenSearch / Elasticsearch 8 `host:port` (used when the bundle is disabled). |
 | `storage.elasticsearch.protocol` | `http` | `http` or `https`. |
 | `storage.elasticsearch.namespace` | `""` | Index namespace prefix. |
 | `storage.elasticsearch.user` | `""` | Username for a secured cluster. |
 | `storage.elasticsearch.password` | `""` | Rendered into a managed Secret when set (and no `existingSecret`). |
-| `storage.elasticsearch.existingSecret` | `""` | Secret already holding the ES password. |
+| `storage.elasticsearch.existingSecret` | `""` | Secret already holding the store password. |
 | `storage.elasticsearch.existingSecretPasswordKey` | `es-password` | Key within `existingSecret`. |
-| `elasticsearch.enabled` | `false` | Deploy the bundled Elasticsearch subchart. |
+| `opensearch.enabled` | `false` | Deploy the bundled OpenSearch subchart. |
+| `opensearch.mode` | `single` | `single` or `ha` (see the `opensearch` chart). |
+| `opensearch.single.heapSize` | `1g` | Bundled node's JVM heap. |
+| `opensearch.single.persistence.size` | `16Gi` | Bundled node's PVC size. |
 | `resources.requests` | `cpu 500m / mem 1Gi` | |
 | `resources.limits` | `cpu 2 / mem 2560Mi` | |
 | `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
@@ -94,7 +97,9 @@ gh attestation verify oci://ghcr.io/quenchworks/images/skywalking \
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
 containers, extra env/volumes, security contexts, update strategy). Other storage
 selectors (`banyandb`, `mysql`, `postgresql`) are reachable via `storage.type` +
-`extraEnvVars`, but only Elasticsearch is first-class wired here.
+`extraEnvVars`, but only the Elasticsearch/OpenSearch driver is first-class wired
+here. Every other `opensearch.*` key is passed straight through to the
+[`opensearch` chart](../opensearch/README.md).
 
 ## Architecture
 
@@ -108,23 +113,27 @@ Two ports are exposed: **gRPC (11800)** where agents push data and **HTTP
 liveness watches it to prove the JVM is alive; the query port opens only after
 OAP finishes module init against storage, so readiness watches that. OAP's first
 boot is slow (JVM start, then connect to storage and create/verify all indices —
-often 60-180s on fresh Elasticsearch), so a startup probe gates liveness and
+often 60-180s on a fresh store), so a startup probe gates liveness and
 readiness on the query port with up to 600s of grace (60 × 10s) before normal
 probe timing resumes.
 
-Storage is external by design. With `elasticsearch.enabled=true` the chart
-deploys the bundled Quenchworks Elasticsearch subchart and wires OAP to
-`<release>-elasticsearch:9200` automatically; otherwise `SW_STORAGE_ES_CLUSTER_NODES`
-comes from `storage.elasticsearch.clusterNodes`. A secured cluster's password is
-injected as `SW_ES_PASSWORD` from a Secret and never appears in the pod's process
-arguments.
+Storage lives outside the OAP pod. With `opensearch.enabled=true` the chart
+deploys the bundled Quenchworks OpenSearch subchart (`mode: single`) and wires OAP
+to `<release>-opensearch:9200` automatically; otherwise
+`SW_STORAGE_ES_CLUSTER_NODES` comes from `storage.elasticsearch.clusterNodes`. The
+env keys stay ES-flavoured (`SW_STORAGE_ES_*`) because OAP drives OpenSearch with
+the same Elasticsearch client. A secured cluster's password is injected as
+`SW_ES_PASSWORD` from a Secret and never appears in the pod's process arguments.
 
 ## Configuration examples
 
-Point at an external, secured Elasticsearch/OpenSearch cluster over HTTPS:
+Point at an external, secured cluster over HTTPS. This is also how you keep using
+Elasticsearch: an ES 8.x cluster is fully supported (ES 9 is not), so a site that
+already runs ES 8 should disable the bundle and point at it rather than adopt a
+second search engine.
 
 ```yaml
-elasticsearch:
+opensearch:
   enabled: false
 storage:
   elasticsearch:
@@ -133,6 +142,18 @@ storage:
     user: skywalking
     existingSecret: es-creds
     existingSecretPasswordKey: es-password
+```
+
+Size the bundled backend up, or make it a real cluster:
+
+```yaml
+opensearch:
+  enabled: true
+  mode: single
+  single:
+    heapSize: 4g
+    persistence:
+      size: 200Gi
 ```
 
 Raise the JVM heap and scale out for heavier ingest:
@@ -159,7 +180,7 @@ networkPolicy:
 helm uninstall apm
 ```
 
-OAP holds no PVCs. If you enabled the bundled Elasticsearch, its PVCs are
+OAP holds no PVCs. If you enabled the bundled OpenSearch, its PVCs are
 retained by Kubernetes on uninstall — delete them explicitly if you want the data
 gone:
 
@@ -169,11 +190,16 @@ kubectl delete pvc -l app.kubernetes.io/instance=apm
 
 ## Notes
 
-This chart is currently on hold — see the status note at the top. OAP 10.4
-supports Elasticsearch 6/7/8 and OpenSearch only, and the bundled Quenchworks
-Elasticsearch is ES9, so the self-contained path does not reach Ready; supply a
-supported external ES/OpenSearch cluster if you want to exercise it before the
-hold clears. The chart depends on the `quench-common` library chart and, when
-enabled, the `elasticsearch` subchart, both pulled from
-`oci://ghcr.io/quenchworks/charts`. The image is intended to run nonroot on a
-read-only root filesystem with all capabilities dropped and pinned by digest.
+Upgrading from 0.0.4 or older: rename your `elasticsearch:` block to
+`opensearch:` (`heapSize` and `persistence` move under `opensearch.single`). The
+chart fails the render rather than installing with no storage if the old block is
+still present. `storage.elasticsearch.*` did not move.
+
+The chart depends on the `quench-common` library chart and, when enabled, the
+`opensearch` subchart, both pulled from `oci://ghcr.io/quenchworks/charts`. It
+used to bundle the `elasticsearch` subchart, which could never work: OAP 10.4
+rejects Elasticsearch 9 and that is the only major the Quenchworks Elasticsearch
+chart ships. Nothing about the external-cluster path changed — `storage.type`
+and every `storage.elasticsearch.*` key mean exactly what they did before. The
+image runs nonroot (uid 1001) on a read-only root filesystem with all
+capabilities dropped, and is pinned by digest.

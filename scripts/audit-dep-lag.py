@@ -27,9 +27,11 @@ It reports rather than fixes, because fixing has three traps that need a human:
   0.1.x moved heap and persistence out of `config` into per-topology sections, so
   graylog's values had to be migrated, not just its pin.
 
-  COMPATIBILITY -- newest is not always right. skywalking pins elasticsearch because OAP
-  10.4 supports ES 6/7/8, and every version of our elasticsearch chart ships ES 9, so
-  bumping it would swap one unsupported major for another.
+  COMPATIBILITY -- newest is not always right, and neither is oldest. skywalking pinned
+  elasticsearch 0.0.10 to stay off ES 9, but OAP 10.4 rejects every ES 9 our elasticsearch
+  chart has ever shipped, so the pin was not holding a working combination -- it was
+  holding a broken one still. The fix was a different subchart (opensearch, which OAP
+  accepts at any major), not a version. A lag can mean the dependency itself is wrong.
 """
 from __future__ import annotations
 

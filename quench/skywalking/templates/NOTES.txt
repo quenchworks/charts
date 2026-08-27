@@ -15,23 +15,24 @@ Reach the query API from your machine with a port-forward:
 
 Storage backend (REQUIRED — SkyWalking 10.2+ removed the embedded H2 store, so OAP will not
 become Ready without one):
-{{- if .Values.elasticsearch.enabled }}
-  Bundled Quenchworks Elasticsearch (elasticsearch.enabled=true).
+{{- if .Values.opensearch.enabled }}
+  Bundled Quenchworks OpenSearch (opensearch.enabled=true, mode: {{ .Values.opensearch.mode }}).
     SW_STORAGE                    : {{ .Values.storage.type }}
     SW_STORAGE_ES_CLUSTER_NODES   : {{ include "skywalking.esNodes" . }}
 {{- else if include "skywalking.esNodes" . }}
-  External Elasticsearch (elasticsearch.enabled=false).
+  External OpenSearch / Elasticsearch (opensearch.enabled=false).
     SW_STORAGE                    : {{ .Values.storage.type }}
     SW_STORAGE_ES_CLUSTER_NODES   : {{ include "skywalking.esNodes" . }}
-  Ensure this cluster is reachable and healthy before OAP starts.
+  Ensure this cluster is reachable and healthy before OAP starts. OAP 10.4 accepts any
+  OpenSearch or Elasticsearch 6/7/8 — it refuses Elasticsearch 9.
 {{- else }}
   WARNING: no storage backend configured. OAP will fail to reach Ready. Either set
-  elasticsearch.enabled=true to run the bundled Elasticsearch subchart, or point
-  storage.elasticsearch.clusterNodes at an external Elasticsearch/OpenSearch cluster.
+  opensearch.enabled=true to run the bundled OpenSearch subchart, or point
+  storage.elasticsearch.clusterNodes at an external OpenSearch / Elasticsearch 8 cluster.
 {{- end }}
 
 NOTE: OAP's first boot connects to storage and creates/verifies all indices before the query
-port opens (60-180s on a fresh Elasticsearch); a startup probe gates liveness/readiness until
+port opens (60-180s on a fresh store); a startup probe gates liveness/readiness until
 it is actually up.
 
 The image is pinned by digest and signed. Verify it:
