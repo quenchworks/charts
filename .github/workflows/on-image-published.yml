@@ -1,0 +1,115 @@
+name: on-image-published
+
+# Receiver for the `image-published` repository_dispatch that all 159 image build
+# workflows fire after a successful publish. Until 2026-08-27 NOTHING listened for it:
+# every dispatch was a no-op, which is why chart digests were re-pinned by hand and why
+# charts routinely lagged months behind their images.
+#
+# What it does NOT do, deliberately: it does not commit to main. It opens a pull request.
+# A digest re-pin is a content change to a signed, published artifact, and the chart's own
+# release gate (kind install + a real smoke request) is what decides whether the new image
+# actually works -- several times today a 0-CVE image was still broken. A PR runs that gate
+# before a human merges, instead of pushing straight to main and finding out afterwards.
+#
+# It also refuses to touch a chart whose values.yaml does not reference the app's own
+# image repository, because a multi-image chart pins digests scripts/repin.py cannot
+# safely disambiguate (repin.py rewrites the FIRST digest in the file). Those are listed
+# in the PR body for manual handling rather than silently mis-pinned.
+
+on:
+  repository_dispatch:
+    types: [image-published]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: on-image-published-${{ github.event.client_payload.app }}
+  cancel-in-progress: false
+
+jobs:
+  repin:
+    runs-on: ubuntu-latest
+    env:
+      APP: ${{ github.event.client_payload.app }}
+      REPO: ${{ github.event.client_payload.repository }}
+      DIGEST: ${{ github.event.client_payload.digest }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Validate the payload
+        run: |
+          set -euo pipefail
+          test -n "$APP"    || { echo "no app in payload"; exit 1; }
+          test -n "$DIGEST" || { echo "no digest in payload"; exit 1; }
+          # a malformed digest must never reach a chart; repin.py checks this too, but
+          # failing here keeps a bad payload out of a branch entirely
+          echo "$DIGEST" | grep -qE '^sha256:[0-9a-f]{64}$' \
+            || { echo "malformed digest: $DIGEST"; exit 1; }
+
+      - name: Find the charts that pin this image
+        id: find
+        run: |
+          set -euo pipefail
+          # Only charts whose values.yaml names THIS image repository. A chart that
+          # pins several images is reported, not rewritten: repin.py rewrites the first
+          # digest in the file, which is only correct when that digest is this app's.
+          simple=""; complex=""
+          for vy in quench/*/values.yaml; do
+            c="$(basename "$(dirname "$vy")")"
+            grep -q "ghcr.io/quenchworks/images/${APP}\b" "$vy" || continue
+            n="$(grep -cE 'digest: *"?sha256:' "$vy" || true)"
+            first="$(grep -B4 -m1 -E 'digest: *"?sha256:' "$vy" | grep -oE 'images/[a-z0-9.-]+' | tail -1 | cut -d/ -f2)"
+            if [ "$n" -eq 1 ] || [ "$first" = "$APP" ]; then simple="$simple $c"; else complex="$complex $c"; fi
+          done
+          echo "simple=${simple# }"  >> "$GITHUB_OUTPUT"
+          echo "complex=${complex# }" >> "$GITHUB_OUTPUT"
+          echo "charts to re-pin: ${simple:-none}"
+          echo "needs manual attention: ${complex:-none}"
+
+      - name: Re-pin
+        if: steps.find.outputs.simple != ''
+        run: |
+          set -euo pipefail
+          for c in ${{ steps.find.outputs.simple }}; do
+            # A digest-only re-pin must not invent a version, so the chart's existing
+            # appVersion is passed straight back through.
+            app_ver="$(grep -m1 '^appVersion:' "quench/$c/Chart.yaml" | tr -d '\"' | awk '{print $2}')"
+            uv run scripts/repin.py "$c" "$app_ver" "$DIGEST" --kind security \
+              --desc "Automated re-pin: ${APP} republished to a new 0-CVE digest."
+          done
+
+      - name: Open a pull request
+        if: steps.find.outputs.simple != ''
+        run: |
+          set -euo pipefail
+          git config user.name  "quenchworks-bot"
+          git config user.email "info@quench-works.com"
+          branch="repin/${APP}-${DIGEST#sha256:}"
+          branch="${branch:0:60}"
+          git checkout -b "$branch"
+          git add quench/
+          git commit -m "chore(${APP}): re-pin charts to the republished digest" \
+            -m "Fired by the image-published dispatch from quenchworks/images." \
+            -m "Charts: ${{ steps.find.outputs.simple }}" \
+            -m "Co-Authored-By: QuenchWorks <info@quench-works.com>"
+          git push -u origin "$branch"
+          body="Automated digest re-pin for \`${APP}\` -> \`${DIGEST}\`.
+
+          Charts updated: \`${{ steps.find.outputs.simple }}\`
+
+          Needs manual attention (multi-image charts this cannot safely disambiguate): \`${{ steps.find.outputs.complex || 'none' }}\`
+
+          Merging runs each chart's release gate, which installs into kind and makes a real
+          smoke request. That gate — not the 0-CVE scan — is what proves the new image
+          actually works."
+          gh pr create --title "chore(${APP}): re-pin charts to the republished digest" \
+            --body "$body" --base main --head "$branch"
+
+      - name: Report when only multi-image charts matched
+        if: steps.find.outputs.simple == '' && steps.find.outputs.complex != ''
+        run: |
+          echo "::warning::${APP} is pinned only by multi-image chart(s) ${{ steps.find.outputs.complex }} — re-pin by hand."
