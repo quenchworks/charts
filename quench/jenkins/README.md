@@ -16,9 +16,9 @@ The image entrypoint is `java -jar /usr/share/jenkins/jenkins.war --httpPort=808
 
 ## Ports
 
-| Port | Name | Purpose |
-|------|------|---------|
-| `8080` | `http` | web UI + REST API + `/login` |
+| Port    | Name    | Purpose                       |
+| ------- | ------- | ----------------------------- |
+| `8080`  | `http`  | web UI + REST API + `/login`  |
 | `50000` | `agent` | inbound JNLP/TCP build agents |
 
 Liveness/readiness probe `GET /login` on the http port (`8080`); it returns 200 once
@@ -37,7 +37,7 @@ This is the **core** Jenkins image (no bundled plugins). By default the chart se
 `JAVA_OPTS=-Djenkins.install.runSetupWizard=false` (via `extraEnvVars`), so Jenkins
 boots straight to a usable state with the setup wizard skipped — convenient for an
 internal/sandbox install, but it leaves **no authentication** configured. Configure
-security under *Manage Jenkins > Security* before exposing it.
+security under _Manage Jenkins > Security_ before exposing it.
 
 To run the guided first-boot setup instead, drop the `runSetupWizard` flag from
 `extraEnvVars` and read the generated unlock secret:
@@ -46,30 +46,30 @@ To run the guided first-boot setup instead, drop the `runSetupWizard` flag from
 kubectl exec sts/jenkins-jenkins -- cat /var/jenkins_home/secrets/initialAdminPassword
 ```
 
-Plugins install into `JENKINS_HOME` at runtime (via *Manage Jenkins > Plugins* or
+Plugins install into `JENKINS_HOME` at runtime (via _Manage Jenkins > Plugins_ or
 Configuration-as-Code) and persist on the volume.
 
 ## Configuration
 
-| Value | Default | Notes |
-|-------|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/jenkins` | |
-| `image.digest` | (CI-maintained) | signed multi-arch index |
-| `replicaCount` | `1` | controller is single-instance; scale build capacity with agents |
-| `persistence.enabled` | `true` | volumeClaimTemplate at `/var/jenkins_home` |
-| `persistence.size` | `8Gi` | |
-| `persistence.existingClaim` | `""` | reuse a pre-created PVC |
-| `service.type` | `ClusterIP` | |
-| `service.ports.http` | `8080` | web UI + REST + `/login` |
-| `service.ports.agent` | `50000` | inbound JNLP agents |
-| `extraEnvVars` | `JAVA_OPTS=-Djenkins.install.runSetupWizard=false` | tune the JVM / disable the wizard |
+| Value                       | Default                                            | Notes                                                                                     |
+| --------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`          | `ghcr.io/quenchworks/images/jenkins`               |                                                                                           |
+| `image.digest`              | (CI-maintained)                                    | signed multi-arch index                                                                   |
+| `replicaCount`              | `1`                                                | controller is single-instance; scale build capacity with agents                           |
+| `persistence.enabled`       | `true`                                             | volumeClaimTemplate at `/var/jenkins_home`                                                |
+| `persistence.size`          | `8Gi`                                              |                                                                                           |
+| `persistence.existingClaim` | `""`                                               | reuse a pre-created PVC                                                                   |
+| `service.type`              | `ClusterIP`                                        |                                                                                           |
+| `service.ports.http`        | `8080`                                             | web UI + REST + `/login`                                                                  |
+| `service.ports.agent`       | `50000`                                            | inbound JNLP agents                                                                       |
+| `extraEnvVars`              | `JAVA_OPTS=-Djenkins.install.runSetupWizard=false` | tune the JVM / disable the wizard                                                         |
+| `ingress.enabled`           | `false`                                            | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`         | `""`                                               | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`       | `{}`                                               | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`       | `null`                                             | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`             | `[]`                                               | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`               | `[]`                                               | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 ### Production notes
 
 - The image entrypoint hardcodes `--httpPort=8080`; change `service.ports.http`

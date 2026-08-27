@@ -41,39 +41,39 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/distribution --owne
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/distribution` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `replicaCount` | `1` | Filesystem storage is single-writer; scale-out needs shared storage. |
-| `config.configYml` | filesystem on the PVC, API on :5000 | The full registry `config.yml`, mounted from a ConfigMap over `/etc/distribution/config.yml`. |
-| `config.existingConfigMap` | `""` | Use your own ConfigMap (key `config.yml`) instead; wins over `configYml`. |
-| `persistence.enabled` | `true` | Blob store volume at `/var/lib/registry`. |
-| `persistence.size` | `10Gi` | PVC size. |
-| `persistence.storageClass` | `""` | Default class if unset. |
-| `persistence.accessModes` | `["ReadWriteOnce"]` | |
-| `persistence.existingClaim` | `""` | Use an existing PVC instead of a volumeClaimTemplate. |
-| `persistence.annotations` | `{}` | PVC annotations. |
-| `persistence.selector` | `{}` | PVC selector. |
-| `resources.requests` | `cpu 100m / mem 128Mi` | |
-| `resources.limits` | `cpu 1 / mem 512Mi` | |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `5000` | Registry HTTP API. |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount. |
-| `rbac.create` | `false` | Minimal Role/RoleBinding. |
-| `networkPolicy.enabled` | `true` | Restricts ingress. |
-| `networkPolicy.allowExternal` | `true` | Set `false` to restrict ingress to the release namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                                   | Notes                                                                                         |
+| ----------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/distribution` |                                                                                               |
+| `image.digest`                | (CI-written)                              | Required. Charts pin by digest, never a tag.                                                  |
+| `image.pullPolicy`            | `IfNotPresent`                            |                                                                                               |
+| `nameOverride`                | `""`                                      | Override the chart name in resource names.                                                    |
+| `replicaCount`                | `1`                                       | Filesystem storage is single-writer; scale-out needs shared storage.                          |
+| `config.configYml`            | filesystem on the PVC, API on :5000       | The full registry `config.yml`, mounted from a ConfigMap over `/etc/distribution/config.yml`. |
+| `config.existingConfigMap`    | `""`                                      | Use your own ConfigMap (key `config.yml`) instead; wins over `configYml`.                     |
+| `persistence.enabled`         | `true`                                    | Blob store volume at `/var/lib/registry`.                                                     |
+| `persistence.size`            | `10Gi`                                    | PVC size.                                                                                     |
+| `persistence.storageClass`    | `""`                                      | Default class if unset.                                                                       |
+| `persistence.accessModes`     | `["ReadWriteOnce"]`                       |                                                                                               |
+| `persistence.existingClaim`   | `""`                                      | Use an existing PVC instead of a volumeClaimTemplate.                                         |
+| `persistence.annotations`     | `{}`                                      | PVC annotations.                                                                              |
+| `persistence.selector`        | `{}`                                      | PVC selector.                                                                                 |
+| `resources.requests`          | `cpu 100m / mem 128Mi`                    |                                                                                               |
+| `resources.limits`            | `cpu 1 / mem 512Mi`                       |                                                                                               |
+| `service.type`                | `ClusterIP`                               | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                                   |
+| `service.port`                | `5000`                                    | Registry HTTP API.                                                                            |
+| `serviceAccount.create`       | `true`                                    | Token automount is off.                                                                       |
+| `serviceAccount.name`         | `""`                                      | Use an existing ServiceAccount.                                                               |
+| `rbac.create`                 | `false`                                   | Minimal Role/RoleBinding.                                                                     |
+| `networkPolicy.enabled`       | `true`                                    | Restricts ingress.                                                                            |
+| `networkPolicy.allowExternal` | `true`                                    | Set `false` to restrict ingress to the release namespace.                                     |
+| `podDisruptionBudget.enabled` | `true`                                    | `minAvailable: 1`.                                                                            |
+| `ingress.enabled`             | `false`                                   | Create an Ingress for this chart. HTTP only.                                                  |
+| `ingress.className`           | `""`                                      | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.              |
+| `ingress.annotations`         | `{}`                                      | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).                |
+| `ingress.servicePort`         | `null`                                    | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.            |
+| `ingress.hosts`               | `[]`                                      | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path.     |
+| `ingress.tls`                 | `[]`                                      | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.          |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
 containers, extra env/volumes, security contexts, update strategy).
 
