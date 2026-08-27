@@ -106,8 +106,30 @@ jobs:
           Merging runs each chart's release gate, which installs into kind and makes a real
           smoke request. That gate — not the 0-CVE scan — is what proves the new image
           actually works."
-          gh pr create --title "chore(${APP}): re-pin charts to the republished digest" \
-            --body "$body" --base main --head "$branch"
+          # `gh pr create` needs the org/repo setting "Allow GitHub Actions to create and
+          # approve pull requests", which is OFF here -- correctly, since that same toggle
+          # also lets Actions APPROVE pull requests, and self-approval is a review bypass.
+          # Not worth loosening for a convenience. The branch is already pushed, so fall
+          # back to surfacing it: the work is preserved and reviewable either way.
+          if gh pr create --title "chore(${APP}): re-pin charts to the republished digest" \
+               --body "$body" --base main --head "$branch" 2>/tmp/pr.err; then
+            echo "opened a pull request for $branch"
+          else
+            cat /tmp/pr.err >&2
+            {
+              echo "### Re-pin branch pushed, PR not created"
+              echo
+              echo "\`${branch}\`"
+              echo
+              echo "Open it here: https://github.com/${GITHUB_REPOSITORY}/compare/main...${branch}?expand=1"
+              echo
+              echo "$body"
+              echo
+              echo "_Actions cannot create pull requests in this repo (the setting that would"
+              echo "allow it also lets Actions approve PRs). The branch is pushed and ready._"
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::warning::branch $branch pushed; open the PR manually (Actions may not create PRs here)"
+          fi
 
       - name: Report when only multi-image charts matched
         if: steps.find.outputs.simple == '' && steps.find.outputs.complex != ''
