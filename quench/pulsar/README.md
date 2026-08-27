@@ -54,36 +54,36 @@ There is no Secret. Do not expose Pulsar externally without an authenticating pr
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/pulsar` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Single node; multi-node cluster is a follow-up. |
-| `config.mem` | `-Xms512m -Xmx512m -XX:MaxDirectMemorySize=512m` | JVM heap + direct memory (`PULSAR_MEM`). |
-| `config.advertisedAddress` | `""` | `PULSAR_ADVERTISED_ADDRESS`; empty = broker advertises its own hostname. |
-| `config.functionsWorker` | `false` | Re-enable the functions worker (`PULSAR_FUNCTIONS_WORKER=1`). |
-| `config.streamStorage` | `false` | Re-enable BookKeeper stream storage (`PULSAR_STREAM_STORAGE=1`). |
-| `config.extraOpts` | `""` | Extra JVM opts (`PULSAR_EXTRA_OPTS`). |
-| `persistence.enabled` | `true` | 8Gi PVC mounted at `/pulsar` (data + logs + conf + tmp). |
-| `persistence.size` | `8Gi` | |
-| `persistence.existingClaim` | `""` | Bind an existing PVC instead of provisioning one. |
-| `resources.requests` | `cpu 500m / mem 1Gi` | Standalone is memory-hungry. |
-| `resources.limits` | `cpu 2 / mem 3Gi` | Raise if the pod is OOMKilled. |
-| `service.type` | `ClusterIP` | |
-| `service.pulsarPort` | `6650` | Binary protocol (`pulsar://`) for clients. |
-| `service.httpPort` | `8080` | HTTP admin / REST API. |
-| `networkPolicy.enabled` | `true` | The security boundary (Pulsar has no auth). |
-| `networkPolicy.allowExternal` | `false` | Restrict ingress to in-cluster pods. |
-| `podDisruptionBudget.enabled` | `true` | |
-| `podDisruptionBudget.minAvailable` | `1` | |
+| Key                                | Default                                          | Notes                                                                                     |
+| ---------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------- | ----------------- |
+| `image.repository`                 | `ghcr.io/quenchworks/images/pulsar`              |                                                                                           |
+| `image.digest`                     | (CI-written)                                     | Required. Charts pin by digest, never a tag.                                              |
+| `replicaCount`                     | `1`                                              | Single node; multi-node cluster is a follow-up.                                           |
+| `config.mem`                       | `-Xms512m -Xmx512m -XX:MaxDirectMemorySize=512m` | JVM heap + direct memory (`PULSAR_MEM`).                                                  |
+| `config.advertisedAddress`         | `""`                                             | `PULSAR_ADVERTISED_ADDRESS`; empty = broker advertises its own hostname.                  |
+| `config.functionsWorker`           | `false`                                          | Re-enable the functions worker (`PULSAR_FUNCTIONS_WORKER=1`).                             |
+| `config.streamStorage`             | `false`                                          | Re-enable BookKeeper stream storage (`PULSAR_STREAM_STORAGE=1`).                          |
+| `config.extraOpts`                 | `""`                                             | Extra JVM opts (`PULSAR_EXTRA_OPTS`).                                                     |
+| `persistence.enabled`              | `true`                                           | 8Gi PVC mounted at `/pulsar` (data + logs + conf + tmp).                                  |
+| `persistence.size`                 | `8Gi`                                            |                                                                                           |
+| `persistence.existingClaim`        | `""`                                             | Bind an existing PVC instead of provisioning one.                                         |
+| `resources.requests`               | `cpu 500m / mem 1Gi`                             | Standalone is memory-hungry.                                                              |
+| `resources.limits`                 | `cpu 2 / mem 3Gi`                                | Raise if the pod is OOMKilled.                                                            |
+| `service.type`                     | `ClusterIP`                                      |                                                                                           |
+| `service.pulsarPort`               | `6650`                                           | Binary protocol (`pulsar://`) for clients.                                                |
+| `service.httpPort`                 | `8080`                                           | HTTP admin / REST API.                                                                    |
+| `networkPolicy.enabled`            | `true`                                           | The security boundary (Pulsar has no auth).                                               |
+| `networkPolicy.allowExternal`      | `false`                                          | Restrict ingress to in-cluster pods.                                                      |
+| `podDisruptionBudget.enabled`      | `true`                                           |                                                                                           |
+| `podDisruptionBudget.minAvailable` | `1`                                              |                                                                                           |
+| `ingress.enabled`                  | `false`                                          | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`                | `""`                                             | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`              | `{}`                                             | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`              | `null`                                           | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`                    | `[]`                                             | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                      | `[]`                                             | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |## Storage layout
+## Storage layout
 
 The read-only rootfs forces everything writable under one mount. The chart mounts the
 `data` volume at `/pulsar`, which covers:

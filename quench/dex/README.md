@@ -16,10 +16,10 @@ Dex runs nonroot on a read-only root filesystem. The image entrypoint is
 
 ## Ports
 
-| Port | Name | Purpose |
-|------|------|---------|
-| `5556` | `http` | OIDC issuer + login UI |
-| `5557` | `grpc` | gRPC API |
+| Port   | Name        | Purpose                                  |
+| ------ | ----------- | ---------------------------------------- |
+| `5556` | `http`      | OIDC issuer + login UI                   |
+| `5557` | `grpc`      | gRPC API                                 |
 | `5558` | `telemetry` | health (`/healthz`) + Prometheus metrics |
 
 Liveness/readiness probe `GET /healthz` on the telemetry port (`5558`).
@@ -70,23 +70,22 @@ For production:
 - Replace `staticPasswords` with a real connector (LDAP, SAML, OIDC, GitHub,
   Google, etc.).
 
-| Value | Default | Notes |
-|-------|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/dex` | |
-| `image.digest` | (CI-maintained) | signed multi-arch index |
-| `replicaCount` | `1` | safe only with shared storage |
-| `config.yaml` | in-memory example | inline Dex config (rendered + mounted) |
-| `config.existingConfigMap` | `""` | external config ConfigMap (key `config.yaml`, wins) |
-| `configMountPath` | `/etc/dex/config.yaml` | where the config is mounted |
-| `command` / `args` | `dex` / `serve <config>` | container command override |
-| `service.type` | `ClusterIP` | |
-| `service.ports.http` | `5556` | OIDC issuer + UI |
-| `service.ports.grpc` | `5557` | gRPC API |
-| `service.ports.telemetry` | `5558` | health + metrics |
-
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
+| Value                      | Default                          | Notes                                                                                     |
+| -------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`         | `ghcr.io/quenchworks/images/dex` |                                                                                           |
+| `image.digest`             | (CI-maintained)                  | signed multi-arch index                                                                   |
+| `replicaCount`             | `1`                              | safe only with shared storage                                                             |
+| `config.yaml`              | in-memory example                | inline Dex config (rendered + mounted)                                                    |
+| `config.existingConfigMap` | `""`                             | external config ConfigMap (key `config.yaml`, wins)                                       |
+| `configMountPath`          | `/etc/dex/config.yaml`           | where the config is mounted                                                               |
+| `command` / `args`         | `dex` / `serve <config>`         | container command override                                                                |
+| `service.type`             | `ClusterIP`                      |                                                                                           |
+| `service.ports.http`       | `5556`                           | OIDC issuer + UI                                                                          |
+| `service.ports.grpc`       | `5557`                           | gRPC API                                                                                  |
+| `service.ports.telemetry`  | `5558`                           | health + metrics                                                                          |
+| `ingress.enabled`          | `false`                          | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`        | `""`                             | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`      | `{}`                             | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`      | `null`                           | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`            | `[]`                             | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`              | `[]`                             | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |

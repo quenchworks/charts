@@ -34,7 +34,7 @@ bootstrap**:
 
 ```yaml
 auth:
-  existingSecret: my-ca-secret   # keys: password, provisioner-password
+  existingSecret: my-ca-secret # keys: password, provisioner-password
   # or, inline (rendered into a chart-managed Secret):
   # password: "..."
   # provisionerPassword: "..."
@@ -53,34 +53,34 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/step-ca --owner que
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/step-ca` | Ships both `step-ca` and `step`. |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Stateful single node; do not scale out. |
-| `containerPort` | `9000` | HTTPS port step-ca binds; wired into `ca.json` and the probes. |
-| `service.port` | `443` | Service port, forwards to the container's `https` port. |
-| `ca.name` | `QuenchWorks CA` | PKI / root subject name (init only). |
-| `ca.provisioner` | `admin@quench-works.com` | First JWK provisioner created at init. |
-| `ca.dnsNames` | `[]` | Extra SANs; the in-cluster Service names + `localhost` are always added. |
-| `ca.deploymentType` | `standalone` | `step ca init --deployment-type`. |
-| `auth.existingSecret` | `""` | Secret with `password` + `provisioner-password`. |
-| `auth.password` | `""` | CA key password (required unless `existingSecret`). |
-| `auth.provisionerPassword` | `""` | First provisioner password (required unless `existingSecret`). |
-| `persistence.enabled` | `true` | Standalone PVC at STEPPATH `/home/step`; **required** (the CA is stateful). |
-| `persistence.size` | `1Gi` | |
-| `persistence.existingClaim` | `""` | Bind an existing PVC instead of provisioning one. |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `rbac.create` | `false` | Minimal empty Role/RoleBinding when enabled. |
-| `networkPolicy.enabled` | `true` | Client ingress from the namespace; set `allowExternal: true` to open it. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                              | Notes                                                                                     |
+| ----------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/step-ca` | Ships both `step-ca` and `step`.                                                          |
+| `image.digest`                | (CI-written)                         | Required. Charts pin by digest, never a tag.                                              |
+| `replicaCount`                | `1`                                  | Stateful single node; do not scale out.                                                   |
+| `containerPort`               | `9000`                               | HTTPS port step-ca binds; wired into `ca.json` and the probes.                            |
+| `service.port`                | `443`                                | Service port, forwards to the container's `https` port.                                   |
+| `ca.name`                     | `QuenchWorks CA`                     | PKI / root subject name (init only).                                                      |
+| `ca.provisioner`              | `admin@quench-works.com`             | First JWK provisioner created at init.                                                    |
+| `ca.dnsNames`                 | `[]`                                 | Extra SANs; the in-cluster Service names + `localhost` are always added.                  |
+| `ca.deploymentType`           | `standalone`                         | `step ca init --deployment-type`.                                                         |
+| `auth.existingSecret`         | `""`                                 | Secret with `password` + `provisioner-password`.                                          |
+| `auth.password`               | `""`                                 | CA key password (required unless `existingSecret`).                                       |
+| `auth.provisionerPassword`    | `""`                                 | First provisioner password (required unless `existingSecret`).                            |
+| `persistence.enabled`         | `true`                               | Standalone PVC at STEPPATH `/home/step`; **required** (the CA is stateful).               |
+| `persistence.size`            | `1Gi`                                |                                                                                           |
+| `persistence.existingClaim`   | `""`                                 | Bind an existing PVC instead of provisioning one.                                         |
+| `serviceAccount.create`       | `true`                               | Token automount is off.                                                                   |
+| `rbac.create`                 | `false`                              | Minimal empty Role/RoleBinding when enabled.                                              |
+| `networkPolicy.enabled`       | `true`                               | Client ingress from the namespace; set `allowExternal: true` to open it.                  |
+| `podDisruptionBudget.enabled` | `true`                               | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`             | `false`                              | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                                 | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                                 | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                               | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                                 | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                                 | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
 containers, extra env/volumes, security contexts, update strategy).
 

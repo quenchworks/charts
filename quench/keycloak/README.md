@@ -52,8 +52,8 @@ and PostgreSQL share the deterministic credentials under `postgresql.auth`, so
 postgresql:
   enabled: true
   auth:
-    username: kcadmin        # MUST differ from `database` (image init quirk)
-    password: keycloak       # set a real password in production
+    username: kcadmin # MUST differ from `database` (image init quirk)
+    password: keycloak # set a real password in production
     database: keycloak
 ```
 
@@ -69,7 +69,7 @@ externalDatabase:
   port: 5432
   database: keycloak
   user: keycloak
-  password: ""               # or supply existingSecret
+  password: "" # or supply existingSecret
   existingSecret: ""
   existingSecretPasswordKey: password
 ```
@@ -95,8 +95,8 @@ headers so Keycloak builds correct issuer/redirect URLs:
 
 ```yaml
 production:
-  hostname: https://sso.example.com   # KC_HOSTNAME
-  proxyHeaders: xforwarded            # KC_PROXY_HEADERS (or "forwarded")
+  hostname: https://sso.example.com # KC_HOSTNAME
+  proxyHeaders: xforwarded # KC_PROXY_HEADERS (or "forwarded")
 ```
 
 ## Verify the image
@@ -118,33 +118,33 @@ gh attestation verify oci://ghcr.io/quenchworks/images/postgresql --owner quench
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/keycloak` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Stateless given the DB; raise to scale (Infinispan clusters). |
-| `auth.adminUser` | `admin` | Bootstrap admin (`KC_BOOTSTRAP_ADMIN_USERNAME`). |
-| `auth.adminPassword` | (generated) | 24-char random if empty; stored in the Secret. |
-| `auth.existingSecret` | `""` | Use an existing Secret for the admin user + password. |
-| `production.hostname` | `""` | Public URL → `KC_HOSTNAME`. |
-| `production.proxyHeaders` | `""` | `xforwarded` / `forwarded` → `KC_PROXY_HEADERS`. |
-| `postgresql.enabled` | `true` | Bundle the Quenchworks PostgreSQL subchart. |
-| `postgresql.auth.{username,password,database}` | `keycloak` | Deterministic shared DB creds. |
-| `externalDatabase.*` | `""` | Used when `postgresql.enabled=false`. |
-| `db.existingSecret` | `""` | Override the Secret `KC_DB_PASSWORD` is read from (both modes). Empty = unchanged. |
-| `db.existingSecretPasswordKey` | `db-password` | Key within `db.existingSecret`. |
-| `service.port` | `8080` | HTTP (UI + protocol endpoints). |
-| `service.managementPort` | `9000` | Health + metrics. |
-| `networkPolicy.enabled` | `true` | Ingress 8080 (+9000 in-namespace), egress to DB. |
-| `networkPolicy.allowExternal` | `true` | Console is usually reached externally; set false to restrict. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                                            | Default                               | Notes                                                                                     |
+| ---------------------------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`                             | `ghcr.io/quenchworks/images/keycloak` |                                                                                           |
+| `image.digest`                                 | (CI-written)                          | Required. Charts pin by digest, never a tag.                                              |
+| `replicaCount`                                 | `1`                                   | Stateless given the DB; raise to scale (Infinispan clusters).                             |
+| `auth.adminUser`                               | `admin`                               | Bootstrap admin (`KC_BOOTSTRAP_ADMIN_USERNAME`).                                          |
+| `auth.adminPassword`                           | (generated)                           | 24-char random if empty; stored in the Secret.                                            |
+| `auth.existingSecret`                          | `""`                                  | Use an existing Secret for the admin user + password.                                     |
+| `production.hostname`                          | `""`                                  | Public URL → `KC_HOSTNAME`.                                                               |
+| `production.proxyHeaders`                      | `""`                                  | `xforwarded` / `forwarded` → `KC_PROXY_HEADERS`.                                          |
+| `postgresql.enabled`                           | `true`                                | Bundle the Quenchworks PostgreSQL subchart.                                               |
+| `postgresql.auth.{username,password,database}` | `keycloak`                            | Deterministic shared DB creds.                                                            |
+| `externalDatabase.*`                           | `""`                                  | Used when `postgresql.enabled=false`.                                                     |
+| `db.existingSecret`                            | `""`                                  | Override the Secret `KC_DB_PASSWORD` is read from (both modes). Empty = unchanged.        |
+| `db.existingSecretPasswordKey`                 | `db-password`                         | Key within `db.existingSecret`.                                                           |
+| `service.port`                                 | `8080`                                | HTTP (UI + protocol endpoints).                                                           |
+| `service.managementPort`                       | `9000`                                | Health + metrics.                                                                         |
+| `networkPolicy.enabled`                        | `true`                                | Ingress 8080 (+9000 in-namespace), egress to DB.                                          |
+| `networkPolicy.allowExternal`                  | `true`                                | Console is usually reached externally; set false to restrict.                             |
+| `podDisruptionBudget.enabled`                  | `true`                                | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`                              | `false`                               | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`                            | `""`                                  | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`                          | `{}`                                  | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`                          | `null`                                | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`                                | `[]`                                  | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                                  | `[]`                                  | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
 env/volumes, security contexts).
 

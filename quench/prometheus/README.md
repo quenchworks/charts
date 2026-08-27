@@ -34,27 +34,27 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/prometheus --owner 
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/prometheus` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Single node. |
-| `config.prometheusYaml` | self-scrape | The full `prometheus.yml`, mounted from a ConfigMap. |
-| `config.retentionTime` | `"15d"` | `--storage.tsdb.retention.time` (Prometheus duration). |
-| `config.extraArgs` | `[]` | Raw flags appended to the server (e.g. retention.size). |
-| `persistence.enabled` | `true` | 16Gi PVC mounted at `/prometheus` (TSDB). When `false`, uses an `emptyDir` (data is lost on restart). |
-| `persistence.size` | `16Gi` | Requested volume size. |
-| `persistence.existingClaim` | `""` | Bind an existing PVC instead of provisioning one. |
-| `service.port` | `9090` | HTTP API + UI + lifecycle endpoints. |
-| `networkPolicy.enabled` | `true` | Restricts HTTP ingress to the release namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                                 | Notes                                                                                                 |
+| ----------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/prometheus` |                                                                                                       |
+| `image.digest`                | (CI-written)                            | Required. Charts pin by digest, never a tag.                                                          |
+| `replicaCount`                | `1`                                     | Single node.                                                                                          |
+| `config.prometheusYaml`       | self-scrape                             | The full `prometheus.yml`, mounted from a ConfigMap.                                                  |
+| `config.retentionTime`        | `"15d"`                                 | `--storage.tsdb.retention.time` (Prometheus duration).                                                |
+| `config.extraArgs`            | `[]`                                    | Raw flags appended to the server (e.g. retention.size).                                               |
+| `persistence.enabled`         | `true`                                  | 16Gi PVC mounted at `/prometheus` (TSDB). When `false`, uses an `emptyDir` (data is lost on restart). |
+| `persistence.size`            | `16Gi`                                  | Requested volume size.                                                                                |
+| `persistence.existingClaim`   | `""`                                    | Bind an existing PVC instead of provisioning one.                                                     |
+| `service.port`                | `9090`                                  | HTTP API + UI + lifecycle endpoints.                                                                  |
+| `networkPolicy.enabled`       | `true`                                  | Restricts HTTP ingress to the release namespace.                                                      |
+| `podDisruptionBudget.enabled` | `true`                                  | `minAvailable: 1`.                                                                                    |
+| `ingress.enabled`             | `false`                                 | Create an Ingress for this chart. HTTP only.                                                          |
+| `ingress.className`           | `""`                                    | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.                      |
+| `ingress.annotations`         | `{}`                                    | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).                        |
+| `ingress.servicePort`         | `null`                                  | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.                    |
+| `ingress.hosts`               | `[]`                                    | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path.             |
+| `ingress.tls`                 | `[]`                                    | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.                  |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
 containers, extra env/volumes, security contexts, update strategy).
 

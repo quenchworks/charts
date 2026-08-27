@@ -71,11 +71,11 @@ repos + plan files), so the chart ships a **StatefulSet** with a persistent
 volume. It also serialises plan/apply on disk and is not horizontally scalable —
 keep `replicaCount: 1`.
 
-| key | default | meaning |
-|-----|---------|---------|
-| `persistence.enabled` | `true` | provision a PVC for `/atlantis-data` |
-| `persistence.size` | `8Gi` | PVC size |
-| `persistence.existingClaim` | `""` | bind an existing PVC instead |
+| key                         | default | meaning                              |
+| --------------------------- | ------- | ------------------------------------ |
+| `persistence.enabled`       | `true`  | provision a PVC for `/atlantis-data` |
+| `persistence.size`          | `8Gi`   | PVC size                             |
+| `persistence.existingClaim` | `""`    | bind an existing PVC instead         |
 
 ## Security
 
@@ -98,22 +98,21 @@ keep `replicaCount: 1`.
 
 ## Key values
 
-| key | default | meaning |
-|-----|---------|---------|
-| `vcs.provider` | `github` | VCS to integrate with |
-| `vcs.username` | `""` | the bot user Atlantis acts as |
-| `vcs.githubToken` | `""` | VCS API token (or use `vcs.existingSecret`) |
-| `vcs.webhookSecret` | `""` | inbound webhook HMAC secret (auto-generated if empty) |
-| `vcs.existingSecret` | `""` | bring your own credentials Secret |
-| `repoAllowlist` | `""` | **required** — repos Atlantis may operate on |
-| `atlantisUrl` | `""` | externally reachable base URL |
-| `defaultTFDistribution` | `opentofu` | execution engine (`opentofu` / `terraform`) |
-| `repoConfig` | `""` | optional server-side `repos.yaml` |
-| `service.port` | `4141` | server + webhook + UI + `/healthz` |
-
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
+| key                     | default    | meaning                                                                                   |
+| ----------------------- | ---------- | ----------------------------------------------------------------------------------------- |
+| `vcs.provider`          | `github`   | VCS to integrate with                                                                     |
+| `vcs.username`          | `""`       | the bot user Atlantis acts as                                                             |
+| `vcs.githubToken`       | `""`       | VCS API token (or use `vcs.existingSecret`)                                               |
+| `vcs.webhookSecret`     | `""`       | inbound webhook HMAC secret (auto-generated if empty)                                     |
+| `vcs.existingSecret`    | `""`       | bring your own credentials Secret                                                         |
+| `repoAllowlist`         | `""`       | **required** — repos Atlantis may operate on                                              |
+| `atlantisUrl`           | `""`       | externally reachable base URL                                                             |
+| `defaultTFDistribution` | `opentofu` | execution engine (`opentofu` / `terraform`)                                               |
+| `repoConfig`            | `""`       | optional server-side `repos.yaml`                                                         |
+| `service.port`          | `4141`     | server + webhook + UI + `/healthz`                                                        |
+| `ingress.enabled`       | `false`    | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`     | `""`       | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`   | `{}`       | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`   | `null`     | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`         | `[]`       | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`           | `[]`       | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |

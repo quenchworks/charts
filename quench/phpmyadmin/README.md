@@ -61,47 +61,47 @@ gh attestation verify oci://ghcr.io/quenchworks/images/phpmyadmin \
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/phpmyadmin` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `replicaCount` | `1` | Stateless — scale freely; the shared `blowfish_secret` keeps sessions valid on any pod. |
-| `phpmyadmin.hosts` | `""` | Comma-separated server list shown in the login dropdown. Empty uses the bundled MariaDB or `externalDatabase.host`. |
-| `phpmyadmin.verboseNames` | `""` | Display names matching `hosts` (same order). |
-| `phpmyadmin.authType` | `cookie` | `cookie` prompts for credentials; `config`/`http`/`signon` for the other upstream modes. |
-| `phpmyadmin.absoluteUri` | `""` | Public URL when behind an ingress/TLS proxy (sets `PmaAbsoluteUri`). |
-| `phpmyadmin.allowNoPassword` | `false` | Permit logins with an empty password. |
-| `phpmyadmin.blowfishSecret` | `""` | 32-char cookie key. Empty: generated once, then preserved across upgrades. |
-| `phpmyadmin.existingSecret` | `""` | Take the blowfish secret from an existing Secret instead. |
-| `phpmyadmin.existingSecretBlowfishKey` | `blowfish-secret` | Key within that Secret. |
-| `resources.requests` | `100m / 128Mi` | CPU / memory requests. |
-| `resources.limits` | `1 / 512Mi` | CPU / memory limits. |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `8080` | The UI (nginx `http` port). |
-| `mariadb.enabled` | `false` | Deploy the bundled Quenchworks MariaDB subchart and point phpMyAdmin at it. |
-| `mariadb.auth.rootPassword` | `""` | Generated into MariaDB's own Secret if empty. |
-| `mariadb.auth.database` | `phpmyadmin` | Database created on first init. |
-| `mariadb.auth.username` | `phpmyadmin` | DB user created on first init. |
-| `mariadb.auth.password` | `""` | Generated into MariaDB's own Secret if empty. |
-| `externalDatabase.host` | `""` | Server to administer (when `mariadb.enabled=false`). |
-| `externalDatabase.port` | `3306` | Server port. |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount if set. |
-| `serviceAccount.annotations` | `{}` | Annotations on the ServiceAccount. |
-| `rbac.create` | `false` | Minimal Role/RoleBinding. |
-| `networkPolicy.enabled` | `true` | Restricts ingress to the release namespace; opens DNS + the DB port on egress. |
-| `networkPolicy.allowExternal` | `false` | Set `true` **only** behind an authenticating ingress / VPN. |
-| `podDisruptionBudget.enabled` | `true` | |
-| `podDisruptionBudget.minAvailable` | `1` | |
+| Key                                    | Default                                 | Notes                                                                                                               |
+| -------------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `image.repository`                     | `ghcr.io/quenchworks/images/phpmyadmin` |                                                                                                                     |
+| `image.digest`                         | (CI-written)                            | Required. Charts pin by digest, never a tag.                                                                        |
+| `image.pullPolicy`                     | `IfNotPresent`                          | `Always`, `IfNotPresent`, or `Never`.                                                                               |
+| `nameOverride`                         | `""`                                    | Override the chart name in resource names.                                                                          |
+| `replicaCount`                         | `1`                                     | Stateless — scale freely; the shared `blowfish_secret` keeps sessions valid on any pod.                             |
+| `phpmyadmin.hosts`                     | `""`                                    | Comma-separated server list shown in the login dropdown. Empty uses the bundled MariaDB or `externalDatabase.host`. |
+| `phpmyadmin.verboseNames`              | `""`                                    | Display names matching `hosts` (same order).                                                                        |
+| `phpmyadmin.authType`                  | `cookie`                                | `cookie` prompts for credentials; `config`/`http`/`signon` for the other upstream modes.                            |
+| `phpmyadmin.absoluteUri`               | `""`                                    | Public URL when behind an ingress/TLS proxy (sets `PmaAbsoluteUri`).                                                |
+| `phpmyadmin.allowNoPassword`           | `false`                                 | Permit logins with an empty password.                                                                               |
+| `phpmyadmin.blowfishSecret`            | `""`                                    | 32-char cookie key. Empty: generated once, then preserved across upgrades.                                          |
+| `phpmyadmin.existingSecret`            | `""`                                    | Take the blowfish secret from an existing Secret instead.                                                           |
+| `phpmyadmin.existingSecretBlowfishKey` | `blowfish-secret`                       | Key within that Secret.                                                                                             |
+| `resources.requests`                   | `100m / 128Mi`                          | CPU / memory requests.                                                                                              |
+| `resources.limits`                     | `1 / 512Mi`                             | CPU / memory limits.                                                                                                |
+| `service.type`                         | `ClusterIP`                             | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                                                         |
+| `service.port`                         | `8080`                                  | The UI (nginx `http` port).                                                                                         |
+| `mariadb.enabled`                      | `false`                                 | Deploy the bundled Quenchworks MariaDB subchart and point phpMyAdmin at it.                                         |
+| `mariadb.auth.rootPassword`            | `""`                                    | Generated into MariaDB's own Secret if empty.                                                                       |
+| `mariadb.auth.database`                | `phpmyadmin`                            | Database created on first init.                                                                                     |
+| `mariadb.auth.username`                | `phpmyadmin`                            | DB user created on first init.                                                                                      |
+| `mariadb.auth.password`                | `""`                                    | Generated into MariaDB's own Secret if empty.                                                                       |
+| `externalDatabase.host`                | `""`                                    | Server to administer (when `mariadb.enabled=false`).                                                                |
+| `externalDatabase.port`                | `3306`                                  | Server port.                                                                                                        |
+| `serviceAccount.create`                | `true`                                  | Token automount is off.                                                                                             |
+| `serviceAccount.name`                  | `""`                                    | Use an existing ServiceAccount if set.                                                                              |
+| `serviceAccount.annotations`           | `{}`                                    | Annotations on the ServiceAccount.                                                                                  |
+| `rbac.create`                          | `false`                                 | Minimal Role/RoleBinding.                                                                                           |
+| `networkPolicy.enabled`                | `true`                                  | Restricts ingress to the release namespace; opens DNS + the DB port on egress.                                      |
+| `networkPolicy.allowExternal`          | `false`                                 | Set `true` **only** behind an authenticating ingress / VPN.                                                         |
+| `podDisruptionBudget.enabled`          | `true`                                  |                                                                                                                     |
+| `podDisruptionBudget.minAvailable`     | `1`                                     |                                                                                                                     |
+| `ingress.enabled`                      | `false`                                 | Create an Ingress for this chart. HTTP only.                                                                        |
+| `ingress.className`                    | `""`                                    | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.                                    |
+| `ingress.annotations`                  | `{}`                                    | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).                                      |
+| `ingress.servicePort`                  | `null`                                  | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.                                  |
+| `ingress.hosts`                        | `[]`                                    | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path.                           |
+| `ingress.tls`                          | `[]`                                    | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.                                |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 `nodeSelector`, `affinity`, `tolerations`, `topologySpreadConstraints`,
 `priorityClassName`, `schedulerName`, `terminationGracePeriodSeconds`,
@@ -194,5 +194,4 @@ authenticating ingress or a VPN before exposing it, and set
 `phpmyadmin.absoluteUri` so redirects are built correctly. The chart depends on
 the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`, and bundles the Quenchworks
-MariaDB chart when `mariadb.enabled=true`. Every container runs as nonroot (uid
-1001) on a read-only root filesystem, and the image is pinned by digest.
+MariaDB chart when `mariadb.enabled=true`. Every container runs as nonroot (uid 1001) on a read-only root filesystem, and the image is pinned by digest.

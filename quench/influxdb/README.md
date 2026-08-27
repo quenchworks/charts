@@ -53,30 +53,30 @@ gh attestation verify oci://ghcr.io/quenchworks/images/influxdb \
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/influxdb` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Single node (InfluxDB 2.x OSS). |
-| `auth.setup` | `true` | Run `influx setup` on first boot. |
-| `auth.username` | `admin` | Admin user created by setup. |
-| `auth.password` | (generated) | 24-char random if empty; stored in the Secret. |
-| `auth.org` | `quench` | Initial organization. |
-| `auth.bucket` | `default` | Initial bucket. |
-| `auth.adminToken` | (generated) | 48-char random if empty; stored in the Secret. |
-| `auth.retention` | `""` | Bucket retention (e.g. `30d`); empty means infinite. |
-| `auth.existingSecret` | `""` | Use an existing Secret for password + token. |
-| `persistence.enabled` | `true` | 8Gi PVC at `/var/lib/influxdb2`. |
-| `service.port` | `8086` | HTTP API + web UI. |
-| `networkPolicy.enabled` | `true` | Restricts HTTP ingress to the release namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                               | Notes                                                                                     |
+| ----------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/influxdb` |                                                                                           |
+| `image.digest`                | (CI-written)                          | Required. Charts pin by digest, never a tag.                                              |
+| `replicaCount`                | `1`                                   | Single node (InfluxDB 2.x OSS).                                                           |
+| `auth.setup`                  | `true`                                | Run `influx setup` on first boot.                                                         |
+| `auth.username`               | `admin`                               | Admin user created by setup.                                                              |
+| `auth.password`               | (generated)                           | 24-char random if empty; stored in the Secret.                                            |
+| `auth.org`                    | `quench`                              | Initial organization.                                                                     |
+| `auth.bucket`                 | `default`                             | Initial bucket.                                                                           |
+| `auth.adminToken`             | (generated)                           | 48-char random if empty; stored in the Secret.                                            |
+| `auth.retention`              | `""`                                  | Bucket retention (e.g. `30d`); empty means infinite.                                      |
+| `auth.existingSecret`         | `""`                                  | Use an existing Secret for password + token.                                              |
+| `persistence.enabled`         | `true`                                | 8Gi PVC at `/var/lib/influxdb2`.                                                          |
+| `service.port`                | `8086`                                | HTTP API + web UI.                                                                        |
+| `networkPolicy.enabled`       | `true`                                | Restricts HTTP ingress to the release namespace.                                          |
+| `podDisruptionBudget.enabled` | `true`                                | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`             | `false`                               | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                                  | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                                  | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                                | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                                  | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                                  | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
 env/volumes, security contexts).
 

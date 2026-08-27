@@ -60,43 +60,43 @@ gh attestation verify oci://ghcr.io/quenchworks/images/victorialogs \
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/victorialogs` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `replicaCount` | `1` | Single node; schema caps this at 1. VictoriaLogs is not scaled by adding replicas. |
-| `containerPort` | `9428` | HTTP listen port, wired to `-httpListenAddr` via `VL_HTTP_LISTEN`. |
-| `storagePath` | `/victoria-logs-data` | Data dir (`-storageDataPath` via `VL_STORAGE`); the PVC mount point. |
-| `persistence.enabled` | `true` | PVC mounted at `storagePath`. When `false`, uses an `emptyDir` (data is lost on restart). |
-| `persistence.size` | `10Gi` | Requested volume size. |
-| `persistence.storageClass` | `""` | Default class if unset. |
-| `persistence.accessModes` | `["ReadWriteOnce"]` | PVC access modes. |
-| `persistence.annotations` | `{}` | Annotations on the PVC template. |
-| `persistence.selector` | `{}` | Bind to a matching PV by selector. |
-| `persistence.existingClaim` | `""` | Bind an existing PVC instead of provisioning one. |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `9428` | Service port for ingestion and queries. |
-| `resources.requests` | `100m / 128Mi` | CPU / memory requests. |
-| `resources.limits` | `1 / 1Gi` | CPU / memory limits. |
-| `args` | `[]` | Extra flags appended to `victoria-logs` (e.g. `-retentionPeriod=30d`). |
-| `command` | `[]` | Override the entrypoint. |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount if set. |
-| `serviceAccount.annotations` | `{}` | Annotations on the ServiceAccount. |
-| `rbac.create` | `false` | Minimal Role/RoleBinding. |
-| `networkPolicy.enabled` | `true` | Restricts ingress to the release namespace. |
-| `networkPolicy.allowExternal` | `false` | Set `true` to allow ingress from any source (log shippers, query clients). |
-| `podDisruptionBudget.enabled` | `true` | |
-| `podDisruptionBudget.minAvailable` | `1` | |
+| Key                                | Default                                   | Notes                                                                                     |
+| ---------------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`                 | `ghcr.io/quenchworks/images/victorialogs` |                                                                                           |
+| `image.digest`                     | (CI-written)                              | Required. Charts pin by digest, never a tag.                                              |
+| `image.pullPolicy`                 | `IfNotPresent`                            | `Always`, `IfNotPresent`, or `Never`.                                                     |
+| `nameOverride`                     | `""`                                      | Override the chart name in resource names.                                                |
+| `replicaCount`                     | `1`                                       | Single node; schema caps this at 1. VictoriaLogs is not scaled by adding replicas.        |
+| `containerPort`                    | `9428`                                    | HTTP listen port, wired to `-httpListenAddr` via `VL_HTTP_LISTEN`.                        |
+| `storagePath`                      | `/victoria-logs-data`                     | Data dir (`-storageDataPath` via `VL_STORAGE`); the PVC mount point.                      |
+| `persistence.enabled`              | `true`                                    | PVC mounted at `storagePath`. When `false`, uses an `emptyDir` (data is lost on restart). |
+| `persistence.size`                 | `10Gi`                                    | Requested volume size.                                                                    |
+| `persistence.storageClass`         | `""`                                      | Default class if unset.                                                                   |
+| `persistence.accessModes`          | `["ReadWriteOnce"]`                       | PVC access modes.                                                                         |
+| `persistence.annotations`          | `{}`                                      | Annotations on the PVC template.                                                          |
+| `persistence.selector`             | `{}`                                      | Bind to a matching PV by selector.                                                        |
+| `persistence.existingClaim`        | `""`                                      | Bind an existing PVC instead of provisioning one.                                         |
+| `service.type`                     | `ClusterIP`                               | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
+| `service.port`                     | `9428`                                    | Service port for ingestion and queries.                                                   |
+| `resources.requests`               | `100m / 128Mi`                            | CPU / memory requests.                                                                    |
+| `resources.limits`                 | `1 / 1Gi`                                 | CPU / memory limits.                                                                      |
+| `args`                             | `[]`                                      | Extra flags appended to `victoria-logs` (e.g. `-retentionPeriod=30d`).                    |
+| `command`                          | `[]`                                      | Override the entrypoint.                                                                  |
+| `serviceAccount.create`            | `true`                                    | Token automount is off.                                                                   |
+| `serviceAccount.name`              | `""`                                      | Use an existing ServiceAccount if set.                                                    |
+| `serviceAccount.annotations`       | `{}`                                      | Annotations on the ServiceAccount.                                                        |
+| `rbac.create`                      | `false`                                   | Minimal Role/RoleBinding.                                                                 |
+| `networkPolicy.enabled`            | `true`                                    | Restricts ingress to the release namespace.                                               |
+| `networkPolicy.allowExternal`      | `false`                                   | Set `true` to allow ingress from any source (log shippers, query clients).                |
+| `podDisruptionBudget.enabled`      | `true`                                    |                                                                                           |
+| `podDisruptionBudget.minAvailable` | `1`                                       |                                                                                           |
+| `ingress.enabled`                  | `false`                                   | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`                | `""`                                      | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`              | `{}`                                      | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`              | `null`                                    | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`                    | `[]`                                      | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                      | `[]`                                      | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 `nodeSelector`, `affinity`, `tolerations`, `topologySpreadConstraints`,
 `priorityClassName`, `schedulerName`, `terminationGracePeriodSeconds`,

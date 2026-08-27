@@ -41,32 +41,32 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/fluent-bit --owner 
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/fluent-bit` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `mode` | `deployment` | Gateway/aggregator mode. DaemonSet is a follow-up. |
-| `replicaCount` | `1` | Stateless default pipeline; scale out for forward-ingest. |
-| `config` | dummy → stdout + HTTP `:2020` | The full Fluent Bit config (classic `.conf`), rendered to a ConfigMap and mounted at `/fluent-bit/etc/fluent-bit.conf`. |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.ports.http` | `2020` | HTTP monitoring server (health + metrics + dashboard). |
-| `resources.requests` | `cpu 50m / mem 64Mi` | |
-| `resources.limits` | `cpu 500m / mem 256Mi` | |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount. |
-| `rbac.create` | `false` | Minimal Role/RoleBinding. |
-| `networkPolicy.enabled` | `true` | Restricts ingress to the release namespace. |
-| `networkPolicy.allowExternal` | `false` | Set `true` to allow ingress from any source. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                                 | Notes                                                                                                                   |
+| ----------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/fluent-bit` |                                                                                                                         |
+| `image.digest`                | (CI-written)                            | Required. Charts pin by digest, never a tag.                                                                            |
+| `image.pullPolicy`            | `IfNotPresent`                          | `Always`, `IfNotPresent`, or `Never`.                                                                                   |
+| `nameOverride`                | `""`                                    | Override the chart name in resource names.                                                                              |
+| `mode`                        | `deployment`                            | Gateway/aggregator mode. DaemonSet is a follow-up.                                                                      |
+| `replicaCount`                | `1`                                     | Stateless default pipeline; scale out for forward-ingest.                                                               |
+| `config`                      | dummy → stdout + HTTP `:2020`           | The full Fluent Bit config (classic `.conf`), rendered to a ConfigMap and mounted at `/fluent-bit/etc/fluent-bit.conf`. |
+| `service.type`                | `ClusterIP`                             | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                                                             |
+| `service.ports.http`          | `2020`                                  | HTTP monitoring server (health + metrics + dashboard).                                                                  |
+| `resources.requests`          | `cpu 50m / mem 64Mi`                    |                                                                                                                         |
+| `resources.limits`            | `cpu 500m / mem 256Mi`                  |                                                                                                                         |
+| `serviceAccount.create`       | `true`                                  | Token automount is off.                                                                                                 |
+| `serviceAccount.name`         | `""`                                    | Use an existing ServiceAccount.                                                                                         |
+| `rbac.create`                 | `false`                                 | Minimal Role/RoleBinding.                                                                                               |
+| `networkPolicy.enabled`       | `true`                                  | Restricts ingress to the release namespace.                                                                             |
+| `networkPolicy.allowExternal` | `false`                                 | Set `true` to allow ingress from any source.                                                                            |
+| `podDisruptionBudget.enabled` | `true`                                  | `minAvailable: 1`.                                                                                                      |
+| `ingress.enabled`             | `false`                                 | Create an Ingress for this chart. HTTP only.                                                                            |
+| `ingress.className`           | `""`                                    | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.                                        |
+| `ingress.annotations`         | `{}`                                    | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).                                          |
+| `ingress.servicePort`         | `null`                                  | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.                                      |
+| `ingress.hosts`               | `[]`                                    | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path.                               |
+| `ingress.tls`                 | `[]`                                    | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.                                    |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
 containers, extra env/volumes, security contexts, update strategy).
 

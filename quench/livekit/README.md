@@ -38,34 +38,34 @@ gh attestation verify oci://ghcr.io/quenchworks/images/livekit --owner quenchwor
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/livekit` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `replicaCount` | `1` | Single-node; scaling beyond 1 needs Redis. |
-| `config.yaml` | (single-node default) | Inline LiveKit config. Written to a ConfigMap, mounted at `/config/config.yaml`, passed via `--config`. |
-| `config.existingConfigMap` | `""` | Use your own ConfigMap (key `config.yaml`) instead; wins over `config.yaml`. |
-| `extraArgs` | `[]` | Extra flags appended to `livekit-server`. |
-| `resources.requests` | `cpu 100m / mem 128Mi` | |
-| `resources.limits` | `cpu 1 / mem 512Mi` | |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `7880` | HTTP/WS signaling + health. |
-| `service.rtcTcpPort` | `7881` | RTC over TCP fallback. |
-| `autoscaling.enabled` | `false` | HPA on CPU. Leave off for single-node (scaling needs Redis). |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `rbac.create` | `false` | Minimal Role/RoleBinding. |
-| `networkPolicy.enabled` | `true` | Restricts ingress. |
-| `networkPolicy.allowExternal` | `true` | Set `false` to restrict ingress to the release namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                              | Notes                                                                                                   |
+| ----------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/livekit` |                                                                                                         |
+| `image.digest`                | (CI-written)                         | Required. Charts pin by digest, never a tag.                                                            |
+| `image.pullPolicy`            | `IfNotPresent`                       | `Always`, `IfNotPresent`, or `Never`.                                                                   |
+| `nameOverride`                | `""`                                 | Override the chart name in resource names.                                                              |
+| `replicaCount`                | `1`                                  | Single-node; scaling beyond 1 needs Redis.                                                              |
+| `config.yaml`                 | (single-node default)                | Inline LiveKit config. Written to a ConfigMap, mounted at `/config/config.yaml`, passed via `--config`. |
+| `config.existingConfigMap`    | `""`                                 | Use your own ConfigMap (key `config.yaml`) instead; wins over `config.yaml`.                            |
+| `extraArgs`                   | `[]`                                 | Extra flags appended to `livekit-server`.                                                               |
+| `resources.requests`          | `cpu 100m / mem 128Mi`               |                                                                                                         |
+| `resources.limits`            | `cpu 1 / mem 512Mi`                  |                                                                                                         |
+| `service.type`                | `ClusterIP`                          | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                                             |
+| `service.port`                | `7880`                               | HTTP/WS signaling + health.                                                                             |
+| `service.rtcTcpPort`          | `7881`                               | RTC over TCP fallback.                                                                                  |
+| `autoscaling.enabled`         | `false`                              | HPA on CPU. Leave off for single-node (scaling needs Redis).                                            |
+| `serviceAccount.create`       | `true`                               | Token automount is off.                                                                                 |
+| `rbac.create`                 | `false`                              | Minimal Role/RoleBinding.                                                                               |
+| `networkPolicy.enabled`       | `true`                               | Restricts ingress.                                                                                      |
+| `networkPolicy.allowExternal` | `true`                               | Set `false` to restrict ingress to the release namespace.                                               |
+| `podDisruptionBudget.enabled` | `true`                               | `minAvailable: 1`.                                                                                      |
+| `ingress.enabled`             | `false`                              | Create an Ingress for this chart. HTTP only.                                                            |
+| `ingress.className`           | `""`                                 | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.                        |
+| `ingress.annotations`         | `{}`                                 | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).                          |
+| `ingress.servicePort`         | `null`                               | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.                      |
+| `ingress.hosts`               | `[]`                                 | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path.               |
+| `ingress.tls`                 | `[]`                                 | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.                    |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
 containers, extra env/volumes, security contexts, update strategy).
 
@@ -116,7 +116,7 @@ config:
     port: 7880
     logging:
       level: info
-extraEnvVarsSecret: livekit-keys   # supplies LIVEKIT_KEYS
+extraEnvVarsSecret: livekit-keys # supplies LIVEKIT_KEYS
 ```
 
 ## Uninstall

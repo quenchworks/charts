@@ -36,38 +36,38 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/ntfy --owner quench
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/ntfy` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `replicaCount` | `1` | Stateless Deployment. Keep at 1 with an on-disk cache (single writer). |
-| `config.yaml` | `""` | Inline ntfy server config (base-url, auth, cache-file, ...); written to a ConfigMap, mounted at `/etc/ntfy/server.yml`, passed via `--config`. |
-| `config.existingConfigMap` | `""` | Use your own ConfigMap (key `server.yml`) instead; wins over `config.yaml`. |
-| `extraArgs` | `[]` | Extra flags appended to the `ntfy serve` command. |
-| `resources.requests` | `cpu 50m / mem 64Mi` | |
-| `resources.limits` | `cpu 500m / mem 256Mi` | |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `8080` | HTTP API; also the container listen port. |
-| `persistence.enabled` | `false` | `false` = ephemeral `emptyDir`; `true` = PVC at `persistence.mountPath`. |
-| `persistence.mountPath` | `/var/cache/ntfy` | Writable cache/attachment dir. |
-| `persistence.size` | `1Gi` | PVC size when enabled. |
-| `persistence.existingClaim` | `""` | Bind an existing PVC instead of provisioning one. |
-| `autoscaling.enabled` | `false` | HPA on CPU (only meaningful for the in-memory/stateless mode). |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount if set. |
-| `rbac.create` | `false` | Minimal Role/RoleBinding. |
-| `networkPolicy.enabled` | `true` | Restricts ingress on the HTTP port. |
-| `networkPolicy.allowExternal` | `true` | ntfy is usually published to clients across the cluster; set `false` to restrict to the release namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                           | Notes                                                                                                                                          |
+| ----------------------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/ntfy` |                                                                                                                                                |
+| `image.digest`                | (CI-written)                      | Required. Charts pin by digest, never a tag.                                                                                                   |
+| `image.pullPolicy`            | `IfNotPresent`                    | `Always`, `IfNotPresent`, or `Never`.                                                                                                          |
+| `nameOverride`                | `""`                              | Override the chart name in resource names.                                                                                                     |
+| `replicaCount`                | `1`                               | Stateless Deployment. Keep at 1 with an on-disk cache (single writer).                                                                         |
+| `config.yaml`                 | `""`                              | Inline ntfy server config (base-url, auth, cache-file, ...); written to a ConfigMap, mounted at `/etc/ntfy/server.yml`, passed via `--config`. |
+| `config.existingConfigMap`    | `""`                              | Use your own ConfigMap (key `server.yml`) instead; wins over `config.yaml`.                                                                    |
+| `extraArgs`                   | `[]`                              | Extra flags appended to the `ntfy serve` command.                                                                                              |
+| `resources.requests`          | `cpu 50m / mem 64Mi`              |                                                                                                                                                |
+| `resources.limits`            | `cpu 500m / mem 256Mi`            |                                                                                                                                                |
+| `service.type`                | `ClusterIP`                       | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                                                                                    |
+| `service.port`                | `8080`                            | HTTP API; also the container listen port.                                                                                                      |
+| `persistence.enabled`         | `false`                           | `false` = ephemeral `emptyDir`; `true` = PVC at `persistence.mountPath`.                                                                       |
+| `persistence.mountPath`       | `/var/cache/ntfy`                 | Writable cache/attachment dir.                                                                                                                 |
+| `persistence.size`            | `1Gi`                             | PVC size when enabled.                                                                                                                         |
+| `persistence.existingClaim`   | `""`                              | Bind an existing PVC instead of provisioning one.                                                                                              |
+| `autoscaling.enabled`         | `false`                           | HPA on CPU (only meaningful for the in-memory/stateless mode).                                                                                 |
+| `serviceAccount.create`       | `true`                            | Token automount is off.                                                                                                                        |
+| `serviceAccount.name`         | `""`                              | Use an existing ServiceAccount if set.                                                                                                         |
+| `rbac.create`                 | `false`                           | Minimal Role/RoleBinding.                                                                                                                      |
+| `networkPolicy.enabled`       | `true`                            | Restricts ingress on the HTTP port.                                                                                                            |
+| `networkPolicy.allowExternal` | `true`                            | ntfy is usually published to clients across the cluster; set `false` to restrict to the release namespace.                                     |
+| `podDisruptionBudget.enabled` | `true`                            | `minAvailable: 1`.                                                                                                                             |
+| `ingress.enabled`             | `false`                           | Create an Ingress for this chart. HTTP only.                                                                                                   |
+| `ingress.className`           | `""`                              | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.                                                               |
+| `ingress.annotations`         | `{}`                              | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).                                                                 |
+| `ingress.servicePort`         | `null`                            | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.                                                             |
+| `ingress.hosts`               | `[]`                              | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path.                                                      |
+| `ingress.tls`                 | `[]`                              | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.                                                           |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
 containers, extra env/volumes, security contexts, update strategy).
 

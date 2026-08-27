@@ -19,9 +19,9 @@ kubectl get secret my-meili-meilisearch-masterkey -o jsonpath='{.data.master-key
 
 ## What it serves
 
-| Port | Name   | Protocol | Purpose                |
-|------|--------|----------|------------------------|
-| 7700 | `http` | TCP      | REST search API        |
+| Port | Name   | Protocol | Purpose         |
+| ---- | ------ | -------- | --------------- |
+| 7700 | `http` | TCP      | REST search API |
 
 `GET /health` (on 7700) always returns `{"status":"available"}` and is
 **unauthenticated** even with a master key set, so the liveness and readiness probes
@@ -104,31 +104,31 @@ A request without the key (or with a wrong key) is rejected with `401`/`403`.
 
 ## Configuration
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `image.repository` | `ghcr.io/quenchworks/images/meilisearch` | Image repo (pinned by `image.digest`). |
-| `image.digest` | _CI-maintained_ | `sha256:...` digest; the contract with the image factory. |
-| `replicaCount` | `1` | Single node; the OSS engine has no clustering. |
-| `auth.masterKey` | `""` | Literal master key (else generated). |
-| `auth.existingSecret` | `""` | Read the master key from this Secret instead. |
-| `auth.existingSecretKey` | `master-key` | Key within `auth.existingSecret`. |
-| `extraArgs` | `[]` | Extra flags appended to the `meilisearch` invocation. |
-| `persistence.enabled` | `true` | Provision a PVC for `/meili_data`. |
-| `persistence.size` | `8Gi` | PVC size. |
-| `persistence.existingClaim` | `""` | Reuse an existing PVC. |
-| `service.type` | `ClusterIP` | Service type. |
-| `service.port` | `7700` | REST API port. |
-| `networkPolicy.enabled` | `true` | Restrict ingress to in-namespace pods. |
-| `networkPolicy.allowExternal` | `false` | Allow ingress from any source. |
-| `podDisruptionBudget.enabled` | `true` | PDB with `minAvailable: 1`. |
-| `resources` | requests 250m/256Mi, limits 1/1Gi | Container resources. |
+| Key                           | Default                                  | Description                                                                               |
+| ----------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/meilisearch` | Image repo (pinned by `image.digest`).                                                    |
+| `image.digest`                | _CI-maintained_                          | `sha256:...` digest; the contract with the image factory.                                 |
+| `replicaCount`                | `1`                                      | Single node; the OSS engine has no clustering.                                            |
+| `auth.masterKey`              | `""`                                     | Literal master key (else generated).                                                      |
+| `auth.existingSecret`         | `""`                                     | Read the master key from this Secret instead.                                             |
+| `auth.existingSecretKey`      | `master-key`                             | Key within `auth.existingSecret`.                                                         |
+| `extraArgs`                   | `[]`                                     | Extra flags appended to the `meilisearch` invocation.                                     |
+| `persistence.enabled`         | `true`                                   | Provision a PVC for `/meili_data`.                                                        |
+| `persistence.size`            | `8Gi`                                    | PVC size.                                                                                 |
+| `persistence.existingClaim`   | `""`                                     | Reuse an existing PVC.                                                                    |
+| `service.type`                | `ClusterIP`                              | Service type.                                                                             |
+| `service.port`                | `7700`                                   | REST API port.                                                                            |
+| `networkPolicy.enabled`       | `true`                                   | Restrict ingress to in-namespace pods.                                                    |
+| `networkPolicy.allowExternal` | `false`                                  | Allow ingress from any source.                                                            |
+| `podDisruptionBudget.enabled` | `true`                                   | PDB with `minAvailable: 1`.                                                               |
+| `resources`                   | requests 250m/256Mi, limits 1/1Gi        | Container resources.                                                                      |
+| `ingress.enabled`             | `false`                                  | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                                     | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                                     | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                                   | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                                     | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                                     | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Common production knobs (`nodeSelector`, `affinity`, `tolerations`,
 `topologySpreadConstraints`, `extraEnvVars`, `extraVolumes`, probe overrides, security
 contexts, …) are wired through the shared `quench-common` library and merge over the

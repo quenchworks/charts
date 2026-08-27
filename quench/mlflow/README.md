@@ -79,24 +79,23 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/mlflow --owner quen
 
 ## Key values
 
-| Key | Default | Description |
-| --- | --- | --- |
-| `image.repository` | `ghcr.io/quenchworks/images/mlflow` | Image repo |
-| `image.digest` | pinned `sha256:…` | Immutable image digest (CI-maintained) |
-| `replicaCount` | `1` | Tracking server replicas |
-| `service.port` | `5000` | UI + REST API port |
-| `persistence.enabled` | `true` | Provision the PVC artifact store |
-| `persistence.size` | `10Gi` | Artifact PVC size |
-| `persistence.mountPath` | `/mnt/artifacts` | Artifact mount path |
-| `artifactRoot` | `""` | Artifact URI (defaults to `file://<mountPath>`) |
-| `postgresql.enabled` | `true` | Deploy the bundled PostgreSQL backend store |
-| `postgresql.auth.username` | `mlflowuser` | DB user (must differ from database) |
-| `postgresql.auth.database` | `mlflow` | App database |
-| `networkPolicy.allowExternal` | `false` | Allow ingress from outside the namespace |
-
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
+| Key                           | Default                             | Description                                                                               |
+| ----------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/mlflow` | Image repo                                                                                |
+| `image.digest`                | pinned `sha256:…`                   | Immutable image digest (CI-maintained)                                                    |
+| `replicaCount`                | `1`                                 | Tracking server replicas                                                                  |
+| `service.port`                | `5000`                              | UI + REST API port                                                                        |
+| `persistence.enabled`         | `true`                              | Provision the PVC artifact store                                                          |
+| `persistence.size`            | `10Gi`                              | Artifact PVC size                                                                         |
+| `persistence.mountPath`       | `/mnt/artifacts`                    | Artifact mount path                                                                       |
+| `artifactRoot`                | `""`                                | Artifact URI (defaults to `file://<mountPath>`)                                           |
+| `postgresql.enabled`          | `true`                              | Deploy the bundled PostgreSQL backend store                                               |
+| `postgresql.auth.username`    | `mlflowuser`                        | DB user (must differ from database)                                                       |
+| `postgresql.auth.database`    | `mlflow`                            | App database                                                                              |
+| `networkPolicy.allowExternal` | `false`                             | Allow ingress from outside the namespace                                                  |
+| `ingress.enabled`             | `false`                             | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                                | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                                | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                              | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                                | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                                | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |

@@ -38,30 +38,30 @@ gh attestation verify oci://ghcr.io/quenchworks/images/nsq \
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/nsq` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Stateful single node (disk-queue); do not scale out. |
-| `tcpPort` | `4150` | nsqd TCP port (producers/consumers). |
-| `httpPort` | `4151` | nsqd HTTP API port (`/ping`, `/pub`, `/stats`). |
-| `service.tcpPort` | `4150` | Service port forwarding to the container's `tcp` port. |
-| `service.httpPort` | `4151` | Service port forwarding to the container's `http` port. |
-| `persistence.enabled` | `true` | 8Gi PVC mounted at `/data` (nsqd `--data-path`). |
-| `persistence.size` | `8Gi` | |
-| `persistence.existingClaim` | `""` | Bind an existing PVC instead of provisioning one. |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `rbac.create` | `false` | Minimal empty Role/RoleBinding when enabled. |
-| `networkPolicy.enabled` | `true` | Client ingress from the namespace; set `allowExternal: true` to open it. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                          | Notes                                                                                     |
+| ----------------------------- | -------------------------------- | ----------------------------------------------------------------------------------------- | ----------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/nsq` |                                                                                           |
+| `image.digest`                | (CI-written)                     | Required. Charts pin by digest, never a tag.                                              |
+| `replicaCount`                | `1`                              | Stateful single node (disk-queue); do not scale out.                                      |
+| `tcpPort`                     | `4150`                           | nsqd TCP port (producers/consumers).                                                      |
+| `httpPort`                    | `4151`                           | nsqd HTTP API port (`/ping`, `/pub`, `/stats`).                                           |
+| `service.tcpPort`             | `4150`                           | Service port forwarding to the container's `tcp` port.                                    |
+| `service.httpPort`            | `4151`                           | Service port forwarding to the container's `http` port.                                   |
+| `persistence.enabled`         | `true`                           | 8Gi PVC mounted at `/data` (nsqd `--data-path`).                                          |
+| `persistence.size`            | `8Gi`                            |                                                                                           |
+| `persistence.existingClaim`   | `""`                             | Bind an existing PVC instead of provisioning one.                                         |
+| `serviceAccount.create`       | `true`                           | Token automount is off.                                                                   |
+| `rbac.create`                 | `false`                          | Minimal empty Role/RoleBinding when enabled.                                              |
+| `networkPolicy.enabled`       | `true`                           | Client ingress from the namespace; set `allowExternal: true` to open it.                  |
+| `podDisruptionBudget.enabled` | `true`                           | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`             | `false`                          | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                             | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                             | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                           | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                             | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                             | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |## Security
+## Security
 
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
 dropped. Only the `/data` PVC is writable. nsqd serves `GET /ping` (returns

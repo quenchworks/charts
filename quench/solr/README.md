@@ -48,34 +48,34 @@ Do not expose Solr externally without an authenticating proxy in front of it.
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/solr` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Single node; SolrCloud is a follow-up. |
-| `config.heapSize` | `512m` | JVM heap (`SOLR_HEAP`, `-Xms`/`-Xmx`). |
-| `config.core` | `""` | Optional core precreated on first boot from `_default`. |
-| `config.zkHost` | `""` | Set a ZooKeeper connect string to enable SolrCloud (`SOLR_ZK_HOST`). |
-| `config.optsExtra` | `""` | Extra JVM opts appended to `SOLR_OPTS` (`SOLR_OPTS_EXTRA`). |
-| `persistence.enabled` | `true` | 8Gi PVC mounted at `/var/solr` (data + logs + pid + tmp). |
-| `persistence.size` | `8Gi` | |
-| `persistence.existingClaim` | `""` | Bind an existing PVC instead of provisioning one. |
-| `resources.requests` | `cpu 250m / mem 768Mi` | |
-| `resources.limits` | `cpu 2 / mem 1536Mi` | |
-| `service.type` | `ClusterIP` | |
-| `service.httpPort` | `8983` | The only Solr port. |
-| `networkPolicy.enabled` | `true` | The security boundary (Solr has no auth). |
-| `networkPolicy.allowExternal` | `false` | Restrict ingress to in-cluster pods. |
-| `podDisruptionBudget.enabled` | `true` | |
-| `podDisruptionBudget.minAvailable` | `1` | |
+| Key                                | Default                           | Notes                                                                                     |
+| ---------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------- | ----------------- |
+| `image.repository`                 | `ghcr.io/quenchworks/images/solr` |                                                                                           |
+| `image.digest`                     | (CI-written)                      | Required. Charts pin by digest, never a tag.                                              |
+| `replicaCount`                     | `1`                               | Single node; SolrCloud is a follow-up.                                                    |
+| `config.heapSize`                  | `512m`                            | JVM heap (`SOLR_HEAP`, `-Xms`/`-Xmx`).                                                    |
+| `config.core`                      | `""`                              | Optional core precreated on first boot from `_default`.                                   |
+| `config.zkHost`                    | `""`                              | Set a ZooKeeper connect string to enable SolrCloud (`SOLR_ZK_HOST`).                      |
+| `config.optsExtra`                 | `""`                              | Extra JVM opts appended to `SOLR_OPTS` (`SOLR_OPTS_EXTRA`).                               |
+| `persistence.enabled`              | `true`                            | 8Gi PVC mounted at `/var/solr` (data + logs + pid + tmp).                                 |
+| `persistence.size`                 | `8Gi`                             |                                                                                           |
+| `persistence.existingClaim`        | `""`                              | Bind an existing PVC instead of provisioning one.                                         |
+| `resources.requests`               | `cpu 250m / mem 768Mi`            |                                                                                           |
+| `resources.limits`                 | `cpu 2 / mem 1536Mi`              |                                                                                           |
+| `service.type`                     | `ClusterIP`                       |                                                                                           |
+| `service.httpPort`                 | `8983`                            | The only Solr port.                                                                       |
+| `networkPolicy.enabled`            | `true`                            | The security boundary (Solr has no auth).                                                 |
+| `networkPolicy.allowExternal`      | `false`                           | Restrict ingress to in-cluster pods.                                                      |
+| `podDisruptionBudget.enabled`      | `true`                            |                                                                                           |
+| `podDisruptionBudget.minAvailable` | `1`                               |                                                                                           |
+| `ingress.enabled`                  | `false`                           | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`                | `""`                              | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`              | `{}`                              | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`              | `null`                            | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`                    | `[]`                              | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                      | `[]`                              | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |## Storage layout
+## Storage layout
 
 The read-only rootfs forces everything writable under one mount. The chart mounts the
 `data` volume at `/var/solr`, which covers:

@@ -132,7 +132,9 @@ gh attestation verify oci://ghcr.io/quenchworks/images/tyk \
 | `ingress.annotations`         | `{}`                             | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
 | `ingress.servicePort`         | `null`                           | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
 | `ingress.hosts`               | `[]`                             | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls`                 | `[]`                             | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      | ## Security |
+| `ingress.tls`                 | `[]`                             | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
+
+## Security
 
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
 dropped; only `emptyDir` mounts for `/tmp` and the gateway `app_path` are

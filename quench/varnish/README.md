@@ -39,40 +39,40 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/varnish --owner que
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/varnish` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `replicaCount` | `1` | Each replica has its own cache (ignored when autoscaling is on). |
-| `backend.host` | `""` | Origin hostname. Empty = no backend; Varnish answers every request with a synthetic 200. |
-| `backend.port` | `80` | Origin port. |
-| `vcl.raw` | `""` | A COMPLETE VCL file, replacing the generated one. |
-| `vcl.existingConfigMap` | `""` | ConfigMap with a `default.vcl` key; wins over `vcl.raw`. |
-| `vcl.healthPath` | `/varnish-health` | Path the generated VCL answers from `vcl_synth`; both probes GET it. |
-| `cacheSize` | `128m` | Passed as `-s malloc,<cacheSize>`. Keep it well under the memory limit. |
-| `extraArgs` | `[]` | Extra `varnishd` flags, appended last (`-t`, `-p ...`). |
-| `resources.requests` | `cpu 100m / mem 256Mi` | |
-| `resources.limits` | `cpu 1 / mem 512Mi` | |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `80` | Maps to container port 8080. |
-| `autoscaling.enabled` | `false` | HPA on CPU (autoscaling/v2). |
-| `autoscaling.minReplicas` | `1` | |
-| `autoscaling.maxReplicas` | `5` | |
-| `autoscaling.targetCPUUtilizationPercentage` | `80` | |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount. |
-| `networkPolicy.enabled` | `true` | Restricts ingress to the `http` port. |
-| `networkPolicy.allowExternal` | `true` | Set `false` to restrict ingress to the release namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                                          | Default                              | Notes                                                                                     |
+| -------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `image.repository`                           | `ghcr.io/quenchworks/images/varnish` |                                                                                           |
+| `image.digest`                               | (CI-written)                         | Required. Charts pin by digest, never a tag.                                              |
+| `image.pullPolicy`                           | `IfNotPresent`                       |                                                                                           |
+| `nameOverride`                               | `""`                                 | Override the chart name in resource names.                                                |
+| `replicaCount`                               | `1`                                  | Each replica has its own cache (ignored when autoscaling is on).                          |
+| `backend.host`                               | `""`                                 | Origin hostname. Empty = no backend; Varnish answers every request with a synthetic 200.  |
+| `backend.port`                               | `80`                                 | Origin port.                                                                              |
+| `vcl.raw`                                    | `""`                                 | A COMPLETE VCL file, replacing the generated one.                                         |
+| `vcl.existingConfigMap`                      | `""`                                 | ConfigMap with a `default.vcl` key; wins over `vcl.raw`.                                  |
+| `vcl.healthPath`                             | `/varnish-health`                    | Path the generated VCL answers from `vcl_synth`; both probes GET it.                      |
+| `cacheSize`                                  | `128m`                               | Passed as `-s malloc,<cacheSize>`. Keep it well under the memory limit.                   |
+| `extraArgs`                                  | `[]`                                 | Extra `varnishd` flags, appended last (`-t`, `-p ...`).                                   |
+| `resources.requests`                         | `cpu 100m / mem 256Mi`               |                                                                                           |
+| `resources.limits`                           | `cpu 1 / mem 512Mi`                  |                                                                                           |
+| `service.type`                               | `ClusterIP`                          | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
+| `service.port`                               | `80`                                 | Maps to container port 8080.                                                              |
+| `autoscaling.enabled`                        | `false`                              | HPA on CPU (autoscaling/v2).                                                              |
+| `autoscaling.minReplicas`                    | `1`                                  |                                                                                           |
+| `autoscaling.maxReplicas`                    | `5`                                  |                                                                                           |
+| `autoscaling.targetCPUUtilizationPercentage` | `80`                                 |                                                                                           |
+| `serviceAccount.create`                      | `true`                               | Token automount is off.                                                                   |
+| `serviceAccount.name`                        | `""`                                 | Use an existing ServiceAccount.                                                           |
+| `networkPolicy.enabled`                      | `true`                               | Restricts ingress to the `http` port.                                                     |
+| `networkPolicy.allowExternal`                | `true`                               | Set `false` to restrict ingress to the release namespace.                                 |
+| `podDisruptionBudget.enabled`                | `true`                               | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`                            | `false`                              | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`                          | `""`                                 | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`                        | `{}`                                 | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`                        | `null`                               | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`                              | `[]`                                 | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                                | `[]`                                 | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
 containers, extra env/volumes, security contexts, update strategy).
 
@@ -87,24 +87,24 @@ annotation so editing the VCL rolls the Deployment.
 
 Three consequences of how Varnish works, which the chart handles for you:
 
-* **It compiles its VCL.** Varnish has no VCL interpreter — `varnishd` translates
+- **It compiles its VCL.** Varnish has no VCL interpreter — `varnishd` translates
   VCL to C, calls a compiler, and `dlopen()`s the result at every start and every
   `vcl.load`. The image therefore ships a toolchain, `/tmp` is a writable
   `emptyDir` for the compiler's scratch files, and the working directory must be
   writable **and** executable (`emptyDir` is; a `noexec` mount would stop Varnish
   from starting at all).
-* **The working directory is not persistence.** `-n /var/lib/varnish` holds the
+- **The working directory is not persistence.** `-n /var/lib/varnish` holds the
   shared-memory log, the CLI secret and the compiled VCL — an `emptyDir`, recreated
   per pod. The cache itself is `malloc` storage, so a restart or rollout starts
   cold and the first requests go to the origin.
-* **Backend hostnames are resolved at VCL compile time.** Varnish pins the
+- **Backend hostnames are resolved at VCL compile time.** Varnish pins the
   origin's IP when it compiles the VCL, not per request. So the origin Service must
   already exist when the pod starts (otherwise VCL compilation fails with "could
   not be resolved to an IP address" and the pod crash-loops until it does — restart
   backoff heals this on its own), and you should point `backend.host` at a normal
   **ClusterIP** Service, whose IP is stable. A headless Service resolves to pod IPs
   that move, and Varnish keeps the old one until the VCL is reloaded.
-* **Health checks must not follow the origin.** Both probes `httpGet`
+- **Health checks must not follow the origin.** Both probes `httpGet`
   `vcl.healthPath`, which the generated VCL answers from `vcl_synth`. That is a
   real HTTP round trip through `varnishd` (a `tcpSocket` probe would stay green
   even if the cache's child process had died) but it does not depend on the

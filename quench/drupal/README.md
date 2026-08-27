@@ -80,25 +80,24 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/drupal --owner quen
 
 ## Key values
 
-| Key | Default | Description |
-| --- | --- | --- |
-| `image.repository` | `ghcr.io/quenchworks/images/drupal` | Image repo |
-| `image.digest` | pinned `sha256:…` | Immutable image digest (CI-maintained) |
-| `drupal.trustedHostPatterns` | `[]` | Host header patterns Drupal serves (behind a proxy) |
-| `drupal.tablePrefix` | `""` | Database table prefix |
-| `replicaCount` | `1` | Replicas (files PVC is ReadWriteOnce) |
-| `service.port` | `8080` | Public site + `/admin` + installer port |
-| `persistence.enabled` | `true` | Provision the files PVC |
-| `persistence.size` | `10Gi` | Files PVC size |
-| `persistence.mountPath` | `/opt/drupal/sites/default/files` | Files mount path |
-| `mysql.enabled` | `true` | Deploy the bundled MySQL backend |
-| `mysql.auth.database` | `drupal` | App database |
-| `mysql.auth.username` | `drupal` | DB user |
-| `networkPolicy.allowExternal` | `false` | Allow ingress from outside the namespace |
-
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
+| Key                           | Default                             | Description                                                                               |
+| ----------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/drupal` | Image repo                                                                                |
+| `image.digest`                | pinned `sha256:…`                   | Immutable image digest (CI-maintained)                                                    |
+| `drupal.trustedHostPatterns`  | `[]`                                | Host header patterns Drupal serves (behind a proxy)                                       |
+| `drupal.tablePrefix`          | `""`                                | Database table prefix                                                                     |
+| `replicaCount`                | `1`                                 | Replicas (files PVC is ReadWriteOnce)                                                     |
+| `service.port`                | `8080`                              | Public site + `/admin` + installer port                                                   |
+| `persistence.enabled`         | `true`                              | Provision the files PVC                                                                   |
+| `persistence.size`            | `10Gi`                              | Files PVC size                                                                            |
+| `persistence.mountPath`       | `/opt/drupal/sites/default/files`   | Files mount path                                                                          |
+| `mysql.enabled`               | `true`                              | Deploy the bundled MySQL backend                                                          |
+| `mysql.auth.database`         | `drupal`                            | App database                                                                              |
+| `mysql.auth.username`         | `drupal`                            | DB user                                                                                   |
+| `networkPolicy.allowExternal` | `false`                             | Allow ingress from outside the namespace                                                  |
+| `ingress.enabled`             | `false`                             | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                                | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                                | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                              | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                                | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                                | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |

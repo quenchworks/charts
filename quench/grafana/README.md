@@ -84,28 +84,28 @@ gh attestation verify oci://ghcr.io/quenchworks/images/grafana \
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/grafana` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Single replica (SQLite state on the PVC). |
-| `auth.adminUser` | `admin` | Admin user (`GF_SECURITY_ADMIN_USER`). |
-| `auth.adminPassword` | (generated) | 24-char random if empty; stored in the Secret. |
-| `auth.existingSecret` | `""` | Use an existing Secret for the admin user + password. |
-| `config.extraIni` | `{}` | Map of `GF_<SECTION>_<KEY>` env overrides. |
-| `datasources` | `[]` | Provisioned datasources (e.g. Prometheus/VictoriaMetrics). |
-| `persistence.enabled` | `true` | 8Gi PVC at `/var/lib/grafana`. |
-| `service.port` | `3000` | Dashboard UI + HTTP API. |
-| `networkPolicy.enabled` | `true` | Ingress on port 3000. |
-| `networkPolicy.allowExternal` | `true` | A dashboard UI is usually reached externally; set false to restrict to the namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                              | Notes                                                                                     |
+| ----------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/grafana` |                                                                                           |
+| `image.digest`                | (CI-written)                         | Required. Charts pin by digest, never a tag.                                              |
+| `replicaCount`                | `1`                                  | Single replica (SQLite state on the PVC).                                                 |
+| `auth.adminUser`              | `admin`                              | Admin user (`GF_SECURITY_ADMIN_USER`).                                                    |
+| `auth.adminPassword`          | (generated)                          | 24-char random if empty; stored in the Secret.                                            |
+| `auth.existingSecret`         | `""`                                 | Use an existing Secret for the admin user + password.                                     |
+| `config.extraIni`             | `{}`                                 | Map of `GF_<SECTION>_<KEY>` env overrides.                                                |
+| `datasources`                 | `[]`                                 | Provisioned datasources (e.g. Prometheus/VictoriaMetrics).                                |
+| `persistence.enabled`         | `true`                               | 8Gi PVC at `/var/lib/grafana`.                                                            |
+| `service.port`                | `3000`                               | Dashboard UI + HTTP API.                                                                  |
+| `networkPolicy.enabled`       | `true`                               | Ingress on port 3000.                                                                     |
+| `networkPolicy.allowExternal` | `true`                               | A dashboard UI is usually reached externally; set false to restrict to the namespace.     |
+| `podDisruptionBudget.enabled` | `true`                               | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`             | `false`                              | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                                 | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                                 | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                               | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                                 | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                                 | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
 env/volumes, security contexts).
 

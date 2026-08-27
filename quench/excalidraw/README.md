@@ -41,34 +41,34 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/excalidraw --owner 
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/excalidraw` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `replicaCount` | `1` | Stateless Deployment (ignored when autoscaling is on). |
-| `resources.requests` | `cpu 25m / mem 32Mi` | |
-| `resources.limits` | `cpu 250m / mem 128Mi` | |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `80` | Service maps 80 → container 8080. |
-| `autoscaling.enabled` | `false` | HPA on CPU (autoscaling/v2). |
-| `autoscaling.minReplicas` | `1` | |
-| `autoscaling.maxReplicas` | `5` | |
-| `autoscaling.targetCPUUtilizationPercentage` | `80` | |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount. |
-| `rbac.create` | `false` | Minimal Role/RoleBinding. |
-| `networkPolicy.enabled` | `true` | Restricts ingress. |
-| `networkPolicy.allowExternal` | `true` | Set `false` to restrict ingress to the release namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                                          | Default                                 | Notes                                                                                     |
+| -------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`                           | `ghcr.io/quenchworks/images/excalidraw` |                                                                                           |
+| `image.digest`                               | (CI-written)                            | Required. Charts pin by digest, never a tag.                                              |
+| `image.pullPolicy`                           | `IfNotPresent`                          |                                                                                           |
+| `nameOverride`                               | `""`                                    | Override the chart name in resource names.                                                |
+| `replicaCount`                               | `1`                                     | Stateless Deployment (ignored when autoscaling is on).                                    |
+| `resources.requests`                         | `cpu 25m / mem 32Mi`                    |                                                                                           |
+| `resources.limits`                           | `cpu 250m / mem 128Mi`                  |                                                                                           |
+| `service.type`                               | `ClusterIP`                             | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
+| `service.port`                               | `80`                                    | Service maps 80 → container 8080.                                                         |
+| `autoscaling.enabled`                        | `false`                                 | HPA on CPU (autoscaling/v2).                                                              |
+| `autoscaling.minReplicas`                    | `1`                                     |                                                                                           |
+| `autoscaling.maxReplicas`                    | `5`                                     |                                                                                           |
+| `autoscaling.targetCPUUtilizationPercentage` | `80`                                    |                                                                                           |
+| `serviceAccount.create`                      | `true`                                  | Token automount is off.                                                                   |
+| `serviceAccount.name`                        | `""`                                    | Use an existing ServiceAccount.                                                           |
+| `rbac.create`                                | `false`                                 | Minimal Role/RoleBinding.                                                                 |
+| `networkPolicy.enabled`                      | `true`                                  | Restricts ingress.                                                                        |
+| `networkPolicy.allowExternal`                | `true`                                  | Set `false` to restrict ingress to the release namespace.                                 |
+| `podDisruptionBudget.enabled`                | `true`                                  | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`                            | `false`                                 | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`                          | `""`                                    | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`                        | `{}`                                    | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`                        | `null`                                  | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`                              | `[]`                                    | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                                | `[]`                                    | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
 containers, extra env/volumes, security contexts, update strategy).
 

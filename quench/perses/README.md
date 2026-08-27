@@ -50,44 +50,44 @@ gh attestation verify oci://ghcr.io/quenchworks/images/perses \
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/perses` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `replicaCount` | `1` | Stateless Deployment. File datastore is per-pod; scale out only with a shared backend. |
-| `extraArgs` | `[]` | Extra flags appended to the `perses` command. |
-| `persistence.enabled` | `false` | PVC-backed datastore. When `false`, uses an `emptyDir` (dashboards lost on restart). |
-| `persistence.path` | `/perses` | File datastore folder; must match the folder in the perses config. |
-| `persistence.size` | `8Gi` | Requested volume size when enabled. |
-| `persistence.storageClass` | `""` | Default class if unset. |
-| `persistence.accessModes` | `["ReadWriteOnce"]` | PVC access modes. |
-| `persistence.annotations` | `{}` | Annotations on the PVC. |
-| `persistence.existingClaim` | `""` | Bind an externally-managed PVC instead of provisioning one. |
-| `resources.requests` | `cpu 100m / mem 128Mi` | CPU / memory requests. |
-| `resources.limits` | `cpu 1 / mem 512Mi` | CPU / memory limits. |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `8080` | UI and API. |
-| `autoscaling.enabled` | `false` | HPA on CPU (autoscaling/v2). Only safe with a shared datastore backend. |
-| `autoscaling.minReplicas` | `1` | |
-| `autoscaling.maxReplicas` | `5` | |
-| `autoscaling.targetCPUUtilizationPercentage` | `80` | |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount if set. |
-| `serviceAccount.annotations` | `{}` | Annotations on the ServiceAccount. |
-| `rbac.create` | `false` | Minimal Role/RoleBinding. |
-| `networkPolicy.enabled` | `true` | Restricts ingress. |
-| `networkPolicy.allowExternal` | `true` | Set `false` to restrict ingress to the release namespace. |
-| `podDisruptionBudget.enabled` | `true` | |
-| `podDisruptionBudget.minAvailable` | `1` | |
+| Key                                          | Default                             | Notes                                                                                     |
+| -------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`                           | `ghcr.io/quenchworks/images/perses` |                                                                                           |
+| `image.digest`                               | (CI-written)                        | Required. Charts pin by digest, never a tag.                                              |
+| `image.pullPolicy`                           | `IfNotPresent`                      | `Always`, `IfNotPresent`, or `Never`.                                                     |
+| `nameOverride`                               | `""`                                | Override the chart name in resource names.                                                |
+| `replicaCount`                               | `1`                                 | Stateless Deployment. File datastore is per-pod; scale out only with a shared backend.    |
+| `extraArgs`                                  | `[]`                                | Extra flags appended to the `perses` command.                                             |
+| `persistence.enabled`                        | `false`                             | PVC-backed datastore. When `false`, uses an `emptyDir` (dashboards lost on restart).      |
+| `persistence.path`                           | `/perses`                           | File datastore folder; must match the folder in the perses config.                        |
+| `persistence.size`                           | `8Gi`                               | Requested volume size when enabled.                                                       |
+| `persistence.storageClass`                   | `""`                                | Default class if unset.                                                                   |
+| `persistence.accessModes`                    | `["ReadWriteOnce"]`                 | PVC access modes.                                                                         |
+| `persistence.annotations`                    | `{}`                                | Annotations on the PVC.                                                                   |
+| `persistence.existingClaim`                  | `""`                                | Bind an externally-managed PVC instead of provisioning one.                               |
+| `resources.requests`                         | `cpu 100m / mem 128Mi`              | CPU / memory requests.                                                                    |
+| `resources.limits`                           | `cpu 1 / mem 512Mi`                 | CPU / memory limits.                                                                      |
+| `service.type`                               | `ClusterIP`                         | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
+| `service.port`                               | `8080`                              | UI and API.                                                                               |
+| `autoscaling.enabled`                        | `false`                             | HPA on CPU (autoscaling/v2). Only safe with a shared datastore backend.                   |
+| `autoscaling.minReplicas`                    | `1`                                 |                                                                                           |
+| `autoscaling.maxReplicas`                    | `5`                                 |                                                                                           |
+| `autoscaling.targetCPUUtilizationPercentage` | `80`                                |                                                                                           |
+| `serviceAccount.create`                      | `true`                              | Token automount is off.                                                                   |
+| `serviceAccount.name`                        | `""`                                | Use an existing ServiceAccount if set.                                                    |
+| `serviceAccount.annotations`                 | `{}`                                | Annotations on the ServiceAccount.                                                        |
+| `rbac.create`                                | `false`                             | Minimal Role/RoleBinding.                                                                 |
+| `networkPolicy.enabled`                      | `true`                              | Restricts ingress.                                                                        |
+| `networkPolicy.allowExternal`                | `true`                              | Set `false` to restrict ingress to the release namespace.                                 |
+| `podDisruptionBudget.enabled`                | `true`                              |                                                                                           |
+| `podDisruptionBudget.minAvailable`           | `1`                                 |                                                                                           |
+| `ingress.enabled`                            | `false`                             | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`                          | `""`                                | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`                        | `{}`                                | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`                        | `null`                              | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`                              | `[]`                                | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                                | `[]`                                | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 `nodeSelector`, `affinity`, `tolerations`, `topologySpreadConstraints`,
 `priorityClassName`, `schedulerName`, `terminationGracePeriodSeconds`,

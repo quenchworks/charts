@@ -89,30 +89,30 @@ and cannot bind ports below 1024.
 
 ## Values
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `image.repository` | `ghcr.io/quenchworks/images/haproxy` | Image repository. |
-| `image.digest` | (CI-maintained) | Image digest; repinned automatically after each green image build. |
-| `image.pullPolicy` | `IfNotPresent` | Image pull policy. |
-| `replicaCount` | `1` | Number of HAProxy replicas. |
-| `config.haproxyConfig` | (sample) | The full `haproxy.cfg`, rendered into a ConfigMap. |
-| `resources` | `50m/32Mi` .. `500m/128Mi` | Container resource requests/limits. |
-| `service.type` | `ClusterIP` | Service type. |
-| `service.port` | `8080` | Port for the http_in frontend (load-balanced traffic). |
-| `service.statsPort` | `8404` | Port for the stats + health endpoint. |
-| `serviceAccount.create` | `true` | Create a ServiceAccount (token automount disabled). |
-| `rbac.create` | `false` | Create an (empty) Role + RoleBinding. |
-| `networkPolicy.enabled` | `true` | Create a NetworkPolicy. |
-| `networkPolicy.allowExternal` | `true` | Allow ingress from outside the namespace. |
-| `podDisruptionBudget.enabled` | `true` | Create a PodDisruptionBudget. |
-| `podDisruptionBudget.minAvailable` | `1` | Minimum available pods during disruption. |
+| Key                                | Default                              | Description                                                                               |
+| ---------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `image.repository`                 | `ghcr.io/quenchworks/images/haproxy` | Image repository.                                                                         |
+| `image.digest`                     | (CI-maintained)                      | Image digest; repinned automatically after each green image build.                        |
+| `image.pullPolicy`                 | `IfNotPresent`                       | Image pull policy.                                                                        |
+| `replicaCount`                     | `1`                                  | Number of HAProxy replicas.                                                               |
+| `config.haproxyConfig`             | (sample)                             | The full `haproxy.cfg`, rendered into a ConfigMap.                                        |
+| `resources`                        | `50m/32Mi` .. `500m/128Mi`           | Container resource requests/limits.                                                       |
+| `service.type`                     | `ClusterIP`                          | Service type.                                                                             |
+| `service.port`                     | `8080`                               | Port for the http_in frontend (load-balanced traffic).                                    |
+| `service.statsPort`                | `8404`                               | Port for the stats + health endpoint.                                                     |
+| `serviceAccount.create`            | `true`                               | Create a ServiceAccount (token automount disabled).                                       |
+| `rbac.create`                      | `false`                              | Create an (empty) Role + RoleBinding.                                                     |
+| `networkPolicy.enabled`            | `true`                               | Create a NetworkPolicy.                                                                   |
+| `networkPolicy.allowExternal`      | `true`                               | Allow ingress from outside the namespace.                                                 |
+| `podDisruptionBudget.enabled`      | `true`                               | Create a PodDisruptionBudget.                                                             |
+| `podDisruptionBudget.minAvailable` | `1`                                  | Minimum available pods during disruption.                                                 |
+| `ingress.enabled`                  | `false`                              | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`                | `""`                                 | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`              | `{}`                                 | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`              | `null`                               | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`                    | `[]`                                 | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                      | `[]`                                 | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Common production knobs (`podLabels`, `podAnnotations`, `nodeSelector`, `affinity`,
 `tolerations`, `topologySpreadConstraints`, `extraEnvVars`, `extraVolumes`,
 `extraVolumeMounts`, `initContainers`, `sidecars`, `podSecurityContext`,

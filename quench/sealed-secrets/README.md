@@ -52,44 +52,44 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/sealed-secrets --ow
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/sealed-secrets` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `replicaCount` | `1` | Keep at 1 — see [Architecture](#architecture). |
-| `controller.keyPrefix` | `sealed-secrets-key` | Name prefix of the Secrets holding the sealing key pairs. |
-| `controller.keySize` | `4096` | RSA key size for newly generated sealing keys. |
-| `controller.keyRenewPeriod` | `""` | New-key generation period (e.g. `720h`). `0` disables rotation; empty uses the controller default (30d). |
-| `controller.allNamespaces` | `true` | Watch every namespace. `false` = only the release namespace. |
-| `controller.additionalNamespaces` | `""` | Comma-separated extra namespaces to watch. |
-| `controller.labelSelector` | `""` | Only reconcile SealedSecrets matching this selector. |
-| `controller.updateStatus` | `true` | Write the outcome to the SealedSecret's `status`. |
-| `controller.logLevel` | `INFO` | `INFO` or `ERROR`. |
-| `controller.logFormat` | `text` | `text` or `json`. |
-| `controller.httpPort` | `8080` | Serves `/healthz`, `/v1/cert.pem`, `/v1/verify`, `/v1/rotate`. |
-| `controller.metricsPort` | `8081` | Prometheus `/metrics`. |
-| `controller.extraArgs` | `[]` | Extra flags, appended last. |
-| `resources.requests` | `cpu 50m / mem 64Mi` | |
-| `resources.limits` | `cpu 500m / mem 256Mi` | |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `8080` | Controller HTTP port (cert fetch, verify). |
-| `service.metricsPort` | `8081` | Metrics port. |
-| `service.annotations` | `{}` | |
-| `serviceAccount.create` | `true` | Token IS automounted — the controller needs API access. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount. |
-| `rbac.create` | `true` | ClusterRole/Binding for unsealing + namespaced key-admin Role. |
-| `rbac.serviceProxier` | `true` | Namespaced Role letting `system:authenticated` proxy to the Service so `kubeseal` can fetch the **public** cert without cluster-admin. |
-| `networkPolicy.enabled` | `true` | Restricts ingress to the controller's two ports. |
-| `networkPolicy.allowExternal` | `true` | Set `false` to restrict ingress to in-cluster pods. |
+| Key                               | Default                                     | Notes                                                                                                                                  |
+| --------------------------------- | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `image.repository`                | `ghcr.io/quenchworks/images/sealed-secrets` |                                                                                                                                        |
+| `image.digest`                    | (CI-written)                                | Required. Charts pin by digest, never a tag.                                                                                           |
+| `image.pullPolicy`                | `IfNotPresent`                              |                                                                                                                                        |
+| `nameOverride`                    | `""`                                        | Override the chart name in resource names.                                                                                             |
+| `replicaCount`                    | `1`                                         | Keep at 1 — see [Architecture](#architecture).                                                                                         |
+| `controller.keyPrefix`            | `sealed-secrets-key`                        | Name prefix of the Secrets holding the sealing key pairs.                                                                              |
+| `controller.keySize`              | `4096`                                      | RSA key size for newly generated sealing keys.                                                                                         |
+| `controller.keyRenewPeriod`       | `""`                                        | New-key generation period (e.g. `720h`). `0` disables rotation; empty uses the controller default (30d).                               |
+| `controller.allNamespaces`        | `true`                                      | Watch every namespace. `false` = only the release namespace.                                                                           |
+| `controller.additionalNamespaces` | `""`                                        | Comma-separated extra namespaces to watch.                                                                                             |
+| `controller.labelSelector`        | `""`                                        | Only reconcile SealedSecrets matching this selector.                                                                                   |
+| `controller.updateStatus`         | `true`                                      | Write the outcome to the SealedSecret's `status`.                                                                                      |
+| `controller.logLevel`             | `INFO`                                      | `INFO` or `ERROR`.                                                                                                                     |
+| `controller.logFormat`            | `text`                                      | `text` or `json`.                                                                                                                      |
+| `controller.httpPort`             | `8080`                                      | Serves `/healthz`, `/v1/cert.pem`, `/v1/verify`, `/v1/rotate`.                                                                         |
+| `controller.metricsPort`          | `8081`                                      | Prometheus `/metrics`.                                                                                                                 |
+| `controller.extraArgs`            | `[]`                                        | Extra flags, appended last.                                                                                                            |
+| `resources.requests`              | `cpu 50m / mem 64Mi`                        |                                                                                                                                        |
+| `resources.limits`                | `cpu 500m / mem 256Mi`                      |                                                                                                                                        |
+| `service.type`                    | `ClusterIP`                                 | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                                                                            |
+| `service.port`                    | `8080`                                      | Controller HTTP port (cert fetch, verify).                                                                                             |
+| `service.metricsPort`             | `8081`                                      | Metrics port.                                                                                                                          |
+| `service.annotations`             | `{}`                                        |                                                                                                                                        |
+| `serviceAccount.create`           | `true`                                      | Token IS automounted — the controller needs API access.                                                                                |
+| `serviceAccount.name`             | `""`                                        | Use an existing ServiceAccount.                                                                                                        |
+| `rbac.create`                     | `true`                                      | ClusterRole/Binding for unsealing + namespaced key-admin Role.                                                                         |
+| `rbac.serviceProxier`             | `true`                                      | Namespaced Role letting `system:authenticated` proxy to the Service so `kubeseal` can fetch the **public** cert without cluster-admin. |
+| `networkPolicy.enabled`           | `true`                                      | Restricts ingress to the controller's two ports.                                                                                       |
+| `networkPolicy.allowExternal`     | `true`                                      | Set `false` to restrict ingress to in-cluster pods.                                                                                    |
+| `ingress.enabled`                 | `false`                                     | Create an Ingress for this chart. HTTP only.                                                                                           |
+| `ingress.className`               | `""`                                        | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.                                                       |
+| `ingress.annotations`             | `{}`                                        | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).                                                         |
+| `ingress.servicePort`             | `null`                                      | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.                                                     |
+| `ingress.hosts`                   | `[]`                                        | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path.                                              |
+| `ingress.tls`                     | `[]`                                        | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.                                                   |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
 containers, extra env/volumes, security contexts, update strategy).
 
@@ -112,12 +112,12 @@ cluster.
 
 RBAC is authored from the controller's documented API needs, not copied:
 
-* a **ClusterRole** with read on `bitnami.com/sealedsecrets`, `update` on their
+- a **ClusterRole** with read on `bitnami.com/sealedsecrets`, `update` on their
   `status` subresource, write on core `Secrets` (the decrypted output it owns and
   keeps in sync), `create`/`patch` on Events, and read on namespaces;
-* a **namespaced Role** with `create`/`list` on Secrets, kept out of the
+- a **namespaced Role** with `create`/`list` on Secrets, kept out of the
   ClusterRole so sealing-key creation is scoped to the release namespace;
-* optionally (`rbac.serviceProxier`) a **namespaced Role** binding
+- optionally (`rbac.serviceProxier`) a **namespaced Role** binding
   `system:authenticated` to `get` + `services/proxy` on this one Service, which is
   how `kubeseal` fetches the public sealing certificate. The proxied endpoint
   serves only the public key, so it exposes no secret material.
@@ -177,7 +177,7 @@ you mean to abandon every `SealedSecret` in the cluster.
 ## Notes
 
 The chart depends on the `quench-common` library chart, pulled from
-`oci://ghcr.io/quenchworks/charts/quench-common`. Sealed Secrets encrypts *to*
+`oci://ghcr.io/quenchworks/charts/quench-common`. Sealed Secrets encrypts _to_
 the cluster, so the trust boundary is the sealing key: back it up, restrict who
 can read Secrets in the release namespace, and remember that anyone who can
 create a `SealedSecret` can create the resulting `Secret`.

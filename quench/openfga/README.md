@@ -44,40 +44,40 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/openfga --owner que
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/openfga` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `replicaCount` | `1` | Stateless Deployment. Keep at `1` with the in-memory datastore. |
-| `datastore.engine` | `memory` | `memory`, `postgres`, or `mysql`. |
-| `datastore.uri` | `""` | DB connection URI. Prefer a Secret via `extraEnvVarsSecret` (`OPENFGA_DATASTORE_URI`). |
-| `playground.enabled` | `false` | Bundled developer playground (port 3000), unauthenticated — local use only. |
-| `extraArgs` | `[]` | Extra flags appended to the `openfga run` command. |
-| `resources.requests` | `cpu 50m / mem 64Mi` | |
-| `resources.limits` | `cpu 500m / mem 256Mi` | |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.httpPort` | `8080` | HTTP API. |
-| `service.grpcPort` | `8081` | gRPC API. |
-| `autoscaling.enabled` | `false` | HPA on CPU (autoscaling/v2). Only meaningful with a shared datastore. |
-| `autoscaling.minReplicas` | `1` | |
-| `autoscaling.maxReplicas` | `5` | |
-| `autoscaling.targetCPUUtilizationPercentage` | `80` | |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount if set. |
-| `serviceAccount.annotations` | `{}` | Annotations on the ServiceAccount. |
-| `rbac.create` | `false` | Minimal Role/RoleBinding. |
-| `networkPolicy.enabled` | `true` | |
-| `networkPolicy.allowExternal` | `true` | Set `false` to restrict ingress to the release namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                                          | Default                              | Notes                                                                                     |
+| -------------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `image.repository`                           | `ghcr.io/quenchworks/images/openfga` |                                                                                           |
+| `image.digest`                               | (CI-written)                         | Required. Charts pin by digest, never a tag.                                              |
+| `image.pullPolicy`                           | `IfNotPresent`                       | `Always`, `IfNotPresent`, or `Never`.                                                     |
+| `nameOverride`                               | `""`                                 | Override the chart name in resource names.                                                |
+| `replicaCount`                               | `1`                                  | Stateless Deployment. Keep at `1` with the in-memory datastore.                           |
+| `datastore.engine`                           | `memory`                             | `memory`, `postgres`, or `mysql`.                                                         |
+| `datastore.uri`                              | `""`                                 | DB connection URI. Prefer a Secret via `extraEnvVarsSecret` (`OPENFGA_DATASTORE_URI`).    |
+| `playground.enabled`                         | `false`                              | Bundled developer playground (port 3000), unauthenticated — local use only.               |
+| `extraArgs`                                  | `[]`                                 | Extra flags appended to the `openfga run` command.                                        |
+| `resources.requests`                         | `cpu 50m / mem 64Mi`                 |                                                                                           |
+| `resources.limits`                           | `cpu 500m / mem 256Mi`               |                                                                                           |
+| `service.type`                               | `ClusterIP`                          | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
+| `service.httpPort`                           | `8080`                               | HTTP API.                                                                                 |
+| `service.grpcPort`                           | `8081`                               | gRPC API.                                                                                 |
+| `autoscaling.enabled`                        | `false`                              | HPA on CPU (autoscaling/v2). Only meaningful with a shared datastore.                     |
+| `autoscaling.minReplicas`                    | `1`                                  |                                                                                           |
+| `autoscaling.maxReplicas`                    | `5`                                  |                                                                                           |
+| `autoscaling.targetCPUUtilizationPercentage` | `80`                                 |                                                                                           |
+| `serviceAccount.create`                      | `true`                               | Token automount is off.                                                                   |
+| `serviceAccount.name`                        | `""`                                 | Use an existing ServiceAccount if set.                                                    |
+| `serviceAccount.annotations`                 | `{}`                                 | Annotations on the ServiceAccount.                                                        |
+| `rbac.create`                                | `false`                              | Minimal Role/RoleBinding.                                                                 |
+| `networkPolicy.enabled`                      | `true`                               |                                                                                           |
+| `networkPolicy.allowExternal`                | `true`                               | Set `false` to restrict ingress to the release namespace.                                 |
+| `podDisruptionBudget.enabled`                | `true`                               | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`                            | `false`                              | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`                          | `""`                                 | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`                        | `{}`                                 | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`                        | `null`                               | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`                              | `[]`                                 | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                                | `[]`                                 | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
 containers, extra env/volumes, security contexts, update strategy): `podLabels`,
 `podAnnotations`, `nodeSelector`, `affinity`, `tolerations`,
@@ -116,7 +116,7 @@ Production Postgres backend, credentials from an existing Secret, scaled out:
 datastore:
   engine: postgres
 replicaCount: 3
-extraEnvVarsSecret: openfga-db   # provides OPENFGA_DATASTORE_URI
+extraEnvVarsSecret: openfga-db # provides OPENFGA_DATASTORE_URI
 autoscaling:
   enabled: true
   minReplicas: 3

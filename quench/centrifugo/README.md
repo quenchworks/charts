@@ -77,25 +77,24 @@ Everything is driven by `CENTRIFUGO_*` environment variables (see
 `centrifugo defaultenv` for the full list). `extraEnvVars` is the seam for any
 setting not surfaced as a value (TLS, proxies, channel namespaces, Redis tuning).
 
-| Value | Default | Notes |
-|-------|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/centrifugo` | |
-| `image.digest` | (CI-maintained) | signed multi-arch index |
-| `replicaCount` | `1` | stateless Deployment (memory engine) |
-| `engine.type` | `memory` | `memory` (single node) or `redis` (scale-out) |
-| `admin.enabled` | `true` | admin web UI at `/` |
-| `secrets.tokenHmacSecretKey` | `""` | generated if empty; `CENTRIFUGO_CLIENT_TOKEN_HMAC_SECRET_KEY` |
-| `secrets.apiKey` | `""` | generated if empty; `CENTRIFUGO_HTTP_API_KEY` |
-| `secrets.adminPassword` | `""` | generated if empty; `CENTRIFUGO_ADMIN_PASSWORD` |
-| `secrets.adminSecret` | `""` | generated if empty; `CENTRIFUGO_ADMIN_SECRET` |
-| `secrets.existingSecret` | `""` | bring your own Secret (keys via `secrets.keys.*`) |
-| `allowedOrigins` | `[]` | `CENTRIFUGO_CLIENT_ALLOWED_ORIGINS` (space-joined) |
-| `service.type` | `ClusterIP` | |
-| `service.port` | `8000` | client endpoints, admin UI, API, `/health` |
-
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
+| Value                        | Default                                 | Notes                                                                                     |
+| ---------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`           | `ghcr.io/quenchworks/images/centrifugo` |                                                                                           |
+| `image.digest`               | (CI-maintained)                         | signed multi-arch index                                                                   |
+| `replicaCount`               | `1`                                     | stateless Deployment (memory engine)                                                      |
+| `engine.type`                | `memory`                                | `memory` (single node) or `redis` (scale-out)                                             |
+| `admin.enabled`              | `true`                                  | admin web UI at `/`                                                                       |
+| `secrets.tokenHmacSecretKey` | `""`                                    | generated if empty; `CENTRIFUGO_CLIENT_TOKEN_HMAC_SECRET_KEY`                             |
+| `secrets.apiKey`             | `""`                                    | generated if empty; `CENTRIFUGO_HTTP_API_KEY`                                             |
+| `secrets.adminPassword`      | `""`                                    | generated if empty; `CENTRIFUGO_ADMIN_PASSWORD`                                           |
+| `secrets.adminSecret`        | `""`                                    | generated if empty; `CENTRIFUGO_ADMIN_SECRET`                                             |
+| `secrets.existingSecret`     | `""`                                    | bring your own Secret (keys via `secrets.keys.*`)                                         |
+| `allowedOrigins`             | `[]`                                    | `CENTRIFUGO_CLIENT_ALLOWED_ORIGINS` (space-joined)                                        |
+| `service.type`               | `ClusterIP`                             |                                                                                           |
+| `service.port`               | `8000`                                  | client endpoints, admin UI, API, `/health`                                                |
+| `ingress.enabled`            | `false`                                 | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`          | `""`                                    | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`        | `{}`                                    | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`        | `null`                                  | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`              | `[]`                                    | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                | `[]`                                    | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |

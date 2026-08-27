@@ -52,48 +52,48 @@ gh attestation verify oci://ghcr.io/quenchworks/images/woodpecker \
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/woodpecker` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `replicaCount` | `1` | Stateful single node (SQLite); do not scale out (schema pins `maximum: 1`). |
-| `containerPort` | `8000` | HTTP (web UI/API). Wired to `WOODPECKER_SERVER_ADDR`. |
-| `grpcPort` | `9000` | gRPC for agents. Wired to `WOODPECKER_GRPC_ADDR`. |
-| `host` | `""` | `WOODPECKER_HOST` — public server URL. **Required** in production. |
-| `agentSecret.value` | `""` | Fixed `WOODPECKER_AGENT_SECRET`; creates a Secret. Rotate in prod. |
-| `agentSecret.existingSecret` | `""` | Use an existing Secret instead. |
-| `agentSecret.existingSecretKey` | `WOODPECKER_AGENT_SECRET` | Key within that Secret. |
-| `persistence.enabled` | `true` | 2Gi PVC mounted at `/var/lib/woodpecker` (SQLite DB). |
-| `persistence.size` | `2Gi` | Requested volume size. |
-| `persistence.storageClass` | `""` | Default class if unset. |
-| `persistence.accessModes` | `["ReadWriteOnce"]` | PVC access modes. |
-| `persistence.annotations` | `{}` | Annotations on the PVC template. |
-| `persistence.selector` | `{}` | Bind to a matching PV by selector. |
-| `persistence.existingClaim` | `""` | Bind an existing PVC instead of provisioning one. |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `80` | HTTP Service port -> container `http`. |
-| `service.grpcPort` | `9000` | gRPC Service port -> container `grpc`. |
-| `resources.requests` | `100m / 128Mi` | CPU / memory requests. |
-| `resources.limits` | `1 / 512Mi` | CPU / memory limits. |
-| `extraEnvVars` | `[]` | Extra `WOODPECKER_*` env; put the forge config here. |
-| `extraEnvVarsSecret` | `""` | Secret of env vars (e.g. `WOODPECKER_GITHUB_SECRET`). |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount if set. |
-| `serviceAccount.annotations` | `{}` | Annotations on the ServiceAccount. |
-| `rbac.create` | `false` | Minimal empty Role/RoleBinding when enabled. |
-| `networkPolicy.enabled` | `true` | Restricts HTTP + gRPC ingress to the release namespace. |
-| `networkPolicy.allowExternal` | `false` | Set `true` to allow ingress from any source. |
-| `podDisruptionBudget.enabled` | `true` | |
-| `podDisruptionBudget.minAvailable` | `1` | |
+| Key                                | Default                                 | Notes                                                                                     |
+| ---------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`                 | `ghcr.io/quenchworks/images/woodpecker` |                                                                                           |
+| `image.digest`                     | (CI-written)                            | Required. Charts pin by digest, never a tag.                                              |
+| `image.pullPolicy`                 | `IfNotPresent`                          | `Always`, `IfNotPresent`, or `Never`.                                                     |
+| `nameOverride`                     | `""`                                    | Override the chart name in resource names.                                                |
+| `replicaCount`                     | `1`                                     | Stateful single node (SQLite); do not scale out (schema pins `maximum: 1`).               |
+| `containerPort`                    | `8000`                                  | HTTP (web UI/API). Wired to `WOODPECKER_SERVER_ADDR`.                                     |
+| `grpcPort`                         | `9000`                                  | gRPC for agents. Wired to `WOODPECKER_GRPC_ADDR`.                                         |
+| `host`                             | `""`                                    | `WOODPECKER_HOST` — public server URL. **Required** in production.                        |
+| `agentSecret.value`                | `""`                                    | Fixed `WOODPECKER_AGENT_SECRET`; creates a Secret. Rotate in prod.                        |
+| `agentSecret.existingSecret`       | `""`                                    | Use an existing Secret instead.                                                           |
+| `agentSecret.existingSecretKey`    | `WOODPECKER_AGENT_SECRET`               | Key within that Secret.                                                                   |
+| `persistence.enabled`              | `true`                                  | 2Gi PVC mounted at `/var/lib/woodpecker` (SQLite DB).                                     |
+| `persistence.size`                 | `2Gi`                                   | Requested volume size.                                                                    |
+| `persistence.storageClass`         | `""`                                    | Default class if unset.                                                                   |
+| `persistence.accessModes`          | `["ReadWriteOnce"]`                     | PVC access modes.                                                                         |
+| `persistence.annotations`          | `{}`                                    | Annotations on the PVC template.                                                          |
+| `persistence.selector`             | `{}`                                    | Bind to a matching PV by selector.                                                        |
+| `persistence.existingClaim`        | `""`                                    | Bind an existing PVC instead of provisioning one.                                         |
+| `service.type`                     | `ClusterIP`                             | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
+| `service.port`                     | `80`                                    | HTTP Service port -> container `http`.                                                    |
+| `service.grpcPort`                 | `9000`                                  | gRPC Service port -> container `grpc`.                                                    |
+| `resources.requests`               | `100m / 128Mi`                          | CPU / memory requests.                                                                    |
+| `resources.limits`                 | `1 / 512Mi`                             | CPU / memory limits.                                                                      |
+| `extraEnvVars`                     | `[]`                                    | Extra `WOODPECKER_*` env; put the forge config here.                                      |
+| `extraEnvVarsSecret`               | `""`                                    | Secret of env vars (e.g. `WOODPECKER_GITHUB_SECRET`).                                     |
+| `serviceAccount.create`            | `true`                                  | Token automount is off.                                                                   |
+| `serviceAccount.name`              | `""`                                    | Use an existing ServiceAccount if set.                                                    |
+| `serviceAccount.annotations`       | `{}`                                    | Annotations on the ServiceAccount.                                                        |
+| `rbac.create`                      | `false`                                 | Minimal empty Role/RoleBinding when enabled.                                              |
+| `networkPolicy.enabled`            | `true`                                  | Restricts HTTP + gRPC ingress to the release namespace.                                   |
+| `networkPolicy.allowExternal`      | `false`                                 | Set `true` to allow ingress from any source.                                              |
+| `podDisruptionBudget.enabled`      | `true`                                  |                                                                                           |
+| `podDisruptionBudget.minAvailable` | `1`                                     |                                                                                           |
+| `ingress.enabled`                  | `false`                                 | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`                | `""`                                    | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`              | `{}`                                    | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`              | `null`                                  | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`                    | `[]`                                    | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                      | `[]`                                    | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 `nodeSelector`, `affinity`, `tolerations`, `topologySpreadConstraints`,
 `priorityClassName`, `schedulerName`, `terminationGracePeriodSeconds`,
@@ -144,7 +144,7 @@ extraEnvVars:
     value: "true"
   - name: WOODPECKER_GITHUB_CLIENT
     value: "<oauth-app-client-id>"
-extraEnvVarsSecret: woodpecker-forge   # holds WOODPECKER_GITHUB_SECRET
+extraEnvVarsSecret: woodpecker-forge # holds WOODPECKER_GITHUB_SECRET
 ```
 
 Point agents at an existing Secret rather than templating the value in:

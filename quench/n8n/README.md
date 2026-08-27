@@ -107,7 +107,7 @@ database:
     port: 5432
     database: n8n
     user: n8n
-    password: ""          # inline, or use existingSecret + existingSecretPasswordKey
+    password: "" # inline, or use existingSecret + existingSecretPasswordKey
     schema: public
 ```
 
@@ -136,59 +136,59 @@ callback URLs. Without it, generated URLs point at `localhost`:
 n8n:
   host: n8n.example.com
   protocol: https
-  webhookUrl: https://n8n.example.com/   # only if a proxy rewrites the path
+  webhookUrl: https://n8n.example.com/ # only if a proxy rewrites the path
 ```
 
 ## Values
 
-| Key | Default | Description |
-| --- | --- | --- |
-| `image.repository` | `ghcr.io/quenchworks/images/n8n` | Image repository. |
-| `image.digest` | (pinned) | Image digest. CI-maintained; never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | Image pull policy. |
-| `replicaCount` | `1` | Fixed at 1 (instance state on disk). |
-| `n8n.host` | `localhost` | `N8N_HOST` — public hostname for generated URLs. |
-| `n8n.protocol` | `http` | `N8N_PROTOCOL` (`http`/`https`). |
-| `n8n.webhookUrl` | `""` | `WEBHOOK_URL` — override the derived webhook base URL. |
-| `n8n.encryptionKey` | `""` | `N8N_ENCRYPTION_KEY`; generated + persisted if empty. |
-| `n8n.existingSecret` | `""` | Use this Secret for the encryption key. |
-| `n8n.existingSecretKey` | `encryption-key` | Key within `n8n.existingSecret`. |
-| `database.type` | `sqlite` | `sqlite` or `postgresdb`. |
-| `database.postgresql.host` | `""` | External PostgreSQL host (required for `postgresdb`). |
-| `database.postgresql.port` | `5432` | External PostgreSQL port. |
-| `database.postgresql.database` | `n8n` | Database name. |
-| `database.postgresql.user` | `n8n` | Database user. |
-| `database.postgresql.password` | `""` | Password (inline; or use `existingSecret`). |
-| `database.postgresql.schema` | `public` | Schema. |
-| `database.postgresql.existingSecret` | `""` | Secret holding the DB password. |
-| `database.postgresql.existingSecretPasswordKey` | `password` | Key within that Secret. |
-| `taskRunners.enabled` | `false` | Attach the `n8n-runners` sidecar (external mode). |
-| `taskRunners.image.repository` | `ghcr.io/quenchworks/images/n8n-runners` | Runner image repository. |
-| `taskRunners.image.digest` | (pinned) | Runner image digest. |
-| `taskRunners.brokerPort` | `5679` | In-process task-broker port (localhost). |
-| `taskRunners.authToken` | `""` | Shared auth token; generated + persisted if empty. |
-| `taskRunners.resources` | requests 100m/128Mi, limits 1/512Mi | Sidecar resources. |
-| `persistence.enabled` | `true` | Provision a PVC for `~/.n8n`. |
-| `persistence.size` | `8Gi` | PVC size. |
-| `persistence.storageClass` | (unset) | Storage class; default class if unset. |
-| `persistence.accessModes` | `["ReadWriteOnce"]` | PVC access modes. |
-| `persistence.existingClaim` | `""` | Bind an existing PVC instead of provisioning. |
-| `resources` | requests 250m/256Mi, limits 2/1Gi | n8n container resources. |
-| `service.type` | `ClusterIP` | Service type. |
-| `service.port` | `5678` | HTTP service + container port. |
-| `serviceAccount.create` | `true` | Create a ServiceAccount. |
-| `rbac.create` | `false` | Create an (empty) Role + RoleBinding. |
-| `networkPolicy.enabled` | `true` | Create a NetworkPolicy. |
-| `networkPolicy.allowExternal` | `true` | Allow HTTP ingress from outside the namespace. |
-| `podDisruptionBudget.enabled` | `true` | Create a PodDisruptionBudget. |
-| `podDisruptionBudget.minAvailable` | `1` | PDB minimum available. |
+| Key                                             | Default                                  | Description                                                                               |
+| ----------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`                              | `ghcr.io/quenchworks/images/n8n`         | Image repository.                                                                         |
+| `image.digest`                                  | (pinned)                                 | Image digest. CI-maintained; never a tag.                                                 |
+| `image.pullPolicy`                              | `IfNotPresent`                           | Image pull policy.                                                                        |
+| `replicaCount`                                  | `1`                                      | Fixed at 1 (instance state on disk).                                                      |
+| `n8n.host`                                      | `localhost`                              | `N8N_HOST` — public hostname for generated URLs.                                          |
+| `n8n.protocol`                                  | `http`                                   | `N8N_PROTOCOL` (`http`/`https`).                                                          |
+| `n8n.webhookUrl`                                | `""`                                     | `WEBHOOK_URL` — override the derived webhook base URL.                                    |
+| `n8n.encryptionKey`                             | `""`                                     | `N8N_ENCRYPTION_KEY`; generated + persisted if empty.                                     |
+| `n8n.existingSecret`                            | `""`                                     | Use this Secret for the encryption key.                                                   |
+| `n8n.existingSecretKey`                         | `encryption-key`                         | Key within `n8n.existingSecret`.                                                          |
+| `database.type`                                 | `sqlite`                                 | `sqlite` or `postgresdb`.                                                                 |
+| `database.postgresql.host`                      | `""`                                     | External PostgreSQL host (required for `postgresdb`).                                     |
+| `database.postgresql.port`                      | `5432`                                   | External PostgreSQL port.                                                                 |
+| `database.postgresql.database`                  | `n8n`                                    | Database name.                                                                            |
+| `database.postgresql.user`                      | `n8n`                                    | Database user.                                                                            |
+| `database.postgresql.password`                  | `""`                                     | Password (inline; or use `existingSecret`).                                               |
+| `database.postgresql.schema`                    | `public`                                 | Schema.                                                                                   |
+| `database.postgresql.existingSecret`            | `""`                                     | Secret holding the DB password.                                                           |
+| `database.postgresql.existingSecretPasswordKey` | `password`                               | Key within that Secret.                                                                   |
+| `taskRunners.enabled`                           | `false`                                  | Attach the `n8n-runners` sidecar (external mode).                                         |
+| `taskRunners.image.repository`                  | `ghcr.io/quenchworks/images/n8n-runners` | Runner image repository.                                                                  |
+| `taskRunners.image.digest`                      | (pinned)                                 | Runner image digest.                                                                      |
+| `taskRunners.brokerPort`                        | `5679`                                   | In-process task-broker port (localhost).                                                  |
+| `taskRunners.authToken`                         | `""`                                     | Shared auth token; generated + persisted if empty.                                        |
+| `taskRunners.resources`                         | requests 100m/128Mi, limits 1/512Mi      | Sidecar resources.                                                                        |
+| `persistence.enabled`                           | `true`                                   | Provision a PVC for `~/.n8n`.                                                             |
+| `persistence.size`                              | `8Gi`                                    | PVC size.                                                                                 |
+| `persistence.storageClass`                      | (unset)                                  | Storage class; default class if unset.                                                    |
+| `persistence.accessModes`                       | `["ReadWriteOnce"]`                      | PVC access modes.                                                                         |
+| `persistence.existingClaim`                     | `""`                                     | Bind an existing PVC instead of provisioning.                                             |
+| `resources`                                     | requests 250m/256Mi, limits 2/1Gi        | n8n container resources.                                                                  |
+| `service.type`                                  | `ClusterIP`                              | Service type.                                                                             |
+| `service.port`                                  | `5678`                                   | HTTP service + container port.                                                            |
+| `serviceAccount.create`                         | `true`                                   | Create a ServiceAccount.                                                                  |
+| `rbac.create`                                   | `false`                                  | Create an (empty) Role + RoleBinding.                                                     |
+| `networkPolicy.enabled`                         | `true`                                   | Create a NetworkPolicy.                                                                   |
+| `networkPolicy.allowExternal`                   | `true`                                   | Allow HTTP ingress from outside the namespace.                                            |
+| `podDisruptionBudget.enabled`                   | `true`                                   | Create a PodDisruptionBudget.                                                             |
+| `podDisruptionBudget.minAvailable`              | `1`                                      | PDB minimum available.                                                                    |
+| `ingress.enabled`                               | `false`                                  | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`                             | `""`                                     | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`                           | `{}`                                     | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`                           | `null`                                   | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`                                 | `[]`                                     | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                                   | `[]`                                     | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Standard `quench-common` knobs are also exposed: `podLabels`, `podAnnotations`,
 `nodeSelector`, `affinity`, `tolerations`, `topologySpreadConstraints`,
 `priorityClassName`, `schedulerName`, `terminationGracePeriodSeconds`, `updateStrategy`,

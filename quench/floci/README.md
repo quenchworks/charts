@@ -33,45 +33,45 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/floci --owner quenc
 
 ## Values
 
-| Value | Default | Notes |
-|-------|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/floci` | |
-| `image.tag` | `1.5.33` | Reference only; the pod pulls by digest. |
-| `image.digest` | (CI-maintained) | Signed multi-arch index (hardened image). Pinned by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
-| `replicaCount` | `1` | Keep at 1 with in-process storage. |
-| `floci.mode` | `hardened` | `hardened` (nonroot) or `full` (root + host docker.sock). |
-| `floci.full.acknowledgeRisk` | `false` | Must be `true` for `mode=full` or the chart refuses to render. |
-| `floci.full.image.repository` | `ghcr.io/quenchworks/images/floci-full` | Only used when `mode=full`. |
-| `floci.full.image.digest` | (pinned) | Signed multi-arch `floci-full` index. |
-| `floci.port` | `4566` | Edge/API + health port. |
-| `floci.defaultRegion` | `us-east-1` | `FLOCI_DEFAULT_REGION`. |
-| `floci.defaultAccountId` | `"000000000000"` | `FLOCI_DEFAULT_ACCOUNT_ID`. |
-| `floci.localstackParity` | `false` | `LOCALSTACK_PARITY`. |
-| `floci.storage.mode` | `memory` | `FLOCI_STORAGE_MODE` (`memory`, `persistent`, `hybrid`, `wal`). |
-| `floci.storage.path` | `/data` | `FLOCI_STORAGE_PERSISTENT_PATH` (PVC mount). |
-| `persistence.enabled` | `false` | Mount a PVC at `floci.storage.path`. |
-| `persistence.size` | `8Gi` | |
-| `persistence.storageClass` | `""` | Default class if unset. |
-| `persistence.accessModes` | `["ReadWriteOnce"]` | PVC access modes. |
-| `resources.requests` | `cpu 250m / mem 512Mi` | |
-| `resources.limits` | `cpu 1 / mem 1Gi` | |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `4566` | |
-| `autoscaling.enabled` | `false` | Keep off with in-process storage (each replica keeps its own state). |
-| `extraEnvVars` | `[]` | Extra `FLOCI_*` env (e.g. per-service config). |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `rbac.create` | `false` | Minimal Role/RoleBinding. |
-| `networkPolicy.enabled` | `true` | Ingress restricted to the namespace by default. |
-| `networkPolicy.allowExternal` | `false` | Set `true` to allow ingress from any source. |
-| `podDisruptionBudget.enabled` | `false` | |
+| Value                         | Default                                 | Notes                                                                                     |
+| ----------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/floci`      |                                                                                           |
+| `image.tag`                   | `1.5.33`                                | Reference only; the pod pulls by digest.                                                  |
+| `image.digest`                | (CI-maintained)                         | Signed multi-arch index (hardened image). Pinned by digest, never a tag.                  |
+| `image.pullPolicy`            | `IfNotPresent`                          | `Always`, `IfNotPresent`, or `Never`.                                                     |
+| `replicaCount`                | `1`                                     | Keep at 1 with in-process storage.                                                        |
+| `floci.mode`                  | `hardened`                              | `hardened` (nonroot) or `full` (root + host docker.sock).                                 |
+| `floci.full.acknowledgeRisk`  | `false`                                 | Must be `true` for `mode=full` or the chart refuses to render.                            |
+| `floci.full.image.repository` | `ghcr.io/quenchworks/images/floci-full` | Only used when `mode=full`.                                                               |
+| `floci.full.image.digest`     | (pinned)                                | Signed multi-arch `floci-full` index.                                                     |
+| `floci.port`                  | `4566`                                  | Edge/API + health port.                                                                   |
+| `floci.defaultRegion`         | `us-east-1`                             | `FLOCI_DEFAULT_REGION`.                                                                   |
+| `floci.defaultAccountId`      | `"000000000000"`                        | `FLOCI_DEFAULT_ACCOUNT_ID`.                                                               |
+| `floci.localstackParity`      | `false`                                 | `LOCALSTACK_PARITY`.                                                                      |
+| `floci.storage.mode`          | `memory`                                | `FLOCI_STORAGE_MODE` (`memory`, `persistent`, `hybrid`, `wal`).                           |
+| `floci.storage.path`          | `/data`                                 | `FLOCI_STORAGE_PERSISTENT_PATH` (PVC mount).                                              |
+| `persistence.enabled`         | `false`                                 | Mount a PVC at `floci.storage.path`.                                                      |
+| `persistence.size`            | `8Gi`                                   |                                                                                           |
+| `persistence.storageClass`    | `""`                                    | Default class if unset.                                                                   |
+| `persistence.accessModes`     | `["ReadWriteOnce"]`                     | PVC access modes.                                                                         |
+| `resources.requests`          | `cpu 250m / mem 512Mi`                  |                                                                                           |
+| `resources.limits`            | `cpu 1 / mem 1Gi`                       |                                                                                           |
+| `service.type`                | `ClusterIP`                             | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
+| `service.port`                | `4566`                                  |                                                                                           |
+| `autoscaling.enabled`         | `false`                                 | Keep off with in-process storage (each replica keeps its own state).                      |
+| `extraEnvVars`                | `[]`                                    | Extra `FLOCI_*` env (e.g. per-service config).                                            |
+| `serviceAccount.create`       | `true`                                  | Token automount is off.                                                                   |
+| `rbac.create`                 | `false`                                 | Minimal Role/RoleBinding.                                                                 |
+| `networkPolicy.enabled`       | `true`                                  | Ingress restricted to the namespace by default.                                           |
+| `networkPolicy.allowExternal` | `false`                                 | Set `true` to allow ingress from any source.                                              |
+| `podDisruptionBudget.enabled` | `false`                                 |                                                                                           |
+| `ingress.enabled`             | `false`                                 | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                                    | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                                    | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                                  | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                                    | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                                    | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
 containers, extra env/volumes, security contexts, update strategy).
 
@@ -113,12 +113,12 @@ in-process services above.
 To keep state across restarts on a single replica, enable the PVC and switch the
 storage mode:
 
-| `floci.storage.mode` | Behaviour |
-|----------------------|-----------|
-| `memory` | All state in RAM, lost on restart (default; no volume). |
-| `persistent` | Flush every write to disk. |
-| `hybrid` | Async flush (~5s) to disk. |
-| `wal` | Write-ahead log for durability. |
+| `floci.storage.mode` | Behaviour                                               |
+| -------------------- | ------------------------------------------------------- |
+| `memory`             | All state in RAM, lost on restart (default; no volume). |
+| `persistent`         | Flush every write to disk.                              |
+| `hybrid`             | Async flush (~5s) to disk.                              |
+| `wal`                | Write-ahead log for durability.                         |
 
 Any mode other than `memory` requires `persistence.enabled: true`, since the
 root filesystem is read-only and a writable volume must be mounted at
@@ -174,7 +174,7 @@ persistence:
   size: 8Gi
 floci:
   storage:
-    mode: persistent   # or hybrid / wal
+    mode: persistent # or hybrid / wal
     path: /data
 ```
 

@@ -39,32 +39,32 @@ env:
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/weaviate` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Single node for now. |
-| `persistence.enabled` | `true` | PVC mounted at `persistence.path`. |
-| `persistence.size` | `8Gi` | Provisioned per replica via `volumeClaimTemplates`. |
-| `persistence.path` | `/var/lib/weaviate` | Mount path; mirror into `env.PERSISTENCE_DATA_PATH`. |
-| `persistence.existingClaim` | `""` | Bind an existing PVC instead of provisioning one. |
-| `env` | (see above) | Map of `WEAVIATE/*_*` env vars, rendered into the container. |
-| `service.type` | `ClusterIP` | |
-| `service.httpPort` | `8080` | REST API. |
-| `service.grpcPort` | `50051` | gRPC API. |
-| `autoscaling.enabled` | `false` | Single-node default; HPA targets the StatefulSet. |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `rbac.create` | `false` | Minimal Role/RoleBinding when enabled. |
-| `networkPolicy.enabled` | `true` | Ingress on http + grpc; external allowed by default. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                               | Notes                                                                                     |
+| ----------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------- | --------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/weaviate` |                                                                                           |
+| `image.digest`                | (CI-written)                          | Required. Charts pin by digest, never a tag.                                              |
+| `replicaCount`                | `1`                                   | Single node for now.                                                                      |
+| `persistence.enabled`         | `true`                                | PVC mounted at `persistence.path`.                                                        |
+| `persistence.size`            | `8Gi`                                 | Provisioned per replica via `volumeClaimTemplates`.                                       |
+| `persistence.path`            | `/var/lib/weaviate`                   | Mount path; mirror into `env.PERSISTENCE_DATA_PATH`.                                      |
+| `persistence.existingClaim`   | `""`                                  | Bind an existing PVC instead of provisioning one.                                         |
+| `env`                         | (see above)                           | Map of `WEAVIATE/*_*` env vars, rendered into the container.                              |
+| `service.type`                | `ClusterIP`                           |                                                                                           |
+| `service.httpPort`            | `8080`                                | REST API.                                                                                 |
+| `service.grpcPort`            | `50051`                               | gRPC API.                                                                                 |
+| `autoscaling.enabled`         | `false`                               | Single-node default; HPA targets the StatefulSet.                                         |
+| `serviceAccount.create`       | `true`                                | Token automount is off.                                                                   |
+| `rbac.create`                 | `false`                               | Minimal Role/RoleBinding when enabled.                                                    |
+| `networkPolicy.enabled`       | `true`                                | Ingress on http + grpc; external allowed by default.                                      |
+| `podDisruptionBudget.enabled` | `true`                                | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`             | `false`                               | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                                  | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                                  | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                                | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                                  | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                                  | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |## Health
+## Health
 
 - Liveness: `GET /v1/.well-known/live` on the REST port.
 - Readiness: `GET /v1/.well-known/ready` on the REST port.

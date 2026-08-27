@@ -47,51 +47,51 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/ghost --owner quenc
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/ghost` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `replicaCount` | `1` | Single replica; the content PVC is ReadWriteOnce. |
-| `ghost.url` | `http://localhost:2368` | Public site URL. Required; set to the address users actually reach Ghost at. |
-| `resources.requests` | `250m / 512Mi` | CPU / memory requests. |
-| `resources.limits` | `2 / 1Gi` | CPU / memory limits. |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `2368` | Public site + `/ghost` admin port. |
-| `persistence.enabled` | `true` | Provision the content PVC. When `false`, uses an emptyDir. |
-| `persistence.size` | `10Gi` | Content PVC size. |
-| `persistence.mountPath` | `/var/lib/ghost/content` | Content mount path. |
-| `persistence.storageClass` | `""` | Default class if unset. |
-| `persistence.accessModes` | `["ReadWriteOnce"]` | PVC access modes. |
-| `persistence.existingClaim` | `""` | Bind an existing PVC instead of provisioning one. |
-| `mariadb.enabled` | `true` | Deploy the bundled MariaDB subchart. |
-| `mariadb.auth.rootPassword` | `""` | Generated into MariaDB's own Secret if empty. |
-| `mariadb.auth.database` | `ghost` | App database, created on first init. |
-| `mariadb.auth.username` | `ghost` | DB user. |
-| `mariadb.auth.password` | `""` | Generated into this chart's managed Secret if empty. |
-| `mariadb.primary.persistence.size` | `8Gi` | MariaDB data volume size. |
-| `externalDatabase.host` | `""` | External DB host (used when `mariadb.enabled=false`). |
-| `externalDatabase.port` | `3306` | External DB port. |
-| `externalDatabase.database` | `ghost` | External DB name. |
-| `externalDatabase.user` | `ghost` | External DB user. |
-| `externalDatabase.password` | `""` | External DB password (or use `existingSecret`). |
-| `externalDatabase.existingSecret` | `""` | Secret carrying the password; no managed Secret is rendered. |
-| `externalDatabase.existingSecretPasswordKey` | `db-password` | Password key in the existing Secret. |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount if set. |
-| `rbac.create` | `false` | Minimal Role/RoleBinding. |
-| `networkPolicy.enabled` | `true` | Restricts ingress to the release namespace. |
-| `networkPolicy.allowExternal` | `false` | Set `true` to allow ingress from outside the namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
-| `containerSecurityContext.readOnlyRootFilesystem` | `false` | Relaxed for Ghost; see Architecture. |
+| Key                                               | Default                            | Notes                                                                                     |
+| ------------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`                                | `ghcr.io/quenchworks/images/ghost` |                                                                                           |
+| `image.digest`                                    | (CI-written)                       | Required. Charts pin by digest, never a tag.                                              |
+| `image.pullPolicy`                                | `IfNotPresent`                     | `Always`, `IfNotPresent`, or `Never`.                                                     |
+| `nameOverride`                                    | `""`                               | Override the chart name in resource names.                                                |
+| `replicaCount`                                    | `1`                                | Single replica; the content PVC is ReadWriteOnce.                                         |
+| `ghost.url`                                       | `http://localhost:2368`            | Public site URL. Required; set to the address users actually reach Ghost at.              |
+| `resources.requests`                              | `250m / 512Mi`                     | CPU / memory requests.                                                                    |
+| `resources.limits`                                | `2 / 1Gi`                          | CPU / memory limits.                                                                      |
+| `service.type`                                    | `ClusterIP`                        | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
+| `service.port`                                    | `2368`                             | Public site + `/ghost` admin port.                                                        |
+| `persistence.enabled`                             | `true`                             | Provision the content PVC. When `false`, uses an emptyDir.                                |
+| `persistence.size`                                | `10Gi`                             | Content PVC size.                                                                         |
+| `persistence.mountPath`                           | `/var/lib/ghost/content`           | Content mount path.                                                                       |
+| `persistence.storageClass`                        | `""`                               | Default class if unset.                                                                   |
+| `persistence.accessModes`                         | `["ReadWriteOnce"]`                | PVC access modes.                                                                         |
+| `persistence.existingClaim`                       | `""`                               | Bind an existing PVC instead of provisioning one.                                         |
+| `mariadb.enabled`                                 | `true`                             | Deploy the bundled MariaDB subchart.                                                      |
+| `mariadb.auth.rootPassword`                       | `""`                               | Generated into MariaDB's own Secret if empty.                                             |
+| `mariadb.auth.database`                           | `ghost`                            | App database, created on first init.                                                      |
+| `mariadb.auth.username`                           | `ghost`                            | DB user.                                                                                  |
+| `mariadb.auth.password`                           | `""`                               | Generated into this chart's managed Secret if empty.                                      |
+| `mariadb.primary.persistence.size`                | `8Gi`                              | MariaDB data volume size.                                                                 |
+| `externalDatabase.host`                           | `""`                               | External DB host (used when `mariadb.enabled=false`).                                     |
+| `externalDatabase.port`                           | `3306`                             | External DB port.                                                                         |
+| `externalDatabase.database`                       | `ghost`                            | External DB name.                                                                         |
+| `externalDatabase.user`                           | `ghost`                            | External DB user.                                                                         |
+| `externalDatabase.password`                       | `""`                               | External DB password (or use `existingSecret`).                                           |
+| `externalDatabase.existingSecret`                 | `""`                               | Secret carrying the password; no managed Secret is rendered.                              |
+| `externalDatabase.existingSecretPasswordKey`      | `db-password`                      | Password key in the existing Secret.                                                      |
+| `serviceAccount.create`                           | `true`                             | Token automount is off.                                                                   |
+| `serviceAccount.name`                             | `""`                               | Use an existing ServiceAccount if set.                                                    |
+| `rbac.create`                                     | `false`                            | Minimal Role/RoleBinding.                                                                 |
+| `networkPolicy.enabled`                           | `true`                             | Restricts ingress to the release namespace.                                               |
+| `networkPolicy.allowExternal`                     | `false`                            | Set `true` to allow ingress from outside the namespace.                                   |
+| `podDisruptionBudget.enabled`                     | `true`                             | `minAvailable: 1`.                                                                        |
+| `containerSecurityContext.readOnlyRootFilesystem` | `false`                            | Relaxed for Ghost; see Architecture.                                                      |
+| `ingress.enabled`                                 | `false`                            | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`                               | `""`                               | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`                             | `{}`                               | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`                             | `null`                             | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`                                   | `[]`                               | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                                     | `[]`                               | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 `nodeSelector`, `affinity`, `tolerations`, `topologySpreadConstraints`,
 `priorityClassName`, `schedulerName`, `terminationGracePeriodSeconds`,

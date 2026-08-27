@@ -43,28 +43,28 @@ gh attestation verify oci://ghcr.io/quenchworks/images/elasticsearch \
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/elasticsearch` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Single node; multi-node cluster is a follow-up. |
-| `config.clusterName` | `quench-elasticsearch` | |
-| `config.discoveryType` | `single-node` | Relaxes production bootstrap checks. |
-| `config.securityDisabled` | `true` | `xpack.security` off (internal use behind the NetworkPolicy). |
-| `config.heapSize` | `512m` | JVM heap (`-Xms`/`-Xmx`). |
-| `config.extraConfig` | `""` | Raw YAML appended to `elasticsearch.yml` (`ES_CONFIG_EXTRA`). |
-| `persistence.enabled` | `true` | 16Gi PVC at `/data`. |
-| `service.httpPort` | `9200` | REST API. |
-| `service.transportPort` | `9300` | Node transport (headless). |
-| `networkPolicy.enabled` | `true` | Restricts HTTP ingress to the release namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                                    | Notes                                                                                     |
+| ----------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/elasticsearch` |                                                                                           |
+| `image.digest`                | (CI-written)                               | Required. Charts pin by digest, never a tag.                                              |
+| `replicaCount`                | `1`                                        | Single node; multi-node cluster is a follow-up.                                           |
+| `config.clusterName`          | `quench-elasticsearch`                     |                                                                                           |
+| `config.discoveryType`        | `single-node`                              | Relaxes production bootstrap checks.                                                      |
+| `config.securityDisabled`     | `true`                                     | `xpack.security` off (internal use behind the NetworkPolicy).                             |
+| `config.heapSize`             | `512m`                                     | JVM heap (`-Xms`/`-Xmx`).                                                                 |
+| `config.extraConfig`          | `""`                                       | Raw YAML appended to `elasticsearch.yml` (`ES_CONFIG_EXTRA`).                             |
+| `persistence.enabled`         | `true`                                     | 16Gi PVC at `/data`.                                                                      |
+| `service.httpPort`            | `9200`                                     | REST API.                                                                                 |
+| `service.transportPort`       | `9300`                                     | Node transport (headless).                                                                |
+| `networkPolicy.enabled`       | `true`                                     | Restricts HTTP ingress to the release namespace.                                          |
+| `podDisruptionBudget.enabled` | `true`                                     | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`             | `false`                                    | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                                       | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                                       | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                                     | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                                       | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                                       | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
 env/volumes, security contexts).
 

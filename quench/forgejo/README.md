@@ -41,42 +41,42 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/forgejo --owner que
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/forgejo` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `replicaCount` | `1` | Stateful single node (SQLite); do not scale out. |
-| `containerPort` | `3000` | HTTP port Forgejo binds (nonroot). Wired to `server.HTTP_PORT`. |
-| `config.appName` | `Forgejo` | Instance name. |
-| `config.rootUrl` | `""` | External base URL (set behind an ingress). Defaults to `http://localhost:<containerPort>/`. |
-| `config.logLevel` | `info` | Console log level. |
-| `config.ssh.enabled` | `false` | Built-in git-over-SSH server; exposes an `ssh` service port when on. |
-| `config.ssh.port` | `22` | |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `80` | Service port, forwards to the container's `http` port. |
-| `persistence.enabled` | `true` | PVC mounted at `mountPath` (repos + DB + config). |
-| `persistence.mountPath` | `/data` | Forgejo work/data dir. |
-| `persistence.size` | `8Gi` | Requested volume size. |
-| `persistence.storageClass` | `""` | Default class if unset. |
-| `persistence.accessModes` | `["ReadWriteOnce"]` | PVC access modes. |
-| `persistence.existingClaim` | `""` | Bind an existing PVC instead of provisioning one. |
-| `resources.requests` | `100m / 128Mi` | CPU / memory requests. |
-| `resources.limits` | `1 / 512Mi` | CPU / memory limits. |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount if set. |
-| `rbac.create` | `false` | Minimal empty Role/RoleBinding when enabled. |
-| `networkPolicy.enabled` | `true` | Restricts client ingress to the release namespace. |
-| `networkPolicy.allowExternal` | `false` | Set `true` to allow ingress from any source. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                              | Notes                                                                                       |
+| ----------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/forgejo` |                                                                                             |
+| `image.digest`                | (CI-written)                         | Required. Charts pin by digest, never a tag.                                                |
+| `image.pullPolicy`            | `IfNotPresent`                       | `Always`, `IfNotPresent`, or `Never`.                                                       |
+| `nameOverride`                | `""`                                 | Override the chart name in resource names.                                                  |
+| `replicaCount`                | `1`                                  | Stateful single node (SQLite); do not scale out.                                            |
+| `containerPort`               | `3000`                               | HTTP port Forgejo binds (nonroot). Wired to `server.HTTP_PORT`.                             |
+| `config.appName`              | `Forgejo`                            | Instance name.                                                                              |
+| `config.rootUrl`              | `""`                                 | External base URL (set behind an ingress). Defaults to `http://localhost:<containerPort>/`. |
+| `config.logLevel`             | `info`                               | Console log level.                                                                          |
+| `config.ssh.enabled`          | `false`                              | Built-in git-over-SSH server; exposes an `ssh` service port when on.                        |
+| `config.ssh.port`             | `22`                                 |                                                                                             |
+| `service.type`                | `ClusterIP`                          | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                                 |
+| `service.port`                | `80`                                 | Service port, forwards to the container's `http` port.                                      |
+| `persistence.enabled`         | `true`                               | PVC mounted at `mountPath` (repos + DB + config).                                           |
+| `persistence.mountPath`       | `/data`                              | Forgejo work/data dir.                                                                      |
+| `persistence.size`            | `8Gi`                                | Requested volume size.                                                                      |
+| `persistence.storageClass`    | `""`                                 | Default class if unset.                                                                     |
+| `persistence.accessModes`     | `["ReadWriteOnce"]`                  | PVC access modes.                                                                           |
+| `persistence.existingClaim`   | `""`                                 | Bind an existing PVC instead of provisioning one.                                           |
+| `resources.requests`          | `100m / 128Mi`                       | CPU / memory requests.                                                                      |
+| `resources.limits`            | `1 / 512Mi`                          | CPU / memory limits.                                                                        |
+| `serviceAccount.create`       | `true`                               | Token automount is off.                                                                     |
+| `serviceAccount.name`         | `""`                                 | Use an existing ServiceAccount if set.                                                      |
+| `rbac.create`                 | `false`                              | Minimal empty Role/RoleBinding when enabled.                                                |
+| `networkPolicy.enabled`       | `true`                               | Restricts client ingress to the release namespace.                                          |
+| `networkPolicy.allowExternal` | `false`                              | Set `true` to allow ingress from any source.                                                |
+| `podDisruptionBudget.enabled` | `true`                               | `minAvailable: 1`.                                                                          |
+| `ingress.enabled`             | `false`                              | Create an Ingress for this chart. HTTP only.                                                |
+| `ingress.className`           | `""`                                 | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.            |
+| `ingress.annotations`         | `{}`                                 | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).              |
+| `ingress.servicePort`         | `null`                               | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.          |
+| `ingress.hosts`               | `[]`                                 | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path.   |
+| `ingress.tls`                 | `[]`                                 | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.        |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 `nodeSelector`, `affinity`, `tolerations`, `topologySpreadConstraints`,
 `priorityClassName`, `schedulerName`, `terminationGracePeriodSeconds`,

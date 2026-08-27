@@ -84,27 +84,27 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/tempo --owner quenc
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/tempo` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Single-binary mode; keep at 1 (scale-out needs an object store). |
-| `tempoConfig` | single-binary filesystem config | Full Tempo config, templated, mounted from a ConfigMap. |
-| `extraArgs` | `[]` | Raw flags appended after `-config.file`/`-target`. |
-| `persistence.enabled` | `true` | 16Gi PVC mounted at `/var/tempo` (trace blocks + WAL). |
-| `service.port` | `3200` | HTTP API (query, `/ready`, `/metrics`). |
-| `service.otlpGrpcPort` | `4317` | OTLP gRPC receiver. |
-| `service.otlpHttpPort` | `4318` | OTLP HTTP receiver (`/v1/traces`). |
-| `service.grpcPort` | `9095` | gRPC (inter-component / scale-out). |
-| `networkPolicy.enabled` | `true` | Restricts HTTP + OTLP + gRPC ingress to the release namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                            | Notes                                                                                     |
+| ----------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/tempo` |                                                                                           |
+| `image.digest`                | (CI-written)                       | Required. Charts pin by digest, never a tag.                                              |
+| `replicaCount`                | `1`                                | Single-binary mode; keep at 1 (scale-out needs an object store).                          |
+| `tempoConfig`                 | single-binary filesystem config    | Full Tempo config, templated, mounted from a ConfigMap.                                   |
+| `extraArgs`                   | `[]`                               | Raw flags appended after `-config.file`/`-target`.                                        |
+| `persistence.enabled`         | `true`                             | 16Gi PVC mounted at `/var/tempo` (trace blocks + WAL).                                    |
+| `service.port`                | `3200`                             | HTTP API (query, `/ready`, `/metrics`).                                                   |
+| `service.otlpGrpcPort`        | `4317`                             | OTLP gRPC receiver.                                                                       |
+| `service.otlpHttpPort`        | `4318`                             | OTLP HTTP receiver (`/v1/traces`).                                                        |
+| `service.grpcPort`            | `9095`                             | gRPC (inter-component / scale-out).                                                       |
+| `networkPolicy.enabled`       | `true`                             | Restricts HTTP + OTLP + gRPC ingress to the release namespace.                            |
+| `podDisruptionBudget.enabled` | `true`                             | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`             | `false`                            | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                               | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                               | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                             | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                               | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                               | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
 env/volumes, security contexts).
 

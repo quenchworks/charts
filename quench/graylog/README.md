@@ -2,8 +2,7 @@
 
 Hardened [Graylog](https://graylog.org/), the log management and SIEM server, on a
 minimal, nonroot, 0-CVE image pinned by digest and cosign-signed (keyless /
-Sigstore). Graylog runs as uid 1001 and serves the web UI and REST API on port
-9000. The chart pins the image by its signed digest, never a tag.
+Sigstore). Graylog runs as uid 1001 and serves the web UI and REST API on port 9000. The chart pins the image by its signed digest, never a tag.
 
 > License notice: SSPL-1.0. Graylog Server is licensed under the Server Side
 > Public License v1, which is source-available, not OSI-approved open source. The
@@ -59,53 +58,53 @@ Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them 
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/graylog` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `replicaCount` | `1` | Single replica; the data PVC is ReadWriteOnce. |
-| `graylog.externalUri` | `http://localhost:9000/` | Required. Public URI (`GRAYLOG_HTTP_EXTERNAL_URI`); must end with a trailing slash. |
-| `graylog.bindAddress` | `0.0.0.0:9000` | In-pod bind address (`GRAYLOG_HTTP_BIND_ADDRESS`). |
-| `graylog.adminUsername` | `admin` | Built-in root account (`GRAYLOG_ROOT_USERNAME`). |
-| `graylog.adminPassword` | `""` | Required. Plaintext admin password; only its sha256 is stored. |
-| `graylog.passwordSecret` | `""` | Secret for stored credentials (>= 16 chars). Generated and reused via `lookup` if empty. |
-| `graylog.mongodbDatabase` | `graylog` | MongoDB database name. |
-| `graylog.serverJavaOpts` | `""` | Override JVM opts (image bakes `-Xms1g -Xmx1g`). |
-| `resources.requests` | `cpu 500m / mem 1536Mi` | |
-| `resources.limits` | `cpu 2 / mem 2Gi` | |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `9000` | Web UI + REST API. |
-| `service.inputs` | `[]` | Extra message-input ports; added to the Service, container ports, and NetworkPolicy. |
-| `persistence.enabled` | `true` | Data PVC at `/var/lib/graylog`. |
-| `persistence.size` | `8Gi` | Requested volume size. |
-| `persistence.mountPath` | `/var/lib/graylog` | Where the PVC mounts. |
-| `persistence.storageClass` | `""` | Default class if unset. |
-| `persistence.accessModes` | `["ReadWriteOnce"]` | PVC access modes. |
-| `persistence.existingClaim` | `""` | Bind an existing PVC instead of provisioning one. |
-| `mongodb.enabled` | `true` | Deploy the bundled MongoDB backend. |
-| `mongodb.auth.rootUsername` | `root` | |
-| `mongodb.auth.rootPassword` | `""` | Shared with Graylog's URI; set for a deterministic install. |
-| `opensearch.enabled` | `true` | Deploy the bundled OpenSearch backend. |
-| `externalMongodb.uri` | `""` | External MongoDB URI (when `mongodb.enabled=false`). |
-| `externalMongodb.existingSecret` | `""` | Secret carrying the URI instead of `uri`. |
-| `externalMongodb.existingSecretUriKey` | `mongodb-uri` | Key within that Secret. |
-| `externalOpensearch.hosts` | `""` | Comma-separated hosts (when `opensearch.enabled=false`). |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount if set. |
-| `rbac.create` | `false` | Minimal Role/RoleBinding. |
-| `networkPolicy.enabled` | `true` | Restricts ingress to the release namespace. |
-| `networkPolicy.allowExternal` | `false` | Set `true` to allow ingress from any source. |
-| `podDisruptionBudget.enabled` | `true` | |
-| `podDisruptionBudget.minAvailable` | `1` | |
+| Key                                    | Default                              | Notes                                                                                     |
+| -------------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `image.repository`                     | `ghcr.io/quenchworks/images/graylog` |                                                                                           |
+| `image.digest`                         | (CI-written)                         | Required. Charts pin by digest, never a tag.                                              |
+| `image.pullPolicy`                     | `IfNotPresent`                       | `Always`, `IfNotPresent`, or `Never`.                                                     |
+| `nameOverride`                         | `""`                                 | Override the chart name in resource names.                                                |
+| `replicaCount`                         | `1`                                  | Single replica; the data PVC is ReadWriteOnce.                                            |
+| `graylog.externalUri`                  | `http://localhost:9000/`             | Required. Public URI (`GRAYLOG_HTTP_EXTERNAL_URI`); must end with a trailing slash.       |
+| `graylog.bindAddress`                  | `0.0.0.0:9000`                       | In-pod bind address (`GRAYLOG_HTTP_BIND_ADDRESS`).                                        |
+| `graylog.adminUsername`                | `admin`                              | Built-in root account (`GRAYLOG_ROOT_USERNAME`).                                          |
+| `graylog.adminPassword`                | `""`                                 | Required. Plaintext admin password; only its sha256 is stored.                            |
+| `graylog.passwordSecret`               | `""`                                 | Secret for stored credentials (>= 16 chars). Generated and reused via `lookup` if empty.  |
+| `graylog.mongodbDatabase`              | `graylog`                            | MongoDB database name.                                                                    |
+| `graylog.serverJavaOpts`               | `""`                                 | Override JVM opts (image bakes `-Xms1g -Xmx1g`).                                          |
+| `resources.requests`                   | `cpu 500m / mem 1536Mi`              |                                                                                           |
+| `resources.limits`                     | `cpu 2 / mem 2Gi`                    |                                                                                           |
+| `service.type`                         | `ClusterIP`                          | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
+| `service.port`                         | `9000`                               | Web UI + REST API.                                                                        |
+| `service.inputs`                       | `[]`                                 | Extra message-input ports; added to the Service, container ports, and NetworkPolicy.      |
+| `persistence.enabled`                  | `true`                               | Data PVC at `/var/lib/graylog`.                                                           |
+| `persistence.size`                     | `8Gi`                                | Requested volume size.                                                                    |
+| `persistence.mountPath`                | `/var/lib/graylog`                   | Where the PVC mounts.                                                                     |
+| `persistence.storageClass`             | `""`                                 | Default class if unset.                                                                   |
+| `persistence.accessModes`              | `["ReadWriteOnce"]`                  | PVC access modes.                                                                         |
+| `persistence.existingClaim`            | `""`                                 | Bind an existing PVC instead of provisioning one.                                         |
+| `mongodb.enabled`                      | `true`                               | Deploy the bundled MongoDB backend.                                                       |
+| `mongodb.auth.rootUsername`            | `root`                               |                                                                                           |
+| `mongodb.auth.rootPassword`            | `""`                                 | Shared with Graylog's URI; set for a deterministic install.                               |
+| `opensearch.enabled`                   | `true`                               | Deploy the bundled OpenSearch backend.                                                    |
+| `externalMongodb.uri`                  | `""`                                 | External MongoDB URI (when `mongodb.enabled=false`).                                      |
+| `externalMongodb.existingSecret`       | `""`                                 | Secret carrying the URI instead of `uri`.                                                 |
+| `externalMongodb.existingSecretUriKey` | `mongodb-uri`                        | Key within that Secret.                                                                   |
+| `externalOpensearch.hosts`             | `""`                                 | Comma-separated hosts (when `opensearch.enabled=false`).                                  |
+| `serviceAccount.create`                | `true`                               | Token automount is off.                                                                   |
+| `serviceAccount.name`                  | `""`                                 | Use an existing ServiceAccount if set.                                                    |
+| `rbac.create`                          | `false`                              | Minimal Role/RoleBinding.                                                                 |
+| `networkPolicy.enabled`                | `true`                               | Restricts ingress to the release namespace.                                               |
+| `networkPolicy.allowExternal`          | `false`                              | Set `true` to allow ingress from any source.                                              |
+| `podDisruptionBudget.enabled`          | `true`                               |                                                                                           |
+| `podDisruptionBudget.minAvailable`     | `1`                                  |                                                                                           |
+| `ingress.enabled`                      | `false`                              | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`                    | `""`                                 | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`                  | `{}`                                 | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`                  | `null`                               | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`                        | `[]`                                 | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                          | `[]`                                 | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 `nodeSelector`, `affinity`, `tolerations`, `topologySpreadConstraints`,
 `priorityClassName`, `schedulerName`, `terminationGracePeriodSeconds`,

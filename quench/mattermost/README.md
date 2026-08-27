@@ -45,7 +45,7 @@ postgresql:
   enabled: true
   auth:
     username: mattermost
-    password: ""        # generated into the Secret if empty
+    password: "" # generated into the Secret if empty
     database: mattermost
 ```
 
@@ -85,27 +85,27 @@ siteUrl: https://chat.example.com
 
 ## Values
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `image.repository` | `ghcr.io/quenchworks/images/mattermost` | Image repository |
-| `image.digest` | pinned `sha256:…` | Image digest (never a tag) |
-| `replicaCount` | `1` | Team Edition is single-node |
-| `service.port` | `8065` | HTTP listener / service port |
-| `siteUrl` | in-cluster svc DNS | Public URL (`MM_SERVICESETTINGS_SITEURL`) |
-| `persistence.size` | `10Gi` | PVC size for `/opt/mattermost/data` |
-| `postgresql.enabled` | `true` | Bundle the Quenchworks PostgreSQL subchart |
-| `postgresql.auth.{username,password,database}` | `mattermost` / `""` / `mattermost` | Shared DB credentials |
-| `externalDatabase.*` | `""` | External DB connection (when `postgresql.enabled=false`) |
-| `networkPolicy.enabled` | `true` | Restrict traffic; egress opened to the DB port |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1` |
+| Key                                            | Default                                 | Description                                                                               |
+| ---------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------- |
+| `image.repository`                             | `ghcr.io/quenchworks/images/mattermost` | Image repository                                                                          |
+| `image.digest`                                 | pinned `sha256:…`                       | Image digest (never a tag)                                                                |
+| `replicaCount`                                 | `1`                                     | Team Edition is single-node                                                               |
+| `service.port`                                 | `8065`                                  | HTTP listener / service port                                                              |
+| `siteUrl`                                      | in-cluster svc DNS                      | Public URL (`MM_SERVICESETTINGS_SITEURL`)                                                 |
+| `persistence.size`                             | `10Gi`                                  | PVC size for `/opt/mattermost/data`                                                       |
+| `postgresql.enabled`                           | `true`                                  | Bundle the Quenchworks PostgreSQL subchart                                                |
+| `postgresql.auth.{username,password,database}` | `mattermost` / `""` / `mattermost`      | Shared DB credentials                                                                     |
+| `externalDatabase.*`                           | `""`                                    | External DB connection (when `postgresql.enabled=false`)                                  |
+| `networkPolicy.enabled`                        | `true`                                  | Restrict traffic; egress opened to the DB port                                            |
+| `podDisruptionBudget.enabled`                  | `true`                                  | `minAvailable: 1`                                                                         |
+| `ingress.enabled`                              | `false`                                 | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`                            | `""`                                    | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`                          | `{}`                                    | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`                          | `null`                                  | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`                                | `[]`                                    | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                                  | `[]`                                    | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |## Verify the image
+## Verify the image
 
 ```bash
 cosign verify ghcr.io/quenchworks/images/mattermost \

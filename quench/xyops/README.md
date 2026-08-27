@@ -52,41 +52,41 @@ gh attestation verify oci://ghcr.io/quenchworks/images/xyops \
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/xyops` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `auth.secretKey` | `""` | Pin the signing key. Random if empty (preserved across upgrades). |
-| `auth.existingSecret` | `""` | Read the signing key from your own Secret; wins over `auth.secretKey`. |
-| `auth.existingSecretKey` | `secret-key` | Key within `existingSecret`. |
-| `resources.requests` | `100m / 256Mi` | CPU / memory requests. Raise for more monitored hosts/jobs. |
-| `resources.limits` | `1 / 1Gi` | CPU / memory limits. |
-| `persistence.enabled` | `true` | 8Gi PVC mounted at `/opt/xyops/data` (the sqlite store). When `false`, uses an `emptyDir` (all state is lost on restart). |
-| `persistence.size` | `8Gi` | Requested volume size. |
-| `persistence.storageClass` | `""` | Default class if unset. |
-| `persistence.accessModes` | `["ReadWriteOnce"]` | PVC access modes. |
-| `persistence.annotations` | `{}` | Annotations on the PVC template. |
-| `persistence.selector` | `{}` | Bind to a matching PV by selector. |
-| `persistence.existingClaim` | `""` | Bind an existing PVC instead of provisioning one. |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `5522` | Web UI + JSON API port. |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount if set. |
-| `serviceAccount.annotations` | `{}` | Annotations on the ServiceAccount. |
-| `rbac.create` | `false` | Minimal Role/RoleBinding. |
-| `networkPolicy.enabled` | `true` | NetworkPolicy is the trust boundary. |
-| `networkPolicy.allowExternal` | `true` | The UI is commonly reached via Ingress or cluster-wide; set `false` to restrict ingress to the namespace. |
-| `podDisruptionBudget.enabled` | `true` | |
-| `podDisruptionBudget.minAvailable` | `1` | |
+| Key                                | Default                            | Notes                                                                                                                     |
+| ---------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `image.repository`                 | `ghcr.io/quenchworks/images/xyops` |                                                                                                                           |
+| `image.digest`                     | (CI-written)                       | Required. Charts pin by digest, never a tag.                                                                              |
+| `image.pullPolicy`                 | `IfNotPresent`                     | `Always`, `IfNotPresent`, or `Never`.                                                                                     |
+| `nameOverride`                     | `""`                               | Override the chart name in resource names.                                                                                |
+| `auth.secretKey`                   | `""`                               | Pin the signing key. Random if empty (preserved across upgrades).                                                         |
+| `auth.existingSecret`              | `""`                               | Read the signing key from your own Secret; wins over `auth.secretKey`.                                                    |
+| `auth.existingSecretKey`           | `secret-key`                       | Key within `existingSecret`.                                                                                              |
+| `resources.requests`               | `100m / 256Mi`                     | CPU / memory requests. Raise for more monitored hosts/jobs.                                                               |
+| `resources.limits`                 | `1 / 1Gi`                          | CPU / memory limits.                                                                                                      |
+| `persistence.enabled`              | `true`                             | 8Gi PVC mounted at `/opt/xyops/data` (the sqlite store). When `false`, uses an `emptyDir` (all state is lost on restart). |
+| `persistence.size`                 | `8Gi`                              | Requested volume size.                                                                                                    |
+| `persistence.storageClass`         | `""`                               | Default class if unset.                                                                                                   |
+| `persistence.accessModes`          | `["ReadWriteOnce"]`                | PVC access modes.                                                                                                         |
+| `persistence.annotations`          | `{}`                               | Annotations on the PVC template.                                                                                          |
+| `persistence.selector`             | `{}`                               | Bind to a matching PV by selector.                                                                                        |
+| `persistence.existingClaim`        | `""`                               | Bind an existing PVC instead of provisioning one.                                                                         |
+| `service.type`                     | `ClusterIP`                        | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                                                               |
+| `service.port`                     | `5522`                             | Web UI + JSON API port.                                                                                                   |
+| `serviceAccount.create`            | `true`                             | Token automount is off.                                                                                                   |
+| `serviceAccount.name`              | `""`                               | Use an existing ServiceAccount if set.                                                                                    |
+| `serviceAccount.annotations`       | `{}`                               | Annotations on the ServiceAccount.                                                                                        |
+| `rbac.create`                      | `false`                            | Minimal Role/RoleBinding.                                                                                                 |
+| `networkPolicy.enabled`            | `true`                             | NetworkPolicy is the trust boundary.                                                                                      |
+| `networkPolicy.allowExternal`      | `true`                             | The UI is commonly reached via Ingress or cluster-wide; set `false` to restrict ingress to the namespace.                 |
+| `podDisruptionBudget.enabled`      | `true`                             |                                                                                                                           |
+| `podDisruptionBudget.minAvailable` | `1`                                |                                                                                                                           |
+| `ingress.enabled`                  | `false`                            | Create an Ingress for this chart. HTTP only.                                                                              |
+| `ingress.className`                | `""`                               | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.                                          |
+| `ingress.annotations`              | `{}`                               | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).                                            |
+| `ingress.servicePort`              | `null`                             | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.                                        |
+| `ingress.hosts`                    | `[]`                               | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path.                                 |
+| `ingress.tls`                      | `[]`                               | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.                                      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 `nodeSelector`, `affinity`, `tolerations`, `topologySpreadConstraints`,
 `priorityClassName`, `schedulerName`, `terminationGracePeriodSeconds`,

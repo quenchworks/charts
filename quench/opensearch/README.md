@@ -53,7 +53,7 @@ cluster wants them:
   majority is unambiguous: 3 tolerates 1 loss, 5 tolerates 2.
 - **`data` pool** (2+ nodes) — `node.roles: [data, ingest]`. These hold the shards
   and their replicas. Keep it at 2 or more so every shard's replica has a home on
-  a *different* node.
+  a _different_ node.
 
 Nodes find each other over the headless Service: `discovery.seed_hosts` points at
 the master pods' stable DNS names, and `cluster.initial_cluster_manager_nodes`
@@ -65,11 +65,11 @@ both — a green cluster you can lose a node from.
 
 ### Failover — what survives what
 
-| You lose | What happens | Result |
-|----------|--------------|--------|
-| A **data** node | Its replicas on the surviving node(s) are promoted to primary; the StatefulSet recreates the pod, it rejoins and re-replicates. | Reads and writes keep working. Cluster goes **yellow** (no redundancy) until it rejoins, then back to **green**. Zero-touch. |
-| The elected **cluster_manager** | The surviving master-eligible nodes re-elect a leader (needs a quorum). | A brief election, then normal service. Data is untouched. |
-| **Quorum of the master pool** (2 of 3) | OpenSearch refuses to elect a leader — this is the split-brain guard, not a bug. | **Hard boundary.** The cluster will not self-rebuild. Bring the failed masters back and they rejoin. A human confirms; the chart does not auto-recover past this line. |
+| You lose                               | What happens                                                                                                                    | Result                                                                                                                                                                 |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A **data** node                        | Its replicas on the surviving node(s) are promoted to primary; the StatefulSet recreates the pod, it rejoins and re-replicates. | Reads and writes keep working. Cluster goes **yellow** (no redundancy) until it rejoins, then back to **green**. Zero-touch.                                           |
+| The elected **cluster_manager**        | The surviving master-eligible nodes re-elect a leader (needs a quorum).                                                         | A brief election, then normal service. Data is untouched.                                                                                                              |
+| **Quorum of the master pool** (2 of 3) | OpenSearch refuses to elect a leader — this is the split-brain guard, not a bug.                                                | **Hard boundary.** The cluster will not self-rebuild. Bring the failed masters back and they rejoin. A human confirms; the chart does not auto-recover past this line. |
 
 That last row is the deliberate limit: below a master majority, recovering
 automatically would risk two halves each thinking they're in charge. Restore the
@@ -94,7 +94,7 @@ lightest thing that runs. This is the pre-0.1 layout, unchanged.
 
 OpenSearch's multi-node bootstrap check needs the host sysctl `vm.max_map_count`
 at 262144 or higher, or the node refuses to start. HA mode runs a short privileged
-init container that raises it (and *only* raises it — it never lowers a node that's
+init container that raises it (and _only_ raises it — it never lowers a node that's
 already tuned higher). If your nodes are pre-tuned or you set it through the kubelet,
 turn it off:
 
@@ -121,33 +121,33 @@ gh attestation verify oci://ghcr.io/quenchworks/images/opensearch \
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/opensearch` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `mode` | `ha` | `ha` = clustered; `single` = one node. |
-| `config.clusterName` | `quench-opensearch` | |
-| `config.securityDisabled` | `true` | Security plugin isn't in the hardened image; the NetworkPolicy is the boundary. |
-| `config.extraConfig` | `""` | Extra `opensearch.yml` lines, appended to every node. |
-| `sysctls.enabled` | `true` | Privileged init raises `vm.max_map_count` (HA only). |
-| `master.replicaCount` | `3` | Cluster-manager pool. Use an odd count for a clean quorum. |
-| `master.heapSize` | `256m` | Masters do little; a small heap is plenty. |
-| `master.persistence.size` | `8Gi` | Per-pod PVC for cluster state. |
-| `data.replicaCount` | `2` | Data pool. Keep >= 2 so a replica has a home. |
-| `data.heapSize` | `512m` | JVM heap (`-Xms`/`-Xmx`). |
-| `data.persistence.size` | `16Gi` | Per-pod PVC for shards. |
-| `single.*` | — | heap/persistence/resources for `mode: single`. |
-| `service.httpPort` | `9200` | REST API (client Service across all nodes). |
-| `service.transportPort` | `9300` | Node transport (headless Service). |
-| `networkPolicy.enabled` | `true` | Restricts HTTP ingress to the release namespace; node-to-node transport always allowed. |
-| `podDisruptionBudget.enabled` | `true` | HA pins the master pool at quorum; single uses `minAvailable`. |
+| Key                           | Default                                 | Notes                                                                                     |
+| ----------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/opensearch` |                                                                                           |
+| `image.digest`                | (CI-written)                            | Required. Charts pin by digest, never a tag.                                              |
+| `mode`                        | `ha`                                    | `ha` = clustered; `single` = one node.                                                    |
+| `config.clusterName`          | `quench-opensearch`                     |                                                                                           |
+| `config.securityDisabled`     | `true`                                  | Security plugin isn't in the hardened image; the NetworkPolicy is the boundary.           |
+| `config.extraConfig`          | `""`                                    | Extra `opensearch.yml` lines, appended to every node.                                     |
+| `sysctls.enabled`             | `true`                                  | Privileged init raises `vm.max_map_count` (HA only).                                      |
+| `master.replicaCount`         | `3`                                     | Cluster-manager pool. Use an odd count for a clean quorum.                                |
+| `master.heapSize`             | `256m`                                  | Masters do little; a small heap is plenty.                                                |
+| `master.persistence.size`     | `8Gi`                                   | Per-pod PVC for cluster state.                                                            |
+| `data.replicaCount`           | `2`                                     | Data pool. Keep >= 2 so a replica has a home.                                             |
+| `data.heapSize`               | `512m`                                  | JVM heap (`-Xms`/`-Xmx`).                                                                 |
+| `data.persistence.size`       | `16Gi`                                  | Per-pod PVC for shards.                                                                   |
+| `single.*`                    | —                                       | heap/persistence/resources for `mode: single`.                                            |
+| `service.httpPort`            | `9200`                                  | REST API (client Service across all nodes).                                               |
+| `service.transportPort`       | `9300`                                  | Node transport (headless Service).                                                        |
+| `networkPolicy.enabled`       | `true`                                  | Restricts HTTP ingress to the release namespace; node-to-node transport always allowed.   |
+| `podDisruptionBudget.enabled` | `true`                                  | HA pins the master pool at quorum; single uses `minAvailable`.                            |
+| `ingress.enabled`             | `false`                                 | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                                    | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                                    | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                                  | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                                    | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                                    | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
 env/volumes, security contexts). A soft `podAntiAffinity` spreads each pool across
 nodes by default; set `.Values.affinity` to take over.

@@ -40,38 +40,38 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/ollama --owner quen
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/ollama` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. Signed multi-arch index. |
-| `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `resources.requests` | `cpu 250m / mem 512Mi` | Deliberately modest so the chart schedules anywhere; raise to fit your models. |
-| `resources.limits` | `cpu 2 / mem 4Gi` | Raise for larger models. |
-| `persistence.enabled` | `true` | `/models` PVC via a `volumeClaimTemplate`. When `false`, uses an `emptyDir` (models are lost on restart). |
-| `persistence.size` | `20Gi` | Sized for a few models; grow as needed. |
-| `persistence.storageClass` | `""` | Default class if unset. |
-| `persistence.accessModes` | `["ReadWriteOnce"]` | PVC access modes. |
-| `persistence.annotations` | `{}` | Annotations on the PVC template. |
-| `persistence.selector` | `{}` | Bind to a matching PV by selector. |
-| `persistence.existingClaim` | `""` | Bind an existing PVC instead of provisioning one. |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `11434` | Inference REST API. |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount if set. |
-| `serviceAccount.annotations` | `{}` | Annotations on the ServiceAccount. |
-| `rbac.create` | `false` | Minimal Role/RoleBinding. |
-| `networkPolicy.enabled` | `true` | NetworkPolicy on ingress. |
-| `networkPolicy.allowExternal` | `true` | Set `false` to restrict ingress to the release namespace. |
-| `podDisruptionBudget.enabled` | `true` | |
-| `podDisruptionBudget.minAvailable` | `1` | |
+| Key                                | Default                             | Notes                                                                                                     |
+| ---------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `image.repository`                 | `ghcr.io/quenchworks/images/ollama` |                                                                                                           |
+| `image.digest`                     | (CI-written)                        | Required. Charts pin by digest, never a tag. Signed multi-arch index.                                     |
+| `image.pullPolicy`                 | `IfNotPresent`                      | `Always`, `IfNotPresent`, or `Never`.                                                                     |
+| `nameOverride`                     | `""`                                | Override the chart name in resource names.                                                                |
+| `resources.requests`               | `cpu 250m / mem 512Mi`              | Deliberately modest so the chart schedules anywhere; raise to fit your models.                            |
+| `resources.limits`                 | `cpu 2 / mem 4Gi`                   | Raise for larger models.                                                                                  |
+| `persistence.enabled`              | `true`                              | `/models` PVC via a `volumeClaimTemplate`. When `false`, uses an `emptyDir` (models are lost on restart). |
+| `persistence.size`                 | `20Gi`                              | Sized for a few models; grow as needed.                                                                   |
+| `persistence.storageClass`         | `""`                                | Default class if unset.                                                                                   |
+| `persistence.accessModes`          | `["ReadWriteOnce"]`                 | PVC access modes.                                                                                         |
+| `persistence.annotations`          | `{}`                                | Annotations on the PVC template.                                                                          |
+| `persistence.selector`             | `{}`                                | Bind to a matching PV by selector.                                                                        |
+| `persistence.existingClaim`        | `""`                                | Bind an existing PVC instead of provisioning one.                                                         |
+| `service.type`                     | `ClusterIP`                         | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                                               |
+| `service.port`                     | `11434`                             | Inference REST API.                                                                                       |
+| `serviceAccount.create`            | `true`                              | Token automount is off.                                                                                   |
+| `serviceAccount.name`              | `""`                                | Use an existing ServiceAccount if set.                                                                    |
+| `serviceAccount.annotations`       | `{}`                                | Annotations on the ServiceAccount.                                                                        |
+| `rbac.create`                      | `false`                             | Minimal Role/RoleBinding.                                                                                 |
+| `networkPolicy.enabled`            | `true`                              | NetworkPolicy on ingress.                                                                                 |
+| `networkPolicy.allowExternal`      | `true`                              | Set `false` to restrict ingress to the release namespace.                                                 |
+| `podDisruptionBudget.enabled`      | `true`                              |                                                                                                           |
+| `podDisruptionBudget.minAvailable` | `1`                                 |                                                                                                           |
+| `ingress.enabled`                  | `false`                             | Create an Ingress for this chart. HTTP only.                                                              |
+| `ingress.className`                | `""`                                | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.                          |
+| `ingress.annotations`              | `{}`                                | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).                            |
+| `ingress.servicePort`              | `null`                              | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.                        |
+| `ingress.hosts`                    | `[]`                                | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path.                 |
+| `ingress.tls`                      | `[]`                                | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.                      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 `nodeSelector`, `affinity`, `tolerations`, `topologySpreadConstraints`,
 `priorityClassName`, `schedulerName`, `terminationGracePeriodSeconds`,

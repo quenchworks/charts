@@ -42,40 +42,40 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/oauth2-proxy --owne
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/oauth2-proxy` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `replicaCount` | `1` | Stateless Deployment (ignored when autoscaling is on). |
-| `config.provider` | `""` | OAuth/OIDC provider (`google`, `github`, `oidc`, `azure`, `keycloak-oidc`, ...). |
-| `config.clientID` | `""` | OAuth client id issued by the provider. |
-| `config.clientSecret` | `""` | OAuth client secret issued by the provider. |
-| `config.cookieSecret` | `""` | Cookie signing secret. MUST be 16, 24 or 32 bytes (raw or base64). |
-| `config.emailDomain` | `"*"` | Allowed email domains (`*` = any). |
-| `config.upstream` | `"static://200"` | Upstream to proxy to (`static://200` = 200 with no backend, for forward-auth). |
-| `config.extraArgs` | `[]` | Extra flags appended verbatim to the command. |
-| `resources.requests` | `cpu 50m / mem 64Mi` | |
-| `resources.limits` | `cpu 500m / mem 256Mi` | |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `4180` | Proxy/auth API port. |
-| `autoscaling.enabled` | `false` | HPA on CPU. |
-| `autoscaling.minReplicas` | `1` | |
-| `autoscaling.maxReplicas` | `5` | |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount if set. |
-| `rbac.create` | `false` | Minimal Role/RoleBinding. |
-| `networkPolicy.enabled` | `true` | Restricts ingress. |
-| `networkPolicy.allowExternal` | `true` | The proxy is usually consulted across the cluster (forward-auth, ingress); set `false` to restrict to the release namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                                   | Notes                                                                                                                        |
+| ----------------------------- | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/oauth2-proxy` |                                                                                                                              |
+| `image.digest`                | (CI-written)                              | Required. Charts pin by digest, never a tag.                                                                                 |
+| `image.pullPolicy`            | `IfNotPresent`                            | `Always`, `IfNotPresent`, or `Never`.                                                                                        |
+| `nameOverride`                | `""`                                      | Override the chart name in resource names.                                                                                   |
+| `replicaCount`                | `1`                                       | Stateless Deployment (ignored when autoscaling is on).                                                                       |
+| `config.provider`             | `""`                                      | OAuth/OIDC provider (`google`, `github`, `oidc`, `azure`, `keycloak-oidc`, ...).                                             |
+| `config.clientID`             | `""`                                      | OAuth client id issued by the provider.                                                                                      |
+| `config.clientSecret`         | `""`                                      | OAuth client secret issued by the provider.                                                                                  |
+| `config.cookieSecret`         | `""`                                      | Cookie signing secret. MUST be 16, 24 or 32 bytes (raw or base64).                                                           |
+| `config.emailDomain`          | `"*"`                                     | Allowed email domains (`*` = any).                                                                                           |
+| `config.upstream`             | `"static://200"`                          | Upstream to proxy to (`static://200` = 200 with no backend, for forward-auth).                                               |
+| `config.extraArgs`            | `[]`                                      | Extra flags appended verbatim to the command.                                                                                |
+| `resources.requests`          | `cpu 50m / mem 64Mi`                      |                                                                                                                              |
+| `resources.limits`            | `cpu 500m / mem 256Mi`                    |                                                                                                                              |
+| `service.type`                | `ClusterIP`                               | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                                                                  |
+| `service.port`                | `4180`                                    | Proxy/auth API port.                                                                                                         |
+| `autoscaling.enabled`         | `false`                                   | HPA on CPU.                                                                                                                  |
+| `autoscaling.minReplicas`     | `1`                                       |                                                                                                                              |
+| `autoscaling.maxReplicas`     | `5`                                       |                                                                                                                              |
+| `serviceAccount.create`       | `true`                                    | Token automount is off.                                                                                                      |
+| `serviceAccount.name`         | `""`                                      | Use an existing ServiceAccount if set.                                                                                       |
+| `rbac.create`                 | `false`                                   | Minimal Role/RoleBinding.                                                                                                    |
+| `networkPolicy.enabled`       | `true`                                    | Restricts ingress.                                                                                                           |
+| `networkPolicy.allowExternal` | `true`                                    | The proxy is usually consulted across the cluster (forward-auth, ingress); set `false` to restrict to the release namespace. |
+| `podDisruptionBudget.enabled` | `true`                                    | `minAvailable: 1`.                                                                                                           |
+| `ingress.enabled`             | `false`                                   | Create an Ingress for this chart. HTTP only.                                                                                 |
+| `ingress.className`           | `""`                                      | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.                                             |
+| `ingress.annotations`         | `{}`                                      | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).                                               |
+| `ingress.servicePort`         | `null`                                    | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.                                           |
+| `ingress.hosts`               | `[]`                                      | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path.                                    |
+| `ingress.tls`                 | `[]`                                      | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.                                         |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
 containers, extra env/volumes, security contexts, update strategy).
 

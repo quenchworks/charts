@@ -57,31 +57,31 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/neo4j --owner quenc
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/neo4j` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Single node (Community Edition). |
-| `auth.enabled` | `true` | `false` disables auth (`NEO4J_AUTH=none`) — not for production. |
-| `auth.username` | `neo4j` | Community fixes the admin user to `neo4j`. |
-| `auth.password` | (generated) | 24-char random if empty; stored in the Secret. |
-| `auth.existingSecret` | `""` | Use an existing Secret holding the `neo4j/<pw>` string. |
-| `auth.existingSecretAuthKey` | `neo4j-auth` | Key in `existingSecret` for `NEO4J_AUTH`. |
-| `heap.initial` / `heap.max` | `512m` | JVM heap (`server.memory.heap.*`). |
-| `heap.pagecache` | `256m` | Page cache (`server.memory.pagecache.size`). |
-| `extraConfig` | `{}` | Extra `neo4j.conf` settings (`NEO4J_<setting>` env mapping). |
-| `persistence.enabled` | `true` | 8Gi PVC at `/data`. |
-| `service.httpPort` | `7474` | HTTP API + Browser. |
-| `service.boltPort` | `7687` | Bolt protocol. |
-| `networkPolicy.enabled` | `true` | Restricts ingress (7474 + 7687) to the namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                            | Notes                                                                                     |
+| ----------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/neo4j` |                                                                                           |
+| `image.digest`                | (CI-written)                       | Required. Charts pin by digest, never a tag.                                              |
+| `replicaCount`                | `1`                                | Single node (Community Edition).                                                          |
+| `auth.enabled`                | `true`                             | `false` disables auth (`NEO4J_AUTH=none`) — not for production.                           |
+| `auth.username`               | `neo4j`                            | Community fixes the admin user to `neo4j`.                                                |
+| `auth.password`               | (generated)                        | 24-char random if empty; stored in the Secret.                                            |
+| `auth.existingSecret`         | `""`                               | Use an existing Secret holding the `neo4j/<pw>` string.                                   |
+| `auth.existingSecretAuthKey`  | `neo4j-auth`                       | Key in `existingSecret` for `NEO4J_AUTH`.                                                 |
+| `heap.initial` / `heap.max`   | `512m`                             | JVM heap (`server.memory.heap.*`).                                                        |
+| `heap.pagecache`              | `256m`                             | Page cache (`server.memory.pagecache.size`).                                              |
+| `extraConfig`                 | `{}`                               | Extra `neo4j.conf` settings (`NEO4J_<setting>` env mapping).                              |
+| `persistence.enabled`         | `true`                             | 8Gi PVC at `/data`.                                                                       |
+| `service.httpPort`            | `7474`                             | HTTP API + Browser.                                                                       |
+| `service.boltPort`            | `7687`                             | Bolt protocol.                                                                            |
+| `networkPolicy.enabled`       | `true`                             | Restricts ingress (7474 + 7687) to the namespace.                                         |
+| `podDisruptionBudget.enabled` | `true`                             | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`             | `false`                            | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                               | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                               | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                             | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                               | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                               | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
 env/volumes, security contexts).
 

@@ -57,51 +57,51 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/temporal --owner qu
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/temporal` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `replicaCount` | `1` | Keep at 1 for the all-in-one server. |
-| `numHistoryShards` | `512` | Fixed at first schema setup; cannot change later without a fresh database. |
-| `postgresql.enabled` | `true` | Bundle the Quenchworks PostgreSQL subchart. Set `false` for `externalDatabase`. |
-| `postgresql.auth.username` | `temporal_user` | Bundled PG superuser/owner; must differ from the database name. |
-| `postgresql.auth.password` | `temporal` | Deterministic shared DB password. |
-| `postgresql.auth.database` | `temporal` | Main store database, created by the bundled PG at init. |
-| `postgresql.primary.persistence.size` | `8Gi` | Bundled PG data volume. |
-| `databases.main` | `temporal` | Main store database name. |
-| `databases.visibility` | `temporal_visibility` | Visibility store; created by the schema-setup Job. |
-| `externalDatabase.host` | `""` | Used when `postgresql.enabled=false`. |
-| `externalDatabase.port` | `5432` | |
-| `externalDatabase.user` | `temporal_user` | Must be able to create databases and schemas. |
-| `externalDatabase.password` | `""` | Inline password, or use `existingSecret`. |
-| `externalDatabase.existingSecret` | `""` | Secret holding the DB password. |
-| `externalDatabase.existingSecretPasswordKey` | `password` | Key within `existingSecret`. |
-| `schemaSetup.enabled` | `true` | Run the schema-setup Job (pre-install/pre-upgrade hook). |
-| `schemaSetup.retries` | `60` | Attempts while waiting for PostgreSQL to accept connections. |
-| `schemaSetup.retryInterval` | `5` | Seconds slept between attempts. |
-| `temporalConfig` | (Postgres-backed default) | Server config rendered through `tpl`, mounted at `/etc/temporal/config/production.yaml`. |
-| `dynamicConfig` | `{}` | Runtime dynamic-config overrides; empty map is valid. |
-| `resources.requests` | `cpu 500m / mem 512Mi` | |
-| `resources.limits` | `cpu 2 / mem 2Gi` | |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.grpcPort` | `7233` | Frontend gRPC (main client/worker port). |
-| `service.httpPort` | `7243` | Frontend HTTP API. |
-| `service.metricsPort` | `8000` | Prometheus metrics (tally). |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount. |
-| `rbac.create` | `false` | Minimal Role/RoleBinding. |
-| `networkPolicy.enabled` | `true` | Restricts ingress. |
-| `networkPolicy.allowExternal` | `false` | Set `true` to allow frontend ingress from outside the namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                                          | Default                               | Notes                                                                                     |
+| -------------------------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`                           | `ghcr.io/quenchworks/images/temporal` |                                                                                           |
+| `image.digest`                               | (CI-written)                          | Required. Charts pin by digest, never a tag.                                              |
+| `image.pullPolicy`                           | `IfNotPresent`                        |                                                                                           |
+| `nameOverride`                               | `""`                                  | Override the chart name in resource names.                                                |
+| `replicaCount`                               | `1`                                   | Keep at 1 for the all-in-one server.                                                      |
+| `numHistoryShards`                           | `512`                                 | Fixed at first schema setup; cannot change later without a fresh database.                |
+| `postgresql.enabled`                         | `true`                                | Bundle the Quenchworks PostgreSQL subchart. Set `false` for `externalDatabase`.           |
+| `postgresql.auth.username`                   | `temporal_user`                       | Bundled PG superuser/owner; must differ from the database name.                           |
+| `postgresql.auth.password`                   | `temporal`                            | Deterministic shared DB password.                                                         |
+| `postgresql.auth.database`                   | `temporal`                            | Main store database, created by the bundled PG at init.                                   |
+| `postgresql.primary.persistence.size`        | `8Gi`                                 | Bundled PG data volume.                                                                   |
+| `databases.main`                             | `temporal`                            | Main store database name.                                                                 |
+| `databases.visibility`                       | `temporal_visibility`                 | Visibility store; created by the schema-setup Job.                                        |
+| `externalDatabase.host`                      | `""`                                  | Used when `postgresql.enabled=false`.                                                     |
+| `externalDatabase.port`                      | `5432`                                |                                                                                           |
+| `externalDatabase.user`                      | `temporal_user`                       | Must be able to create databases and schemas.                                             |
+| `externalDatabase.password`                  | `""`                                  | Inline password, or use `existingSecret`.                                                 |
+| `externalDatabase.existingSecret`            | `""`                                  | Secret holding the DB password.                                                           |
+| `externalDatabase.existingSecretPasswordKey` | `password`                            | Key within `existingSecret`.                                                              |
+| `schemaSetup.enabled`                        | `true`                                | Run the schema-setup Job (pre-install/pre-upgrade hook).                                  |
+| `schemaSetup.retries`                        | `60`                                  | Attempts while waiting for PostgreSQL to accept connections.                              |
+| `schemaSetup.retryInterval`                  | `5`                                   | Seconds slept between attempts.                                                           |
+| `temporalConfig`                             | (Postgres-backed default)             | Server config rendered through `tpl`, mounted at `/etc/temporal/config/production.yaml`.  |
+| `dynamicConfig`                              | `{}`                                  | Runtime dynamic-config overrides; empty map is valid.                                     |
+| `resources.requests`                         | `cpu 500m / mem 512Mi`                |                                                                                           |
+| `resources.limits`                           | `cpu 2 / mem 2Gi`                     |                                                                                           |
+| `service.type`                               | `ClusterIP`                           | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
+| `service.grpcPort`                           | `7233`                                | Frontend gRPC (main client/worker port).                                                  |
+| `service.httpPort`                           | `7243`                                | Frontend HTTP API.                                                                        |
+| `service.metricsPort`                        | `8000`                                | Prometheus metrics (tally).                                                               |
+| `serviceAccount.create`                      | `true`                                | Token automount is off.                                                                   |
+| `serviceAccount.name`                        | `""`                                  | Use an existing ServiceAccount.                                                           |
+| `rbac.create`                                | `false`                               | Minimal Role/RoleBinding.                                                                 |
+| `networkPolicy.enabled`                      | `true`                                | Restricts ingress.                                                                        |
+| `networkPolicy.allowExternal`                | `false`                               | Set `true` to allow frontend ingress from outside the namespace.                          |
+| `podDisruptionBudget.enabled`                | `true`                                | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`                            | `false`                               | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`                          | `""`                                  | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`                        | `{}`                                  | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`                        | `null`                                | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`                              | `[]`                                  | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                                | `[]`                                  | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 `nodeSelector`, `affinity`, `tolerations`, `topologySpreadConstraints`,
 `priorityClassName`, `schedulerName`, `terminationGracePeriodSeconds`,
@@ -130,7 +130,7 @@ externalDatabase:
   host: postgres.example.com
   port: 5432
   user: temporal_user
-  password: "..."        # or existingSecret + existingSecretPasswordKey
+  password: "..." # or existingSecret + existingSecretPasswordKey
 databases:
   main: temporal
   visibility: temporal_visibility
@@ -145,18 +145,18 @@ through `tpl`, replacing the upstream sqlite sample). It is mounted at
 `/etc/temporal/config/production.yaml`; `dynamicConfig` is mounted alongside. Edit
 either and `helm upgrade` — the pod checksum annotation rolls the Deployment.
 
-| Key | Default | Description |
-| --- | --- | --- |
-| `replicaCount` | `1` | Keep at 1 for the all-in-one server. |
-| `numHistoryShards` | `512` | Fixed at first schema setup; cannot change later. |
-| `postgresql.enabled` | `true` | Bundle the Quenchworks PostgreSQL chart. |
-| `postgresql.auth.{username,password,database}` | `temporal_user` / `temporal` / `temporal` | Deterministic shared DB creds. |
-| `databases.{main,visibility}` | `temporal` / `temporal_visibility` | Store database names. |
-| `externalDatabase.*` | — | Used when `postgresql.enabled=false`. |
-| `schemaSetup.enabled` | `true` | Run the schema-setup Job hook. |
-| `service.{grpcPort,httpPort,metricsPort}` | `7233` / `7243` / `8000` | Service ports. |
-| `networkPolicy.allowExternal` | `false` | Allow frontend ingress from outside the namespace. |
-| `podDisruptionBudget.enabled` | `true` | PDB (`minAvailable: 1`). |
+| Key                                            | Default                                   | Description                                        |
+| ---------------------------------------------- | ----------------------------------------- | -------------------------------------------------- |
+| `replicaCount`                                 | `1`                                       | Keep at 1 for the all-in-one server.               |
+| `numHistoryShards`                             | `512`                                     | Fixed at first schema setup; cannot change later.  |
+| `postgresql.enabled`                           | `true`                                    | Bundle the Quenchworks PostgreSQL chart.           |
+| `postgresql.auth.{username,password,database}` | `temporal_user` / `temporal` / `temporal` | Deterministic shared DB creds.                     |
+| `databases.{main,visibility}`                  | `temporal` / `temporal_visibility`        | Store database names.                              |
+| `externalDatabase.*`                           | —                                         | Used when `postgresql.enabled=false`.              |
+| `schemaSetup.enabled`                          | `true`                                    | Run the schema-setup Job hook.                     |
+| `service.{grpcPort,httpPort,metricsPort}`      | `7233` / `7243` / `8000`                  | Service ports.                                     |
+| `networkPolicy.allowExternal`                  | `false`                                   | Allow frontend ingress from outside the namespace. |
+| `podDisruptionBudget.enabled`                  | `true`                                    | PDB (`minAvailable: 1`).                           |
 
 Standard quench-common knobs (`resources`, `nodeSelector`, `affinity`, `tolerations`,
 `podSecurityContext`, `containerSecurityContext`, probe overrides, `extraEnvVars`,

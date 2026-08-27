@@ -14,10 +14,10 @@ upstream documentation.
 Authentik runs as **two Deployments from the same image**, both sharing the same
 config (secret key + PostgreSQL + Redis):
 
-| Workload  | Entrypoint  | Ports              | Purpose                                                        |
-| --------- | ----------- | ------------------ | -------------------------------------------------------------- |
-| `server`  | `ak server` | 9000 (HTTP), 9443 (HTTPS) | Web UI, API, outpost endpoint.                          |
-| `worker`  | `ak worker` | none               | Background tasks: **DB migrations on boot**, blueprints, outpost management, e-mail, scheduled/async tasks. |
+| Workload | Entrypoint  | Ports                     | Purpose                                                                                                     |
+| -------- | ----------- | ------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `server` | `ak server` | 9000 (HTTP), 9443 (HTTPS) | Web UI, API, outpost endpoint.                                                                              |
+| `worker` | `ak worker` | none                      | Background tasks: **DB migrations on boot**, blueprints, outpost management, e-mail, scheduled/async tasks. |
 
 The `Service` selects the **server** only (the worker has no listener). On a fresh
 install the worker migrates the schema first; the server then passes
@@ -40,18 +40,18 @@ fails with a clear message — there is no standalone fallback.
 
 ### Database
 
-| Mode | How | Notes |
-| ---- | --- | ----- |
-| **Bundled** (default) | `postgresql.enabled=true` | Pulls the QuenchWorks `postgresql` subchart; connects to `<release>-postgresql:5432`. Password read from the subchart's own Secret. `postgresql.auth.username` and `.database` **must differ** (the bundled image only creates the app DB when it differs from both `postgres` and the superuser name). |
-| **External** | `postgresql.enabled=false` + `externalDatabase.host=…` | Point at any reachable PostgreSQL. Password inline (`externalDatabase.password`) or via `externalDatabase.existingSecret` (+`existingSecretPasswordKey`). |
+| Mode                  | How                                                    | Notes                                                                                                                                                                                                                                                                                                   |
+| --------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Bundled** (default) | `postgresql.enabled=true`                              | Pulls the QuenchWorks `postgresql` subchart; connects to `<release>-postgresql:5432`. Password read from the subchart's own Secret. `postgresql.auth.username` and `.database` **must differ** (the bundled image only creates the app DB when it differs from both `postgres` and the superuser name). |
+| **External**          | `postgresql.enabled=false` + `externalDatabase.host=…` | Point at any reachable PostgreSQL. Password inline (`externalDatabase.password`) or via `externalDatabase.existingSecret` (+`existingSecretPasswordKey`).                                                                                                                                               |
 
 ### Redis
 
-| Mode | How | Notes |
-| ---- | --- | ----- |
-| **Bundled valkey** (default, recommended) | `valkey.enabled=true` | 0-CVE, BSD-licensed, Redis-wire-compatible; connects to `<release>-valkey:6379`. Password read from valkey's own Secret. |
-| **Bundled redis** (AGPL alternative) | `redis.enabled=true` | Connects to `<release>-redis:6379`. Enable **at most one** of valkey/redis; valkey wins if both are set. |
-| **External** | both bundled off + `externalRedis.host=…` | Point at any reachable Redis/Valkey. Password inline or via `externalRedis.existingSecret`. |
+| Mode                                      | How                                       | Notes                                                                                                                    |
+| ----------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **Bundled valkey** (default, recommended) | `valkey.enabled=true`                     | 0-CVE, BSD-licensed, Redis-wire-compatible; connects to `<release>-valkey:6379`. Password read from valkey's own Secret. |
+| **Bundled redis** (AGPL alternative)      | `redis.enabled=true`                      | Connects to `<release>-redis:6379`. Enable **at most one** of valkey/redis; valkey wins if both are set.                 |
+| **External**                              | both bundled off + `externalRedis.host=…` | Point at any reachable Redis/Valkey. Password inline or via `externalRedis.existingSecret`.                              |
 
 Mix-and-match is allowed (e.g. bundled PG + external Redis).
 
@@ -103,29 +103,29 @@ externalRedis:
   existingSecretPasswordKey: redis-password
 
 secrets:
-  existingSecret: authentik-secretkey   # key: authentik-secret-key
+  existingSecret: authentik-secretkey # key: authentik-secret-key
 ```
 
 ## Key values
 
-| Key | Default | Description |
-| --- | ------- | ----------- |
-| `image.digest` | pinned by CI | Image digest (never a tag). |
-| `server.replicaCount` / `worker.replicaCount` | `1` / `1` | Per-workload replicas. |
-| `postgresql.enabled` | `true` | Bundle the QuenchWorks PostgreSQL subchart. |
-| `valkey.enabled` | `true` | Bundle the recommended valkey session/cache store. |
-| `redis.enabled` | `false` | Bundle redis (AGPL) instead of valkey. |
-| `media.persistence.enabled` | `true` | PVC mounted at `/media` (uploaded assets), shared by both workloads. Use RWX for multi-node/multi-replica. |
-| `secrets.secretKey` | `""` (generated) | AUTHENTIK_SECRET_KEY. |
-| `config.errorReporting` | `false` | Sentry error reporting (off = no phone-home). |
-| `networkPolicy.enabled` | `true` | Restrict ingress to the server workload. |
+| Key                                           | Default          | Description                                                                                                |
+| --------------------------------------------- | ---------------- | ---------------------------------------------------------------------------------------------------------- |
+| `image.digest`                                | pinned by CI     | Image digest (never a tag).                                                                                |
+| `server.replicaCount` / `worker.replicaCount` | `1` / `1`        | Per-workload replicas.                                                                                     |
+| `postgresql.enabled`                          | `true`           | Bundle the QuenchWorks PostgreSQL subchart.                                                                |
+| `valkey.enabled`                              | `true`           | Bundle the recommended valkey session/cache store.                                                         |
+| `redis.enabled`                               | `false`          | Bundle redis (AGPL) instead of valkey.                                                                     |
+| `media.persistence.enabled`                   | `true`           | PVC mounted at `/media` (uploaded assets), shared by both workloads. Use RWX for multi-node/multi-replica. |
+| `secrets.secretKey`                           | `""` (generated) | AUTHENTIK_SECRET_KEY.                                                                                      |
+| `config.errorReporting`                       | `false`          | Sentry error reporting (off = no phone-home).                                                              |
+| `networkPolicy.enabled`                       | `true`           | Restrict ingress to the server workload.                                                                   |
+| `ingress.enabled`                             | `false`          | Create an Ingress for this chart. HTTP only.                                                               |
+| `ingress.className`                           | `""`             | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.                           |
+| `ingress.annotations`                         | `{}`             | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).                             |
+| `ingress.servicePort`                         | `null`           | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.                         |
+| `ingress.hosts`                               | `[]`             | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path.                  |
+| `ingress.tls`                                 | `[]`             | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.                       |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 ## Notes
 
 - Runs nonroot uid 1001 with a read-only root filesystem; writable `/tmp` (emptyDir)

@@ -58,40 +58,40 @@ gh attestation verify oci://ghcr.io/quenchworks/images/vllm \
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/vllm` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `model` | `""` | **Required** — HF model id or a mounted path. Empty means the pod crash-loops. |
-| `extraArgs` | `[]` | Extra flags appended to `vllm serve <model> --host 0.0.0.0 --port 8000` (e.g. `--max-model-len=4096`, `--dtype=bfloat16`). |
-| `resources.requests` | `500m / 2Gi` | CPU / memory requests. Raise to fit your model. |
-| `resources.limits` | `4 / 8Gi` | CPU / memory limits. A 7B model in bf16 needs ~16Gi. |
-| `persistence.enabled` | `true` | 30Gi PVC mounted at `/opt/vllm/.cache` (the HF cache). When `false`, uses an `emptyDir` (weights are re-downloaded on restart). |
-| `persistence.size` | `30Gi` | Requested volume size. |
-| `persistence.storageClass` | `""` | Default class if unset. |
-| `persistence.accessModes` | `["ReadWriteOnce"]` | PVC access modes. |
-| `persistence.annotations` | `{}` | Annotations on the PVC template. |
-| `persistence.selector` | `{}` | Bind to a matching PV by selector. |
-| `persistence.existingClaim` | `""` | Bind an existing PVC instead of provisioning one. |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `8000` | OpenAI-compatible API port. |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount if set. |
-| `serviceAccount.annotations` | `{}` | Annotations on the ServiceAccount. |
-| `rbac.create` | `false` | Minimal Role/RoleBinding. |
-| `networkPolicy.enabled` | `true` | NetworkPolicy is the trust boundary. |
-| `networkPolicy.allowExternal` | `true` | The inference API is commonly consulted cluster-wide; set `false` to restrict ingress to the namespace. |
-| `podDisruptionBudget.enabled` | `true` | |
-| `podDisruptionBudget.minAvailable` | `1` | |
+| Key                                | Default                           | Notes                                                                                                                           |
+| ---------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `image.repository`                 | `ghcr.io/quenchworks/images/vllm` |                                                                                                                                 |
+| `image.digest`                     | (CI-written)                      | Required. Charts pin by digest, never a tag.                                                                                    |
+| `image.pullPolicy`                 | `IfNotPresent`                    | `Always`, `IfNotPresent`, or `Never`.                                                                                           |
+| `nameOverride`                     | `""`                              | Override the chart name in resource names.                                                                                      |
+| `model`                            | `""`                              | **Required** — HF model id or a mounted path. Empty means the pod crash-loops.                                                  |
+| `extraArgs`                        | `[]`                              | Extra flags appended to `vllm serve <model> --host 0.0.0.0 --port 8000` (e.g. `--max-model-len=4096`, `--dtype=bfloat16`).      |
+| `resources.requests`               | `500m / 2Gi`                      | CPU / memory requests. Raise to fit your model.                                                                                 |
+| `resources.limits`                 | `4 / 8Gi`                         | CPU / memory limits. A 7B model in bf16 needs ~16Gi.                                                                            |
+| `persistence.enabled`              | `true`                            | 30Gi PVC mounted at `/opt/vllm/.cache` (the HF cache). When `false`, uses an `emptyDir` (weights are re-downloaded on restart). |
+| `persistence.size`                 | `30Gi`                            | Requested volume size.                                                                                                          |
+| `persistence.storageClass`         | `""`                              | Default class if unset.                                                                                                         |
+| `persistence.accessModes`          | `["ReadWriteOnce"]`               | PVC access modes.                                                                                                               |
+| `persistence.annotations`          | `{}`                              | Annotations on the PVC template.                                                                                                |
+| `persistence.selector`             | `{}`                              | Bind to a matching PV by selector.                                                                                              |
+| `persistence.existingClaim`        | `""`                              | Bind an existing PVC instead of provisioning one.                                                                               |
+| `service.type`                     | `ClusterIP`                       | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                                                                     |
+| `service.port`                     | `8000`                            | OpenAI-compatible API port.                                                                                                     |
+| `serviceAccount.create`            | `true`                            | Token automount is off.                                                                                                         |
+| `serviceAccount.name`              | `""`                              | Use an existing ServiceAccount if set.                                                                                          |
+| `serviceAccount.annotations`       | `{}`                              | Annotations on the ServiceAccount.                                                                                              |
+| `rbac.create`                      | `false`                           | Minimal Role/RoleBinding.                                                                                                       |
+| `networkPolicy.enabled`            | `true`                            | NetworkPolicy is the trust boundary.                                                                                            |
+| `networkPolicy.allowExternal`      | `true`                            | The inference API is commonly consulted cluster-wide; set `false` to restrict ingress to the namespace.                         |
+| `podDisruptionBudget.enabled`      | `true`                            |                                                                                                                                 |
+| `podDisruptionBudget.minAvailable` | `1`                               |                                                                                                                                 |
+| `ingress.enabled`                  | `false`                           | Create an Ingress for this chart. HTTP only.                                                                                    |
+| `ingress.className`                | `""`                              | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.                                                |
+| `ingress.annotations`              | `{}`                              | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).                                                  |
+| `ingress.servicePort`              | `null`                            | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.                                              |
+| `ingress.hosts`                    | `[]`                              | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path.                                       |
+| `ingress.tls`                      | `[]`                              | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.                                            |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 `nodeSelector`, `affinity`, `tolerations`, `topologySpreadConstraints`,
 `priorityClassName`, `schedulerName`, `terminationGracePeriodSeconds`,

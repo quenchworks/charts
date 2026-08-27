@@ -42,42 +42,42 @@ Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them 
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/headscale` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `image.pullPolicy` | `IfNotPresent` | `Always`, `IfNotPresent`, or `Never`. |
-| `nameOverride` | `""` | Override the chart name in resource names. |
-| `replicaCount` | `1` | Fixed at 1: single SQLite writer, do not scale out. |
-| `containerPort` | `8080` | HTTP API / coordination port (nonroot). |
-| `metricsPort` | `9090` | Prometheus metrics port, exposed on the Service as `metrics`. |
-| `serverUrl` | `http://127.0.0.1:8080` | The login-server URL clients use. Override this. |
-| `config` | (see values.yaml) | Full headscale `config.yaml`, `tpl`-rendered into a ConfigMap. |
-| `resources.requests` | `cpu 50m / mem 64Mi` | |
-| `resources.limits` | `cpu 500m / mem 256Mi` | |
-| `args` | `["serve"]` | Entrypoint verb; override only for maintenance verbs. |
-| `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
-| `service.port` | `8080` | Forwards to the container's `http` port. |
-| `persistence.enabled` | `true` | 1Gi PVC mounted at `/var/lib/headscale` (DB + noise key + socket). |
-| `persistence.size` | `1Gi` | Requested volume size. |
-| `persistence.dataDir` | `/var/lib/headscale` | Mount point; must match the paths in `config`. |
-| `persistence.storageClass` | `""` | Default class if unset. |
-| `persistence.accessModes` | `["ReadWriteOnce"]` | PVC access modes. |
-| `persistence.existingClaim` | `""` | Bind an existing PVC instead of provisioning one. |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `serviceAccount.name` | `""` | Use an existing ServiceAccount if set. |
-| `rbac.create` | `false` | Minimal empty Role/RoleBinding when enabled. |
-| `networkPolicy.enabled` | `true` | Client ingress from the release namespace. |
-| `networkPolicy.allowExternal` | `false` | Set `true` to allow ingress from any source. |
-| `podDisruptionBudget.enabled` | `true` | |
-| `podDisruptionBudget.minAvailable` | `1` | |
+| Key                                | Default                                | Notes                                                                                     |
+| ---------------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`                 | `ghcr.io/quenchworks/images/headscale` |                                                                                           |
+| `image.digest`                     | (CI-written)                           | Required. Charts pin by digest, never a tag.                                              |
+| `image.pullPolicy`                 | `IfNotPresent`                         | `Always`, `IfNotPresent`, or `Never`.                                                     |
+| `nameOverride`                     | `""`                                   | Override the chart name in resource names.                                                |
+| `replicaCount`                     | `1`                                    | Fixed at 1: single SQLite writer, do not scale out.                                       |
+| `containerPort`                    | `8080`                                 | HTTP API / coordination port (nonroot).                                                   |
+| `metricsPort`                      | `9090`                                 | Prometheus metrics port, exposed on the Service as `metrics`.                             |
+| `serverUrl`                        | `http://127.0.0.1:8080`                | The login-server URL clients use. Override this.                                          |
+| `config`                           | (see values.yaml)                      | Full headscale `config.yaml`, `tpl`-rendered into a ConfigMap.                            |
+| `resources.requests`               | `cpu 50m / mem 64Mi`                   |                                                                                           |
+| `resources.limits`                 | `cpu 500m / mem 256Mi`                 |                                                                                           |
+| `args`                             | `["serve"]`                            | Entrypoint verb; override only for maintenance verbs.                                     |
+| `service.type`                     | `ClusterIP`                            | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
+| `service.port`                     | `8080`                                 | Forwards to the container's `http` port.                                                  |
+| `persistence.enabled`              | `true`                                 | 1Gi PVC mounted at `/var/lib/headscale` (DB + noise key + socket).                        |
+| `persistence.size`                 | `1Gi`                                  | Requested volume size.                                                                    |
+| `persistence.dataDir`              | `/var/lib/headscale`                   | Mount point; must match the paths in `config`.                                            |
+| `persistence.storageClass`         | `""`                                   | Default class if unset.                                                                   |
+| `persistence.accessModes`          | `["ReadWriteOnce"]`                    | PVC access modes.                                                                         |
+| `persistence.existingClaim`        | `""`                                   | Bind an existing PVC instead of provisioning one.                                         |
+| `serviceAccount.create`            | `true`                                 | Token automount is off.                                                                   |
+| `serviceAccount.name`              | `""`                                   | Use an existing ServiceAccount if set.                                                    |
+| `rbac.create`                      | `false`                                | Minimal empty Role/RoleBinding when enabled.                                              |
+| `networkPolicy.enabled`            | `true`                                 | Client ingress from the release namespace.                                                |
+| `networkPolicy.allowExternal`      | `false`                                | Set `true` to allow ingress from any source.                                              |
+| `podDisruptionBudget.enabled`      | `true`                                 |                                                                                           |
+| `podDisruptionBudget.minAvailable` | `1`                                    |                                                                                           |
+| `ingress.enabled`                  | `false`                                | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`                | `""`                                   | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`              | `{}`                                   | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`              | `null`                                 | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`                    | `[]`                                   | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                      | `[]`                                   | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 `nodeSelector`, `affinity`, `tolerations`, `topologySpreadConstraints`,
 `priorityClassName`, `schedulerName`, `terminationGracePeriodSeconds`,

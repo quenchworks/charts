@@ -92,26 +92,25 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/nextcloud --owner q
 
 ## Key values
 
-| Key | Default | Description |
-| --- | --- | --- |
-| `image.repository` | `ghcr.io/quenchworks/images/nextcloud` | Image repo |
-| `image.digest` | pinned `sha256:…` | Immutable image digest (CI-maintained) |
-| `nextcloud.admin.username` | `admin` | Admin account created on install |
-| `nextcloud.admin.password` | generated | Admin password (managed Secret if empty) |
-| `nextcloud.trustedDomains` | `[localhost, 127.0.0.1]` | Hosts Nextcloud answers for |
-| `nextcloud.overwriteProtocol` | `http` | Protocol for generated URLs (`https` behind TLS) |
-| `replicaCount` | `1` | Replicas (PVCs are ReadWriteOnce) |
-| `service.port` | `8080` | HTTP port (image nginx, nonroot) |
-| `persistence.data.size` | `10Gi` | User-file PVC size (`/var/www/html/data`) |
-| `persistence.config.size` | `1Gi` | Config PVC size (`/var/www/html/config`) |
-| `mariadb.enabled` | `true` | Deploy the bundled MariaDB backend |
-| `mariadb.auth.database` | `nextcloud` | App database |
-| `mariadb.auth.username` | `nextcloud` | DB user |
-| `networkPolicy.allowExternal` | `false` | Allow ingress from outside the namespace |
-
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
+| Key                           | Default                                | Description                                                                               |
+| ----------------------------- | -------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/nextcloud` | Image repo                                                                                |
+| `image.digest`                | pinned `sha256:…`                      | Immutable image digest (CI-maintained)                                                    |
+| `nextcloud.admin.username`    | `admin`                                | Admin account created on install                                                          |
+| `nextcloud.admin.password`    | generated                              | Admin password (managed Secret if empty)                                                  |
+| `nextcloud.trustedDomains`    | `[localhost, 127.0.0.1]`               | Hosts Nextcloud answers for                                                               |
+| `nextcloud.overwriteProtocol` | `http`                                 | Protocol for generated URLs (`https` behind TLS)                                          |
+| `replicaCount`                | `1`                                    | Replicas (PVCs are ReadWriteOnce)                                                         |
+| `service.port`                | `8080`                                 | HTTP port (image nginx, nonroot)                                                          |
+| `persistence.data.size`       | `10Gi`                                 | User-file PVC size (`/var/www/html/data`)                                                 |
+| `persistence.config.size`     | `1Gi`                                  | Config PVC size (`/var/www/html/config`)                                                  |
+| `mariadb.enabled`             | `true`                                 | Deploy the bundled MariaDB backend                                                        |
+| `mariadb.auth.database`       | `nextcloud`                            | App database                                                                              |
+| `mariadb.auth.username`       | `nextcloud`                            | DB user                                                                                   |
+| `networkPolicy.allowExternal` | `false`                                | Allow ingress from outside the namespace                                                  |
+| `ingress.enabled`             | `false`                                | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                                   | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                                   | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                                 | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                                   | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                                   | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |

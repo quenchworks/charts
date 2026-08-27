@@ -80,27 +80,27 @@ hostname. For plain in-cluster HTTP, keep the default `:8080` site.
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/caddy` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Stateless; scale freely (ignored when autoscaling is on). |
-| `config.caddyfile` | `:8080 { respond ... 200 }` | Inline Caddyfile mounted at `/etc/caddy/Caddyfile`. |
-| `config.existingConfigMap` | `""` | Existing ConfigMap with a `Caddyfile` key; takes precedence over `config.caddyfile`. |
-| `service.port` | `8080` | http (named `http`). |
-| `service.httpsPort` | `8443` | https (named `https`). |
-| `service.adminPort` | `2019` | admin API (named `admin`); in-cluster only. |
-| `autoscaling.enabled` | `false` | Optional CPU HPA (`minReplicas`/`maxReplicas`). |
-| `networkPolicy.enabled` | `true` | Ingress to 8080/8443 (admin always namespace-only). |
-| `networkPolicy.allowExternal` | `true` | A web server usually wants external ingress; set `false` to restrict to the namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                            | Notes                                                                                     |
+| ----------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/caddy` |                                                                                           |
+| `image.digest`                | (CI-written)                       | Required. Charts pin by digest, never a tag.                                              |
+| `replicaCount`                | `1`                                | Stateless; scale freely (ignored when autoscaling is on).                                 |
+| `config.caddyfile`            | `:8080 { respond ... 200 }`        | Inline Caddyfile mounted at `/etc/caddy/Caddyfile`.                                       |
+| `config.existingConfigMap`    | `""`                               | Existing ConfigMap with a `Caddyfile` key; takes precedence over `config.caddyfile`.      |
+| `service.port`                | `8080`                             | http (named `http`).                                                                      |
+| `service.httpsPort`           | `8443`                             | https (named `https`).                                                                    |
+| `service.adminPort`           | `2019`                             | admin API (named `admin`); in-cluster only.                                               |
+| `autoscaling.enabled`         | `false`                            | Optional CPU HPA (`minReplicas`/`maxReplicas`).                                           |
+| `networkPolicy.enabled`       | `true`                             | Ingress to 8080/8443 (admin always namespace-only).                                       |
+| `networkPolicy.allowExternal` | `true`                             | A web server usually wants external ingress; set `false` to restrict to the namespace.    |
+| `podDisruptionBudget.enabled` | `true`                             | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`             | `false`                            | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                               | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                               | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                             | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                               | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                               | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
 env/volumes, security contexts).
 

@@ -60,29 +60,29 @@ gh attestation verify oci://ghcr.io/quenchworks/images/couchdb \
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/couchdb` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Single node (`couchdb@127.0.0.1`). |
-| `auth.username` | `admin` | Admin user; the image will not start without one. |
-| `auth.password` | (generated) | 24-char random if empty; stored in the Secret. |
-| `auth.erlangCookie` | (generated) | 32-char random if empty; shared cluster cookie. |
-| `auth.secret` | (generated) | 32-char random if empty; `[chttpd_auth]` secret. |
-| `auth.existingSecret` | `""` | Use an existing Secret for the credentials. |
-| `systemDatabases.create` | `true` | Post-install hook Job creates `_users`/`_replicator`/`_global_changes`. |
-| `systemDatabases.image.*` | `curlimages/curl:8.11.1` | Stock curl image for the init Job (runtime image has no HTTP client). |
-| `persistence.enabled` | `true` | 8Gi PVC at `/var/lib/couchdb`. |
-| `service.port` | `5984` | Clustered HTTP API. |
-| `networkPolicy.enabled` | `true` | Restricts HTTP ingress to the release namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                              | Notes                                                                                     |
+| ----------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/couchdb` |                                                                                           |
+| `image.digest`                | (CI-written)                         | Required. Charts pin by digest, never a tag.                                              |
+| `replicaCount`                | `1`                                  | Single node (`couchdb@127.0.0.1`).                                                        |
+| `auth.username`               | `admin`                              | Admin user; the image will not start without one.                                         |
+| `auth.password`               | (generated)                          | 24-char random if empty; stored in the Secret.                                            |
+| `auth.erlangCookie`           | (generated)                          | 32-char random if empty; shared cluster cookie.                                           |
+| `auth.secret`                 | (generated)                          | 32-char random if empty; `[chttpd_auth]` secret.                                          |
+| `auth.existingSecret`         | `""`                                 | Use an existing Secret for the credentials.                                               |
+| `systemDatabases.create`      | `true`                               | Post-install hook Job creates `_users`/`_replicator`/`_global_changes`.                   |
+| `systemDatabases.image.*`     | `curlimages/curl:8.11.1`             | Stock curl image for the init Job (runtime image has no HTTP client).                     |
+| `persistence.enabled`         | `true`                               | 8Gi PVC at `/var/lib/couchdb`.                                                            |
+| `service.port`                | `5984`                               | Clustered HTTP API.                                                                       |
+| `networkPolicy.enabled`       | `true`                               | Restricts HTTP ingress to the release namespace.                                          |
+| `podDisruptionBudget.enabled` | `true`                               | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`             | `false`                              | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                                 | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                                 | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                               | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                                 | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                                 | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
 env/volumes, security contexts).
 

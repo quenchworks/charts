@@ -75,25 +75,25 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/openbao --owner que
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/openbao` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Single node (HA raft cluster is a follow-up). |
-| `dev.enabled` | `false` | `true` = auto-unsealed in-memory server (testing only). |
-| `dev.rootToken` | `""` | Dev root token; random into a Secret if unset. |
-| `persistence.enabled` | `true` | 8Gi PVC mounted at `/openbao/data` (raft storage). |
-| `service.apiPort` | `8200` | HTTP API / CLI. |
-| `service.clusterPort` | `8201` | Raft cluster (headless service, future HA). |
-| `networkPolicy.enabled` | `true` | Restricts API ingress to the release namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                              | Notes                                                                                     |
+| ----------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/openbao` |                                                                                           |
+| `image.digest`                | (CI-written)                         | Required. Charts pin by digest, never a tag.                                              |
+| `replicaCount`                | `1`                                  | Single node (HA raft cluster is a follow-up).                                             |
+| `dev.enabled`                 | `false`                              | `true` = auto-unsealed in-memory server (testing only).                                   |
+| `dev.rootToken`               | `""`                                 | Dev root token; random into a Secret if unset.                                            |
+| `persistence.enabled`         | `true`                               | 8Gi PVC mounted at `/openbao/data` (raft storage).                                        |
+| `service.apiPort`             | `8200`                               | HTTP API / CLI.                                                                           |
+| `service.clusterPort`         | `8201`                               | Raft cluster (headless service, future HA).                                               |
+| `networkPolicy.enabled`       | `true`                               | Restricts API ingress to the release namespace.                                           |
+| `podDisruptionBudget.enabled` | `true`                               | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`             | `false`                              | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                                 | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                                 | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                               | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                                 | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                                 | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
 env/volumes, security contexts). Use `extraEnvVars` / `extraVolumes` to wire a
 `seal` block, telemetry, or TLS materials for production.

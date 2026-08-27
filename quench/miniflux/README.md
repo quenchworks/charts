@@ -60,7 +60,7 @@ postgresql:
   enabled: false
 externalDatabase:
   existingSecret: my-db-secret
-  existingSecretURLKey: database-url   # value: postgres://user:pass@host:5432/db?sslmode=require
+  existingSecretURLKey: database-url # value: postgres://user:pass@host:5432/db?sslmode=require
 ```
 
 ## Verify the image
@@ -81,34 +81,34 @@ gh attestation verify oci://ghcr.io/quenchworks/images/miniflux \
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/miniflux` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Stateless; can be scaled out. |
-| `containerPort` | `8080` | Port miniflux binds (nonroot). Wired to `LISTEN_ADDR`. |
-| `service.port` | `80` | Service port, forwards to the container's `http` port. |
-| `runMigrations` | `true` | Runs schema migrations on startup (idempotent). |
-| `admin.create` | `true` | Seeds an admin only when the DB has no users. |
-| `admin.username` | `admin` | |
-| `admin.password` | `""` | Random+persisted if empty. Or use `admin.existingSecret`. |
-| `postgresql.enabled` | `true` | Bundled hardened PostgreSQL subchart. |
-| `postgresql.auth.username` | `postgres` | DB owner (superuser); must differ from the DB name for the bundled image to create it. |
-| `postgresql.auth.password` | `miniflux` | **Shared with `DATABASE_URL`; override for production.** |
-| `postgresql.auth.database` | `miniflux` | |
-| `externalDatabase.*` | (unset) | Used when `postgresql.enabled=false`. |
-| `serviceAccount.create` | `true` | Token automount is off. |
-| `rbac.create` | `false` | Minimal empty Role/RoleBinding when enabled. |
-| `networkPolicy.enabled` | `true` | Client ingress from the namespace; set `allowExternal: true` to open it. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                               | Notes                                                                                     |
+| ----------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------- | ----------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/miniflux` |                                                                                           |
+| `image.digest`                | (CI-written)                          | Required. Charts pin by digest, never a tag.                                              |
+| `replicaCount`                | `1`                                   | Stateless; can be scaled out.                                                             |
+| `containerPort`               | `8080`                                | Port miniflux binds (nonroot). Wired to `LISTEN_ADDR`.                                    |
+| `service.port`                | `80`                                  | Service port, forwards to the container's `http` port.                                    |
+| `runMigrations`               | `true`                                | Runs schema migrations on startup (idempotent).                                           |
+| `admin.create`                | `true`                                | Seeds an admin only when the DB has no users.                                             |
+| `admin.username`              | `admin`                               |                                                                                           |
+| `admin.password`              | `""`                                  | Random+persisted if empty. Or use `admin.existingSecret`.                                 |
+| `postgresql.enabled`          | `true`                                | Bundled hardened PostgreSQL subchart.                                                     |
+| `postgresql.auth.username`    | `postgres`                            | DB owner (superuser); must differ from the DB name for the bundled image to create it.    |
+| `postgresql.auth.password`    | `miniflux`                            | **Shared with `DATABASE_URL`; override for production.**                                  |
+| `postgresql.auth.database`    | `miniflux`                            |                                                                                           |
+| `externalDatabase.*`          | (unset)                               | Used when `postgresql.enabled=false`.                                                     |
+| `serviceAccount.create`       | `true`                                | Token automount is off.                                                                   |
+| `rbac.create`                 | `false`                               | Minimal empty Role/RoleBinding when enabled.                                              |
+| `networkPolicy.enabled`       | `true`                                | Client ingress from the namespace; set `allowExternal: true` to open it.                  |
+| `podDisruptionBudget.enabled` | `true`                                | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`             | `false`                               | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                                  | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                                  | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                                | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                                  | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                                  | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |## Security
+## Security
 
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
 dropped; only an `emptyDir` `/tmp` is writable. Miniflux serves `GET /healthcheck`

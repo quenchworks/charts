@@ -68,25 +68,25 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/mimir --owner quenc
 
 ## Values
 
-| Key | Default | Notes |
-|-----|---------|-------|
-| `image.repository` | `ghcr.io/quenchworks/images/mimir` | |
-| `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Monolithic mode; keep at 1 (scale-out needs an object store + real ring). |
-| `mimirConfig` | single-node filesystem config | Full Mimir config, templated, mounted from a ConfigMap. |
-| `extraArgs` | `[]` | Raw flags appended after `-config.file`/`-target`. |
-| `persistence.enabled` | `true` | 16Gi PVC mounted at `/data` (TSDB, filesystem object store, compactor). |
-| `service.port` | `8080` | HTTP API (remote-write, query, `/ready`, `/metrics`). |
-| `service.grpcPort` | `9095` | gRPC (inter-component / scale-out). |
-| `networkPolicy.enabled` | `true` | Restricts HTTP + gRPC ingress to the release namespace. |
-| `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| Key                           | Default                            | Notes                                                                                     |
+| ----------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`            | `ghcr.io/quenchworks/images/mimir` |                                                                                           |
+| `image.digest`                | (CI-written)                       | Required. Charts pin by digest, never a tag.                                              |
+| `replicaCount`                | `1`                                | Monolithic mode; keep at 1 (scale-out needs an object store + real ring).                 |
+| `mimirConfig`                 | single-node filesystem config      | Full Mimir config, templated, mounted from a ConfigMap.                                   |
+| `extraArgs`                   | `[]`                               | Raw flags appended after `-config.file`/`-target`.                                        |
+| `persistence.enabled`         | `true`                             | 16Gi PVC mounted at `/data` (TSDB, filesystem object store, compactor).                   |
+| `service.port`                | `8080`                             | HTTP API (remote-write, query, `/ready`, `/metrics`).                                     |
+| `service.grpcPort`            | `9095`                             | gRPC (inter-component / scale-out).                                                       |
+| `networkPolicy.enabled`       | `true`                             | Restricts HTTP + gRPC ingress to the release namespace.                                   |
+| `podDisruptionBudget.enabled` | `true`                             | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`             | `false`                            | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`           | `""`                               | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`         | `{}`                               | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`         | `null`                             | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`               | `[]`                               | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                 | `[]`                               | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
 env/volumes, security contexts).
 

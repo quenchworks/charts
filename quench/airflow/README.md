@@ -7,13 +7,13 @@ hardened, 0-CVE, digest-pinned `ghcr.io/quenchworks/images/airflow` image (nonro
 Airflow 3 runs each role as a **separate workload from the same image**; the chart passes
 the per-component subcommand:
 
-| Workload        | Command                 | Notes                                             |
-| --------------- | ----------------------- | ------------------------------------------------- |
-| `api-server`    | `airflow api-server`    | UI + REST API + Task Execution API on port 8080   |
+| Workload        | Command                 | Notes                                                |
+| --------------- | ----------------------- | ---------------------------------------------------- |
+| `api-server`    | `airflow api-server`    | UI + REST API + Task Execution API on port 8080      |
 | `scheduler`     | `airflow scheduler`     | schedules DAG runs (and runs tasks in LocalExecutor) |
-| `dag-processor` | `airflow dag-processor` | standalone DAG file parser (Airflow 3)            |
-| `triggerer`     | `airflow triggerer`     | async loop for deferrable tasks                   |
-| `worker`        | `airflow celery worker` | **CeleryExecutor only** — executes tasks          |
+| `dag-processor` | `airflow dag-processor` | standalone DAG file parser (Airflow 3)               |
+| `triggerer`     | `airflow triggerer`     | async loop for deferrable tasks                      |
+| `worker`        | `airflow celery worker` | **CeleryExecutor only** — executes tasks             |
 
 ## Executor
 
@@ -119,34 +119,34 @@ curl http://127.0.0.1:8080/api/v2/monitor/health   # HTTP 200 once up
 
 ## Key values
 
-| Key | Default | Description |
-| --- | --- | --- |
-| `executor` | `LocalExecutor` | `LocalExecutor` or `CeleryExecutor` |
-| `image.digest` | pinned | image is always resolved by digest, never a tag |
-| `apiServer.replicaCount` | `1` | api-server replicas |
-| `scheduler.replicaCount` | `1` | scheduler replicas |
-| `dagProcessor.replicaCount` | `1` | dag-processor replicas |
-| `triggerer.replicaCount` | `1` | triggerer replicas |
-| `worker.replicaCount` | `1` | Celery worker replicas (CeleryExecutor only) |
-| `migrateDatabase.enabled` | `true` | run the `airflow db migrate` Job |
-| `migrateDatabase.backoffLimit` | `12` | migrate Job retries while waiting for PostgreSQL |
-| `migrateDatabase.waitTimeout` | `300` | init-container `check-migrations` timeout (s) |
-| `secrets.fernetKey` | generated | Fernet key (url-safe base64 of 32 bytes) |
-| `secrets.jwtSecret` | generated | shared Task Execution API JWT secret |
-| `auth.users` | `admin:admin` | SimpleAuthManager `user:role` pairs |
-| `auth.allAdmins` | `false` | disable login, everyone admin (dev only) |
-| `postgresql.enabled` | `true` | bundle PostgreSQL vs. use `externalDatabase.*` |
-| `valkey.enabled` / `redis.enabled` | `false` | Celery broker (bundled) |
-| `service.port` | `8080` | api-server Service port |
-| `networkPolicy.enabled` | `true` | restrict ingress to the api-server |
-| `podDisruptionBudget.enabled` | `true` | PDB for the api-server |
+| Key                                | Default         | Description                                                                               |
+| ---------------------------------- | --------------- | ----------------------------------------------------------------------------------------- |
+| `executor`                         | `LocalExecutor` | `LocalExecutor` or `CeleryExecutor`                                                       |
+| `image.digest`                     | pinned          | image is always resolved by digest, never a tag                                           |
+| `apiServer.replicaCount`           | `1`             | api-server replicas                                                                       |
+| `scheduler.replicaCount`           | `1`             | scheduler replicas                                                                        |
+| `dagProcessor.replicaCount`        | `1`             | dag-processor replicas                                                                    |
+| `triggerer.replicaCount`           | `1`             | triggerer replicas                                                                        |
+| `worker.replicaCount`              | `1`             | Celery worker replicas (CeleryExecutor only)                                              |
+| `migrateDatabase.enabled`          | `true`          | run the `airflow db migrate` Job                                                          |
+| `migrateDatabase.backoffLimit`     | `12`            | migrate Job retries while waiting for PostgreSQL                                          |
+| `migrateDatabase.waitTimeout`      | `300`           | init-container `check-migrations` timeout (s)                                             |
+| `secrets.fernetKey`                | generated       | Fernet key (url-safe base64 of 32 bytes)                                                  |
+| `secrets.jwtSecret`                | generated       | shared Task Execution API JWT secret                                                      |
+| `auth.users`                       | `admin:admin`   | SimpleAuthManager `user:role` pairs                                                       |
+| `auth.allAdmins`                   | `false`         | disable login, everyone admin (dev only)                                                  |
+| `postgresql.enabled`               | `true`          | bundle PostgreSQL vs. use `externalDatabase.*`                                            |
+| `valkey.enabled` / `redis.enabled` | `false`         | Celery broker (bundled)                                                                   |
+| `service.port`                     | `8080`          | api-server Service port                                                                   |
+| `networkPolicy.enabled`            | `true`          | restrict ingress to the api-server                                                        |
+| `podDisruptionBudget.enabled`      | `true`          | PDB for the api-server                                                                    |
+| `ingress.enabled`                  | `false`         | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.className`                | `""`            | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`              | `{}`            | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`              | `null`          | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`                    | `[]`            | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                      | `[]`            | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
-| `ingress.enabled` | `false` | Create an Ingress for this chart. HTTP only. |
-| `ingress.className` | `""` | IngressClass to claim it. Empty leaves it unset, so the cluster default applies. |
-| `ingress.annotations` | `{}` | Controller annotations (rewrite targets, body size, cert-manager issuer, ...). |
-| `ingress.servicePort` | `null` | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`. |
-| `ingress.hosts` | `[]` | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
-| `ingress.tls` | `[]` | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`. |
 ## Image provenance
 
 ```sh
