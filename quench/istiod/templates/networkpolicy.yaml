@@ -1,0 +1,48 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # xDS (both listeners) and the debug/ready port: sidecars and gateways live
+    # in user namespaces, so only allow in-cluster sources by default; flip
+    # networkPolicy.allowExternal for a fully open ingress.
+    - ports:
+        - port: xds
+          protocol: TCP
+        - port: xds-secure
+          protocol: TCP
+        - port: http
+          protocol: TCP
+      {{- if not .Values.networkPolicy.allowExternal }}
+      from:
+        - podSelector: {}
+      {{- end }}
+    # Monitoring (/metrics, /version) -- Prometheus scrapes across namespaces.
+    - ports:
+        - port: monitoring
+          protocol: TCP
+  egress:
+    # DNS resolution
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # The Kubernetes API server -- istiod's whole job is watching it. Cluster
+    # API services live in the default namespace's kubernetes.default.svc.
+    - ports:
+        - port: 443
+          protocol: TCP
+    # General egress (webhook calls, remote clusters if multicluster is wired).
+    - {}
+{{- end }}

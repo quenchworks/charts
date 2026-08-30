@@ -1,0 +1,27 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+# Bundles the Quenchworks PostgreSQL subchart with persistence off and small
+# resources for a quick boot on the runner. The gate confirms Kratos's migrate
+# initContainer creates the schema, the server connects to PostgreSQL, and
+# /health/ready (Admin API) returns 200 -- i.e. it is actually serving.
+postgresql:
+  enabled: true
+  auth:
+    username: kratosuser
+    password: ci-test-password
+    database: kratos
+  primary:
+    persistence:
+      enabled: false
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: "1", memory: 512Mi }
+
+migrate:
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }

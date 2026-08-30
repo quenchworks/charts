@@ -1,0 +1,145 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+#
+# PLACEHOLDER (all-zero): the hydra image passed the both-arch 0-CVE gate locally
+# but has not been published to GHCR yet, so there is no real digest to pin. Replace
+# it -- here AND in Chart.yaml's artifacthub.io/images annotation -- with the digest
+# of the multi-arch index from the first green build-hydra.yml run. The release
+# workflow's install gate cannot pull an image until then.
+image:
+  repository: ghcr.io/quenchworks/images/hydra
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Hydra is a stateless Go server: ALL state lives in PostgreSQL, so the chart runs it
+# as a Deployment behind a ClusterIP Service. `hydra serve all` runs both the public
+# OAuth2/OIDC endpoint and the admin API in one process. Hydra ships no login/consent
+# UI of its own -- see `urls` below.
+replicaCount: 1
+
+# The container runs /usr/bin/hydra; the subcommand is set here so it can be
+# overridden (e.g. to run a one-off `hydra ... ` command against this image).
+command: ["/usr/bin/hydra"]
+args: ["serve", "all"]
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+# Hydra listens on two ports: the public OAuth2/OIDC endpoint and the admin API
+# (client/token-lifecycle management + the health checks). The Admin API has no
+# authentication of its own, so it is NOT exposed on the Service by default --
+# turn it on only behind a NetworkPolicy you trust.
+service:
+  type: ClusterIP
+  publicPort: 4444
+  adminPort: 4445
+  exposeAdmin: false
+
+# --- Public addressing (URLS_*) ---
+# selfIssuer is baked into every issued token/discovery document, so it MUST match
+# how clients actually reach the public endpoint. login/consent/logout point at
+# YOUR OWN login+consent app -- Hydra is a token/consent service, not a UI, and
+# delegates the actual authentication + consent screens to whatever you run here.
+# The placeholders below let the server boot for evaluation; set them for real use.
+urls:
+  selfIssuer: "http://127.0.0.1:4444/"
+  login: "http://127.0.0.1:3000/login"
+  consent: "http://127.0.0.1:3000/consent"
+  logout: "http://127.0.0.1:3000/logout"
+
+# System secret used to encrypt/sign cookies and session data (SECRETS_SYSTEM).
+# Left empty, a 32-char secret is generated once and preserved across upgrades in
+# the managed Secret -- required so every replica shares the same value.
+secretsSystem: ""
+
+# --- Bundled database (default) ---
+# postgresql.enabled deploys the QuenchWorks PostgreSQL subchart. Its primary Service
+# is "<release>-postgresql".
+postgresql:
+  enabled: true
+  auth:
+    username: hydrauser
+    password: ""            # generated into the managed Secret if left empty
+    database: hydra
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- External database (postgresql.enabled=false) ---
+externalDatabase:
+  host: ""
+  port: 5432
+  database: hydra
+  user: hydra
+  password: ""
+  sslMode: disable
+  # A Secret holding BOTH keys below. When set, this chart renders no managed
+  # Secret at all -- the referenced Secret is used directly for the DSN and the
+  # system secret, so it must already carry both.
+  existingSecret: ""
+  existingSecretDsnKey: "dsn"
+  existingSecretSecretsSystemKey: "secrets-system"
+
+# Runs `hydra migrate sql -e --yes` (DSN read from the env) as an initContainer
+# before the server starts. The image ships no shell, so this is a single-shot run,
+# not a retry loop -- if PostgreSQL is not reachable yet the initContainer fails and
+# kubelet retries it with its normal backoff until the database comes up, so no
+# custom polling script is needed. Idempotent: a no-op once the schema is current.
+migrate:
+  enabled: true
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# Extra env vars (list of {name,value} or {name,valueFrom}). Appended after the
+# chart's own env, so these win on conflict -- use this for any Hydra HYDRA_*/
+# SERVE_*/OAUTH2_* setting not modelled above.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The public OAuth2/OIDC endpoint has its own auth model, so external ingress is
+# allowed by default; set false to restrict to the release namespace. The Admin
+# API is governed separately by service.exposeAdmin.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

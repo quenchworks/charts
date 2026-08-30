@@ -1,0 +1,43 @@
+{{- if and .Values.heartbeat.enabled .Values.heartbeat.prometheusUrl }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}-heartbeat
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: heartbeat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: heartbeat
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+        app.kubernetes.io/component: heartbeat
+    spec:
+      serviceAccountName: {{ include "linkerd.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: heartbeat
+          image: {{ printf "%s@%s" .Values.controllerImage.repository .Values.controllerImage.digest }}
+          imagePullPolicy: {{ .Values.controllerImage.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/controller"]
+          args:
+            - heartbeat
+            - -prometheus-url={{ .Values.heartbeat.prometheusUrl }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+{{- end }}

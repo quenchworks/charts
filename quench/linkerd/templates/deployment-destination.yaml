@@ -1,0 +1,78 @@
+{{/* Probes on the admin server (:9996): /ping liveness, /ready readiness --
+     the same endpoints upstream's own template probes. The kubelet performs
+     the GET; the image ships no shell HTTP client. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/ping" "port" "admin") "initialDelaySeconds" 10 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/ready" "port" "admin") "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}-destination
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: destination
+spec:
+  replicas: {{ .Values.destination.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: destination
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+        app.kubernetes.io/component: destination
+    spec:
+      serviceAccountName: {{ include "linkerd.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: destination
+          image: {{ printf "%s@%s" .Values.controllerImage.repository .Values.controllerImage.digest }}
+          imagePullPolicy: {{ .Values.controllerImage.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          # One Go binary, one subcommand per controller role (verified against
+          # controller/cmd/main.go): this Deployment runs the destination role.
+          command: ["/usr/bin/controller"]
+          args:
+            - destination
+            - -addr=:{{ .Values.service.destinationPort }}
+            - -controller-namespace={{ .Release.Namespace }}
+            - -identity-trust-domain={{ .Values.identity.trustDomain | default .Values.clusterDomain }}
+            - -cluster-domain={{ .Values.clusterDomain }}
+            - -log-level={{ .Values.controllerLogLevel }}
+          ports:
+            - name: h2
+              containerPort: {{ .Values.service.destinationPort }}
+              protocol: TCP
+            - name: admin
+              containerPort: {{ .Values.service.destinationAdminPort }}
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with (include "quench-common.extraVolumeMounts" .) }}
+          volumeMounts:
+            {{- . | nindent 12 }}
+          {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      {{- with (include "quench-common.extraVolumes" .) }}
+      volumes:
+        {{- . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,22 @@
+QuenchWorks istiod (the Istio control plane) is installed as {{ include "quench-common.fullname" . }}.
+
+Verify it is serving:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 15014:{{ .Values.service.monitoringPort }}
+  curl http://127.0.0.1:15014/version   # the stamped image version
+  curl http://127.0.0.1:15014/metrics   # pilot_* and istiod_* metrics
+
+What this chart is, honestly:
+  - It ships the xDS discovery server and pilot on the QuenchWorks 0-CVE image.
+  - It ships NO Istio CRDs (VirtualService, DestinationRule, Gateway, ...). Helm
+    stores rendered manifests in a 1 MiB Secret and Istio's CRD bundle alone
+    crowds that cap; install CRDs from upstream's istioctl/base manifest once
+    per cluster.
+  - It ships NO data plane. Istio's proxyv2 image is built from Istio's own
+    Bazel/clang Envoy fork and is not in the QuenchWorks catalog yet. Pair this
+    control plane with upstream proxy images, or wait for the QuenchWorks data
+    plane, before relying on it for traffic management.
+
+{{ if not .Values.rbac.create }}WARNING: rbac.create=false -- make sure the ServiceAccount
+{{ include "istiod.serviceAccountName" . }} can read pods, services, endpoints, namespaces,
+nodes, secrets and configmaps cluster-wide, or istiod will run but discover nothing.{{ end }}

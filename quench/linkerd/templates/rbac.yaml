@@ -1,0 +1,70 @@
+{{- if .Values.rbac.create }}
+# destination: watches the mesh's addressing reality (pods, endpoints,
+# EndpointSlices, services, namespaces). identity: reads its issuer Secret in
+# the release namespace only. policy-controller: the mesh read set plus the
+# policy.linkerd.io CRD resources it reconciles -- harmless to grant before the
+# CRDs exist. One ServiceAccount serves all components; the secret read stays
+# namespace-scoped, everything else is read-only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods, services, endpoints, namespaces, nodes]
+    verbs: [get, list, watch]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+  - apiGroups: ["policy.linkerd.io"]
+    resources: [servers, serverauthorizations, authorizationpolicies]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "linkerd.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.identity.enabled }}
+---
+# identity reads its issuer CA (crt.pem/key.pem) from the release namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "quench-common.fullname" . }}-identity
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}-identity
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "quench-common.fullname" . }}-identity
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "linkerd.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

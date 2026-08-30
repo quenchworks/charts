@@ -1,0 +1,153 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+#
+# PLACEHOLDER (all-zero): the kratos image passed the both-arch 0-CVE gate locally
+# but has not been published to GHCR yet, so there is no real digest to pin. Replace
+# it -- here AND in Chart.yaml's artifacthub.io/images annotation -- with the digest
+# of the multi-arch index from the first green build-kratos.yml run. The release
+# workflow's install gate cannot pull an image until then.
+image:
+  repository: ghcr.io/quenchworks/images/kratos
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Kratos is a stateless Go server: ALL state lives in PostgreSQL, so the chart runs
+# it as a Deployment behind a ClusterIP Service. `kratos serve` runs both the public
+# self-service API and the admin API in one process. Kratos ships no login/registration
+# UI of its own -- it is an API-first identity server you build a UI against.
+replicaCount: 1
+
+# The container runs /usr/bin/kratos; the subcommand is set here so it can be
+# overridden (e.g. to run a one-off `kratos ...` command against this image).
+command: ["/usr/bin/kratos"]
+args: ["serve", "--config", "/etc/config/kratos.yaml"]
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+# Kratos listens on two ports: the public self-service API (registration/login/
+# recovery/settings flows) and the admin API (identity management + the health
+# checks). The Admin API has no authentication of its own, so it is NOT exposed on
+# the Service by default -- turn it on only behind a NetworkPolicy you trust.
+service:
+  type: ClusterIP
+  publicPort: 4433
+  adminPort: 4434
+  exposeAdmin: false
+
+# --- Public addressing ---
+# Baked into selfservice flow URLs and cookie domains, so these MUST match how
+# clients actually reach each endpoint. The placeholders below let the server boot
+# for evaluation; set them for real use.
+urls:
+  public: "http://127.0.0.1:4433/"
+  admin: "http://127.0.0.1:4434/"
+
+# --- Server config + identity schema ---
+# Kratos needs a config FILE (not just env vars) for its identity schema and
+# selfservice flow settings -- these are lists/objects that don't map to flat env
+# vars. Rendered into a ConfigMap and mounted at /etc/config; the DSN itself stays
+# out of this file and is supplied only via the DSN env var (see the managed
+# Secret), so no credential ever lands in the ConfigMap.
+#
+# Leave `yaml`/`identitySchema` empty to use the chart's defaults: a config with
+# the password method + registration/login/settings flows enabled and
+# recovery/verification DISABLED (both require a configured SMTP courier, which
+# this chart does not wire up by default), and a minimal identity schema with a
+# single required "email" trait used as the login identifier. Override either to
+# fit your own identity model. `existingConfigMap` points at an externally-managed
+# ConfigMap carrying BOTH `kratos.yaml` and `identity.default.schema.json` keys
+# instead of the chart-rendered one.
+config:
+  yaml: ""
+  identitySchema: ""
+  existingConfigMap: ""
+
+# --- Bundled database (default) ---
+# postgresql.enabled deploys the QuenchWorks PostgreSQL subchart. Its primary Service
+# is "<release>-postgresql".
+postgresql:
+  enabled: true
+  auth:
+    username: kratosuser
+    password: ""            # generated into the managed Secret if left empty
+    database: kratos
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- External database (postgresql.enabled=false) ---
+externalDatabase:
+  host: ""
+  port: 5432
+  database: kratos
+  user: kratos
+  password: ""
+  sslMode: disable
+  # A Secret holding the key below. When set, this chart renders no managed
+  # Secret at all -- the referenced Secret is used directly for the DSN.
+  existingSecret: ""
+  existingSecretDsnKey: "dsn"
+
+# Runs `kratos migrate sql -e --yes` (DSN read from the env) as an initContainer
+# before the server starts. The image ships no shell, so this is a single-shot run,
+# not a retry loop -- if PostgreSQL is not reachable yet the initContainer fails and
+# kubelet retries it with its normal backoff until the database comes up, so no
+# custom polling script is needed. Idempotent: a no-op once the schema is current.
+migrate:
+  enabled: true
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# Extra env vars (list of {name,value} or {name,valueFrom}). Appended after the
+# chart's own env, so these win on conflict.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# The public self-service API has its own auth model, so external ingress is
+# allowed by default; set false to restrict to the release namespace. The Admin
+# API is governed separately by service.exposeAdmin.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

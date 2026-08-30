@@ -1,0 +1,27 @@
+{{/*
+Public Service. The Admin API port is included ONLY when service.exposeAdmin is
+true: Hydra's Admin API has no authentication of its own, so putting it on a
+Service by default would hand every pod in the cluster a control plane over
+every OAuth2 client and token.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.publicPort }}
+      targetPort: public
+      protocol: TCP
+      name: public
+    {{- if .Values.service.exposeAdmin }}
+    - port: {{ .Values.service.adminPort }}
+      targetPort: admin
+      protocol: TCP
+      name: admin
+    {{- end }}
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

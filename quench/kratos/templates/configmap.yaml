@@ -1,0 +1,26 @@
+{{/*
+kratos.yaml + the identity schema, mounted read-only at /etc/config. Skipped
+entirely when config.existingConfigMap points at an externally-managed ConfigMap
+carrying both keys itself.
+*/}}
+{{- if not .Values.config.existingConfigMap }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "kratos.configMapName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  kratos.yaml: |
+    {{- if .Values.config.yaml }}
+    {{- .Values.config.yaml | nindent 4 }}
+    {{- else }}
+    {{- include "kratos.defaultConfig" . | nindent 4 }}
+    {{- end }}
+  identity.default.schema.json: |
+    {{- if .Values.config.identitySchema }}
+    {{- .Values.config.identitySchema | nindent 4 }}
+    {{- else }}
+    {{- include "kratos.defaultIdentitySchema" . | nindent 4 }}
+    {{- end }}
+{{- end }}

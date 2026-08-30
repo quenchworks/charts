@@ -1,0 +1,16 @@
+{{- if .Values.identity.enabled }}
+{{ include "linkerd.identityChecks" . }}
+# Public trust anchors for the mesh CA. Rendered from a value (not a user
+# Secret) because it is certificate material with nothing to hide; the file
+# name is fixed by upstream: ca-bundle.crt under /var/run/linkerd/identity/
+# trust-roots/ (k8s.MountPathTrustRootsPEM, verified at edge-26.8.4).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "linkerd.trustRootsConfigMapName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  ca-bundle.crt: |
+{{ .Values.identity.trustAnchorsPEM | indent 4 }}
+{{- end }}

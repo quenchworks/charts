@@ -1,0 +1,38 @@
+{{- if .Values.rbac.create }}
+# What pilot-discovery actually watches: the mesh (pods, services, endpoints,
+# namespaces, nodes), the secrets that carry its CA material and webhook certs,
+# and config that feeds it. It also records Kubernetes Events when configuration
+# is rejected. No Istio CRD rules: this chart ships no CRDs (see README), and
+# RBAC on absent resource types would be dead weight.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods, services, endpoints, namespaces, nodes]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [secrets, configmaps]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "istiod.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

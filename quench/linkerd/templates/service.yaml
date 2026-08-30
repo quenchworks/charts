@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}-destination
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: destination
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: destination
+  ports:
+    - name: h2
+      port: {{ .Values.service.destinationPort }}
+      targetPort: h2
+      protocol: TCP
+    - name: admin
+      port: {{ .Values.service.destinationAdminPort }}
+      targetPort: admin
+      protocol: TCP
+---
+{{- if .Values.identity.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}-identity
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: identity
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: identity
+  ports:
+    - name: h2
+      port: {{ .Values.service.identityPort }}
+      targetPort: h2
+      protocol: TCP
+---
+{{- end }}
+{{- if .Values.policyController.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}-policy
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: policy-controller
+spec:
+  type: {{ .Values.service.type }}
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: policy-controller
+  ports:
+    - name: grpc
+      port: {{ .Values.service.policyPort }}
+      targetPort: grpc
+      protocol: TCP
+{{- end }}

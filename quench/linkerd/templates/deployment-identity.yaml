@@ -1,0 +1,101 @@
+{{- if .Values.identity.enabled }}
+{{ include "linkerd.identityChecks" . }}
+{{/* Same admin-server probe contract as destination, on identity's own admin
+     port (:9990): /ping liveness, /ready readiness -- verified against
+     upstream's identity template. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/ping" "port" "admin") "initialDelaySeconds" 10 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/ready" "port" "admin") "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}-identity
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: identity
+spec:
+  replicas: {{ .Values.identity.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: identity
+  template:
+    metadata:
+      annotations:
+        # Roll the pod when the trust anchors change.
+        checksum/trust-roots: {{ include (print $.Template.BasePath "/trust-roots.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+        app.kubernetes.io/component: identity
+    spec:
+      serviceAccountName: {{ include "linkerd.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: identity
+          image: {{ printf "%s@%s" .Values.controllerImage.repository .Values.controllerImage.digest }}
+          imagePullPolicy: {{ .Values.controllerImage.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          # Flags verified against controller/cmd/identity/main.go at
+          # edge-26.8.4. With scheme and trust domain unset the binary EXITS 0
+          # as a healthy-looking pod -- the chart's required-gates make that
+          # state unreachable.
+          command: ["/usr/bin/controller"]
+          args:
+            - identity
+            - -controller-namespace={{ .Release.Namespace }}
+            - -identity-scheme=linkerd.io/tls
+            - -identity-trust-domain={{ .Values.identity.trustDomain }}
+            - -identity-issuance-lifetime={{ .Values.identity.issuanceLifetime }}
+            - -identity-clock-skew-allowance={{ .Values.identity.clockSkewAllowance }}
+            - -log-level={{ .Values.controllerLogLevel }}
+          ports:
+            - name: h2
+              containerPort: {{ .Values.service.identityPort }}
+              protocol: TCP
+            - name: admin
+              containerPort: {{ .Values.service.identityAdminPort }}
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # Upstream constants, verified: issuer dir holds crt.pem + key.pem
+            # (IdentityIssuerCrtName/IdentityIssuerKeyName); trust anchors are
+            # read from trust-roots/ca-bundle.crt (MountPathTrustRootsPEM).
+            - name: issuer
+              mountPath: /var/run/linkerd/identity/issuer
+              readOnly: true
+            - name: trust-roots
+              mountPath: /var/run/linkerd/identity/trust-roots
+              readOnly: true
+            {{- with (include "quench-common.extraVolumeMounts" .) }}
+            {{- . | nindent 12 }}
+            {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: issuer
+          secret:
+            secretName: {{ .Values.identity.existingSecret }}
+        - name: trust-roots
+          configMap:
+            name: {{ include "linkerd.trustRootsConfigMapName" . }}
+        {{- with (include "quench-common.extraVolumes" .) }}
+        {{- . | nindent 8 }}
+        {{- end }}
+{{- end }}

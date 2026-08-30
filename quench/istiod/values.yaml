@@ -1,0 +1,68 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+#
+# PLACEHOLDER (all-zero): the istiod image passed the both-arch 0-CVE gate locally
+# but has not been published to GHCR yet, so there is no real digest to pin. Replace
+# it -- here AND in Chart.yaml's artifacthub.io/images annotation -- with the digest
+# of the multi-arch index from the first green build-istiod.yml run. The release
+# workflow's install gate cannot pull an image until then.
+image:
+  repository: ghcr.io/quenchworks/images/istiod
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# istiod is stateless and reads the whole mesh from the Kubernetes API; one
+# replica is the upstream-style default and HA is a scale-out of identical
+# readers (no leader election, no quarrels).
+replicaCount: 1
+
+# The image's baked entrypoint runs against an UNREACHABLE kubeconfig -- that is
+# the shape of the image smoke test, not of a real deployment. The chart drops
+# --kubeconfig so pilot-discovery uses in-cluster auth (its ServiceAccount), and
+# pins the two addresses the smoke test proved live: :8080 (debug/health, /ready)
+# and :15014 (monitoring: /metrics, /version). The xDS listeners keep the binary's
+# own defaults: :15010 plaintext and :15012 TLS.
+command: ["/usr/bin/pilot-discovery"]
+args:
+  - discovery
+  - --httpAddr=:8080
+  - --monitoringAddr=:15014
+
+service:
+  type: ClusterIP
+  # Service ports, named for what dials them. Sidecars/gateways dial xdsSecure;
+  # Prometheus scrapes monitoring; http is the debug/ready surface.
+  xdsPort: 15010
+  xdsSecurePort: 15012
+  httpPort: 8080
+  monitoringPort: 15014
+
+serviceAccount:
+  create: true
+  name: ""
+
+rbac:
+  create: true
+
+networkPolicy:
+  enabled: true
+  # xDS is unauthenticated on :15010 and certificate-verified on :15012; keep
+  # :15010 reachable only from inside the cluster either way.
+  allowExternal: false
+
+resources: {}
+
+podAnnotations: {}
+podLabels: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# With replicaCount=1 a minAvailable=1 PDB blocks every voluntary eviction; enable
+# it when you scale past one replica.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

@@ -1,0 +1,92 @@
+{{- if .Values.policyController.enabled }}
+{{ include "linkerd.policyChecks" . }}
+{{/* kubert's admin server serves /live and /ready on the --admin-addr port;
+     that is the crate's own convention (flagged as convention-not-source in the
+     image notes) and the release gate exercises it for real. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/live" "port" "admin") "initialDelaySeconds" 10 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/ready" "port" "admin") "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}-policy
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: policy-controller
+spec:
+  replicas: {{ .Values.policyController.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: policy-controller
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+        app.kubernetes.io/component: policy-controller
+    spec:
+      serviceAccountName: {{ include "linkerd.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: policy-controller
+          image: {{ printf "%s@%s" .Values.policyController.image.repository .Values.policyController.image.digest }}
+          imagePullPolicy: {{ .Values.policyController.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          # Flags mirror upstream's policy deployment at edge-26.8.4; the
+          # serving cert paths are the flags' own literals.
+          command: ["/usr/bin/linkerd-policy-controller"]
+          args:
+            - --admin-addr=0.0.0.0:{{ .Values.service.policyAdminPort }}
+            - --control-plane-namespace={{ .Release.Namespace }}
+            - --grpc-addr=0.0.0.0:{{ .Values.service.policyPort }}
+            - --server-addr=0.0.0.0:9443
+            - --server-tls-key=/var/run/linkerd/tls/tls.key
+            - --server-tls-certs=/var/run/linkerd/tls/tls.crt
+            - --cluster-networks={{ .Values.policyController.clusterNetworks }}
+            - --identity-domain={{ .Values.identity.trustDomain | default .Values.clusterDomain }}
+          ports:
+            - name: grpc
+              containerPort: {{ .Values.service.policyPort }}
+              protocol: TCP
+            - name: server
+              containerPort: 9443
+              protocol: TCP
+            - name: admin
+              containerPort: {{ .Values.service.policyAdminPort }}
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tls
+              mountPath: /var/run/linkerd/tls
+              readOnly: true
+            {{- with (include "quench-common.extraVolumeMounts" .) }}
+            {{- . | nindent 12 }}
+            {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{ .Values.policyController.existingSecret }}
+        {{- with (include "quench-common.extraVolumes" .) }}
+        {{- . | nindent 8 }}
+        {{- end }}
+{{- end }}

@@ -1,0 +1,98 @@
+# The digests below are the contract with the image factory. CI rewrites them
+# from the image-published dispatch after every green image build. Never a tag.
+#
+# PLACEHOLDERS (all-zero): the linkerd images passed the both-arch 0-CVE gates
+# locally but have not been published to GHCR yet, so there are no real digests
+# to pin. Replace them -- here AND in Chart.yaml's artifacthub.io/images
+# annotation -- with the digest of the multi-arch index from the first green
+# build run. The release workflow's install gate cannot pull until then.
+controllerImage:
+  repository: ghcr.io/quenchworks/images/linkerd-control-plane
+  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+clusterDomain: cluster.local
+controllerLogLevel: info
+
+# --- destination (always installed) -----------------------------------------
+# The one component that needs no certificate material: it watches endpoints
+# and serves service profiles over gRPC. Probes hit its admin server (/ping,
+# /ready) on 9996, verified against upstream's own template.
+destination:
+  replicaCount: 1
+
+# --- identity (optional, default off) ---------------------------------------
+# The mesh certificate authority. Upstream's binary EXITS 0 -- silently, as a
+# healthy pod -- when -identity-scheme or -identity-trust-domain is unset, so
+# this chart refuses to render an identity Deployment until you supply ALL of:
+# trustDomain, trustAnchorsPEM (public; the chart renders the trust-roots
+# ConfigMap from it), and existingSecret naming a Secret with keys crt.pem and
+# key.pem (the issuer CA; create it with openssl, see README). Identity reads
+# the trust anchors from /var/run/linkerd/identity/trust-roots/ca-bundle.crt
+# and the issuer from /var/run/linkerd/identity/issuer -- both verified against
+# upstream source at edge-26.8.4.
+identity:
+  enabled: false
+  replicaCount: 1
+  trustDomain: ""
+  trustAnchorsPEM: ""
+  existingSecret: ""
+  issuanceLifetime: 24h
+  clockSkewAllowance: 20s
+
+# --- policy-controller (optional, default off) ------------------------------
+# The Rust authorization-policy server. It serves gRPC :8090 and needs a
+# serving certificate: existingSecret must name a Secret with keys tls.crt and
+# tls.key, mounted at /var/run/linkerd/tls as its flags demand. Without Linkerd
+# CRDs (Server, ServerAuthorization) installed it runs but has no policy to
+# serve; the CRD chart follows with the data plane.
+policyController:
+  enabled: false
+  replicaCount: 1
+  image:
+    repository: ghcr.io/quenchworks/images/linkerd-policy-controller
+    digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    pullPolicy: IfNotPresent
+  existingSecret: ""
+  clusterNetworks: "10.0.0.0/8,100.64.0.0/10,172.16.0.0/12,192.168.0.0/16"
+
+# --- heartbeat (optional, default off) --------------------------------------
+# Only useful with a Prometheus to heartbeat to.
+heartbeat:
+  enabled: false
+  prometheusUrl: ""
+
+service:
+  type: ClusterIP
+  destinationPort: 8086
+  destinationAdminPort: 9996
+  identityPort: 8080
+  identityAdminPort: 9990
+  policyPort: 8090
+  policyAdminPort: 9990
+
+serviceAccount:
+  create: true
+  name: ""
+
+rbac:
+  create: true
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+resources: {}
+
+podAnnotations: {}
+podLabels: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

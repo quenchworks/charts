@@ -1,0 +1,44 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # destination/identity/policy gRPC: proxies live in user namespaces, so
+    # only in-cluster sources by default; allowExternal opens it up.
+    - ports:
+        - port: h2
+          protocol: TCP
+        - port: grpc
+          protocol: TCP
+      {{- if not .Values.networkPolicy.allowExternal }}
+      from:
+        - podSelector: {}
+      {{- end }}
+    # Admin/metrics servers -- Prometheus scrapes across namespaces.
+    - ports:
+        - port: admin
+          protocol: TCP
+  egress:
+    # DNS resolution
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # The Kubernetes API server -- every controller watches it.
+    - ports:
+        - port: 443
+          protocol: TCP
+    # General egress (heartbeat to Prometheus, remote clusters).
+    - {}
+{{- end }}

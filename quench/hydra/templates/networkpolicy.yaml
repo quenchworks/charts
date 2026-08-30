@@ -1,0 +1,46 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Public OAuth2/OIDC endpoint. Hydra has its own auth model for it, so external
+    # ingress is allowed by default; set networkPolicy.allowExternal=false to
+    # restrict to the release namespace.
+    - ports:
+        - port: public
+          protocol: TCP
+      {{- if not .Values.networkPolicy.allowExternal }}
+      from:
+        - podSelector: {}
+      {{- end }}
+    # Admin API: always namespace-scoped, regardless of allowExternal -- it has no
+    # authentication of its own (see service.exposeAdmin).
+    - ports:
+        - port: admin
+          protocol: TCP
+      from:
+        - podSelector: {}
+  egress:
+    # DNS resolution
+    - ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    # PostgreSQL (the bundled subchart or an external DB).
+    - ports:
+        - port: {{ include "hydra.db.port" . }}
+          protocol: TCP
+    # General egress (JWKS/OIDC discovery fetches for third-party IdPs, webhooks).
+    - {}
+{{- end }}

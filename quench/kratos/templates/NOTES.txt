@@ -1,0 +1,47 @@
+Quenchworks Kratos (Ory identity server) is installed as
+{{ include "quench-common.fullname" . }}.
+
+Public self-service API inside the cluster:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.publicPort }}
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.publicPort }}:{{ .Values.service.publicPort }}
+  curl http://127.0.0.1:{{ .Values.service.publicPort }}/health/alive
+
+Kratos ships NO login/registration UI -- it is an API-first identity server you
+build your own UI against. The default identity schema (email + password) and
+selfservice flow config are in the {{ include "kratos.configMapName" . }} ConfigMap;
+override via `config.yaml` / `config.identitySchema` for your own identity model.
+
+Recovery and verification flows are DISABLED by default (both need a configured
+SMTP courier, which this chart does not wire up). Enable them via `config.yaml`
+once you have set `courier.smtp.connection_uri`.
+
+The Admin API (identity management + the health checks) is
+{{ if .Values.service.exposeAdmin }}exposed on the Service{{ else }}NOT exposed on the Service (service.exposeAdmin=false){{ end }} --
+it has no authentication of its own. Reach it from within the namespace:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} pod/$(kubectl get pod --namespace {{ .Release.Namespace }} -l "{{ include "quench-common.selectorLabels" . }}" -o jsonpath="{.items[0].metadata.name}") {{ .Values.service.adminPort }}:{{ .Values.service.adminPort }}
+  curl http://127.0.0.1:{{ .Values.service.adminPort }}/health/ready
+  curl http://127.0.0.1:{{ .Values.service.adminPort }}/admin/identities
+
+Database:
+{{- if .Values.postgresql.enabled }}
+  Bundled Quenchworks PostgreSQL (postgresql.enabled=true).
+    host : {{ include "kratos.db.host" . }}
+    db   : {{ include "kratos.db.name" . }}
+    user : {{ include "kratos.db.user" . }}
+{{- else }}
+  External database (postgresql.enabled=false).
+    host : {{ include "kratos.db.host" . }}:{{ include "kratos.db.port" . }}
+    db   : {{ include "kratos.db.name" . }}
+    user : {{ include "kratos.db.user" . }}
+{{- end }}
+  An initContainer runs `kratos migrate sql -e --yes` on every pod start (a no-op
+  once the schema is current) before the server boots.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
