@@ -1,0 +1,48 @@
+Quenchworks Metrics Server is installed as {{ include "quench-common.fullname" . }}.
+
+{{- if not .Values.kubelet.insecureTLS }}
+
+Kubelet certificate verification is ON (kubelet.insecureTLS=false). If your
+kubelets do NOT have cluster-signed serving certificates -- kind, default
+kubeadm, k3s, minikube and several managed distributions do not -- this pod will
+never become Ready, and the log will say:
+
+  x509: certificate signed by unknown authority
+
+Fix the kubelets (serverTLSBootstrap plus a CSR approver), point
+kubelet.certificateAuthority at the right CA, or, understanding that it lets
+anything on the path impersonate a kubelet and feed the HPA fabricated numbers,
+set kubelet.insecureTLS=true.
+{{- else }}
+
+!! kubelet.insecureTLS=true: kubelet serving certificates are NOT verified. The
+!! scrape is encrypted and authenticated by this server's own token, but a
+!! man-in-the-middle can impersonate a kubelet and feed you fabricated metrics,
+!! which the HPA will act on. Prefer cluster-signed kubelet certificates.
+{{- end }}
+
+Ready does not mean working. Check the aggregation layer and then ask for real
+numbers:
+
+  kubectl get apiservice v1beta1.metrics.k8s.io
+  kubectl top nodes
+  kubectl top pods -A
+
+`Available: True` with `kubectl top` still failing means the API is registered but
+no scrape has succeeded -- read the log:
+
+  kubectl logs deployment/{{ include "quench-common.fullname" . }}
+
+{{ if .Values.apiService.create -}}
+This release owns the cluster-wide APIService v1beta1.metrics.k8s.io. Only one
+Metrics Server per cluster can; install any other with apiService.create=false.
+{{- else -}}
+apiService.create=false: this release does NOT register v1beta1.metrics.k8s.io,
+so `kubectl top` still goes to whichever Metrics Server does.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/metrics-server \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

@@ -1,0 +1,28 @@
+{{- if .Values.apiService.create }}
+{{/*
+The aggregation layer entry that makes `kubectl top` and the HPA work. The name
+is FIXED by the API group/version it serves, so it is a cluster-wide singleton:
+installing a second Metrics Server in another namespace with apiService.create
+left on would hijack this object and point the whole cluster's metrics API at it.
+*/}}
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.metrics.k8s.io
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  group: metrics.k8s.io
+  version: v1beta1
+  groupPriorityMinimum: 100
+  versionPriority: 100
+  {{- if .Values.apiService.insecureSkipTLSVerify }}
+  insecureSkipTLSVerify: true
+  {{- else }}
+  caBundle: {{ required "apiService.caBundle is required when apiService.insecureSkipTLSVerify is false" .Values.apiService.caBundle | quote }}
+  {{- end }}
+  service:
+    name: {{ include "quench-common.fullname" . }}
+    namespace: {{ .Release.Namespace }}
+    port: {{ .Values.service.port }}
+{{- end }}

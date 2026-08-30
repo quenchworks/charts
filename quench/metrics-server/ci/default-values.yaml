@@ -1,0 +1,17 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+#
+# kubelet.insecureTLS is TRUE here and false in values.yaml, and that difference
+# is the point: kind's kubelets serve a self-signed certificate that the cluster
+# CA never signed, so a default install correctly refuses to scrape them and
+# never becomes Ready. The gate opts in explicitly rather than the chart shipping
+# the insecure setting to every user.
+replicaCount: 1
+kubelet:
+  insecureTLS: true
+# The gate asserts `kubectl top nodes` returns numbers, so it must not wait a
+# whole minute for the first scrape.
+metricResolution: 15s
+resources:
+  requests: { cpu: 100m, memory: 200Mi }
+  limits: { cpu: 500m, memory: 500Mi }

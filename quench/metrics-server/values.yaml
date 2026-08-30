@@ -1,0 +1,149 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/metrics-server
+  digest: "sha256:17af75b28850741938443d738c21a761cae2da464bbebd46b6bf17d4c01ecf40"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Metrics Server is horizontally scalable (each replica scrapes every kubelet).
+# Two replicas need --enable-aggregator-routing on the kube-apiserver, otherwise
+# requests are load-balanced to a replica that may not be ready.
+replicaCount: 1
+
+# HTTPS port the aggregated API is served on. Deliberately NOT 443: the container
+# runs as uid 1001 with all capabilities dropped, and cannot bind a privileged
+# port. The Service maps 443 to this.
+securePort: 4443
+
+# How often each node is scraped. Must be >= 10s. The HPA reads the last value,
+# so lowering this makes autoscaling more responsive and the kubelets busier.
+metricResolution: 15s
+
+# --- Kubelet connection ---------------------------------------------------
+kubelet:
+  # SECURITY TRADEOFF, READ THIS.
+  #
+  # Metrics Server scrapes each kubelet over HTTPS and verifies the serving
+  # certificate against the cluster CA. That only works if the kubelets were
+  # given cluster-signed serving certificates -- i.e. the cluster runs with
+  # `serverTLSBootstrap: true` (or equivalent) AND something approves the
+  # resulting CSRs. Many clusters do NOT: kind, kubeadm defaults, k3s, minikube
+  # and several managed distributions leave the kubelet on a self-signed
+  # certificate.
+  #
+  # On such a cluster this chart installs and then FAILS its readiness probe with
+  # `x509: certificate signed by unknown authority`, and `kubectl top` returns
+  # "metrics not available". That is the honest outcome, and it is the default
+  # here on purpose.
+  #
+  # Setting this to true disables that verification. The scrape is still
+  # encrypted and still authenticated by Metrics Server's own bearer token, but
+  # anything able to intercept the connection to a kubelet can impersonate it and
+  # feed you fabricated metrics -- which an HPA will then act on. Enable it
+  # knowingly, on a trusted network, and prefer fixing the kubelet certificates.
+  insecureTLS: false
+
+  # Path to a CA bundle to validate kubelet serving certificates against, when
+  # they are signed by something other than the cluster CA. Mount it yourself via
+  # extraVolumes/extraVolumeMounts; this is the in-container path.
+  certificateAuthority: ""
+
+  # Node address types to dial, in priority order. The upstream binary default
+  # leads with Hostname, which fails wherever node names do not resolve; leading
+  # with InternalIP is what works on kind, kubeadm and every cloud provider.
+  preferredAddressTypes:
+    - InternalIP
+    - ExternalIP
+    - Hostname
+
+  # Use the read-only-disabled kubelet port advertised in the node status rather
+  # than assuming 10250.
+  useNodeStatusPort: true
+
+  requestTimeout: 10s
+
+# --- Aggregated API registration -----------------------------------------
+# The APIService is a CLUSTER-SCOPED SINGLETON named v1beta1.metrics.k8s.io: only
+# one Metrics Server can own it per cluster. Set create: false when something
+# else (a managed control plane, another release) already registers it.
+apiService:
+  create: true
+  # With no certificate of its own, Metrics Server generates a self-signed
+  # serving certificate at startup, which the kube-apiserver cannot verify --
+  # hence true, matching upstream. To turn this off, give the container a real
+  # certificate (extraArgs: --tls-cert-file/--tls-private-key-file with
+  # extraVolumes) and put its CA in caBundle below.
+  insecureSkipTLSVerify: true
+  # base64-encoded PEM CA bundle. Only used when insecureSkipTLSVerify is false.
+  caBundle: ""
+
+# Extra flags appended to the command.
+extraArgs: []
+
+resources:
+  requests: { cpu: 100m, memory: 200Mi }
+  limits: { cpu: 500m, memory: 500Mi }
+
+service:
+  type: ClusterIP
+  # What the APIService dials. Mapped to the container's securePort.
+  port: 443
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # Metrics Server is itself an API-server client (and delegates authn/authz back
+  # to the kube-apiserver), so it must have a token. quench-common defaults this
+  # to false for workloads that never call the API server.
+  automountServiceAccountToken: true
+
+# Required, and three separate grants: read the metrics sources cluster-wide,
+# delegate authn/authz for incoming aggregated-API requests (system:auth-delegator),
+# and read the requestheader client CA from kube-system. See templates/rbac.yaml.
+rbac:
+  create: true
+  # Also extend the built-in view/edit/admin ClusterRoles with read access to
+  # pod and node metrics, so non-admins can run `kubectl top`.
+  aggregatedMetricsReader: true
+
+# The kube-apiserver dials this Service from OUTSIDE the pod network (it runs on
+# the control-plane host), so ingress cannot be restricted to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+# Off with a single replica: a PDB with minAvailable 1 would block node drains
+# rather than protect availability. Turn it on when you raise replicaCount.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}

@@ -1,0 +1,109 @@
+{{- if .Values.rbac.create }}
+{{/*
+Clean-room RBAC, written from what an aggregated API server actually needs. Three
+separate grants, and they fail in three different ways if you drop one:
+
+  * ClusterRole (below)  read the metrics sources. `nodes/metrics` is the kubelet
+                         resource-metrics endpoint itself; nodes/pods/namespaces
+                         are needed to know what to scrape and to answer
+                         `kubectl top pod -n <ns>`. Without it the API registers
+                         and returns empty results.
+  * system:auth-delegator  delegate authn/authz of INCOMING aggregated-API
+                         requests back to the kube-apiserver (TokenReview +
+                         SubjectAccessReview). Without it every `kubectl top`
+                         gets 401/403 even though the pod is healthy.
+  * extension-apiserver-authentication-reader  read the requestheader client CA
+                         from the kube-system ConfigMap, so front-proxy client
+                         certificates from the kube-apiserver can be validated.
+                         Without it the process fails to start.
+
+The last two bind to built-in cluster objects, so this chart creates only the
+bindings. Names carry the release namespace because cluster-scoped names (and the
+kube-system RoleBinding) are shared: two releases would otherwise collide.
+*/}}
+{{- $name := printf "%s-%s" (include "quench-common.fullname" .) .Release.Namespace | trunc 63 | trimSuffix "-" -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  # The kubelet's resource-metrics endpoint. This is the scrape itself.
+  - apiGroups: [""]
+    resources: ["nodes/metrics", "nodes/stats"]
+    verbs: ["get"]
+  # What to scrape, and what to attribute the samples to when answering queries.
+  - apiGroups: [""]
+    resources: ["nodes", "pods", "namespaces"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Delegated authentication/authorization for incoming aggregated-API requests.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-auth-delegator" $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Read the front-proxy client CA. The Role is a built-in in kube-system, so the
+# binding has to live there too -- this is the one object this chart creates
+# outside its own namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ printf "%s-apiserver-auth-reader" $name | trunc 63 | trimSuffix "-" }}
+  namespace: kube-system
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if .Values.rbac.aggregatedMetricsReader }}
+---
+# Aggregation-labelled: its rules are merged into the built-in view/edit/admin
+# ClusterRoles, so ordinary namespace users can run `kubectl top` instead of only
+# cluster-admins.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-aggregated-reader" $name | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    rbac.authorization.k8s.io/aggregate-to-view: "true"
+    rbac.authorization.k8s.io/aggregate-to-edit: "true"
+    rbac.authorization.k8s.io/aggregate-to-admin: "true"
+rules:
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods", "nodes"]
+    verbs: ["get", "list", "watch"]
+{{- end }}
+{{- end }}

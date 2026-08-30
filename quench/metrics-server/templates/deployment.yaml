@@ -1,0 +1,91 @@
+{{/* Metrics Server serves /livez and /readyz on the secure port over HTTPS.
+     /readyz only goes green once a scrape has actually succeeded, which is the
+     whole point: a kubelet TLS failure shows up here instead of silently
+     producing an empty metrics API. readiness starts later than liveness so the
+     first scrape has a chance to land. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/livez" "port" "https" "scheme" "HTTPS") "initialDelaySeconds" 10 "periodSeconds" 10 "failureThreshold" 3 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/readyz" "port" "https" "scheme" "HTTPS") "initialDelaySeconds" 20 "periodSeconds" 10 "failureThreshold" 3 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: metrics-server
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/metrics-server"]
+          args:
+            - "--secure-port={{ .Values.securePort }}"
+            - "--metric-resolution={{ .Values.metricResolution }}"
+            {{/* Without a supplied certificate the apiserver library generates a
+                 self-signed one and WRITES it to --cert-dir. The root filesystem
+                 is read-only, so it has to land on the emptyDir below. */}}
+            - "--cert-dir=/tmp"
+            - "--kubelet-preferred-address-types={{ join "," .Values.kubelet.preferredAddressTypes }}"
+            - "--kubelet-request-timeout={{ .Values.kubelet.requestTimeout }}"
+            {{- if .Values.kubelet.useNodeStatusPort }}
+            - "--kubelet-use-node-status-port"
+            {{- end }}
+            {{- if .Values.kubelet.insecureTLS }}
+            {{/* Kubelet serving certificates are NOT verified. See values.yaml. */}}
+            - "--kubelet-insecure-tls"
+            {{- end }}
+            {{- with .Values.kubelet.certificateAuthority }}
+            - "--kubelet-certificate-authority={{ . }}"
+            {{- end }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- with .Values.extraEnvVars }}
+          env:
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: https
+              containerPort: {{ .Values.securePort }}
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        # Scratch space for the generated self-signed serving certificate.
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
