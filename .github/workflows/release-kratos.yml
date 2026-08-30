@@ -42,7 +42,22 @@ jobs:
       - name: Install gate (kind)
         run: |
           set -o pipefail
-          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          trap 'kubectl get events --sort-by=.lastTimestamp | tail -40 || true' ERR
+          # The image is pinned by digest and lives in a non-public GHCR
+          # package, so give the pod credentials to pull the real, signed
+          # artifact. A pre-created ServiceAccount carries the pull secret
+          # from pod-creation time (patching a chart-created SA would not
+          # affect the running pod).
+          kubectl create secret docker-registry ghcr-pull \
+            --docker-server=ghcr.io \
+            --docker-username="${{ github.actor }}" \
+            --docker-password="${{ secrets.GITHUB_TOKEN }}"
+          kubectl create serviceaccount kratos-puller
+          kubectl patch serviceaccount kratos-puller \
+            -p '{"imagePullSecrets":[{"name":"ghcr-pull"}]}'
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set serviceAccount.create=false --set serviceAccount.name=kratos-puller \
+            --wait --timeout 8m
           kubectl rollout status deployment/rtest-kratos --timeout=300s
           # probe over a pod port-forward (the Admin API is not on the Service by
           # default, and the runtime image has no HTTP client of its own)
