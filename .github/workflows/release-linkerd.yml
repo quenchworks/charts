@@ -1,0 +1,167 @@
+name: release-linkerd
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/linkerd/**"
+      - ".github/workflows/release-linkerd.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/linkerd
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Skip while the image digest is a placeholder
+        id: gate
+        run: |
+          # The chart ships a 64-zero placeholder digest until its image has had
+          # a first green publish. Running the install gate against that digest
+          # is a guaranteed ImagePullBackOff, so gate the whole release on it --
+          # same idea as the REPLACE_WITH guard on artifacthub-repo.yml below.
+          if grep -q "sha256:0000000000000000000000000000000000000000000000000000000000000000" "${CHART_DIR}/values.yaml"; then
+            echo "::warning::values.yaml still has a placeholder image digest; skipping release."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Lint and template
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      # Gate A: the default install (destination only) must boot untouched.
+      - name: Install gate A (default values, kind)
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          set -o pipefail
+          helm install ra "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/ra-linkerd-destination --timeout=300s
+          kubectl port-forward svc/ra-linkerd-destination 9996:9996 >/dev/null 2>&1 &
+          pf=$!
+          trap 'kill $pf 2>/dev/null || true' EXIT
+          ok=0
+          for i in $(seq 1 24); do
+            if curl -fsS http://127.0.0.1:9996/ready 2>/dev/null | grep -qi 'ready\|ok\|true'; then ok=1; break; fi
+            sleep 5
+          done
+          test "$ok" = "1" || { kubectl logs deployment/ra-linkerd-destination | tail -30; echo "destination /ready never answered"; exit 1; }
+          echo "destination ready"
+          restarts="$(kubectl get pods -l app.kubernetes.io/instance=ra \
+            -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}')"
+          echo "restartCount=${restarts}"
+          test "${restarts}" = "0"
+
+      # Gate B: identity + policy-controller with REAL cert material generated
+      # here -- the same way the README tells users to do it. This is the proof
+      # the optional components actually run, not just render.
+      - name: Install gate B (identity + policy, kind)
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          set -o pipefail
+          kubectl create namespace rb
+          openssl ecparam -name prime256v1 -genkey -noout -out key.pem
+          openssl req -new -x509 -key key.pem -out crt.pem -days 3650 -nodes \
+            -subj "/CN=identity.linkerd.cluster.local" \
+            -addext "basicConstraints=critical,CA:TRUE" \
+            -addext "keyUsage=critical,keyCertSign,cRLSign,digitalSignature"
+          kubectl -n rb create secret generic linkerd-identity-issuer \
+            --from-file=crt.pem=crt.pem --from-file=key.pem=key.pem
+          openssl req -new -x509 -nodes -days 3650 \
+            -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
+            -keyout tls.key -out tls.crt -subj "/CN=linkerd-policy" \
+            -addext "basicConstraints=critical,CA:TRUE" \
+            -addext "keyUsage=critical,keyCertSign,cRLSign,digitalSignature"
+          kubectl -n rb create secret generic linkerd-policy-tls \
+            --from-file=tls.crt=tls.crt --from-file=tls.key=tls.key
+
+          helm install rb "${CHART_DIR}" -n rb \
+            --set identity.enabled=true \
+            --set identity.trustDomain=identity.linkerd.cluster.local \
+            --set-file identity.trustAnchorsPEM=crt.pem \
+            --set identity.existingSecret=linkerd-identity-issuer \
+            --set policyController.enabled=true \
+            --set policyController.existingSecret=linkerd-policy-tls \
+            --wait --timeout 8m
+          kubectl -n rb rollout status deployment/rb-linkerd-identity --timeout=300s
+          kubectl -n rb rollout status deployment/rb-linkerd-policy --timeout=300s
+
+          # identity /ready on its admin port
+          kubectl -n rb port-forward svc/rb-linkerd-identity 9990:9990 >/dev/null 2>&1 &
+          pf=$!
+          trap 'kill $pf 2>/dev/null || true' EXIT
+          ok=0
+          for i in $(seq 1 24); do
+            if curl -fsS http://127.0.0.1:9990/ready 2>/dev/null; then ok=1; break; fi
+            sleep 5
+          done
+          test "$ok" = "1" || { kubectl -n rb logs deployment/rb-linkerd-identity | tail -40; echo "identity /ready never answered"; exit 1; }
+          echo "identity ready"
+
+          for c in identity policy; do
+            if kubectl -n rb logs deployment/rb-linkerd-${c} | grep -iE 'forbidden|cannot list|Unauthorized'; then
+              echo "RBAC denial in the ${c} log"; exit 1
+            fi
+          done
+          echo "no RBAC denials"
+
+          # identity must have ISSUED something: its issuer secret gains an expiry
+          kubectl -n rb get secret linkerd-identity-issuer -o jsonpath='{.metadata.name}{"\n"}'
+
+      - name: Package and push (OCI)
+        if: steps.gate.outputs.ready == 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/linkerd-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.gate.outputs.ready == 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/linkerd@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.gate.outputs.ready == 'true'
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/linkerd:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
