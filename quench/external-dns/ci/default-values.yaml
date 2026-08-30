@@ -1,0 +1,20 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+#
+# The gate has to prove ExternalDNS RECONCILES, not merely that it starts, so it
+# gives the controller a zone to write into (the credential-free `inmemory`
+# provider), a short interval, and --publish-internal-services so a plain
+# ClusterIP Service in the gate namespace is a publishable source. The controller
+# then logs `CREATE: ...` for the record it applied.
+replicaCount: 1
+inmemoryZones:
+  - example.com
+domainFilters:
+  - example.com
+interval: 10s
+logLevel: debug
+extraArgs:
+  - "--publish-internal-services"
+resources:
+  requests: { cpu: 25m, memory: 64Mi }
+  limits: { cpu: 250m, memory: 256Mi }

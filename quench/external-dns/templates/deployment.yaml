@@ -1,0 +1,99 @@
+{{/* ExternalDNS serves /healthz and /metrics on the metrics address (container
+     port 7979). /healthz is what upstream uses for both probes. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/healthz" "port" "metrics") "initialDelaySeconds" 10 "periodSeconds" 20 "failureThreshold" 3 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/healthz" "port" "metrics") "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: external-dns
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/external-dns"]
+          args:
+            {{- range .Values.sources }}
+            - "--source={{ . }}"
+            {{- end }}
+            - "--provider={{ required "provider is required" .Values.provider }}"
+            {{- if eq .Values.provider "inmemory" }}
+            {{- range .Values.inmemoryZones }}
+            - "--inmemory-zone={{ . }}"
+            {{- end }}
+            {{- end }}
+            {{- range .Values.domainFilters }}
+            - "--domain-filter={{ . }}"
+            {{- end }}
+            - "--policy={{ .Values.policy }}"
+            - "--registry={{ .Values.registry }}"
+            {{- if eq .Values.registry "txt" }}
+            - "--txt-owner-id={{ .Values.txtOwnerId }}"
+            {{- with .Values.txtPrefix }}
+            - "--txt-prefix={{ . }}"
+            {{- end }}
+            {{- end }}
+            - "--interval={{ .Values.interval }}"
+            {{- if .Values.triggerLoopOnEvent }}
+            - "--events"
+            {{- end }}
+            {{- if .Values.dryRun }}
+            - "--dry-run"
+            {{- end }}
+            - "--log-level={{ .Values.logLevel }}"
+            - "--log-format={{ .Values.logFormat }}"
+            - "--metrics-address=:7979"
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- with .Values.extraEnvVars }}
+          env:
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: metrics
+              containerPort: 7979
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

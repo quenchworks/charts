@@ -1,0 +1,128 @@
+name: release-external-dns
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/external-dns/**"
+      - ".github/workflows/release-external-dns.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/external-dns
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/rtest-external-dns --timeout=300s
+
+          # Ready proves nothing for a controller. Give it a Service and an Ingress it
+          # is supposed to publish, then require that it actually published them.
+          # ci/default-values.yaml runs the credential-free `inmemory` provider over
+          # example.com with --publish-internal-services, so a ClusterIP Service is a
+          # valid source.
+          kubectl create service clusterip gate --tcp=80:80
+          kubectl annotate svc gate external-dns.alpha.kubernetes.io/hostname=gate.example.com
+          kubectl create ingress gate-ing --rule='ing.example.com/*=gate:80'
+          # nothing assigns a load-balancer address in kind, so supply one
+          kubectl patch ingress gate-ing --subresource=status --type=merge \
+            -p '{"status":{"loadBalancer":{"ingress":[{"ip":"203.0.113.10"}]}}}'
+
+          # wait for the controller to log the records it applied to the provider
+          for i in $(seq 1 30); do
+            log="$(kubectl logs deployment/rtest-external-dns)"
+            echo "$log" | grep -q 'CREATE: gate.example.com' \
+              && echo "$log" | grep -q 'CREATE: ing.example.com' && break
+            sleep 5
+          done
+          kubectl logs deployment/rtest-external-dns | grep -E 'CREATE:'
+          kubectl logs deployment/rtest-external-dns | grep -q 'CREATE: gate.example.com 0 IN A' \
+            || { echo "external-dns never published the Service record"; exit 1; }
+          kubectl logs deployment/rtest-external-dns | grep -q 'CREATE: ing.example.com 0 IN A' \
+            || { echo "external-dns never published the Ingress record"; exit 1; }
+
+          # A controller missing RBAC stays Ready and silently does nothing, so fail
+          # loudly on any denial rather than trusting the pod status.
+          if kubectl logs deployment/rtest-external-dns | grep -iE 'forbidden|cannot list|is not allowed'; then
+            echo "RBAC denial in the controller log"; exit 1
+          fi
+          echo "no RBAC denials in the controller log"
+
+          # Independent of the log: the registry must hold the endpoints it created.
+          # The gauge is published by the sync that follows the apply, so poll it
+          # rather than reading it once straight after the CREATE lines appear.
+          kubectl port-forward svc/rtest-external-dns 7979:7979 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS http://127.0.0.1:7979/healthz >/dev/null
+          ok=0
+          for i in $(seq 1 12); do
+            if curl -fsS http://127.0.0.1:7979/metrics | grep -E '^external_dns_registry_endpoints_total [1-9]'; then ok=1; break; fi
+            sleep 5
+          done
+          test "$ok" = "1" || { echo "registry holds no endpoints"; exit 1; }
+
+          # and it must have done all of that without restarting
+          restarts="$(kubectl get pods -l app.kubernetes.io/instance=rtest \
+            -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}')"
+          echo "restartCount=${restarts}"
+          test "${restarts}" = "0"
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/external-dns-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/external-dns@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/external-dns:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

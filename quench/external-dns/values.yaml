@@ -1,0 +1,131 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/external-dns
+  digest: "sha256:aeab520e775b5afce2a6a44bc02da6b5d49ec363841d9e0ff64936103d953ec8"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# ExternalDNS has NO leader election: two replicas both reconcile and both write
+# to the provider, which produces flapping records and doubled API quota. Keep
+# this at 1 and let the Deployment restart it; that is also why updateStrategy
+# below is Recreate rather than a rolling update.
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The DNS provider ExternalDNS writes to. The default is `inmemory`: a real
+# provider that keeps the zone in the process, needs no credentials, and lets
+# this chart install and reconcile out of the box (it is also what the release
+# gate exercises). Switch it to aws / google / azure / cloudflare / rfc2136 /
+# pdns / ... and supply that provider's credentials through extraEnvVars,
+# extraEnvVarsSecret or extraArgs. See `external-dns --help` for the full list.
+provider: inmemory
+
+# Zones the `inmemory` provider serves. Ignored by every other provider. With no
+# zones ExternalDNS still runs and reconciles, but has nowhere to put a record.
+inmemoryZones: []
+
+# Kubernetes resources watched for hostnames. Common: service, ingress, node,
+# gateway-httproute, gateway-grpcroute, crd.
+sources:
+  - service
+  - ingress
+
+# Restrict the zones ExternalDNS is allowed to touch. Empty means "no filter",
+# which for a cloud provider means every zone in the account -- set this in
+# production.
+domainFilters: []
+
+# upsert-only never deletes a record, which is the safe default for a controller
+# pointed at a shared zone. `sync` enables deletion (full ownership of the zone).
+policy: upsert-only
+
+# Ownership registry. `txt` stores a companion TXT record so ExternalDNS only
+# manages records it created; `noop` disables ownership tracking entirely.
+registry: txt
+# Identifies THIS ExternalDNS in the TXT ownership records. Two clusters sharing
+# a zone must use different ids or they will fight over the same records.
+txtOwnerId: default
+txtPrefix: ""
+
+# Reconcile interval, plus watching for resource events between intervals.
+interval: 1m
+triggerLoopOnEvent: true
+
+# Print the changes instead of applying them. Useful for a first run against a
+# real provider.
+dryRun: false
+
+logLevel: info
+logFormat: text
+
+# Extra flags appended to the command, e.g. provider-specific options or
+# --publish-internal-services.
+extraArgs: []
+
+resources:
+  requests: { cpu: 25m, memory: 64Mi }
+  limits: { cpu: 250m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # ExternalDNS serves /metrics and /healthz on container port 7979. It has no
+  # other listener -- nothing routes traffic through this controller.
+  port: 7979
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # ExternalDNS is an API-server client: it must have a token. (quench-common
+  # defaults this to false for workloads that never call the API server.)
+  automountServiceAccountToken: true
+
+# Required. ExternalDNS reads Services, Ingresses and Gateway API routes across
+# the whole cluster, so the grant is a ClusterRole. See templates/rbac.yaml for
+# the rule-by-rule reasoning; it is read-only apart from DNSEndpoint status.
+rbac:
+  create: true
+
+# Nothing calls in to ExternalDNS: it is a client of the API server and of the
+# DNS provider, not a server. Only the metrics port is exposed, so ingress is
+# namespace-local (a Prometheus in another namespace needs allowExternal: true
+# or an extraFrom rule).
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+# A single-replica controller with no leader election cannot satisfy
+# minAvailable: 1 during a node drain, so a PDB here would block draining rather
+# than protect anything. Enable it only alongside a real HA topology.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}

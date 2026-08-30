@@ -1,0 +1,42 @@
+Quenchworks ExternalDNS is installed as {{ include "quench-common.fullname" . }}.
+
+Provider: {{ .Values.provider }}
+Sources : {{ join ", " .Values.sources }}
+Policy  : {{ .Values.policy }} ({{ if eq .Values.policy "upsert-only" }}records are never deleted{{ else }}records are deleted when their source goes away{{ end }})
+{{ if eq .Values.provider "inmemory" }}
+!! The `inmemory` provider keeps the zone INSIDE THE PROCESS. It needs no
+!! credentials and is what makes this chart installable out of the box, but every
+!! record is lost when the pod restarts and nothing outside the cluster ever
+!! learns it. Set `provider` to a real DNS provider before you rely on this.
+{{- if not .Values.inmemoryZones }}
+!! No `inmemoryZones` are configured, so there is no zone to write into and every
+!! record will be skipped. Set inmemoryZones: [example.com] to see it work.
+{{- end }}
+{{- end }}
+
+Watch it reconcile:
+
+  kubectl logs -f deployment/{{ include "quench-common.fullname" . }}
+
+Give it something to publish -- an annotated Service:
+
+  kubectl annotate svc <your-service> \
+    external-dns.alpha.kubernetes.io/hostname=app.example.com
+
+A controller with missing permissions still reports Ready while doing nothing, so
+check the log for RBAC errors before you trust it:
+
+  kubectl logs deployment/{{ include "quench-common.fullname" . }} | grep -iE 'forbidden|cannot list'
+
+Metrics and health are on container port 7979; the Service exposes them on
+{{ .Values.service.port }}:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://127.0.0.1:{{ .Values.service.port }}/healthz
+  curl http://127.0.0.1:{{ .Values.service.port }}/metrics
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/external-dns \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

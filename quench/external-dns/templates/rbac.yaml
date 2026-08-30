@@ -1,0 +1,83 @@
+{{- if .Values.rbac.create }}
+{{/*
+Clean-room RBAC, written from the API objects each ExternalDNS *source* reads
+(`--source=...`) rather than copied from upstream's chart. It is read-only with
+one exception, and that matters: ExternalDNS writes to a DNS provider, never to
+the cluster. The single write is `dnsendpoints/status`, which the crd source
+uses to report what it published.
+
+Cluster-scoped because a Service, an Ingress or an HTTPRoute may live in any
+namespace, and `nodes` are cluster-scoped to begin with. The grant is a fixed
+superset of the enabled sources: RBAC is granted on group/resource strings, so
+the gateway.networking.k8s.io and externaldns.k8s.io rules are harmless on a
+cluster that does not have those CRDs -- ExternalDNS only starts an informer for
+a source that is actually listed in .Values.sources.
+
+The ClusterRole/Binding names carry the release namespace: cluster-scoped names
+are GLOBAL, so two releases in different namespaces would otherwise fight over a
+single object and the second install would steal the first one's binding.
+*/}}
+{{- $name := printf "%s-%s" (include "quench-common.fullname" .) .Release.Namespace | trunc 63 | trimSuffix "-" -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  # service source: the Services themselves (their LoadBalancer status and
+  # hostname/target annotations are the record), plus pods and endpointslices,
+  # which headless services and --listen-endpoint-events resolve targets from.
+  - apiGroups: [""]
+    resources: ["services", "endpoints", "pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["get", "list", "watch"]
+  # node source, and the node lookup the service source does to resolve
+  # NodePort/host targets.
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  # namespace labels, for --namespace and label-selector filtering.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  # ingress source. Both API groups: networking.k8s.io is current, extensions is
+  # still served by some managed distributions.
+  - apiGroups: ["networking.k8s.io", "extensions"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  # Gateway API sources (gateway-httproute / -grpcroute / -tlsroute / -tcproute /
+  # -udproute). Gateways are read to resolve a route's listener addresses.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways", "httproutes", "grpcroutes", "tlsroutes", "tcproutes", "udproutes"]
+    verbs: ["get", "list", "watch"]
+  # crd source: DNSEndpoint objects, and the status ExternalDNS writes back to
+  # record what it published. The one write in this role.
+  - apiGroups: ["externaldns.k8s.io"]
+    resources: ["dnsendpoints"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["externaldns.k8s.io"]
+    resources: ["dnsendpoints/status"]
+    verbs: ["get", "update", "patch"]
+  # --events-emit records the outcome of a reconcile on the source object.
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
