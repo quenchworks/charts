@@ -1,0 +1,138 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/mailpit
+  digest: "sha256:8d5b5301cac6c9c556727a43a2c2569d3ed2aedbde8ea71a045cb34456224100"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Mailpit is a single-instance mail sink: captured messages live in one SQLite
+# database owned by one pod, so a second replica would silently split the inbox.
+# This chart therefore ships no HorizontalPodAutoscaler and expects replicaCount 1.
+replicaCount: 1
+
+# --- Listeners --------------------------------------------------------------
+#
+# THE SMTP LISTENER ACCEPTS MAIL FROM ANY CLIENT THAT CAN REACH IT, unauthenticated,
+# for any recipient, and never delivers it onward. That is the whole point of the
+# tool -- and the reason this chart's NetworkPolicy defaults to namespace-only
+# ingress. Do not put this on the public internet.
+smtp:
+  # Container port for the SMTP listener.
+  port: 1025
+  # Maximum messages retained; oldest are pruned. 0 = unlimited.
+  maxMessages: 500
+
+ui:
+  # Container port for the web UI and REST API.
+  port: 8025
+  # Serve the UI/API under a sub-path, e.g. "/mailpit/" (--webroot).
+  webroot: ""
+
+# Optional HTTP basic auth for the web UI and the REST API (MP_UI_AUTH).
+# Empty username = anyone who can reach the UI port can read every captured
+# message. The SMTP listener is unaffected: it has no auth either way.
+auth:
+  username: ""
+  password: ""
+  existingSecret: ""
+  # Key in existingSecret holding a "user:password" string, as MP_UI_AUTH expects.
+  existingSecretKey: ui-auth
+
+# Mailpit stores messages in a SQLite database. The root filesystem is read-only,
+# so the database directory is always a mounted volume; `enabled` only decides
+# whether it is a PersistentVolumeClaim or an emptyDir. Off by default: a test
+# mailbox is throwaway data, and starting each pod with an empty inbox is usually
+# what you want.
+persistence:
+  enabled: false
+  # existingClaim: ""
+  # Directory holding mailpit.db; also where the volume is mounted.
+  path: /data
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+  storageClass: ""
+  annotations: {}
+
+# Extra flags appended to the mailpit command, e.g. ["--max-age=24h", "--verbose"].
+# `mailpit --help` in the same image lists them all.
+extraArgs: []
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  ports:
+    # Point your application's SMTP client at this port.
+    smtp: 1025
+    # Web UI and REST API.
+    http: 8025
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # Deliberately false: an open, unauthenticated SMTP sink should only be
+  # reachable from the applications under test in the same namespace. Add
+  # networkPolicy.extraFrom for a namespaceSelector when the senders live
+  # elsewhere, rather than opening it to the whole cluster.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# Optional Ingress for the web UI (HTTP only). Disabled by default, so enabling
+# it is an explicit operator decision. Set auth.* before you do.
+ingress:
+  enabled: false
+  # IngressClass to claim this Ingress. Empty -> the cluster default applies.
+  className: ""
+  annotations: {}
+  # Service port to route to. Unset -> resolved from service.ports.http.
+  servicePort: null
+  # e.g. [{host: mail.example.com, paths: [{path: /, pathType: Prefix}]}]
+  # `paths` may be omitted for the common "/" Prefix case.
+  hosts: []
+  # Standard Ingress TLS list, e.g. [{hosts: [mail.example.com], secretName: mail-tls}]
+  tls: []

@@ -1,0 +1,117 @@
+{{/* ChartMuseum serves /health ({"healthy":true}) on the HTTP port as soon as the
+     server is listening, and it is exempt from basic auth. Used for both probes. */}}
+{{- $path := printf "%s/health" (trimSuffix "/" .Values.contextPath) -}}
+{{- $liveness := dict "httpGet" (dict "path" $path "port" "http") "initialDelaySeconds" 5 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" $path "port" "http") "initialDelaySeconds" 2 "periodSeconds" 10 -}}
+{{- $auth := include "chartmuseum.authEnabled" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "chartmuseum.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: chartmuseum
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/chartmuseum"]
+          args:
+            - "--port=8080"
+            # The image binds [::] by default, which fails on IPv4-only nodes.
+            - "--listen-host=0.0.0.0"
+            - "--storage={{ .Values.storage.backend }}"
+            {{- if eq .Values.storage.backend "local" }}
+            - "--storage-local-rootdir={{ .Values.storage.local.path }}"
+            {{- end }}
+            {{- if not .Values.api.enabled }}
+            - "--disable-api"
+            {{- end }}
+            {{- if .Values.api.allowOverwrite }}
+            - "--allow-overwrite"
+            {{- end }}
+            {{- if .Values.api.disableDelete }}
+            - "--disable-delete"
+            {{- end }}
+            {{- if and $auth .Values.auth.anonymousGet }}
+            - "--auth-anonymous-get"
+            {{- end }}
+            {{- with .Values.contextPath }}
+            - "--context-path={{ . }}"
+            {{- end }}
+            {{- with .Values.chartUrl }}
+            - "--chart-url={{ . }}"
+            {{- end }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- if or $auth .Values.extraEnvVars }}
+          env:
+            {{- if $auth }}
+            - name: BASIC_AUTH_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "chartmuseum.authSecretName" . }}
+                  key: {{ include "chartmuseum.authUserKey" . }}
+            - name: BASIC_AUTH_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "chartmuseum.authSecretName" . }}
+                  key: {{ include "chartmuseum.authPasswordKey" . }}
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # Chart storage. The root filesystem is read-only, so this is a writable
+            # volume even when persistence is off (emptyDir fallback).
+            - name: storage
+              mountPath: {{ .Values.storage.local.path }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: storage
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "chartmuseum.pvcName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

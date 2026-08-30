@@ -1,0 +1,28 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+#
+# The bundled PostgreSQL subchart stays ON so the gate proves the self-contained
+# path end-to-end: postgres comes up, PostgREST connects, and the workflow creates
+# a real table and reads rows back through the API.
+#
+# db.anonRole is the superuser here purely so the gate can query without minting a
+# JWT. NEVER do that in a real deployment: give anonymous requests a dedicated
+# role with only the grants it needs.
+postgresql:
+  enabled: true
+  auth:
+    username: postgres
+    password: quench-ci-pg
+    database: postgrest
+  primary:
+    persistence:
+      enabled: true
+      size: 1Gi
+
+db:
+  schemas: public
+  anonRole: postgres
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }

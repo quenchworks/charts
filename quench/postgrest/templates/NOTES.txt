@@ -1,0 +1,61 @@
+Quenchworks PostgREST is installed as {{ include "quench-common.fullname" . }}.
+
+The REST API runs nonroot on container port 3000; the Service exposes it on port
+{{ .Values.service.port }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Query it over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 3000:{{ .Values.service.port }}
+  curl http://127.0.0.1:3000/               # OpenAPI description of the exposed schema
+  curl http://127.0.0.1:3000/<table>        # rows from a table in schema "{{ .Values.db.schemas }}"
+
+{{ if .Values.postgresql.enabled }}
+Backed by the BUNDLED PostgreSQL subchart at {{ .Release.Name }}-postgresql, database
+"{{ .Values.postgresql.auth.database }}". PostgREST reads whatever is already there -- it
+creates no tables of its own. Create your schema, then reload the schema cache:
+
+  kubectl exec -i statefulset/{{ .Release.Name }}-postgresql -- \
+    psql -h /var/run/postgresql -U {{ .Values.postgresql.auth.username }} -d {{ .Values.postgresql.auth.database }} \
+    -c "create table todos (id serial primary key, task text);" \
+    -c "notify pgrst, 'reload schema';"
+
+The database password in postgresql.auth.password is SHARED with PGRST_DB_URI.
+Override it for anything real.
+{{- else }}
+Backed by an external PostgreSQL{{ if include "postgrest.ownsURI" . }} at {{ include "postgrest.dbHost" . }}{{ else }}, whose connection URI comes
+from Secret "{{ .Values.externalDatabase.existingSecret }}" (key {{ .Values.externalDatabase.existingSecretURIKey }}){{ end }}. PostgREST reads
+whatever schema is already there; it creates no tables of its own. After DDL, run
+
+  notify pgrst, 'reload schema';
+
+so the running instance picks up the change without a restart.
+{{- end }}
+
+{{ if .Values.db.anonRole }}
+Unauthenticated requests run as role "{{ .Values.db.anonRole }}". Everything that role can
+read or write is readable and writable by anyone who can reach this Service --
+check its grants and row-level security policies.
+{{- else }}
+db.anonRole is unset, so there is NO anonymous access: every request must carry a
+JWT{{ if not (include "postgrest.jwtEnabled" .) }}, and no jwt.secret is configured yet, so nothing can authenticate at all.
+Set jwt.secret (32+ characters) or jwt.existingSecret, and/or db.anonRole for a
+read-only public role{{ end }}.
+{{- end }}
+
+{{ if .Values.adminServer.enabled }}
+Liveness and readiness use the admin server on port {{ .Values.adminServer.port }} (/live and
+/ready), so a Ready pod really is connected to PostgreSQL with a loaded schema
+cache. That port is not published by the Service.
+{{- else }}
+adminServer.enabled=false: the probes fall back to "/" on the API port, which only
+answers when db.anonRole is set. Supply customLivenessProbe/customReadinessProbe
+if that does not fit.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/postgrest \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

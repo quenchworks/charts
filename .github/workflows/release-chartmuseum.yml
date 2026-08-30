@@ -1,0 +1,105 @@
+name: release-chartmuseum
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/chartmuseum/**"
+      - ".github/workflows/release-chartmuseum.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/chartmuseum
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/rtest-chartmuseum --timeout=300s
+          # the chart storage PVC must actually bind
+          kubectl get pvc rtest-chartmuseum-storage -o jsonpath='{.status.phase}' | grep -q Bound
+          # probe over a port-forward (the runtime image has no HTTP client)
+          kubectl port-forward svc/rtest-chartmuseum 8080:8080 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          # /health answers unauthenticated once the server is listening
+          curl -fsS http://127.0.0.1:8080/health | grep -q '"healthy":true'
+          # Prove it is a working CHART REPOSITORY, not just a live port: package a
+          # chart, push it through the write API, then read it back from both the
+          # API listing and the generated index.yaml.
+          helm create /tmp/ciprobe >/dev/null
+          helm package /tmp/ciprobe -d /tmp >/dev/null
+          curl -fsS -u quench-ci:quench-ci-pass \
+            --data-binary @/tmp/ciprobe-0.1.0.tgz \
+            http://127.0.0.1:8080/api/charts | grep -q '"saved":true'
+          curl -fsS http://127.0.0.1:8080/api/charts | grep -q '"name":"ciprobe"'
+          curl -fsS http://127.0.0.1:8080/index.yaml | grep -q 'ciprobe-0.1.0.tgz'
+          # and it is serviceable as a real Helm repo
+          helm repo add ciprobe http://127.0.0.1:8080
+          helm repo update ciprobe
+          helm search repo ciprobe/ciprobe --version 0.1.0 | grep -q ciprobe
+          # anonymous writes must be refused while auth is configured
+          code="$(curl -s -o /dev/null -w '%{http_code}' \
+            --data-binary @/tmp/ciprobe-0.1.0.tgz http://127.0.0.1:8080/api/charts)"
+          [ "$code" = "401" ] || { echo "expected 401 for anonymous upload, got $code"; exit 1; }
+          # no crash-looping
+          test "$(kubectl get pod -l app.kubernetes.io/name=chartmuseum \
+            -o jsonpath='{.items[*].status.containerStatuses[*].restartCount}')" = "0"
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/chartmuseum-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/chartmuseum@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/chartmuseum:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

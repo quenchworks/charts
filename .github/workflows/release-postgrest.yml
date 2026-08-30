@@ -1,0 +1,108 @@
+name: release-postgrest
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/postgrest/**"
+      - ".github/workflows/release-postgrest.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/postgrest
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          # bundled postgres (StatefulSet) and postgrest (Deployment) must both be up.
+          # PostgREST's readiness is /ready on its admin server, so a Ready pod is
+          # already connected to the database with a loaded schema cache.
+          kubectl rollout status statefulset/rtest-postgresql --timeout=300s
+          kubectl rollout status deployment/rtest-postgrest --timeout=300s
+          kubectl get pvc data-rtest-postgresql-0 -o jsonpath='{.status.phase}' | grep -q Bound
+          # Create a REAL table with REAL rows, then reload the schema cache in place.
+          kubectl exec -i statefulset/rtest-postgresql -- \
+            psql -h /var/run/postgresql -U postgres -d postgrest \
+            -c "create table todos (id serial primary key, task text not null, done boolean not null default false);" \
+            -c "insert into todos (task, done) values ('write the chart', true), ('gate the chart', false);" \
+            -c "notify pgrst, 'reload schema';"
+          # probe over a port-forward (the runtime image has no HTTP client)
+          kubectl port-forward svc/rtest-postgrest 3000:3000 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 8
+          # Query the table through the API and get rows back -- the point of the app.
+          curl -fsS http://127.0.0.1:3000/todos | tee /tmp/todos.json
+          test "$(python3 -c 'import json;print(len(json.load(open("/tmp/todos.json"))))')" = "2"
+          grep -q '"task":"write the chart"' /tmp/todos.json
+          # filtering and projection go through PostgREST's query planner, not a static file
+          curl -fsS 'http://127.0.0.1:3000/todos?done=eq.false&select=task' | grep -q '\[{"task":"gate the chart"}\]'
+          # writes work too, and read back
+          curl -fsS -X POST http://127.0.0.1:3000/todos \
+            -H 'Content-Type: application/json' -H 'Prefer: return=representation' \
+            -d '{"task":"posted by the gate"}' | grep -q '"task":"posted by the gate"'
+          curl -fsS 'http://127.0.0.1:3000/todos?select=id' | python3 -c \
+            'import json,sys; rows=json.load(sys.stdin); assert len(rows)==3, rows; print("rows after POST:", len(rows))'
+          # OpenAPI description is generated from the live schema
+          curl -fsS http://127.0.0.1:3000/ | grep -q '"/todos"'
+          # no crash-looping
+          test "$(kubectl get pod -l app.kubernetes.io/name=postgrest \
+            -o jsonpath='{.items[*].status.containerStatuses[*].restartCount}')" = "0"
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/postgrest-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/postgrest@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/postgrest:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

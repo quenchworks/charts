@@ -1,0 +1,110 @@
+name: release-mailpit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/mailpit/**"
+      - ".github/workflows/release-mailpit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/mailpit
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/rtest-mailpit --timeout=300s
+          # probe over a port-forward (the runtime image has no HTTP or SMTP client)
+          kubectl port-forward svc/rtest-mailpit 8025:8025 1025:1025 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          # /livez and /readyz answer unauthenticated
+          curl -fsS http://127.0.0.1:8025/livez >/dev/null
+          curl -fsS http://127.0.0.1:8025/readyz >/dev/null
+          # the API is behind basic auth
+          code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8025/api/v1/messages)"
+          [ "$code" = "401" ] || { echo "expected 401 without credentials, got $code"; exit 1; }
+          # Prove the round trip the app exists for: send a real message over SMTP,
+          # then read it back through the HTTP API.
+          python3 - <<'PY'
+          import smtplib, email.message
+          m = email.message.EmailMessage()
+          m["From"] = "ci@quench-works.com"
+          m["To"] = "inbox@example.com"
+          m["Subject"] = "quench-ci-probe"
+          m.set_content("delivered by the install gate")
+          with smtplib.SMTP("127.0.0.1", 1025, timeout=20) as s:
+              s.send_message(m)
+          print("smtp: message accepted")
+          PY
+          sleep 3
+          curl -fsS -u quench-ci:quench-ci-pass http://127.0.0.1:8025/api/v1/messages \
+            | tee /tmp/messages.json | grep -q '"Subject":"quench-ci-probe"'
+          grep -q '"messages_count":1' /tmp/messages.json
+          # and the full message body is retrievable
+          id="$(python3 -c 'import json;print(json.load(open("/tmp/messages.json"))["messages"][0]["ID"])')"
+          curl -fsS -u quench-ci:quench-ci-pass "http://127.0.0.1:8025/api/v1/message/${id}" \
+            | grep -q 'delivered by the install gate'
+          # no crash-looping
+          test "$(kubectl get pod -l app.kubernetes.io/name=mailpit \
+            -o jsonpath='{.items[*].status.containerStatuses[*].restartCount}')" = "0"
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/mailpit-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/mailpit@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/mailpit:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

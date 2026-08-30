@@ -1,0 +1,26 @@
+# Standalone install gate. No image override: the install uses the chart's real,
+# CI-maintained digest from values.yaml, so the gate pulls the actual signed image.
+#
+# The write API stays ON with basic auth configured, so the gate proves the whole
+# round trip the app exists for: authenticate, POST a packaged chart to
+# /api/charts, then see it in /api/charts and in the generated index.yaml.
+# Persistence stays ON so the PVC path is exercised too (kind ships a default
+# storage class). These credentials are CI-only -- set your own.
+replicaCount: 1
+
+api:
+  enabled: true
+  allowOverwrite: true
+
+auth:
+  username: quench-ci
+  password: quench-ci-pass
+  anonymousGet: true
+
+persistence:
+  enabled: true
+  size: 1Gi
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 512Mi }

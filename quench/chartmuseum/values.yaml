@@ -1,0 +1,157 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/chartmuseum
+  digest: "sha256:3af8698e052404bb8c9291b0233c512d6be065c0f1f3d357857d5ff2e2f4aae6"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# ChartMuseum keeps its charts in the configured storage backend. With the default
+# `local` backend that backend is a single pod's disk (a ReadWriteOnce PVC), so one
+# replica is the only correct topology. Scale out only after switching
+# storage.backend to a shared object store (amazon/google/microsoft/...).
+replicaCount: 1
+
+# --- Write API and auth -----------------------------------------------------
+#
+# !! READ THIS BEFORE EXPOSING THE SERVICE !!
+# api.enabled=true switches on every /api route, including
+# `POST /api/charts` (upload) and `DELETE /api/charts/:name/:version`.
+# With auth.username empty (the default) those routes are ANONYMOUS: anyone who
+# can reach the Service can publish or delete charts in this repository.
+# For anything beyond a trusted, network-isolated namespace, either set
+# auth.username/auth.password (or auth.existingSecret), or set api.enabled=false
+# to serve a read-only repository.
+api:
+  enabled: true
+  # Re-upload an existing chart version without ?force (--allow-overwrite).
+  allowOverwrite: false
+  # Remove the DELETE route while keeping uploads (--disable-delete).
+  disableDelete: false
+
+auth:
+  # HTTP basic auth. Empty username = no auth at all (see the warning above).
+  username: ""
+  password: ""
+  # Supply the credentials from a Secret you manage instead of the values above.
+  existingSecret: ""
+  existingSecretUserKey: basic-auth-user
+  existingSecretPasswordKey: basic-auth-pass
+  # When auth is on, still allow unauthenticated GET (pulls / index.yaml).
+  anonymousGet: false
+
+# --- Storage ----------------------------------------------------------------
+#
+# backend is passed straight to `--storage`. ChartMuseum accepts: local, amazon,
+# google, microsoft, oracle, alibaba, openstack, baidu, tencent, etcd.
+# Only `local` is wired end-to-end by this chart (it owns the volume below); every
+# other backend takes its bucket/credentials through extraArgs and extraEnvVars,
+# e.g. STORAGE_AMAZON_BUCKET / AWS_* — see the README.
+storage:
+  backend: local
+  local:
+    # Mount point of the chart volume; also `--storage-local-rootdir`.
+    path: /storage
+
+# Chart storage volume. Always mounted (the root filesystem is read-only, so
+# ChartMuseum needs a writable path even with an ephemeral store); `enabled`
+# only decides whether it is a PersistentVolumeClaim or an emptyDir.
+persistence:
+  enabled: true
+  # existingClaim: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 8Gi
+  storageClass: ""
+  annotations: {}
+
+# Base context path the server is mounted under, e.g. "/charts" (--context-path).
+contextPath: ""
+# Absolute URL used for the .tgz links in index.yaml (--chart-url). Set this when
+# clients reach ChartMuseum through an Ingress or proxy.
+chartUrl: ""
+# Extra flags appended to the chartmuseum command, e.g. ["--storage-amazon-bucket=my-charts"].
+extraArgs: []
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  # The container serves HTTP on 8080; the Service maps the same port.
+  port: 8080
+
+# Optional horizontal autoscaling on CPU. Only safe with a shared object-storage
+# backend; the default local backend is per-pod, so leave this off for it.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # A chart repository is normally pulled from all over the cluster and from CI
+  # outside it, so ingress is open by default. Set false to restrict it to the
+  # release namespace -- strongly recommended when auth is not configured.
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Optional Ingress (HTTP only). Disabled by default, so enabling it is an explicit
+# operator decision and this chart's behaviour is unchanged until then.
+ingress:
+  enabled: false
+  # IngressClass to claim this Ingress. Empty -> the cluster default applies.
+  className: ""
+  annotations: {}
+  # Service port to route to. Unset -> resolved from service.port, then
+  # service.ports.http / .https.
+  servicePort: null
+  # e.g. [{host: charts.example.com, paths: [{path: /, pathType: Prefix}]}]
+  # `paths` may be omitted for the common "/" Prefix case.
+  hosts: []
+  # Standard Ingress TLS list, e.g. [{hosts: [charts.example.com], secretName: charts-tls}]
+  tls: []

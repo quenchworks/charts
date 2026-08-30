@@ -1,0 +1,106 @@
+{{/* The admin server answers /live (process up) and /ready (database connected and
+     schema cache loaded), so readiness here means the API can actually serve
+     queries. Without it there is no unauthenticated endpoint to probe: every REST
+     route is subject to db-anon-role / JWT. */}}
+{{- $probePort := ternary "admin" "http" .Values.adminServer.enabled -}}
+{{- $liveness := dict "httpGet" (dict "path" (ternary "/live" "/" .Values.adminServer.enabled) "port" $probePort) "initialDelaySeconds" 5 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" (ternary "/ready" "/" .Values.adminServer.enabled) "port" $probePort) "initialDelaySeconds" 2 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "postgrest.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: postgrest
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/postgrest"]
+          env:
+            # The URI carries the database password: always from a Secret.
+            - name: PGRST_DB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "postgrest.dbSecretName" . }}
+                  key: {{ include "postgrest.dbURIKey" . }}
+            - name: PGRST_DB_SCHEMAS
+              value: {{ .Values.db.schemas | quote }}
+            {{- with .Values.db.anonRole }}
+            - name: PGRST_DB_ANON_ROLE
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.db.extraSearchPath }}
+            - name: PGRST_DB_EXTRA_SEARCH_PATH
+              value: {{ . | quote }}
+            {{- end }}
+            - name: PGRST_DB_POOL
+              value: {{ .Values.db.pool | quote }}
+            - name: PGRST_SERVER_PORT
+              value: "3000"
+            {{- if .Values.adminServer.enabled }}
+            - name: PGRST_ADMIN_SERVER_PORT
+              value: {{ .Values.adminServer.port | quote }}
+            {{- end }}
+            - name: PGRST_LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            {{- if include "postgrest.jwtEnabled" . }}
+            - name: PGRST_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "postgrest.jwtSecretName" . }}
+                  key: {{ include "postgrest.jwtSecretKey" . }}
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+            {{- if .Values.adminServer.enabled }}
+            - name: admin
+              containerPort: {{ .Values.adminServer.port }}
+              protocol: TCP
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

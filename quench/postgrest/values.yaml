@@ -1,0 +1,171 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/postgrest
+  digest: "sha256:051e9c0f4fda51e6e4cfc8bce1cb83fcea1178576114bc470179b3d1fac499ad"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# PostgREST holds no state of its own -- every request is a transaction against
+# PostgreSQL -- so it runs as a plain Deployment and scales horizontally.
+replicaCount: 1
+
+# --- Database ---------------------------------------------------------------
+# PostgREST cannot start without a database URI, so the chart always produces one.
+# Two mutually exclusive modes:
+#
+#  1. Bundled PostgreSQL (default). postgresql.enabled=true pulls QuenchWorks'
+#     own hardened postgresql subchart, and PGRST_DB_URI is built from
+#     postgresql.auth.* pointing at the subchart's Service. The password below is
+#     SHARED with the subchart (both read the same value), so set a strong one for
+#     production or switch to externalDatabase.
+#
+#  2. External PostgreSQL. Set postgresql.enabled=false and fill externalDatabase.*
+#     (or supply externalDatabase.existingSecret holding a ready connection URI).
+#
+# Either way the URI lands in a Secret and is injected as PGRST_DB_URI. It is
+# never written to a ConfigMap or passed as a command-line flag, because it
+# carries a password.
+externalDatabase:
+  host: ""
+  port: 5432
+  user: postgres
+  password: ""
+  database: postgres
+  sslmode: require
+  # Optional: an existing Secret already holding a full postgres:// URI.
+  existingSecret: ""
+  existingSecretURIKey: database-uri
+
+postgresql:
+  enabled: true
+  auth:
+    # The bundled image's entrypoint only creates the extra database when its name
+    # differs from the user; keep the superuser as the owner of the API database.
+    username: postgres
+    # SHARED with PGRST_DB_URI. Override for production.
+    password: "postgrest"
+    database: postgrest
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- PostgREST configuration ------------------------------------------------
+# Everything here maps to a PGRST_* environment variable. Anything not exposed as
+# a value can be set through extraEnvVars with its PGRST_ name -- that is
+# PostgREST's own configuration mechanism, so nothing is lost by not listing it.
+db:
+  # Schemas exposed to REST clients (PGRST_DB_SCHEMAS), comma-separated.
+  schemas: public
+  # Role assumed for UNAUTHENTICATED requests (PGRST_DB_ANON_ROLE). Empty is the
+  # secure default: with no anonymous role, every request must present a JWT.
+  # Setting it grants anyone who can reach the API whatever that role can do, so
+  # give it a dedicated, narrowly-granted role -- never the owner/superuser.
+  anonRole: ""
+  # Extra schemas added to the search_path of every request (PGRST_DB_EXTRA_SEARCH_PATH).
+  extraSearchPath: public
+  # Size of the connection pool (PGRST_DB_POOL).
+  pool: 10
+
+# JWT verification secret (PGRST_JWT_SECRET). Required for authenticated requests;
+# must be at least 32 characters. Held in a Secret, like the database URI.
+jwt:
+  secret: ""
+  existingSecret: ""
+  existingSecretKey: jwt-secret
+
+# Logging level: crit, error, warn, info, debug (PGRST_LOG_LEVEL).
+logLevel: error
+
+# Admin server. Separate port serving /live and /ready, which is what the kubelet
+# probes use: readiness therefore means "connected to PostgreSQL with a loaded
+# schema cache", not merely "process is listening". It is NOT published by the
+# Service. Disable only if you replace the probes yourself.
+adminServer:
+  enabled: true
+  port: 3001
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # The container serves the REST API on 3000; the Service maps the same port.
+  port: 3000
+
+# Optional horizontal autoscaling on CPU. Safe here: PostgREST is stateless.
+# Mind the database though -- each replica opens its own pool of db.pool
+# connections, so maxReplicas * db.pool must stay under max_connections.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # An API whose authorization model is database roles + row-level security is
+  # still worth keeping off the wider cluster by default. Set true when clients
+  # live elsewhere, or use networkPolicy.extraFrom for a specific namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Optional Ingress (HTTP only). Disabled by default, so enabling it is an explicit
+# operator decision and this chart's behaviour is unchanged until then.
+ingress:
+  enabled: false
+  # IngressClass to claim this Ingress. Empty -> the cluster default applies.
+  className: ""
+  annotations: {}
+  # Service port to route to. Unset -> resolved from service.port, then
+  # service.ports.http / .https.
+  servicePort: null
+  # e.g. [{host: api.example.com, paths: [{path: /, pathType: Prefix}]}]
+  # `paths` may be omitted for the common "/" Prefix case.
+  hosts: []
+  # Standard Ingress TLS list, e.g. [{hosts: [api.example.com], secretName: api-tls}]
+  tls: []

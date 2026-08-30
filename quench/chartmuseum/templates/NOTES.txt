@@ -1,0 +1,63 @@
+Quenchworks ChartMuseum is installed as {{ include "quench-common.fullname" . }}.
+
+The server runs nonroot and serves HTTP on container port 8080; the Service exposes
+it on port {{ .Values.service.port }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Use it as a Helm repository over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  curl http://127.0.0.1:8080{{ .Values.contextPath }}/health
+  helm repo add museum http://127.0.0.1:8080{{ .Values.contextPath }}
+{{- if .Values.api.enabled }}
+  curl --data-binary @mychart-0.1.0.tgz http://127.0.0.1:8080{{ .Values.contextPath }}/api/charts
+  curl http://127.0.0.1:8080{{ .Values.contextPath }}/api/charts
+{{- end }}
+
+{{ if .Values.api.enabled }}
+{{- if include "chartmuseum.authEnabled" . }}
+The /api routes are ENABLED and protected by HTTP basic auth.
+{{- if .Values.auth.anonymousGet }}
+Unauthenticated GET is allowed (auth.anonymousGet=true), so pulls and index.yaml
+need no credentials; uploads and deletes do.
+{{- end }}
+{{- else }}
+!! WARNING: THIS REPOSITORY ACCEPTS ANONYMOUS WRITES !!
+The /api routes are enabled and NO authentication is configured, so anyone who can
+reach the Service can upload charts with
+
+  curl --data-binary @evil-1.0.0.tgz http://.../api/charts
+
+and (unless api.disableDelete=true) delete existing ones. Before this is reachable
+by anything you do not fully trust, either:
+
+  --set auth.username=... --set auth.password=...   (or auth.existingSecret)
+  --set api.enabled=false                           (serve a read-only repository)
+
+and keep networkPolicy.allowExternal=false to confine clients to this namespace.
+{{- end }}
+{{- else }}
+The /api routes are DISABLED (api.enabled=false): this is a read-only repository.
+Charts must be placed in the storage backend out of band.
+{{- end }}
+
+{{ if eq .Values.storage.backend "local" }}
+{{- if .Values.persistence.enabled }}
+Charts are stored on a PersistentVolumeClaim mounted at {{ .Values.storage.local.path }}
+and survive pod restarts.
+{{- else }}
+Charts are stored on an ephemeral emptyDir at {{ .Values.storage.local.path }} and are
+LOST on pod restart. Set persistence.enabled=true for a PersistentVolumeClaim.
+{{- end }}
+The local backend is per-pod (ReadWriteOnce), so keep replicaCount at 1.
+{{- else }}
+Storage backend: {{ .Values.storage.backend }}. Its bucket and credentials come from
+extraArgs / extraEnvVars -- verify the pod logs show no storage errors.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/chartmuseum \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
