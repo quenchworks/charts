@@ -35,6 +35,13 @@ rules:
       - namespaces
       - endpoints
     verbs: ["list", "watch"]
+  # KSM 2.x collects EndpointSlices by DEFAULT. Without this rule the exporter
+  # still installs, reaches Ready and serves metrics -- while logging a forbidden
+  # reflector error every few seconds and silently omitting every
+  # kube_endpointslice_* series. A lint or a readiness probe cannot catch that.
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["list", "watch"]
   - apiGroups: ["apps"]
     resources:
       - statefulsets
