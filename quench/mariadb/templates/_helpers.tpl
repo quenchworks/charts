@@ -38,3 +38,34 @@
 {{- define "mariadb.galeraQuorum" -}}
 {{- add (div (int .Values.galera.replicaCount) 2) 1 -}}
 {{- end -}}
+
+{{/* mysqld_exporter sidecar. Talks to the server over the pod's loopback (the flag
+     default is localhost:3306, so no address is passed). The password is taken only
+     from MYSQLD_EXPORTER_PASSWORD, never a DSN, so special characters need no
+     URL-encoding. Shared by the standalone and Galera StatefulSets, so every node
+     exposes its own metrics. */}}
+{{- define "mariadb.metricsContainer" -}}
+{{- $ := .root -}}
+- name: metrics
+  image: {{ printf "%s@%s" $.Values.metrics.image.repository (required "metrics.image.digest is required" $.Values.metrics.image.digest) }}
+  imagePullPolicy: {{ $.Values.metrics.image.pullPolicy }}
+  securityContext:
+    {{- include "quench-common.containerSecurityContext" $ | nindent 4 }}
+  args:
+    - --mysqld.username=root
+    - --web.listen-address=:{{ $.Values.metrics.port }}
+    {{- range $.Values.metrics.extraArgs }}
+    - {{ . | quote }}
+    {{- end }}
+  env:
+    - name: MYSQLD_EXPORTER_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: {{ include "mariadb.secretName" $ }}
+          key: {{ include "mariadb.rootPasswordKey" $ }}
+  ports:
+    - name: metrics
+      containerPort: {{ $.Values.metrics.port }}
+  resources:
+    {{- toYaml $.Values.metrics.resources | nindent 4 }}
+{{- end -}}

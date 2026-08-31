@@ -53,3 +53,51 @@
 {{- end -}}
 {{- join "," $out -}}
 {{- end -}}
+
+{{/* percona mongodb_exporter sidecar. Connects over the pod's loopback with
+     --mongodb.direct-connect so each member reports ITS OWN state rather than being
+     redirected to the replica-set primary by topology discovery. Credentials go in
+     as MONGODB_USER/MONGODB_PASSWORD, not inside the URI, so a password with URI
+     metacharacters needs no percent-encoding. Shared by the standalone and
+     replica-set StatefulSets. */}}
+{{- define "mongodb.metricsContainer" -}}
+{{- $ := .root -}}
+- name: metrics
+  image: {{ printf "%s@%s" $.Values.metrics.image.repository (required "metrics.image.digest is required" $.Values.metrics.image.digest) }}
+  imagePullPolicy: {{ $.Values.metrics.image.pullPolicy }}
+  securityContext:
+    {{- include "quench-common.containerSecurityContext" $ | nindent 4 }}
+  args:
+    - --mongodb.uri=mongodb://localhost:{{ $.Values.service.port }}/admin
+    - --mongodb.direct-connect
+    - --web.listen-address=:{{ $.Values.metrics.port }}
+    {{- /* WITHOUT an explicit --collector.* flag this exporter enables only its
+           "general" collector and serves nothing but mongodb_up -- it looks healthy
+           and collects nothing. diagnosticdata carries the serverStatus/opcounters/
+           WiredTiger bulk; replicasetstatus is added only for a replica set, since
+           replSetGetStatus errors on a standalone mongod. Add the expensive
+           per-collection collectors (collstats, dbstats, indexstats) or
+           --collect-all through metrics.extraArgs. */}}
+    - --collector.diagnosticdata
+    {{- if eq $.Values.architecture "replicaset" }}
+    - --collector.replicasetstatus
+    {{- end }}
+    {{- range $.Values.metrics.extraArgs }}
+    - {{ . | quote }}
+    {{- end }}
+  {{- if $.Values.auth.enabled }}
+  env:
+    - name: MONGODB_USER
+      value: {{ $.Values.auth.rootUsername | quote }}
+    - name: MONGODB_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: {{ include "mongodb.secretName" $ }}
+          key: {{ include "mongodb.secretPasswordKey" $ }}
+  {{- end }}
+  ports:
+    - name: metrics
+      containerPort: {{ $.Values.metrics.port }}
+  resources:
+    {{- toYaml $.Values.metrics.resources | nindent 4 }}
+{{- end -}}

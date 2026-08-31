@@ -87,6 +87,31 @@ customLivenessProbe: {}
 customReadinessProbe: {}
 customStartupProbe: {}
 
+# Prometheus metrics via a mysqld_exporter sidecar (our hardened, digest-pinned
+# image) in every server pod -- standalone and every Galera node. It authenticates
+# over the pod's loopback as root with the password from the auth Secret; for a
+# least-privilege scrape user, disable this and add your own exporter through
+# `sidecars:` instead.
+metrics:
+  enabled: false
+  image:
+    repository: ghcr.io/quenchworks/images/mysqld-exporter
+    digest: "sha256:691fa202c7f8499b68ebc328fdd64ff68c10d68625b01f2175092b4974330d65"
+    pullPolicy: IfNotPresent
+  port: 9104
+  # Extra mysqld_exporter flags, e.g. ["--collect.info_schema.processlist"].
+  extraArgs: []
+  resources:
+    requests: { cpu: 50m, memory: 32Mi }
+    limits: { cpu: 100m, memory: 64Mi }
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+  prometheusRule:
+    enabled: false
+    labels: {}
+
 serviceAccount:
   create: true
   name: ""

@@ -119,6 +119,33 @@ customLivenessProbe: {}
 customReadinessProbe: {}
 customStartupProbe: {}
 
+# Prometheus metrics via a percona mongodb_exporter sidecar (our hardened,
+# digest-pinned image) in every mongod pod -- standalone and every replica-set
+# member. It authenticates over the pod's loopback as the root user from the auth
+# Secret; for a least-privilege clusterMonitor user, disable this and add your own
+# exporter through `sidecars:` instead.
+metrics:
+  enabled: false
+  image:
+    repository: ghcr.io/quenchworks/images/mongodb-exporter
+    digest: "sha256:def80e672577a43051c01038cf1af717d5f74425e747164f1fd36f89d60f5031"
+    pullPolicy: IfNotPresent
+  port: 9216
+  # Extra mongodb_exporter flags on top of the collectors the chart enables
+  # (diagnosticdata, plus replicasetstatus in replicaset mode). Use this for the
+  # expensive per-collection ones, e.g. ["--collector.collstats"] or ["--collect-all"].
+  extraArgs: []
+  resources:
+    requests: { cpu: 50m, memory: 32Mi }
+    limits: { cpu: 100m, memory: 64Mi }
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
+  prometheusRule:
+    enabled: false
+    labels: {}
+
 serviceAccount:
   create: true
   name: ""

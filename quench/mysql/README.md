@@ -48,6 +48,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/mysql \
 | `primary.persistence.enabled` | `true` | 8Gi PVC at `/var/lib/mysql`. |
 | `service.port` | `3306` | |
 | `serviceAccount.create` | `true` | Token automount is off. |
+| `metrics.enabled` | `false` | mysqld_exporter sidecar (our hardened image) in every server pod. |
+| `metrics.port` | `9104` | Scrape port; a `<release>-mysql-metrics` Service fronts it. |
+| `metrics.extraArgs` | `[]` | Extra mysqld_exporter flags. |
+| `metrics.serviceMonitor.enabled` | `false` | Prometheus Operator ServiceMonitor. |
+| `metrics.prometheusRule.enabled` | `false` | Alerting rules (down, connection saturation). |
 | `rbac.create` | `false` | Minimal Role/RoleBinding. |
 | `networkPolicy.enabled` | `true` | Restricts ingress to the release namespace. |
 | `podDisruptionBudget.enabled` | `true` | `minAvailable: 1` standalone; quorum (2 of 3) in HA mode. |
@@ -111,8 +116,26 @@ majority is **not** auto-recovered — that is a deliberate split-brain stop nee
 to pick the most advanced survivor. Note: all replicated tables need a primary key (a
 Group Replication requirement).
 
+## Metrics
+
+`metrics.enabled=true` adds a `mysqld_exporter` sidecar to **every** server pod — the
+standalone primary and each Group Replication member — so metrics are per-node, not
+per-cluster. It reaches the server over the pod's loopback and takes the root password
+from the auth Secret via `MYSQLD_EXPORTER_PASSWORD` (never a DSN, so a password with URI
+metacharacters needs no percent-encoding). A `<release>-mysql-metrics` Service exposes
+port 9104, and the NetworkPolicy opens it when metrics are on.
+
+```bash
+helm install my-mysql oci://ghcr.io/quenchworks/charts/mysql \
+  --set metrics.enabled=true --set metrics.serviceMonitor.enabled=true
+```
+
+The exporter image is pinned by digest like the server. For a least-privilege scrape
+user instead of root, leave `metrics.enabled=false` and attach your own exporter through
+`sidecars:`.
+
 ## Notes
 
-A metrics exporter sidecar and custom `my.cnf` tuning are tracked as follow-ups. Depends on
+Custom `my.cnf` tuning is tracked as a follow-up. Depends on
 the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`.

@@ -123,6 +123,11 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/mongodb --owner que
 | `primary.persistence.enabled` | `true` | 8Gi PVC mounted at `/data` (dbpath `/data/db`, logs/socket `/data/log`). |
 | `service.port` | `27017` | MongoDB wire protocol. |
 | `networkPolicy.enabled` | `true` | Restricts ingress to the release namespace, port 27017. |
+| `metrics.enabled` | `false` | mongodb_exporter sidecar (our hardened image) in every mongod pod. |
+| `metrics.port` | `9216` | Scrape port; a `<release>-mongodb-metrics` Service fronts it. |
+| `metrics.extraArgs` | `[]` | Extra mongodb_exporter flags, e.g. `--collect-all`. |
+| `metrics.serviceMonitor.enabled` | `false` | Prometheus Operator ServiceMonitor. |
+| `metrics.prometheusRule.enabled` | `false` | Alerting rules (instance down). |
 | `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
 
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
@@ -135,6 +140,28 @@ dropped. A single writable PVC at `/data` holds the dbpath (`/data/db`) and the
 log dir (`/data/log`, which also holds the relocated unix socket and the `mongosh`
 HOME). When `auth.enabled=false`, there is no authentication — the NetworkPolicy
 is the only boundary.
+
+## Metrics
+
+`metrics.enabled=true` adds a percona `mongodb_exporter` sidecar to **every** mongod pod
+— the standalone node and each replica-set member. It connects over the pod's loopback
+with `--mongodb.direct-connect`, so each member reports **its own** state instead of
+being redirected to the primary by topology discovery. Credentials are passed as
+`MONGODB_USER`/`MONGODB_PASSWORD` rather than inside the URI, so a password with URI
+metacharacters needs no percent-encoding. A `<release>-mongodb-metrics` Service exposes
+port 9216, and the NetworkPolicy opens it when metrics are on.
+
+```bash
+helm install my-mongodb oci://ghcr.io/quenchworks/charts/mongodb \
+  --set metrics.enabled=true --set metrics.serviceMonitor.enabled=true
+```
+
+The chart enables the `diagnosticdata` collector (serverStatus, opcounters,
+WiredTiger) plus `replicasetstatus` in replica-set mode — left to its own defaults this
+exporter serves nothing but `mongodb_up`. Add the expensive per-collection collectors
+with e.g. `metrics.extraArgs={--collector.collstats}` or `metrics.extraArgs={--collect-all}`.
+The exporter image is pinned by digest like the server. For a least-privilege `clusterMonitor` user instead of root, leave
+`metrics.enabled=false` and attach your own exporter through `sidecars:`.
 
 ## Notes
 
