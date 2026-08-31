@@ -2,7 +2,7 @@ apiVersion: v2
 name: lgtm-stack
 description: "Hardened, operator-free LGTM observability superset in one install: Loki (logs) + Grafana (the single pane) + Tempo (traces) + VictoriaMetrics (Prometheus-compatible metrics) + an OpenTelemetry Collector (OTLP ingest) + Alertmanager. Grafana gets three pre-provisioned datasources — VictoriaMetrics (default), Loki, Tempo — so metrics, logs and traces are explorable side by side out of the box. VictoriaMetrics scrapes pods via annotation-based service discovery; Vector ships every pod's logs to Loki; apps send OTLP traces to the collector, which forwards to Tempo. No operator, no CRDs. All component images are QuenchWorks-hardened, nonroot, 0-CVE, pinned by digest and cosign-signed. node-exporter and Vector take host access by design (cluster metrics + logs); both are toggleable."
 type: application
-version: 0.0.16
+version: 0.0.17
 appVersion: "1.0.0"
 keywords:
   - lgtm
@@ -38,14 +38,14 @@ sources:
   - https://github.com/prometheus/node_exporter
 annotations:
   artifacthub.io/changes: |
-    - kind: fixed
-      description: "Fixed the Vector DaemonSet under vector 0.57.0: its new template-confinement check rejects Loki label templates that are a bare event field; enabled upstream's dangerously_allow_unconfined_template_resolution on the loki sink (labels are not paths; a literal prefix would corrupt dashboard label values)."
+    - kind: security
+      description: "Bumped the bundled loki subchart to 0.0.18, which pins the rebuilt 0-CVE Loki 3.7.7 image."
   artifacthub.io/category: monitoring-logging
   artifacthub.io/images: |
     - name: victoriametrics
       image: ghcr.io/quenchworks/images/victoriametrics@sha256:98105c490bacac6d8bb2326356fb9dcec4f784ef7b89a2b8cb677664506fab72
     - name: loki
-      image: ghcr.io/quenchworks/images/loki@sha256:f6b33056aba27769cf21c1f9f096ac44efd565e3bb312414ed1389850bb18335
+      image: ghcr.io/quenchworks/images/loki@sha256:97bbf905a6c1923183abc2411e0028b9d33e15e163e27c4b15563102b84850ad
     - name: grafana
       image: ghcr.io/quenchworks/images/grafana@sha256:3ccc56791c8a7ffc7a54a69084012900aa68bf3ef39a25095241e0867f416492
     - name: tempo
@@ -80,7 +80,7 @@ dependencies:
     repository: oci://ghcr.io/quenchworks/charts
     condition: victoriametrics.enabled
   - name: loki
-    version: 0.0.17
+    version: 0.0.18
     repository: oci://ghcr.io/quenchworks/charts
     condition: loki.enabled
   - name: grafana
