@@ -1,0 +1,115 @@
+name: release-adminer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/adminer/**"
+      - ".github/workflows/release-adminer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/adminer
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          # The image is pinned by digest and lives in a non-public GHCR package,
+          # so give the pod credentials to pull the real, signed artifact. A
+          # pre-created ServiceAccount carries the pull secret from pod-creation
+          # time (patching a chart-created SA would not affect the running pod).
+          kubectl create secret docker-registry ghcr-pull \
+            --docker-server=ghcr.io \
+            --docker-username="${{ github.actor }}" \
+            --docker-password="${{ secrets.GITHUB_TOKEN }}"
+          kubectl create serviceaccount adminer-puller
+          kubectl patch serviceaccount adminer-puller \
+            -p '{"imagePullSecrets":[{"name":"ghcr-pull"}]}'
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set serviceAccount.create=false --set serviceAccount.name=adminer-puller \
+            --wait --timeout 5m
+          kubectl rollout status deployment/rtest-adminer --timeout=300s
+          # probe over a port-forward (the runtime image has no HTTP client)
+          kubectl port-forward svc/rtest-adminer 8080:8080 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          # the login page is served at / (200) and is really Adminer
+          curl -fsS -c /tmp/jar -o /tmp/login.html http://127.0.0.1:8080/
+          grep -qi 'adminer' /tmp/login.html
+          grep -q "name='token'" /tmp/login.html
+          # Post a real login against a host that does not resolve. Adminer must reach
+          # its own PostgreSQL driver and report a connect error -- which proves three
+          # things lint cannot: pdo_pgsql is loaded, PHP could WRITE its session to the
+          # in-memory /tmp (the root filesystem is read-only, and without that mount
+          # every login dies), and the error survives the redirect back to the form.
+          # No -f: Adminer answers a failed login with 403.
+          token="$(grep -oE "name='token' value='[^']+'" /tmp/login.html | head -1 | sed "s/.*value='//;s/'//")"
+          test -n "$token"
+          curl -sSL -b /tmp/jar -c /tmp/jar -o /tmp/attempt.html \
+            -d 'auth[driver]=pgsql' -d 'auth[server]=nope.invalid:5432' \
+            -d 'auth[username]=u' -d 'auth[password]=p' -d 'auth[db]=' \
+            -d "token=${token}" http://127.0.0.1:8080/
+          grep -qi 'Unable to connect to PostgreSQL server' /tmp/attempt.html
+          # a PHP-level failure (missing extension, unwritable session dir) shows up here
+          if grep -qiE 'Fatal error|Permission denied|session_start' /tmp/attempt.html; then
+            echo "::error::Adminer returned a PHP-level error, not a database connect error"
+            exit 1
+          fi
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/adminer-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/adminer@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          oras push ghcr.io/quenchworks/charts/adminer:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

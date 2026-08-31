@@ -1,0 +1,94 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/adminer
+  digest: "sha256:5dcdf1a45a56033ba2445ceda9a673598cdc5f30782a3208ff944e620fc23144"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Adminer keeps nothing of its own: it is a single PHP script that opens a
+# connection to whichever database the operator logs into, so this is a plain
+# stateless Deployment behind a ClusterIP Service.
+replicaCount: 1
+
+resources:
+  requests: { cpu: 20m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # PHP's built-in server listens on 8080 in the container -- nonroot cannot bind
+  # a privileged port -- and the Service maps the same port.
+  port: 8080
+
+# PHP session and upload scratch. The root filesystem is read-only, so /tmp is a
+# writable volume; nothing in it is meant to survive a restart. Raise sizeLimit if
+# you import large SQL dumps through the UI.
+tmpVolume:
+  sizeLimit: 64Mi
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Adminer is an unauthenticated door to every database it can reach: it accepts
+# whatever host and credentials the visitor types. Ingress is therefore restricted
+# to the release namespace by default -- open it deliberately, and put an
+# authenticating proxy in front when you do.
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# Optional Ingress (HTTP only). Disabled by default, so exposing the UI is an
+# explicit operator decision. Anyone who reaches it can attempt a login against any
+# database host reachable from the pod -- front it with authentication (oauth2-proxy,
+# authelia) and TLS.
+ingress:
+  enabled: false
+  # IngressClass to claim this Ingress. Empty -> the cluster default applies.
+  className: ""
+  annotations: {}
+  # Service port to route to. Unset -> resolved from service.port, then
+  # service.ports.http / .https.
+  servicePort: null
+  # e.g. [{host: adminer.example.com, paths: [{path: /, pathType: Prefix}]}]
+  # `paths` may be omitted for the common "/" Prefix case.
+  hosts: []
+  # Standard Ingress TLS list, e.g. [{hosts: [adminer.example.com], secretName: adminer-tls}]
+  tls: []

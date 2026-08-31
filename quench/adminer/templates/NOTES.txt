@@ -1,0 +1,44 @@
+Quenchworks Adminer is installed as {{ include "quench-common.fullname" . }}.
+
+The UI runs nonroot on container port 8080; the Service exposes it on port {{ .Values.service.port }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Open it over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  # then browse http://127.0.0.1:{{ .Values.service.port }}/
+
+On the login page pick the system and enter the in-cluster host of the database you
+want to manage, e.g.
+
+  System:   PostgreSQL
+  Server:   my-postgresql.{{ .Release.Namespace }}.svc.cluster.local:5432
+  Username: postgres
+
+Adminer lists every system it knows, but only the drivers compiled into this image can
+connect: PostgreSQL and SQLite work. MySQL/MariaDB does NOT yet -- the image's mysqli
+and pdo_mysql extensions fail to load for a missing mysqlnd library. Nothing to
+configure; a rebuilt image fixes it and CI re-pins this chart.
+
+{{- if .Values.ingress.enabled }}
+
+Ingress is ENABLED{{ range .Values.ingress.hosts }} (http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}/){{ end }}.
+
+  Adminer has NO authentication of its own: whoever reaches this URL can attempt a
+  login against any database host reachable from the pod. Put an authenticating
+  proxy (oauth2-proxy, authelia) and TLS in front of it, or restrict the source
+  range at the ingress controller.
+{{- else }}
+
+Adminer has NO authentication of its own -- whoever reaches it can attempt a login
+against any database host reachable from the pod. It is namespace-internal by
+default (networkPolicy.allowExternal=false, no Ingress); front it with an
+authenticating proxy before exposing it.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/adminer \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
