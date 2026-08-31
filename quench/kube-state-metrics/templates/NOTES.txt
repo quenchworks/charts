@@ -1,0 +1,42 @@
+Quenchworks kube-state-metrics is installed as {{ include "quench-common.fullname" . }}.
+
+It watches the Kubernetes API and exports the state of cluster objects as Prometheus
+metrics on container port 8080; health and its own process metrics are on 8081. The
+Service exposes both:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/metrics
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.telemetryPort }}/metrics
+
+Check it over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl -s http://127.0.0.1:{{ .Values.service.port }}/metrics | grep -m5 '^kube_'
+
+{{ if .Values.podAnnotations }}
+Pods carry prometheus.io/scrape annotations, so a Prometheus using annotation-based
+pod discovery picks this up with no extra configuration. Scrape it explicitly with:
+{{- else }}
+No scrape annotations are set. Point Prometheus at it explicitly, e.g.:
+{{- end }}
+
+  - job_name: kube-state-metrics
+    static_configs:
+      - targets: ["{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}"]
+
+{{ if not .Values.rbac.create }}
+WARNING: rbac.create is false. Without cluster-wide list/watch access the exporter
+starts but exports an almost empty metric set. Bind an equivalent ClusterRole to
+ServiceAccount {{ include "kube-state-metrics.serviceAccountName" . }} yourself.
+{{- end }}
+
+{{ if gt (int .Values.replicaCount) 1 }}
+WARNING: replicaCount is {{ .Values.replicaCount }}. Unsharded replicas export the SAME
+series, which Prometheus sees as duplicate/conflicting samples. Shard explicitly
+instead -- one release per shard with extraArgs: ["--shard=N", "--total-shards={{ .Values.replicaCount }}"].
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/kube-state-metrics \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

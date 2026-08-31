@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.podAnnotations }}
+  annotations:
+    {{/* Pods carry these for annotation-based discovery; the Service repeats them
+         for tools that scrape Endpoints rather than Pods. */}}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http-metrics
+      port: {{ .Values.service.port }}
+      targetPort: http-metrics
+      protocol: TCP
+    - name: telemetry
+      port: {{ .Values.service.telemetryPort }}
+      targetPort: telemetry
+      protocol: TCP
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

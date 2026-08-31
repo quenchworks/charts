@@ -1,0 +1,98 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/kube-state-metrics
+  digest: "sha256:9cf36d15744d017b8e80d9b419af5b3c3ae7aae0f2f120ead8994ea9f1dce4d0"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# kube-state-metrics holds no state: it rebuilds its whole metric set from API-server
+# watches. It is deliberately NOT scaled by an HPA -- every replica exports the SAME
+# series, so a second unsharded replica just duplicates them and Prometheus reports
+# them as a conflict. Run 1, or shard explicitly (--shard/--total-shards via extraArgs,
+# one release per shard).
+replicaCount: 1
+
+# Extra flags appended to the kube-state-metrics command. The two most common:
+#   --namespaces=ns-a,ns-b          restrict collection to those namespaces
+#   --resources=pods,deployments    collect only those resource kinds
+#   --metric-labels-allowlist=pods=[app]  opt object labels into the metrics
+extraArgs: []
+
+resources:
+  requests: { cpu: 20m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 512Mi }
+
+# The container listens on kube-state-metrics' own defaults, 8080 (object metrics)
+# and 8081 (telemetry + health); the Service maps to them by name, so these are the
+# in-cluster ports and the container ports stay fixed.
+service:
+  type: ClusterIP
+  # Metrics about cluster objects. This is the port Prometheus scrapes.
+  port: 8080
+  # kube-state-metrics' OWN process metrics plus /healthz, /livez and /readyz. A
+  # separate listener upstream, kept separate here: scraping it is optional, and
+  # readiness must not depend on the (potentially large) object-metrics handler.
+  telemetryPort: 8081
+
+# Pod annotations for annotation-based Prometheus discovery. Set to {} if your
+# Prometheus uses ServiceMonitor/PodMonitor or an explicit static config instead.
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8080"
+  prometheus.io/path: /metrics
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # kube-state-metrics IS an API-server client -- watching cluster objects is the
+  # whole job -- so it must have a projected token. quench-common defaults this to
+  # false for workloads that never talk to the API server.
+  automountServiceAccountToken: true
+
+# Required. Read-only (list/watch) access to the object kinds it exports, cluster
+# wide. Without it the exporter starts and serves an almost empty metric set.
+rbac:
+  create: true
+
+# Only Prometheus needs to reach the exporter, and cluster-object state is
+# sensitive (it names every workload, secret and config object). Ingress is
+# restricted to the release namespace by default; add a namespaceSelector via
+# networkPolicy.extraFrom for a Prometheus living elsewhere.
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+# A single unsharded replica cannot satisfy minAvailable: 1 and still be evictable,
+# so the default PDB is off. Turn it on when running sharded.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

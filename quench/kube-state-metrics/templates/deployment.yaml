@@ -1,0 +1,74 @@
+{{/* Split across the two listeners, matching upstream: /livez on the metrics port
+     proves the object-metrics server is up, while READINESS uses /readyz on the
+     telemetry port -- that one answers immediately, whereas the metrics port can
+     take seconds to serve on a large cluster and would flap the probe. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/livez" "port" "http-metrics") "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/readyz" "port" "telemetry") "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "kube-state-metrics.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: kube-state-metrics
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- with .Values.extraArgs }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.extraEnvVars }}
+          env:
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http-metrics
+              containerPort: 8080
+              protocol: TCP
+            - name: telemetry
+              containerPort: 8081
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.extraVolumeMounts }}
+          volumeMounts:
+            {{- include "quench-common.extraVolumeMounts" $ | nindent 12 }}
+          {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      {{- with .Values.extraVolumes }}
+      volumes:
+        {{- include "quench-common.extraVolumes" $ | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,91 @@
+{{- if .Values.rbac.create }}
+{{/*
+Clean-room RBAC, derived from what the exporter actually reads: one list/watch grant
+per object kind it exports. Every verb is read-only -- kube-state-metrics never
+mutates cluster state, so a write verb here would be a pure escalation.
+
+`secrets` and `configmaps` are LIST/WATCH ONLY and no metric carries their contents
+(only names, types and counts). Drop those two lines if your policy forbids the
+verbs regardless; the exporter simply stops exporting kube_secret_* / kube_configmap_*.
+
+The names carry the release namespace, because cluster-scoped names are GLOBAL and
+two releases would otherwise collide on one ClusterRole.
+*/}}
+{{- $name := include "kube-state-metrics.clusterRoleName" . -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources:
+      - configmaps
+      - secrets
+      - nodes
+      - pods
+      - services
+      - serviceaccounts
+      - resourcequotas
+      - replicationcontrollers
+      - limitranges
+      - persistentvolumeclaims
+      - persistentvolumes
+      - namespaces
+      - endpoints
+    verbs: ["list", "watch"]
+  {{/* EndpointSlices are a DEFAULT collector in 2.x and live in their own API group.
+       Omitting this rule does not fail the install: the exporter starts, serves
+       metrics, and only logs a forbidden reflector error every few seconds while
+       kube_endpointslice_* is silently absent. The chart's kind gate is what caught
+       it -- lint and template cannot. */}}
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets", "daemonsets", "deployments", "replicasets"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["cronjobs", "jobs"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses", "networkpolicies"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["storage.k8s.io"]
+    resources: ["storageclasses", "volumeattachments"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["rbac.authorization.k8s.io"]
+    resources: ["clusterroles", "roles", "clusterrolebindings", "rolebindings"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["certificates.k8s.io"]
+    resources: ["certificatesigningrequests"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["admissionregistration.k8s.io"]
+    resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kube-state-metrics.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
