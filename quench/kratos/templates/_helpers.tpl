@@ -90,10 +90,11 @@ selfservice:
   flows:
     registration:
       enabled: true
-    login:
-      enabled: true
-    settings:
-      enabled: true
+    {{- /* login and settings take no `enabled` key: Kratos's config schema marks
+           both objects additionalProperties:false and the flows are always on, so
+           emitting `enabled` here made `kratos serve` exit 1 on every install with
+           `additionalProperties "enabled" not allowed`. Only registration,
+           recovery and verification are toggleable. */}}
     recovery:
       enabled: false
     verification:
