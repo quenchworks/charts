@@ -23,6 +23,13 @@ spec:
         - port: patroni
           protocol: TCP
         {{- end }}
+        {{- if .Values.metrics.enabled }}
+        # The metrics sidecar's scrape port. Without this, enabling metrics while
+        # networkPolicy stays on (both are defaults) leaves Prometheus unable to
+        # reach the exporter -- the sidecar runs, serves, and is simply unreachable.
+        - port: {{ .Values.metrics.port }}
+          protocol: TCP
+        {{- end }}
       {{- if not .Values.networkPolicy.allowExternal }}
       from:
         - podSelector: {}
