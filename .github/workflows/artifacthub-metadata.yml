@@ -1,0 +1,72 @@
+name: artifacthub-metadata
+
+# Re-push every chart's artifacthub-repo.yml to its OCI path under the reserved
+# `artifacthub.io` tag. ArtifactHub reads that artifact to award Verified Publisher.
+#
+# Why this exists as its own workflow: the per-chart release workflows only run when
+# their chart changes, so a fix to the metadata push would otherwise trickle out one
+# chart at a time. This re-pushes all of them in one run without re-running any kind
+# install gate.
+#
+# It pushes ONLY the ownership metadata. It never packages or publishes a chart, so it
+# cannot overwrite a released version.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oras-project/setup-oras@v2
+
+      - name: Push ArtifactHub ownership metadata for every chart
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          ok=0; skipped=0; failed=0
+          for dir in quench/*/; do
+            chart="$(basename "$dir")"
+            file="${dir}artifacthub-repo.yml"
+            if [ ! -f "$file" ]; then
+              echo "::warning::${chart}: no artifacthub-repo.yml; skipping."
+              skipped=$((skipped+1)); continue
+            fi
+            # Only a real placeholder ID skips. Matching the bare word anywhere would
+            # also match the explanatory comment in the file, which is what silently
+            # kept gateway-api-crds unverified.
+            if grep -qE '^repositoryID:[[:space:]]*(REPLACE_WITH|REPLACE-ME)' "$file"; then
+              echo "::warning::${chart}: placeholder repositoryID; skipping."
+              skipped=$((skipped+1)); continue
+            fi
+            # The layer MUST be titled exactly `artifacthub-repo.yml`. Pushing a path
+            # (quench/<chart>/artifacthub-repo.yml) sets the OCI title to that path,
+            # which ArtifactHub does not match -- no badge, no error.
+            if ( cd "$dir" && oras push "ghcr.io/quenchworks/charts/${chart}:artifacthub.io" \
+                   --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+                   "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml" ); then
+              ok=$((ok+1))
+            else
+              echo "::error::${chart}: metadata push failed."
+              failed=$((failed+1))
+            fi
+          done
+          echo "pushed=${ok} skipped=${skipped} failed=${failed}"
+          echo "### ArtifactHub metadata: ${ok} pushed, ${skipped} skipped, ${failed} failed" >> "$GITHUB_STEP_SUMMARY"
+          test "${failed}" = "0"
+
+      - name: Verify a sample layer title
+        run: |
+          # A push can succeed while still carrying the wrong title, which is exactly
+          # the failure this workflow exists to fix. Assert the title is the bare name.
+          for chart in thanos victoriametrics gateway-api-crds; do
+            title="$(oras manifest fetch "ghcr.io/quenchworks/charts/${chart}:artifacthub.io" \
+                     | jq -r '.layers[0].annotations."org.opencontainers.image.title"')"
+            echo "${chart}: ${title}"
+            test "${title}" = "artifacthub-repo.yml"
+          done
