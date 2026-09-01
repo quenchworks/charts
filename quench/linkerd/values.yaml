@@ -76,6 +76,13 @@ service:
 serviceAccount:
   create: true
   name: ""
+  # REQUIRED true: linkerd-destination's job is watching Services, EndpointSlices and
+  # ServiceProfiles, so it must have an API token. quench-common defaults this to
+  # false (most workloads never call the API server), and with no token client-go
+  # cannot build an in-cluster config and falls back to its legacy default host
+  # http://localhost:8080, so the controller silently talks to the wrong endpoint
+  # instead of the API server. Same defect found and fixed in the istiod chart.
+  automountServiceAccountToken: true
 
 rbac:
   create: true
