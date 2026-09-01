@@ -2,7 +2,7 @@ apiVersion: v2
 name: envoy-gateway
 description: "Envoy Gateway, the CNCF Gateway API control plane that provisions and configures fleets of Envoy proxies from GatewayClass/Gateway/HTTPRoute and its own gateway.envoyproxy.io policy CRDs. Hardened by QuenchWorks as a minimal, nonroot, 0-CVE image, cosign-signed and pinned by digest. Ships only Envoy Gateway's own CRDs -- the Gateway API CRDs are owned by the separate quench gateway-api-crds chart and must be installed first."
 type: application
-version: 0.0.1
+version: 0.0.2
 appVersion: "1.9.0"
 kubeVersion: ">=1.29.0-0"
 keywords:
@@ -26,19 +26,11 @@ sources:
 annotations:
   artifacthub.io/category: networking
   artifacthub.io/changes: |
-    - kind: added
-      description: "First release: the Envoy Gateway 1.9.0 control plane as a single Deployment running `envoy-gateway server --config-path=/config/envoy-gateway.yaml`, on the QuenchWorks 0-CVE image pinned by digest. Nonroot (uid 1001), read-only root filesystem, all capabilities dropped, with an emptyDir over /var/lib/eg/wasm for the Wasm module cache."
-    - kind: added
-      description: "Ships Envoy Gateway's own eight gateway.envoyproxy.io CRDs (Backend, BackendTrafficPolicy, ClientTrafficPolicy, EnvoyExtensionPolicy, EnvoyPatchPolicy, EnvoyProxy, HTTPRouteFilter, SecurityPolicy) vendored byte for byte from the upstream v1.9.0 gateway-crds-helm chart. They live in crds/ rather than templates/ because the bundle is 2.5 MiB of source: as templates it renders into the Helm release Secret twice and blows the 1 MiB Secret ceiling (measured ~1.10 MiB stored versus 1002 KiB from crds/, against a 1 MiB ceiling). The Gateway API CRDs are NOT bundled -- the quench gateway-api-crds chart owns those cluster-scoped singletons and must be installed first."
-    - kind: added
-      description: "A pre-install/pre-upgrade `envoy-gateway certgen` Job mints the control-plane xDS CA and serving certificates into the `envoy-gateway` Secret, which both the controller and every provisioned Envoy proxy mount for mTLS. Because certgen hard-codes the SAN `envoy-gateway.<namespace>.svc.<domain>`, the Service this chart creates is named `envoy-gateway` regardless of release name; everything else is release-prefixed as usual."
-    - kind: added
-      description: "The managed Envoy data plane and the shutdown-manager sidecar default to QuenchWorks images pinned by digest (envoy 1.38.1 and this chart's own envoy-gateway image), written into the EnvoyGateway config as provider.kubernetes.envoyDeployment.container.image and provider.kubernetes.shutdownManager.image. Set envoyProxy.image.digest to \"\" to fall back to the upstream image compiled into Envoy Gateway."
-    - kind: added
-      description: "The proxy topology injector is disabled by default. It is an optional zone-affinity optimisation that would otherwise require a cluster-wide MutatingWebhookConfiguration on pod creation; leaving it off keeps the install to one Deployment, one Service and one Job with no admission webhook in the request path."
+    - kind: security
+      description: "Automated re-pin: envoy-gateway republished to a new 0-CVE digest."
   artifacthub.io/images: |
     - name: envoy-gateway
-      image: ghcr.io/quenchworks/images/envoy-gateway@sha256:1543e1b67da2a8a3322978ca4ecdb9ba56e24d7a91f6582ad0e3d8fd8530433c
+      image: ghcr.io/quenchworks/images/envoy-gateway@sha256:ad2162c288bb16ffcaaa955ec632a6120b43c08639fb20709445a0d84f891adc
     - name: envoy
       image: ghcr.io/quenchworks/images/envoy@sha256:99cf0132c2d9521d564329f78512f5ba521d8e147a824bf64f3c27352efbc0af
   artifacthub.io/crds: |
