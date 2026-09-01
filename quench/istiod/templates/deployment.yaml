@@ -42,6 +42,21 @@ spec:
           {{- include "quench-common.command" . | nindent 10 }}
           {{- include "quench-common.args" . | nindent 10 }}
           env:
+            # pilot-discovery's --namespace defaults to ${POD_NAMESPACE} (its own
+            # --help says so), and with neither set it falls back to "istio-system".
+            # This chart installs into the release namespace, so without POD_NAMESPACE
+            # istiod watches a namespace that usually does not exist and the API
+            # server answers every list with 404 "the server could not find the
+            # requested resource (get configmaps)" -- config sync never completes,
+            # /ready stays 503, and the liveness probe restarts the pod in a loop.
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:

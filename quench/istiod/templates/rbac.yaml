@@ -2,8 +2,16 @@
 # What pilot-discovery actually watches: the mesh (pods, services, endpoints,
 # namespaces, nodes), the secrets that carry its CA material and webhook certs,
 # and config that feeds it. It also records Kubernetes Events when configuration
-# is rejected. No Istio CRD rules: this chart ships no CRDs (see README), and
-# RBAC on absent resource types would be dead weight.
+# is rejected.
+#
+# The CRD rules below are NOT dead weight, which an earlier version of this comment
+# claimed on the grounds that the chart ships no CRDs. istiod's crd-controller starts
+# a controller per Istio type unconditionally and first LISTS
+# customresourcedefinitions to learn which of them exist; denied that, it logs
+# "customresourcedefinitions.apiextensions.k8s.io is forbidden" on a loop and never
+# reaches ready. Read access to the Istio API groups is likewise required whether or
+# not the CRDs are installed today -- absent types are simply an empty watch, and the
+# rules become live the moment a user installs istio-base alongside this chart.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -14,12 +22,89 @@ rules:
   - apiGroups: [""]
     resources: [pods, services, endpoints, namespaces, nodes]
     verbs: [get, list, watch]
+  # EndpointSlices, not just Endpoints: modern istiod reads endpoint state from
+  # discovery.k8s.io/EndpointSlice, and denied it, service discovery is empty and
+  # "discovery is not ready" keeps /ready at 503 no matter what else is fixed.
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
   - apiGroups: [""]
     resources: [secrets, configmaps]
     verbs: [get, list, watch]
   - apiGroups: [""]
     resources: [events]
     verbs: [create, patch]
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list, watch]
+  # istiod can serve Kubernetes Ingress in addition to Istio's own APIs, so it watches
+  # Ingress/IngressClass unconditionally and writes back load-balancer status for the
+  # ones it owns.
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, ingressclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses/status]
+    verbs: [get, update, patch]
+  # istiod owns the injection and config-validation webhooks: it watches them and
+  # patches its own CA bundle into them as the CA rotates. Read-only is not enough --
+  # without update the caBundle goes stale and the webhooks reject every call.
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [mutatingwebhookconfigurations, validatingwebhookconfigurations]
+    verbs: [get, list, watch, update, patch]
+  - apiGroups:
+      - networking.istio.io
+      - security.istio.io
+      - telemetry.istio.io
+      - extensions.istio.io
+    resources: ["*"]
+    verbs: [get, list, watch]
+---
+# What istiod WRITES, and it only ever writes inside its own namespace. Deliberately
+# a namespaced Role rather than extra verbs on the ClusterRole above: cluster-wide
+# secret creation for the component that mints mesh identity is a privilege it must
+# not hold.
+#   secrets  -- istiod IS the mesh certificate authority: it generates a self-signed
+#               CA and persists it to istio-ca-secret so the CA survives a restart.
+#               Denied, it retries forever ("Failed to create secret istio-ca-secret:
+#               secrets is forbidden"), the injector and config-validation webhooks
+#               never get a cert, and /ready stays 503 until liveness restarts the pod.
+#   configmaps + leases -- leader election, for the controllers that must be
+#               singletons across replicas ("error initially creating leader election
+#               record", "error retrieving resource lock
+#               default/istio-gateway-deployment-default"). The ClusterRole's
+#               configmaps rule is read-only by design, so the write lives here.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "quench-common.fullname" . }}-own-ns
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create, get, list, watch, update, patch, delete]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [create, get, list, watch, update]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create, get, list, watch, update, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}-own-ns
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "quench-common.fullname" . }}-own-ns
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "istiod.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

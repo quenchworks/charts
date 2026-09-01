@@ -1,14 +1,13 @@
 # The digest below is the contract with the image factory. CI rewrites it from
 # the image-published dispatch after every green image build. It is never a tag.
 #
-# PLACEHOLDER (all-zero): the istiod image passed the both-arch 0-CVE gate locally
-# but has not been published to GHCR yet, so there is no real digest to pin. Replace
-# it -- here AND in Chart.yaml's artifacthub.io/images annotation -- with the digest
-# of the multi-arch index from the first green build-istiod.yml run. The release
-# workflow's install gate cannot pull an image until then.
+# Pinned 2026-09-01 to the multi-arch index (linux/amd64 + linux/arm64) from the
+# first green build-istiod.yml run, which published 1.28.10 / 1.29.7 / 1.30.4. The
+# same digest is repeated in Chart.yaml's artifacthub.io/images annotation, which is
+# what ArtifactHub's security report actually scans -- update both together.
 image:
   repository: ghcr.io/quenchworks/images/istiod
-  digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  digest: "sha256:3784524c93750307f2d7564c69dca6d65481d03b0a592c93778560f5774596bd"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -42,6 +41,18 @@ service:
 serviceAccount:
   create: true
   name: ""
+  # REQUIRED true for istiod, and not merely a hardening exception: watching the API
+  # server IS istiod's job. quench-common defaults this to false because most
+  # workloads never call the API server, but with no token mounted client-go cannot
+  # build an in-cluster config and falls back to its legacy default host,
+  # http://localhost:8080 -- which inside this pod is istiod's OWN pilot HTTP port.
+  # istiod then queries itself, its own server answers 404 for /api/v1/... , and the
+  # log fills with "failed to list *v1.ConfigMap: the server could not find the
+  # requested resource (get configmaps)" while config sync never completes, /ready
+  # stays 503 and the liveness probe restarts the pod forever. Measured in a kind
+  # cluster; the 404 is NOT an RBAC denial (that would be 403) and NOT a missing
+  # istio ConfigMap (creating one changes nothing).
+  automountServiceAccountToken: true
 
 rbac:
   create: true
