@@ -2,7 +2,7 @@ apiVersion: v2
 name: nginx-gateway-fabric
 description: "NGINX Gateway Fabric, the F5/NGINX Gateway API implementation: a control plane that watches GatewayClass, Gateway, HTTPRoute and its own gateway.nginx.org policy CRDs, provisions an nginx data plane per Gateway, and configures it over an nginx-agent gRPC stream. Both halves are hardened by QuenchWorks as minimal, nonroot, 0-CVE images, cosign-signed and pinned by digest. Ships only NGF's own CRDs -- the Gateway API CRDs are owned by the separate quench gateway-api-crds chart and must be installed first."
 type: application
-version: 0.0.1
+version: 0.0.2
 appVersion: "2.6.7"
 kubeVersion: ">=1.29.0-0"
 keywords:
@@ -26,19 +26,11 @@ sources:
 annotations:
   artifacthub.io/category: networking
   artifacthub.io/changes: |
-    - kind: added
-      description: "First release: the NGINX Gateway Fabric 2.6.7 control plane as a single Deployment running `gateway controller`, on the QuenchWorks 0-CVE image pinned by digest. Nonroot, read-only root filesystem, all capabilities dropped. It runs as uid 101 / gid 1001 rather than the usual 1001 because the same image is injected as the init container of every data-plane pod, where the provisioner hardcodes that uid."
-    - kind: added
-      description: "The nginx data plane is NOT this chart's pod: NGF provisions a Deployment per Gateway and configures it over gRPC to an nginx-agent running beside nginx. That data plane needs nginx built with the njs module plus nginx-agent, which the general-purpose quench nginx image does not have, so it ships as its own image (nginx-gateway-fabric-nginx) and this chart pins it by digest inside the NginxProxy resource."
-    - kind: added
-      description: "Ships NGF's eleven gateway.nginx.org CRDs vendored byte for byte from the upstream v2.6.7 chart. They live in crds/, matching upstream and the envoy-gateway chart, because the bundle is 909,971 bytes of source and Helm stores every release in a Secret capped at 1,048,576 bytes: from crds/ a measured install stores 405,564 bytes, leaving real headroom, while rendering the same bundle through templates/ would add it to the manifest as well. NginxProxy alone is 664,168 bytes, which also puts it past kubectl's 262,144-byte last-applied-configuration annotation, so re-apply CRDs with --server-side. The Gateway API CRDs are NOT bundled -- the quench gateway-api-crds chart owns those cluster-scoped singletons and must be installed first."
-    - kind: added
-      description: "A pre-install/pre-upgrade `gateway generate-certs` Job mints the control-plane server certificate and the data-plane client certificate into two Secrets, which the control plane and every provisioned nginx pod mount for the mTLS-plus-projected-token gRPC channel. certGenerator.overwrite defaults to false on purpose: re-minting on every upgrade would hand the control plane a new CA while the running nginx pods still trust the old one, and the config stream silently stops until every data-plane pod is restarted."
-    - kind: added
-      description: "Tracing is deliberately unsupported: the QuenchWorks data-plane image does not build ngx_otel_module, and NGF emits its `load_module` line only when an NginxProxy sets telemetry.exporter.endpoint. values.schema.json rejects that field rather than letting the next nginx reload fail on a missing module. Prometheus metrics (agent-collected, port 9113) are unaffected and on by default."
+    - kind: security
+      description: "Automated re-pin: nginx-gateway-fabric republished to a new 0-CVE digest."
   artifacthub.io/images: |
     - name: nginx-gateway-fabric
-      image: ghcr.io/quenchworks/images/nginx-gateway-fabric@sha256:d6c053f9eb818b4b09c2f8874389b02de98fe58a64ce8e07b0baa47e3d6a508a
+      image: ghcr.io/quenchworks/images/nginx-gateway-fabric@sha256:185ece330c6221c0a31708c6c90b012765edd05d38f9f173b9408337f8119792
     - name: nginx-gateway-fabric-nginx
       image: ghcr.io/quenchworks/images/nginx-gateway-fabric-nginx@sha256:28f46367ba5da843bafc0a8d454de03a61414e0049de236cbb428a3f9a5f35d0
   artifacthub.io/crds: |
