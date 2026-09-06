@@ -2,7 +2,7 @@ apiVersion: v2
 name: kgateway
 description: "kgateway, the CNCF Gateway API control plane that succeeded Gloo Edge. Watches Gateway, HTTPRoute, GRPCRoute and its own gateway.kgateway.dev policy CRDs, programs Envoy over xDS and provisions the proxy fleet into each Gateway's own namespace. Hardened by QuenchWorks as minimal, nonroot, 0-CVE images, cosign-signed and pinned by digest -- both the controller and the Envoy data plane. Ships only kgateway's own CRDs; the Gateway API CRDs are owned by the separate quench gateway-api-crds chart and must be installed first."
 type: application
-version: 0.0.1
+version: 0.0.2
 appVersion: "2.4.3"
 kubeVersion: ">=1.29.0-0"
 keywords:
@@ -27,19 +27,11 @@ sources:
 annotations:
   artifacthub.io/category: networking
   artifacthub.io/changes: |
-    - kind: added
-      description: "First release: the kgateway 2.4.3 control plane as a single stateless, leader-elected Deployment on the QuenchWorks 0-CVE image pinned by digest. Nonroot (uid 1001), read-only root filesystem, all capabilities dropped, configured entirely through KGW_* environment variables, serving xDS on 9977 with metrics on 9092 and controller-runtime health on 9093."
-    - kind: added
-      description: "The Envoy data plane is the QuenchWorks kgateway-envoy image, pinned by digest through a GatewayParameters resource the chart creates and attaches to the managed GatewayClasses via KGW_GATEWAY_CLASS_PARAMETERS_REFS. That image is upstream's envoy-wrapper rebuilt clean-room -- our hardened Wolfi Envoy binary plus kgateway's own envoyinit shim -- because the generated proxy container passes no command and no -c flag, so the plain quench envoy image cannot serve as the data plane on its own. KGW_DEFAULT_IMAGE_REGISTRY also points at our registry, so any path the GatewayParameters does not cover fails to pull loudly instead of quietly pulling the upstream proxy."
-    - kind: added
-      description: "Ships kgateway's own eight gateway.kgateway.dev CRDs (Backend, BackendConfigPolicy, DirectResponse, GatewayExtension, GatewayParameters, HTTPListenerPolicy, ListenerPolicy, TrafficPolicy), vendored from the upstream v2.4.3 kgateway-crds chart. They live in crds/ rather than templates/ for three measured reasons, not a style preference. (1) Helm installs crds/ BEFORE it renders templates, and this chart's own GatewayParameters is a gateway.kgateway.dev object: as templates the install fails outright with `no matches for kind GatewayParameters in version gateway.kgateway.dev/v1alpha1`. (2) The TrafficPolicy CRD's transformation docs contain Helm-escaped template tokens; as a template the render fails with `function \"route_name\" not defined`. (3) Size: the bundle is 1.6 MiB of source and Helm stores the release in a Secret capped at 1048576 bytes. Measured on a kind cluster -- 545332 decoded bytes (52.0% of the cap) from crds/, versus 823220 (78.5%) templated, which fits today but leaves little headroom for a bundle that grows every release. The Gateway API CRDs are NOT bundled: the quench gateway-api-crds chart (appVersion 1.6.1, exactly the Gateway API version kgateway 2.4.3 is conformant against) owns those cluster-scoped singletons and must be installed first."
-    - kind: added
-      description: "Cluster-scoped RBAC by necessity, not by default: kgateway provisions each Envoy fleet into its Gateway's own namespace, so the Deployment/Service/ServiceAccount/ConfigMap writes cannot be a namespaced Role. It also creates its own GatewayClasses, which is why `create` on gatewayclasses is granted. Narrow the reach with discoveryNamespaceSelectors, or bind your own ClusterRole with rbac.create=false."
-    - kind: added
-      description: "The controller image carries the Wolfi Envoy binary at /usr/local/bin/envoy, the path kgateway hard-codes for the `envoy --mode validate` fork, so `validation.level: strict` works. It does NOT carry librust_module.so, the Envoy Rust dynamic module upstream bundles: TrafficPolicy `transformation` and `rbac` emit a dynamic-module filter and will be rejected without it. Everything else -- routing, listener policy, backend policy, direct response, ext-auth, ext-proc, rate limiting -- needs no dynamic module. See the README."
+    - kind: security
+      description: "Automated re-pin: kgateway republished to a new 0-CVE digest."
   artifacthub.io/images: |
     - name: kgateway
-      image: ghcr.io/quenchworks/images/kgateway@sha256:7fe15d4874fd17e94ea874051d5cd2455a9fc2a494643fe61dca40775ace93e9
+      image: ghcr.io/quenchworks/images/kgateway@sha256:6a5847183750a44bf64191adfdc26d3bc67cde8946f2b437d4b91a59fb7ae820
     - name: kgateway-envoy
       image: ghcr.io/quenchworks/images/kgateway-envoy@sha256:86fbf44c30ca252e413468d1b7de420265208aaaa81aa74d44abe8f9e4054c72
   artifacthub.io/crds: |
