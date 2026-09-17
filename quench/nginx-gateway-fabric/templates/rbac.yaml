@@ -70,6 +70,12 @@ rules:
   - apiGroups: ["apiextensions.k8s.io"]
     resources: ["customresourcedefinitions"]
     verbs: ["list", "watch"]
+  # NGF 2.7 provisions a PodDisruptionBudget alongside each data-plane Deployment,
+  # so the controller both reads and writes them. Absent this rule the controller
+  # cannot list PDBs and its cache never syncs.
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["create", "update", "delete", "list", "get", "watch"]
   # Backend resolution for routes.
   - apiGroups: ["discovery.k8s.io"]
     resources: ["endpointslices"]
@@ -91,10 +97,12 @@ rules:
       - "referencegrants"
       - "backendtlspolicies"
       - "listenersets"
-      {{- if .Values.gatewayApiExperimentalFeatures.enabled }}
+      # NOT gated on gatewayApiExperimentalFeatures. NGF 2.7.2 starts a watch on
+      # TCPRoute and UDPRoute unconditionally, so gating these made the controller
+      # cache fail to sync and the Deployment never went Available. Upstream's own
+      # chart grants them ungated at this tag.
       - "tcproutes"
       - "udproutes"
-      {{- end }}
     verbs: ["list", "watch"]
   - apiGroups: ["gateway.networking.k8s.io"]
     resources:
@@ -105,10 +113,8 @@ rules:
       - "tlsroutes/status"
       - "backendtlspolicies/status"
       - "listenersets/status"
-      {{- if .Values.gatewayApiExperimentalFeatures.enabled }}
       - "tcproutes/status"
       - "udproutes/status"
-      {{- end }}
     verbs: ["update"]
   # NGF's own CRDs, shipped by this chart in crds/. The controller watches every type
   # it knows about at startup, so a CRD missing from the cluster is a cache-sync error,
