@@ -149,17 +149,24 @@ jobs:
       - name: Why the install gate failed
         if: failure()
         run: |
+          # Namespace-aware on purpose. Gate A installs into default and gate B into
+          # rb, and the first version of this block looped over `kubectl get pods
+          # -o name` with no namespace, so run 35236547396 printed the CrashLoopBackOff
+          # in the pod TABLE and then dumped no logs for it at all.
           kubectl get pods -A -o wide || true
-          kubectl describe pods || true
-          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
-          for p in $(kubectl get pods -o name); do
-            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
-              echo "=== $p [$c] current"
-              kubectl logs "$p" -c "$c" --tail=400 || true
-              echo "=== $p [$c] previous"
-              kubectl logs "$p" -c "$c" --previous --tail=400 || true
-            done
-          done
+          kubectl get events -A --sort-by=.lastTimestamp | tail -40 || true
+          kubectl get pods -A -o jsonpath='{range .items[*]}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}' \
+            | while read -r ns pod; do
+                case "$ns" in kube-system|local-path-storage) continue ;; esac
+                echo "=== describe ${ns}/${pod}"
+                kubectl describe pod "$pod" -n "$ns" || true
+                for c in $(kubectl get pod "$pod" -n "$ns" -o jsonpath='{.spec.containers[*].name}'); do
+                  echo "=== ${ns}/${pod} [$c] current"
+                  kubectl logs "$pod" -n "$ns" -c "$c" --tail=400 || true
+                  echo "=== ${ns}/${pod} [$c] previous"
+                  kubectl logs "$pod" -n "$ns" -c "$c" --previous --tail=400 || true
+                done
+              done
 
       - name: Package and push (OCI)
         if: steps.gate.outputs.ready == 'true'
