@@ -109,6 +109,22 @@ jobs:
           kubectl logs "$POD" -c cadence --tail=600 >/tmp/cadence.log 2>&1
           grep -qi 'frontend started' /tmp/cadence.log
 
+      # The install gate fails with nothing but "Progress deadline exceeded", which
+      # says a pod did not become ready and not one word about why. Without this the
+      # only way to see the cause is to reproduce the whole kind cluster by hand.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            echo "=== logs $p"
+            kubectl logs "$p" --all-containers --tail=120 || true
+            echo "=== previous $p"
+            kubectl logs "$p" --all-containers --previous --tail=120 || true
+          done
+
       - name: Package and push (OCI)
         id: push
         run: |
