@@ -51,7 +51,12 @@ jobs:
           # example.com with --publish-internal-services, so a ClusterIP Service is a
           # valid source.
           kubectl create service clusterip gate --tcp=80:80
-          kubectl annotate svc gate external-dns.alpha.kubernetes.io/hostname=gate.example.com
+          # external-dns 0.22.0 moved the default annotation prefix from
+          # external-dns.alpha.kubernetes.io/ to external-dns.kubernetes.io/ with no
+          # fallback, so the old prefix is simply invisible and this gate failed from
+          # 2026-09-13 with "never published the Service record" while the Ingress,
+          # whose hostname comes from its rule rather than an annotation, kept working.
+          kubectl annotate svc gate external-dns.kubernetes.io/hostname=gate.example.com
           kubectl create ingress gate-ing --rule='ing.example.com/*=gate:80'
           # nothing assigns a load-balancer address in kind, so supply one
           kubectl patch ingress gate-ing --subresource=status --type=merge \
