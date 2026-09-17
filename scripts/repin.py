@@ -151,6 +151,23 @@ def main() -> int:
         print(f"!! {chart}: a stale digest survived the rewrite")
         return 3
 
+    # Both files are rewritten by replacing the digest FOUND IN values.yaml, so if
+    # Chart.yaml's artifacthub.io/images pinned a different one to begin with, nothing
+    # matched there and the annotation silently kept its old value. That is not
+    # cosmetic: ArtifactHub scans the annotation, while the cluster runs values.yaml,
+    # so the published CVE report describes an image nobody is running. An audit on
+    # 2026-09-17 found 5 charts already drifted this way. Check the chart's own image
+    # landed; a differently-named primary (multi-image charts) has nothing to check.
+    ann = re.search(
+        rf"image: ghcr\.io/quenchworks/images/{re.escape(chart)}@(sha256:[0-9a-f]{{64}})", ctext
+    )
+    if ann and ann.group(1) != digest:
+        print(f"!! {chart}: values.yaml now pins {digest[7:19]} but artifacthub.io/images "
+              f"still says {ann.group(1)[7:19]}")
+        print("   The two started out different, so the digest swap could not match there.")
+        print("   Fix the annotation by hand, then re-run.")
+        return 3
+
     cy.write_text(ctext)
     vy.write_text(vtext)
     print(f"ok {chart}: {oldver} -> {newver}, appVersion {oldapp} -> {appver}, digest {digest[7:19]}")
