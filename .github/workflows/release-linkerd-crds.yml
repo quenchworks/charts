@@ -165,7 +165,12 @@ jobs:
 
       - name: Publish ArtifactHub metadata (verified publisher)
         run: |
-          if grep -q REPLACE_WITH_REPOSITORY_ID "${CHART_DIR}/artifacthub-repo.yml"; then
+          # Anchored to the repositoryID LINE, matching every other release
+          # workflow. A bare `grep -q REPLACE_WITH_REPOSITORY_ID` also matches the
+          # file's own comment explaining the guard, so it skipped forever even
+          # with a real id present (run 35248130125 reported success and pushed
+          # nothing; the artifacthub.io tag was simply absent from the registry).
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
             echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
             exit 0
           fi
