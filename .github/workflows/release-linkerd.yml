@@ -132,6 +132,26 @@ jobs:
           # identity must have ISSUED something: its issuer secret gains an expiry
           kubectl -n rb get secret linkerd-identity-issuer -o jsonpath='{.metadata.name}{"\n"}'
 
+      # This chart runs TWO install gates and neither dumped pod state on failure,
+      # so run 35227596684 reported only "Available: 0/1" with the cause invisible.
+      # The one kubectl logs call in gate A lives inside a step that never runs when
+      # `helm install --wait` is what failed. Same block the other release workflows
+      # carry; linkerd was written before it and missed the bulk edit.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -A -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
       - name: Package and push (OCI)
         if: steps.gate.outputs.ready == 'true'
         id: push
