@@ -55,6 +55,13 @@ spec:
             - --server-tls-certs=/var/run/linkerd/tls/tls.crt
             - --cluster-networks={{ .Values.policyController.clusterNetworks }}
             - --identity-domain={{ .Values.identity.trustDomain | default .Values.clusterDomain }}
+            # REQUIRED and with no default. runtime/src/args.rs declares it as a
+            # bare `#[clap(long)] String`, so omitting it aborts with "one or more
+            # required arguments were not provided" before anything binds, which is
+            # a CrashLoopBackOff with a one-line log (charts run 35239681460). The
+            # image's own boot test hit the identical wall this morning; the chart
+            # needed the same argument and did not have it.
+            - --default-opaque-ports={{ .Values.policyController.defaultOpaquePorts }}
           ports:
             - name: grpc
               containerPort: {{ .Values.service.policyPort }}
