@@ -79,6 +79,18 @@ rules:
   - apiGroups: ["coordination.k8s.io"]
     resources: [leases]
     verbs: [create, get, update, patch]
+  # identity authenticates every proxy's projected token with a TokenReview, and
+  # creates one during startup. Without this it exits with "Failed to initialize
+  # identity service: Unable to create kubernetes token reviews:" and the message
+  # carries NO underlying error, so the RBAC denial it is reporting is invisible
+  # (charts run 35238488499). Upstream's identity ClusterRole grants exactly this.
+  - apiGroups: ["authentication.k8s.io"]
+    resources: [tokenreviews]
+    verbs: [create]
+  # identity records certificate issuance as Events.
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
