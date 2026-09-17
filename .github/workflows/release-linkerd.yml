@@ -59,6 +59,15 @@ jobs:
         if: steps.gate.outputs.ready == 'true'
         run: |
           set -o pipefail
+          # The linkerd CRDs are cluster-scoped singletons owned by a different chart,
+          # the way gateway-api-crds is for the Gateway API implementations. This is
+          # not optional wiring: the destination controller calls k8s.InitializeAPI
+          # with ServiceProfile, Server and ExternalWorkload during startup and exits
+          # with "Failed to initialize K8s API: the server could not find the
+          # requested resource" when the apiserver does not know them. Run
+          # 35228797768 is what that looks like from outside: Available: 0/1 and
+          # nothing else.
+          helm install lcrds quench/linkerd-crds -n linkerd --create-namespace --wait --timeout 5m
           helm install ra "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
           kubectl rollout status deployment/ra-linkerd-destination --timeout=300s
           kubectl port-forward svc/ra-linkerd-destination 9996:9996 >/dev/null 2>&1 &

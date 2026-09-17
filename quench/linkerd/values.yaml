@@ -1,3 +1,20 @@
+# PREREQUISITE: install quench/linkerd-crds FIRST.
+#
+#   helm install linkerd-crds oci://ghcr.io/quenchworks/charts/linkerd-crds \
+#     -n linkerd --create-namespace
+#
+# This is not optional. The destination controller calls k8s.InitializeAPI with
+# ServiceProfile, Server and ExternalWorkload during startup and EXITS when the
+# apiserver does not know them:
+#   level=fatal msg="Failed to initialize K8s API: the server could not find the
+#   requested resource"
+# From outside that looks like a Deployment stuck at Available: 0/1 with no
+# other signal, which is exactly how it presented in charts run 35228797768.
+#
+# The CRDs live in their own chart because they are cluster-scoped singletons,
+# the same reason gateway-api-crds is separate from the five Gateway API
+# implementations. Do not install both this chart's CRDs and another owner's.
+
 # The digests below are the contract with the image factory. CI rewrites them
 # from the image-published dispatch after every green image build. Never a tag.
 #
