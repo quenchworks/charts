@@ -15,12 +15,39 @@ rules:
   - apiGroups: [""]
     resources: [pods, services, endpoints, namespaces, nodes]
     verbs: [get, list, watch]
+  # The destination controller WRITES EndpointSlices, it does not only read them:
+  # it owns the slices backing ExternalWorkloads. Upstream's own destination
+  # ClusterRole grants the full set, and read-only here would fail later and
+  # quietly, after startup, rather than at boot.
   - apiGroups: ["discovery.k8s.io"]
     resources: [endpointslices]
-    verbs: [get, list, watch]
+    verbs: [get, list, watch, create, update, patch, delete]
   - apiGroups: ["policy.linkerd.io"]
     resources: [servers, serverauthorizations, authorizationpolicies]
     verbs: [get, list, watch]
+  # k8s.InitializeAPI is called with SP and ExtWorkload and FAILS CLOSED: without
+  # these two the controller exits with "not authorized to access
+  # serviceprofiles.linkerd.io" before the admin server can serve, which from
+  # outside is a Deployment stuck at Available: 0/1 (charts run 35234111702).
+  - apiGroups: ["linkerd.io"]
+    resources: [serviceprofiles]
+    verbs: [get, list, watch]
+  - apiGroups: ["workload.linkerd.io"]
+    resources: [externalworkloads]
+    verbs: [get, list, watch]
+  # InitializeMetadataAPI (main.go, right after InitializeAPI) adds Node, RS and
+  # Job. Nodes are already granted above.
+  - apiGroups: ["apps"]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: ["batch"]
+    resources: [jobs]
+    verbs: [get, list, watch]
+  # Leader election. The policy controller needs this too, and its own boot test
+  # showed the lease is fetched before anything serves.
+  - apiGroups: ["coordination.k8s.io"]
+    resources: [leases]
+    verbs: [create, get, update, patch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
