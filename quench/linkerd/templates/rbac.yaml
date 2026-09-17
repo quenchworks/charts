@@ -22,9 +22,40 @@ rules:
   - apiGroups: ["discovery.k8s.io"]
     resources: [endpointslices]
     verbs: [get, list, watch, create, update, patch, delete]
+  # The policy controller shares this ClusterRole and reconciles the WHOLE
+  # policy.linkerd.io set, not the three the destination controller reads.
+  # Upstream's linkerd-policy ClusterRole is the reference.
   - apiGroups: ["policy.linkerd.io"]
-    resources: [servers, serverauthorizations, authorizationpolicies]
+    resources:
+      - servers
+      - serverauthorizations
+      - authorizationpolicies
+      - meshtlsauthentications
+      - networkauthentications
+      - egressnetworks
+      - httplocalratelimitpolicies
+      - httproutes
     verbs: [get, list, watch]
+  - apiGroups: ["policy.linkerd.io"]
+    resources: [httproutes/status, httplocalratelimitpolicies/status, egressnetworks/status]
+    verbs: [patch]
+  # Gateway API routes are reconciled when those CRDs are present. They are NOT
+  # installed by quench/linkerd-crds (quench/gateway-api-crds owns those names),
+  # so this grant is inert on a cluster without them. RBAC rules name strings, so
+  # granting a resource whose CRD is absent costs nothing and avoids a second
+  # round of this when someone installs both charts.
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: [httproutes, grpcroutes, tlsroutes, tcproutes]
+    verbs: [get, list, watch]
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: [httproutes/status, grpcroutes/status, tlsroutes/status, tcproutes/status]
+    verbs: [patch]
+  # The policy controller's leader-election lease is owned by its Deployment, so
+  # it GETs that Deployment before it can serve. Its image boot test showed this
+  # as "linkerd_policy_controller_runtime::lease: Failed to fetch deployment".
+  - apiGroups: ["apps"]
+    resources: [deployments]
+    verbs: [get]
   # k8s.InitializeAPI is called with SP and ExtWorkload and FAILS CLOSED: without
   # these two the controller exits with "not authorized to access
   # serviceprofiles.linkerd.io" before the admin server can serve, which from
@@ -63,13 +94,17 @@ subjects:
   - kind: ServiceAccount
     name: {{ include "linkerd.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
-{{- if .Values.identity.enabled }}
 ---
-# identity reads its issuer CA (crt.pem/key.pem) from the release namespace.
+# Secrets in the release namespace. NOT gated on identity.enabled: the
+# destination controller watches Secrets unconditionally, and without this its
+# informer never syncs, so /ready stays non-200 and the Deployment sits at
+# Available: 0/1 while the pod logs only "Failed to watch ... secrets is
+# forbidden" on a retry loop (charts run 35235287652). identity additionally
+# reads its issuer CA (crt.pem/key.pem) from here.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "quench-common.fullname" . }}-identity
+  name: {{ include "quench-common.fullname" . }}-secrets
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "quench-common.labels" . | nindent 4 }}
@@ -81,17 +116,16 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "quench-common.fullname" . }}-identity
+  name: {{ include "quench-common.fullname" . }}-secrets
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "quench-common.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ include "quench-common.fullname" . }}-identity
+  name: {{ include "quench-common.fullname" . }}-secrets
 subjects:
   - kind: ServiceAccount
     name: {{ include "linkerd.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
-{{- end }}
 {{- end }}
