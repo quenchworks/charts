@@ -94,8 +94,18 @@ jobs:
           set -o pipefail
           kubectl create namespace rb
           openssl ecparam -name prime256v1 -genkey -noout -out key.pem
+          # The CN is not free-form. controller/cmd/identity/main.go:125 computes
+          #   expectedName := fmt.Sprintf("identity.%s.%s", controllerNS, trustDomain)
+          # and refuses an issuer whose identity does not match. This release
+          # installs into namespace rb with trustDomain cluster.local, so the only
+          # CN that works is identity.rb.cluster.local.
+          #
+          # The previous fixture paired CN=identity.linkerd.cluster.local with
+          # trustDomain=identity.linkerd.cluster.local, which asked for
+          # identity.rb.identity.linkerd.cluster.local and CrashLoopBackOff'd
+          # (run 35236547396). trustDomain is the SUFFIX, not the issuer name.
           openssl req -new -x509 -key key.pem -out crt.pem -days 3650 -nodes \
-            -subj "/CN=identity.linkerd.cluster.local" \
+            -subj "/CN=identity.rb.cluster.local" \
             -addext "basicConstraints=critical,CA:TRUE" \
             -addext "keyUsage=critical,keyCertSign,cRLSign,digitalSignature"
           kubectl -n rb create secret generic linkerd-identity-issuer \
@@ -110,7 +120,7 @@ jobs:
 
           helm install rb "${CHART_DIR}" -n rb \
             --set identity.enabled=true \
-            --set identity.trustDomain=identity.linkerd.cluster.local \
+            --set identity.trustDomain=cluster.local \
             --set-file identity.trustAnchorsPEM=crt.pem \
             --set identity.existingSecret=linkerd-identity-issuer \
             --set policyController.enabled=true \
