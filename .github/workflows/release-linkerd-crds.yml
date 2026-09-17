@@ -1,0 +1,169 @@
+name: release-linkerd-crds
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/linkerd-crds/**"
+      - "scripts/gen-linkerd-crds.py"
+      - ".github/workflows/release-linkerd-crds.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/linkerd-crds
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+          # keep=false is a shipped code path and must render too.
+          helm template "${CHART_DIR}" --set crds.keep=false >/dev/null
+
+      - name: Provenance -- the template must be what the generator produces
+        run: |
+          set -o pipefail
+          # templates/crds.yaml is generated from linkerd/linkerd2 at the appVersion
+          # this chart declares. --check regenerates and diffs, so a hand-edit, a
+          # re-cut upstream tag, or an upstream change to the metadata block all fail
+          # HERE rather than shipping a bundle nobody can audit.
+          ver="$(helm show chart "${CHART_DIR}" | awk '/^appVersion:/ {gsub(/"/,"",$2); print $2}')"
+          test -n "$ver"
+          uv run scripts/gen-linkerd-crds.py "$ver" --check
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          # No workload to wait on: this chart ships only CRDs. The gate is an
+          # API-surface check.
+          helm install rtest "${CHART_DIR}" -n linkerd --create-namespace \
+            -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 5m
+
+          for n in serviceprofiles.linkerd.io \
+                   servers.policy.linkerd.io \
+                   serverauthorizations.policy.linkerd.io \
+                   authorizationpolicies.policy.linkerd.io \
+                   meshtlsauthentications.policy.linkerd.io \
+                   networkauthentications.policy.linkerd.io \
+                   egressnetworks.policy.linkerd.io \
+                   httplocalratelimitpolicies.policy.linkerd.io \
+                   externalworkloads.workload.linkerd.io; do
+            kubectl wait --for=condition=Established "crd/${n}" --timeout=120s
+            keep="$(kubectl get "crd/${n}" -o jsonpath='{.metadata.annotations.helm\.sh/resource-policy}')"
+            test "$keep" = keep || { echo "::error::${n} resource-policy=${keep}"; exit 1; }
+          done
+
+          # The Gateway API CRDs must NOT be here. quench/gateway-api-crds owns those
+          # names, and a cluster-scoped CRD with two owners belongs to whichever
+          # applied last. If a future upstream bump drags them in, fail here.
+          test -z "$(kubectl get crd -o name | grep 'gateway.networking.k8s.io' || true)" \
+            || { echo "::error::this chart installed Gateway API CRDs; gateway-api-crds owns those"; exit 1; }
+
+          # The schemas must accept real objects. A CRD chart that installs cleanly
+          # and then rejects a valid Server is still broken, and nothing else here
+          # would catch it.
+          kubectl apply -f - <<'EOF'
+          apiVersion: policy.linkerd.io/v1beta3
+          kind: Server
+          metadata:
+            name: smoke
+            namespace: linkerd
+          spec:
+            podSelector:
+              matchLabels: { app: smoke }
+            port: 8080
+            proxyProtocol: HTTP/2
+          EOF
+          kubectl get server.policy.linkerd.io smoke -n linkerd
+
+          kubectl apply -f - <<'EOF'
+          apiVersion: linkerd.io/v1alpha2
+          kind: ServiceProfile
+          metadata:
+            name: smoke.linkerd.svc.cluster.local
+            namespace: linkerd
+          spec:
+            routes:
+              - name: GET /
+                condition:
+                  method: GET
+                  pathRegex: /
+          EOF
+          kubectl get serviceprofile.linkerd.io smoke.linkerd.svc.cluster.local -n linkerd
+
+          # An invalid object must be REJECTED. Without this the schema check above
+          # would pass against a CRD with no validation at all.
+          if kubectl apply --dry-run=server -f - <<'EOF'
+          apiVersion: policy.linkerd.io/v1beta3
+          kind: Server
+          metadata: { name: bad, namespace: linkerd }
+          spec:
+            podSelector: { matchLabels: { app: bad } }
+            port: 8080
+            proxyProtocol: NotAProtocol
+          EOF
+          then
+            echo "::error::the apiserver accepted an invalid proxyProtocol; the schema is not being enforced"
+            exit 1
+          fi
+
+          # keep=true means the CRDs outlive the release. Prove it rather than
+          # trusting the annotation.
+          helm uninstall rtest -n linkerd
+          kubectl get crd servers.policy.linkerd.io \
+            || { echo "::error::uninstall removed the CRDs despite resource-policy keep"; exit 1; }
+
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get crd -o wide | grep linkerd || true
+          kubectl get events -A --sort-by=.lastTimestamp | tail -40 || true
+          helm status rtest -n linkerd || true
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          helm package "${CHART_DIR}" -d .
+          ver="$(helm show chart "${CHART_DIR}" | awk '/^version:/ {print $2}')"
+          helm push "linkerd-crds-${ver}.tgz" "${OCI_REPO}" 2>&1 | tee push.log
+          digest="$(awk '/Digest:/ {print $2}' push.log)"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "ver=${ver}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        run: cosign sign --yes "ghcr.io/quenchworks/charts/linkerd-crds@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -q REPLACE_WITH_REPOSITORY_ID "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          oras push "ghcr.io/quenchworks/charts/linkerd-crds:artifacthub.io" \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "${CHART_DIR}/artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

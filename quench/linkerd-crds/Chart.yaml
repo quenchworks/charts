@@ -1,0 +1,95 @@
+apiVersion: v2
+name: linkerd-crds
+description: "The linkerd-specific CustomResourceDefinitions from linkerd/linkerd2, packaged as a standalone chart so the control plane has the API surface it needs before it starts. Linkerd's destination controller calls k8s.InitializeAPI with ServiceProfile, Server and ExternalWorkload at startup and exits fatally when the apiserver 404s on them, so these CRDs are a hard prerequisite rather than an optional extra. Ships the linkerd-only set: upstream's own bundle also carries the Gateway API route CRDs, and those are deliberately excluded because quench/gateway-api-crds owns those names and a cluster-scoped CRD with two owners belongs to whichever applied last. CRDs go in templates/ rather than crds/ so helm upgrade actually rolls them forward, and carry helm.sh/resource-policy: keep so uninstall cannot cascade-delete every Server and ServiceProfile in the cluster."
+type: application
+version: 0.0.1
+appVersion: "26.8.4"
+kubeVersion: ">=1.29.0-0"
+keywords:
+  - linkerd
+  - crds
+  - customresourcedefinition
+  - service-mesh
+  - policy
+  - serviceprofile
+  - server
+  - mtls
+  - networking
+  - kubernetes
+maintainers:
+  - name: QuenchWorks
+    email: info@quench-works.com
+    url: https://github.com/quenchworks
+icon: https://raw.githubusercontent.com/quenchworks/.github/main/profile/assets/chart-icon.png
+home: https://quench-works.com
+sources:
+  - https://github.com/quenchworks/charts
+  - https://github.com/linkerd/linkerd2
+annotations:
+  artifacthub.io/changes: |
+    - kind: added
+      description: "First release: the nine linkerd-specific CustomResourceDefinitions from linkerd/linkerd2 edge-26.8.4. ServiceProfile, Server, ServerAuthorization, AuthorizationPolicy, MeshTLSAuthentication, NetworkAuthentication, EgressNetwork, HTTPLocalRateLimitPolicy and ExternalWorkload. Each CRD spec is upstream's byte for byte; only the metadata labels and annotations are this chart's, so no upstream library chart is required."
+    - kind: added
+      description: "The Gateway API route CRDs that upstream's own linkerd-crds bundle carries are deliberately NOT shipped here. They are 696KB of its 707KB, quench/gateway-api-crds already owns those names, a cluster-scoped CRD with two owners belongs to whichever applied last, and 707KB crowds Helm's 1,048,576-byte release Secret ceiling. Install both charts when a linkerd deployment needs Gateway API routes."
+    - kind: added
+      description: "CRDs ship as regular templates, not in a crds/ directory, so helm upgrade actually rolls the bundle forward; Helm never upgrades crds/ content, which would make a version-pinning chart a no-op on upgrade. They carry helm.sh/resource-policy: keep by default so helm uninstall cannot cascade-delete every Server, ServerAuthorization and ServiceProfile in the cluster."
+    - kind: added
+      description: "scripts/gen-linkerd-crds.py regenerates the bundle from upstream and the release workflow runs it with --check, so a hand-edited template cannot be published. The generator refuses to emit anything if the CRD set changes or an upstream library reference survives the metadata rewrite."
+  artifacthub.io/category: networking
+  artifacthub.io/crds: |
+    - kind: ServiceProfile
+      version: v1alpha2
+      name: serviceprofiles.linkerd.io
+      displayName: ServiceProfile
+      description: Per-route metrics, timeouts and retry policy for a service. Watched by the destination controller at startup.
+    - kind: Server
+      version: v1beta3
+      name: servers.policy.linkerd.io
+      displayName: Server
+      description: Selects a port on a set of pods and declares the policy that governs inbound traffic to it. Watched by the destination controller at startup.
+    - kind: ServerAuthorization
+      version: v1beta1
+      name: serverauthorizations.policy.linkerd.io
+      displayName: ServerAuthorization
+      description: Grants a set of clients access to a Server.
+    - kind: AuthorizationPolicy
+      version: v1alpha1
+      name: authorizationpolicies.policy.linkerd.io
+      displayName: AuthorizationPolicy
+      description: Binds authentication requirements to a Server or an HTTPRoute.
+    - kind: MeshTLSAuthentication
+      version: v1alpha1
+      name: meshtlsauthentications.policy.linkerd.io
+      displayName: MeshTLSAuthentication
+      description: Authenticates clients by their mesh identity.
+    - kind: NetworkAuthentication
+      version: v1alpha1
+      name: networkauthentications.policy.linkerd.io
+      displayName: NetworkAuthentication
+      description: Authenticates clients by source network, for traffic that carries no mesh identity.
+    - kind: EgressNetwork
+      version: v1alpha1
+      name: egressnetworks.policy.linkerd.io
+      displayName: EgressNetwork
+      description: Declares networks outside the mesh and the policy governing egress to them.
+    - kind: HTTPLocalRateLimitPolicy
+      version: v1alpha1
+      name: httplocalratelimitpolicies.policy.linkerd.io
+      displayName: HTTPLocalRateLimitPolicy
+      description: Per-target HTTP rate limits enforced locally by the proxy.
+    - kind: ExternalWorkload
+      version: v1beta1
+      name: externalworkloads.workload.linkerd.io
+      displayName: ExternalWorkload
+      description: Represents a non-Kubernetes workload joined to the mesh. Watched by the destination controller at startup.
+  artifacthub.io/operator: "false"
+  artifacthub.io/prerelease: "false"
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/quenchworks/charts
+    - name: upstream
+      url: https://github.com/linkerd/linkerd2
+  artifacthub.io/signKey: |
+    fingerprint: keyless (cosign / Sigstore)
+    url: https://github.com/quenchworks/.github/blob/main/SECURITY.md

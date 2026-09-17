@@ -1,0 +1,45 @@
+Linkerd {{ .Chart.AppVersion }} CustomResourceDefinitions installed as
+release {{ .Release.Name }}:
+
+  ServiceProfile  Server  ServerAuthorization  AuthorizationPolicy
+  MeshTLSAuthentication  NetworkAuthentication  EgressNetwork
+  HTTPLocalRateLimitPolicy  ExternalWorkload
+
+Check what landed:
+
+  kubectl get crd -o name | grep linkerd.io
+
+WHY THIS CHART EXISTS. Linkerd's destination controller calls k8s.InitializeAPI
+with ServiceProfile, Server and ExternalWorkload during startup and exits with
+"Failed to initialize K8s API: the server could not find the requested resource"
+when the apiserver does not know them. Install this chart BEFORE quench/linkerd,
+not after.
+
+THE GATEWAY API CRDs ARE NOT HERE. Upstream's own linkerd-crds bundle ships them;
+this chart does not, because quench/gateway-api-crds owns those names and a
+cluster-scoped CRD with two owners belongs to whichever applied last. If your
+linkerd deployment routes with HTTPRoute or GRPCRoute, install
+quench/gateway-api-crds as well.
+
+{{ if .Values.crds.keep -}}
+THESE CRDs SURVIVE `helm uninstall`. They carry helm.sh/resource-policy: keep, so
+deleting this release leaves them, and leaves every Server, ServerAuthorization
+and ServiceProfile in the cluster, in place. That is the point: deleting a CRD
+cascade-deletes every object of that kind.
+
+The cost: the CRDs keep this release's meta.helm.sh/release-name annotation, so
+reinstalling under a DIFFERENT release name fails with "invalid ownership
+metadata". Reinstall as {{ .Release.Name }} in {{ .Release.Namespace }}, or
+re-annotate. See the chart README.
+{{- else -}}
+crds.keep IS OFF. `helm uninstall {{ .Release.Name }}` will delete these CRDs and
+cascade-delete every Server, ServerAuthorization, ServiceProfile and
+ExternalWorkload in the cluster with them. Only run this way on a cluster you are
+prepared to lose.
+{{- end }}
+
+The chart is cosign-signed (keyless):
+
+  cosign verify ghcr.io/quenchworks/charts/linkerd-crds \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

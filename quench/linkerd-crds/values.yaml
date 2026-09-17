@@ -1,0 +1,24 @@
+# This chart has NO image. It installs nothing that runs, only the
+# linkerd-specific CustomResourceDefinitions, so there is no image block, no
+# digest contract with the image factory, and no quench-common dependency (that
+# library chart builds pod specs and this chart renders none).
+#
+# It carries the linkerd-ONLY CRDs. Upstream's charts/linkerd-crds also ships
+# the Gateway API route CRDs, 696KB of its 707KB, and those are deliberately
+# absent: quench/gateway-api-crds owns those names, and a cluster-scoped CRD
+# with two owners belongs to whichever applied last. Install both charts when a
+# linkerd deployment needs Gateway API routes.
+
+crds:
+  # Stamp helm.sh/resource-policy: keep on every CRD. Default true, and you
+  # almost certainly want it: these are cluster-scoped singletons, and deleting
+  # a CRD cascade-deletes every object of that kind, so `helm uninstall` without
+  # this would wipe every Server, ServerAuthorization and ServiceProfile in the
+  # cluster along with the chart.
+  #
+  # The cost of true: after `helm uninstall` the CRDs survive still carrying the
+  # old release's meta.helm.sh/release-name annotation, so re-installing under a
+  # DIFFERENT release name fails with "invalid ownership metadata". Reinstall
+  # with the same release name and namespace, or re-annotate. Set false only for
+  # throwaway clusters where losing the custom resources is fine.
+  keep: true
