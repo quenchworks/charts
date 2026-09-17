@@ -113,19 +113,24 @@ jobs:
           EOF
           kubectl get serviceprofile.linkerd.io smoke.linkerd.svc.cluster.local -n linkerd
 
-          # An invalid object must be REJECTED. Without this the schema check above
-          # would pass against a CRD with no validation at all.
+          # An invalid object must be REJECTED. Without this the accept test above
+          # would pass just as well against a CRD carrying no validation at all.
+          #
+          # The invalid input is a missing spec.port, which v1beta3 lists in
+          # `required`. It is deliberately NOT a bad proxyProtocol: run 35232014787
+          # asserted that and failed, because upstream ships proxyProtocol as a plain
+          # `type: string` with `default: unknown` and no enum, so every string is
+          # valid and the apiserver was right to accept it. Assert what the schema
+          # actually promises, not what the field name suggests.
           if kubectl apply --dry-run=server -f - <<'EOF'
           apiVersion: policy.linkerd.io/v1beta3
           kind: Server
           metadata: { name: bad, namespace: linkerd }
           spec:
             podSelector: { matchLabels: { app: bad } }
-            port: 8080
-            proxyProtocol: NotAProtocol
           EOF
           then
-            echo "::error::the apiserver accepted an invalid proxyProtocol; the schema is not being enforced"
+            echo "::error::the apiserver accepted a Server with no spec.port; the schema is not being enforced"
             exit 1
           fi
 
