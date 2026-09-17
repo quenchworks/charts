@@ -62,6 +62,13 @@ spec:
             # image's own boot test hit the identical wall this morning; the chart
             # needed the same argument and did not have it.
             - --default-opaque-ports={{ .Values.policyController.defaultOpaquePorts }}
+            # The policy controller's leader-election Lease is OWNED by the
+            # destination Deployment, which it fetches by name before it serves.
+            # args.rs defaults that name to "linkerd-destination", upstream's own
+            # unprefixed name; Helm names ours <release>-linkerd-destination, so the
+            # default 404s forever and the container exits (charts run 35241902257).
+            # This must track deployment-destination.yaml's metadata.name exactly.
+            - --policy-deployment-name={{ include "quench-common.fullname" . }}-destination
           ports:
             - name: grpc
               containerPort: {{ .Values.service.policyPort }}
