@@ -68,7 +68,17 @@ rules:
     resources: ["certificatesigningrequests"]
     verbs: ["list", "watch"]
   - apiGroups: ["admissionregistration.k8s.io"]
-    resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
+    # The four *admissionpolicy* resources went GA and kube-state-metrics began
+    # collecting them by default. Without these the pod rolls out fine and then
+    # logs a reflector "failed to list ... is forbidden" every second forever,
+    # which is what the install gate has been catching since 2026-09-13.
+    resources:
+      - "mutatingwebhookconfigurations"
+      - "validatingwebhookconfigurations"
+      - "mutatingadmissionpolicies"
+      - "mutatingadmissionpolicybindings"
+      - "validatingadmissionpolicies"
+      - "validatingadmissionpolicybindings"
     verbs: ["list", "watch"]
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
