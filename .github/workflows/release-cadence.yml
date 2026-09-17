@@ -118,11 +118,17 @@ jobs:
           kubectl get pods -o wide || true
           kubectl describe pods || true
           kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          # Per container, not --all-containers: the Cassandra sidecar is far chattier
+          # than cadence, so a shared tail is spent entirely on it. And a large tail,
+          # because a crash floods the log with every open long-poll failing at the
+          # same instant, which buries the error that actually triggered the shutdown.
           for p in $(kubectl get pods -o name); do
-            echo "=== logs $p"
-            kubectl logs "$p" --all-containers --tail=120 || true
-            echo "=== previous $p"
-            kubectl logs "$p" --all-containers --previous --tail=120 || true
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
           done
 
       - name: Package and push (OCI)
