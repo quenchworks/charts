@@ -67,7 +67,14 @@ jobs:
           # keeping the sidecar's own command, which no distroless nop image can
           # exec. That is upstream Tekton behaviour; the TaskRun still succeeds,
           # which is what is asserted below.
-          kubectl apply -f - <<'EOF'
+          # A populated caBundle does NOT mean the webhook is serving: the
+          # process patches its configurations early in startup and opens the
+          # HTTPS listener later, so the first apply can still be refused with
+          # `dial tcp <svc-ip>:443: connect: connection refused`. That is what
+          # failed the 2026-09-19 run, after both deployments had rolled out
+          # and the caBundle check above had passed. Write the TaskRun out and
+          # retry the apply on the same cadence the caBundle wait uses.
+          cat > taskrun-gate.yaml <<'EOF'
           apiVersion: tekton.dev/v1
           kind: TaskRun
           metadata:
@@ -88,6 +95,14 @@ jobs:
                     echo -n "hi-from-step" > "$(results.greeting.path)"
                     echo "QUENCHWORKS TEKTON SMOKE OK"
           EOF
+          for i in $(seq 1 30); do
+            kubectl apply -f taskrun-gate.yaml && break
+            echo "webhook not serving yet (attempt $i), retrying"
+            sleep 5
+          done
+          # Prove the TaskRun exists rather than trusting the loop to have
+          # broken on success: the loop exits 0 either way once seq runs out.
+          kubectl get taskrun gate
           kubectl wait --for=condition=Succeeded --timeout=300s taskrun/gate
           kubectl logs -l tekton.dev/taskRun=gate -c step-say | grep -q "QUENCHWORKS TEKTON SMOKE OK"
           # Results round-trip proves the entrypoint wrapper and the sidecar stop
