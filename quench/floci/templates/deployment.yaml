@@ -79,6 +79,13 @@ spec:
             {{- if include "floci.persistenceEnabled" . }}
             - name: data
               mountPath: {{ .Values.floci.storage.path }}
+            {{- else }}
+            {{/* floci 2.0 validates the persistent path at BOOT even in memory mode
+                 (PersistentPathValidator.probeWritable creates and probes it), so on a
+                 read-only rootfs with no PVC it dies with AccessDeniedException on the
+                 path. An emptyDir keeps memory mode bootable without a volume. */}}
+            - name: data
+              mountPath: {{ .Values.floci.storage.path }}
             {{- end }}
             {{- if include "floci.fullMode" . }}
             {{- include "floci.dockerSocketVolumeMount" . | nindent 12 }}
@@ -90,6 +97,9 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {{ include "floci.pvcName" . }}
+        {{- else }}
+        - name: data
+          emptyDir: {}
         {{- end }}
         {{- if include "floci.fullMode" . }}
         {{- include "floci.dockerSocketVolume" . | nindent 8 }}
