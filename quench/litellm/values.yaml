@@ -1,0 +1,93 @@
+# Quenchworks LiteLLM: one OpenAI-compatible API in front of 100+ LLM providers. MIT
+# build: the proprietary litellm-enterprise package is not in the image, so enterprise
+# features stay off. Nonroot (uid 1001), 0-CVE, cosign-signed, pinned by digest.
+image:
+  repository: ghcr.io/quenchworks/images/litellm
+  digest: "sha256:f34d4afd997050644d9f805375679fb152c38a5b5ed0aa01b552e5b4dded9320"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+# uvicorn workers per pod (--num_workers); empty keeps LiteLLM's default
+numWorkers: ""
+
+# The proxy config file (mounted at /config/config.yaml). Reference provider keys as
+# os.environ/NAME and supply them through extraEnvVarsSecret.
+config:
+  model_list: []
+  litellm_settings: {}
+  general_settings: {}
+
+masterKey:
+  # Use an existing Secret for LITELLM_MASTER_KEY. Empty: the chart generates one
+  # (sk-...) and keeps it across upgrades.
+  existingSecret: ""
+  existingSecretKey: master-key
+  # or set it explicitly (ignored when existingSecret is set, or the Secret exists)
+  value: ""
+
+database:
+  # Optional PostgreSQL for keys, spend and teams: a Secret holding DATABASE_URL.
+  existingSecret: ""
+  existingSecretKey: DATABASE_URL
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { cpu: 2000m, memory: 2Gi }
+
+service:
+  type: ClusterIP
+  port: 4000
+
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+
+extraEnvVars: []
+extraEnvVarsCM: ""
+# e.g. a Secret with OPENAI_API_KEY, ANTHROPIC_API_KEY, ...
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}
+
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []

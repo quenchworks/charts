@@ -1,0 +1,104 @@
+{{/* /health/liveliness answers once the ASGI app is up; /health/readiness also reports
+     the database and cache connections when they are configured. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/health/liveliness" "port" "http") "initialDelaySeconds" 20 "periodSeconds" 20 "timeoutSeconds" 5 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/health/readiness" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # restart on config changes
+        checksum/config: {{ toYaml .Values.config | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "litellm.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: litellm
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/opt/litellm/venv/bin/litellm"]
+          args:
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "4000"
+            - "--config"
+            - "/config/config.yaml"
+            {{- if .Values.numWorkers }}
+            - "--num_workers"
+            - {{ .Values.numWorkers | quote }}
+            {{- end }}
+          env:
+            - name: LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "litellm.masterKeySecret" . }}
+                  key: {{ include "litellm.masterKeySecretKey" . }}
+            {{- with .Values.database.existingSecret }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: {{ $.Values.database.existingSecretKey }}
+            {{- end }}
+            - name: LITELLM_TELEMETRY
+              value: "False"
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /config
+              readOnly: true
+            # read-only root filesystem: scratch and cache writes land in these
+            - name: tmp
+              mountPath: /tmp
+            - name: home
+              mountPath: /home/litellm
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-config
+        - name: tmp
+          emptyDir: {}
+        - name: home
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

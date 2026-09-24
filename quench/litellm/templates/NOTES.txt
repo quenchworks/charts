@@ -1,0 +1,23 @@
+Quenchworks LiteLLM proxy is installed as {{ include "quench-common.fullname" . }} (MIT build, no
+enterprise package). It serves an OpenAI-compatible API on port {{ .Values.service.port }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+The master key is in Secret {{ include "litellm.masterKeySecret" . }}:
+
+  export LITELLM_KEY=$(kubectl get secret -n {{ .Release.Namespace }} {{ include "litellm.masterKeySecret" . }} -o jsonpath='{.data.{{ include "litellm.masterKeySecretKey" . }}}' | base64 -d)
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl -H "Authorization: Bearer $LITELLM_KEY" http://127.0.0.1:{{ .Values.service.port }}/v1/models
+
+{{- if not .Values.config.model_list }}
+
+No models are configured yet. Add them under config.model_list, and pass provider keys
+with extraEnvVarsSecret, for example:
+
+  config:
+    model_list:
+      - model_name: gpt-4o
+        litellm_params:
+          model: openai/gpt-4o
+          api_key: os.environ/OPENAI_API_KEY
+{{- end }}
