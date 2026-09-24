@@ -1,0 +1,60 @@
+{{/* The controller serves the CRD validation (and bgppeers conversion) webhooks and rotates
+     their certificate itself, patching the caBundle into these objects. The three names
+     are fixed: the binary looks up "metallb-webhook-configuration" by name, and the
+     Service and Secret names are the controller's --cert-service-name / --webhook-secret
+     defaults. One MetalLB install per cluster, as upstream. */}}
+{{- $ns := .Release.Namespace -}}
+{{- $fp := .Values.webhook.failurePolicy -}}
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: metallb-webhook-configuration
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+webhooks:
+{{- range list
+  (list "bgppeer" "v1beta2" "bgppeers")
+  (list "ipaddresspool" "v1beta1" "ipaddresspools")
+  (list "bgpadvertisement" "v1beta1" "bgpadvertisements")
+  (list "community" "v1beta1" "communities")
+  (list "bfdprofile" "v1beta1" "bfdprofiles")
+  (list "l2advertisement" "v1beta1" "l2advertisements") }}
+{{- $kind := index . 0 }}{{- $ver := index . 1 }}{{- $res := index . 2 }}
+  - name: {{ $kind }}validationwebhook.metallb.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: metallb-webhook-service
+        namespace: {{ $ns }}
+        path: /validate-metallb-io-{{ $ver }}-{{ $kind }}
+    failurePolicy: {{ $fp }}
+    sideEffects: None
+    rules:
+      - apiGroups: ["metallb.io"]
+        apiVersions: [{{ $ver | quote }}]
+        operations: ["CREATE", "UPDATE"]
+        resources: [{{ $res | quote }}]
+{{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: metallb-webhook-service
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: webhook
+      port: 443
+      targetPort: webhook-server
+      protocol: TCP
+  selector:
+    {{- include "metallb.selectorLabels" (dict "ctx" . "component" "controller") | nindent 4 }}
+---
+# Filled and rotated by the controller; created empty so the controller pod can mount it.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: metallb-webhook-cert
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}

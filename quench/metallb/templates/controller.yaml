@@ -1,0 +1,103 @@
+{{- $c := .Values.controller -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "metallb.controllerName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: controller
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "metallb.selectorLabels" (dict "ctx" . "component" "controller") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "metallb.selectorLabels" (dict "ctx" . "component" "controller") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "metallb.controllerName" . }}
+      terminationGracePeriodSeconds: 0
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: controller
+          image: {{ include "metallb.image" $c.image }}
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          args:
+            - --port={{ .Values.metricsPort }}
+            - --log-level={{ $c.logLevel }}
+            - --webhook-mode=enabled
+            {{- with .Values.loadBalancerClass }}
+            - --lb-class={{ . }}
+            {{- end }}
+          env:
+            - name: METALLB_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: METALLB_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- if .Values.speaker.enabled }}
+            - name: METALLB_ML_SECRET_NAME
+              value: {{ include "metallb.memberlistSecret" . }}
+            - name: METALLB_DEPLOYMENT
+              value: {{ include "metallb.controllerName" . }}
+            {{- end }}
+          ports:
+            - name: metricshttps
+              containerPort: {{ .Values.metricsPort }}
+            - name: webhook-server
+              containerPort: 9443
+              protocol: TCP
+          # Health binds 127.0.0.1:17472 inside the pod, which the kubelet cannot reach
+          # for a pod-network container (upstream's host: 127.0.0.1 probe lands on the
+          # node's loopback). The webhook listener is the signal that matters: the API
+          # server rejects MetalLB CRD writes until it answers.
+          readinessProbe:
+            tcpSocket:
+              port: webhook-server
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: webhook-server
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: cert
+              mountPath: /tmp/k8s-webhook-server/serving-certs
+              readOnly: true
+      nodeSelector:
+        kubernetes.io/os: linux
+        {{- with $c.nodeSelector }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $c.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      volumes:
+        - name: cert
+          secret:
+            secretName: metallb-webhook-cert
+            defaultMode: 420

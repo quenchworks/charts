@@ -1,0 +1,30 @@
+Quenchworks MetalLB {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }}
+(controller Deployment{{ if .Values.speaker.enabled }} + speaker DaemonSet{{ end }}, native L2/BGP mode).
+
+MetalLB assigns nothing until you give it addresses. Create a pool and announce it,
+for example over L2:
+
+  cat <<YAML | kubectl apply -n {{ .Release.Namespace }} -f -
+  apiVersion: metallb.io/v1beta1
+  kind: IPAddressPool
+  metadata:
+    name: default
+  spec:
+    addresses:
+      - 192.168.10.240-192.168.10.250
+  ---
+  apiVersion: metallb.io/v1beta1
+  kind: L2Advertisement
+  metadata:
+    name: default
+  YAML
+
+Then any Service of type LoadBalancer gets an address from the pool:
+
+  kubectl get svc -A -o wide | grep LoadBalancer
+
+The images are pinned by digest and signed. Verify them:
+
+  cosign verify ghcr.io/quenchworks/images/metallb-controller \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

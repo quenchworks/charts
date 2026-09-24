@@ -1,0 +1,91 @@
+# Quenchworks MetalLB: LoadBalancer Services for bare-metal and other clusters without a
+# cloud load balancer. The controller assigns IPs from IPAddressPool objects; the speaker
+# DaemonSet announces them over L2 (ARP/NDP) or BGP. Native mode only (no FRR). Both
+# images are built from source, 0-CVE, cosign-signed and pinned by digest below.
+#
+# After install, give MetalLB addresses to hand out, for example:
+#   apiVersion: metallb.io/v1beta1
+#   kind: IPAddressPool
+#   metadata: { name: default }
+#   spec: { addresses: ["192.168.10.240-192.168.10.250"] }
+#   ---
+#   apiVersion: metallb.io/v1beta1
+#   kind: L2Advertisement
+#   metadata: { name: default }
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# Only handle Services whose spec.loadBalancerClass matches (--lb-class). Empty handles
+# every LoadBalancer Service without a class.
+loadBalancerClass: ""
+
+# HTTPS metrics port on both components (authenticated via TokenReview/SAR).
+metricsPort: 7472
+
+crds:
+  # Install MetalLB's CRDs with the chart. Disable only if you manage them yourself.
+  enabled: true
+
+webhook:
+  # What the API server does with a MetalLB CRD write when the webhook is unreachable.
+  failurePolicy: Fail
+
+controller:
+  image:
+    repository: ghcr.io/quenchworks/images/metallb-controller
+    digest: "sha256:34f661a11ddbbac2600b3212bac0b38081fce0dc52b1292b8269b2b621eed3e1"
+    pullPolicy: IfNotPresent
+  logLevel: info
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  priorityClassName: ""
+
+speaker:
+  enabled: true
+  image:
+    repository: ghcr.io/quenchworks/images/metallb-speaker
+    digest: "sha256:91f8a85a5ccda0eac24e235ceff6cb64d546968c25321766f09d0cd850dbcaa0"
+    pullPolicy: IfNotPresent
+  logLevel: info
+  # Announce from nodes labeled node.kubernetes.io/exclude-from-external-load-balancers
+  # too (kind and some kubeadm control planes carry that label).
+  ignoreExcludeLB: false
+  # Run a speaker on control-plane nodes as well.
+  tolerateControlPlane: true
+  memberlist:
+    # Fast dead-node detection between speakers. The controller creates the key Secret.
+    enabled: true
+    bindPort: 7946
+  excludeInterfaces:
+    enabled: true
+    patterns:
+      - ^docker.*
+      - ^cbr.*
+      - ^dummy.*
+      - ^virbr.*
+      - ^lxcbr.*
+      - ^veth.*
+      - ^lo$
+      - ^cali.*
+      - ^tunl.*
+      - ^flannel.*
+      - ^kube-ipvs.*
+      - ^cni.*
+      - ^nodelocaldns.*
+      - ^lxc.*
+  resources:
+    requests: { cpu: 25m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+  priorityClassName: ""
+
+podSecurityContext: {}
+containerSecurityContext: {}

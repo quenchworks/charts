@@ -1,0 +1,178 @@
+{{- if .Values.speaker.enabled }}
+{{- $s := .Values.speaker -}}
+{{- if $s.excludeInterfaces.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metallb-excludel2
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # Interfaces L2 mode never announces on (virtual and CNI links). The speaker reads
+  # this file from /etc/metallb by this fixed name.
+  excludel2.yaml: |
+    announcedInterfacesToExclude:
+    {{- range $s.excludeInterfaces.patterns }}
+    - {{ . }}
+    {{- end }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "metallb.speakerName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: speaker
+spec:
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "metallb.selectorLabels" (dict "ctx" . "component" "speaker") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "metallb.selectorLabels" (dict "ctx" . "component" "speaker") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "metallb.speakerName" . }}
+      terminationGracePeriodSeconds: 2
+      # L2 and BGP announce from the node itself.
+      hostNetwork: true
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: speaker
+          image: {{ include "metallb.image" $s.image }}
+          imagePullPolicy: {{ $s.image.pullPolicy }}
+          args:
+            - --port={{ .Values.metricsPort }}
+            - --log-level={{ $s.logLevel }}
+            {{- with .Values.loadBalancerClass }}
+            - --lb-class={{ . }}
+            {{- end }}
+            {{- if $s.ignoreExcludeLB }}
+            - --ignore-exclude-lb
+            {{- end }}
+          env:
+            - name: METALLB_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: METALLB_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: METALLB_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: METALLB_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- if $s.memberlist.enabled }}
+            - name: METALLB_ML_BIND_ADDR
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: METALLB_ML_LABELS
+              value: "app.kubernetes.io/name={{ include "quench-common.name" . }},app.kubernetes.io/component=speaker"
+            - name: METALLB_ML_BIND_PORT
+              value: {{ $s.memberlist.bindPort | quote }}
+            - name: METALLB_ML_SECRET_KEY_PATH
+              value: /etc/ml_secret_key
+            {{- end }}
+          ports:
+            - name: metricshttps
+              containerPort: {{ .Values.metricsPort }}
+            {{- if $s.memberlist.enabled }}
+            - name: memberlist-tcp
+              containerPort: {{ $s.memberlist.bindPort }}
+              protocol: TCP
+            - name: memberlist-udp
+              containerPort: {{ $s.memberlist.bindPort }}
+              protocol: UDP
+            {{- end }}
+          # hostNetwork: the pod's 127.0.0.1:17472 health listener is the node's loopback,
+          # so these probes reach this speaker's own endpoint.
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 17472
+              host: 127.0.0.1
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 17472
+              host: 127.0.0.1
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml $s.resources | nindent 12 }}
+          # ARP/NDP replies need NET_RAW, and a non-root process does not get an added
+          # capability, so this container runs as uid 0 with nothing but NET_RAW.
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_RAW"]
+          volumeMounts:
+            {{- if $s.memberlist.enabled }}
+            - name: memberlist
+              mountPath: /etc/ml_secret_key
+            {{- end }}
+            {{- if $s.excludeInterfaces.enabled }}
+            - name: metallb-excludel2
+              mountPath: /etc/metallb
+            {{- end }}
+      nodeSelector:
+        kubernetes.io/os: linux
+        {{- with $s.nodeSelector }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with $s.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if or $s.tolerateControlPlane $s.tolerations }}
+      tolerations:
+        {{- if $s.tolerateControlPlane }}
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        {{- end }}
+        {{- with $s.tolerations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      {{- with $s.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      volumes:
+        {{- if $s.memberlist.enabled }}
+        - name: memberlist
+          secret:
+            secretName: {{ include "metallb.memberlistSecret" . }}
+            defaultMode: 420
+        {{- end }}
+        {{- if $s.excludeInterfaces.enabled }}
+        - name: metallb-excludel2
+          configMap:
+            name: metallb-excludel2
+            defaultMode: 256
+        {{- end }}
+{{- end }}

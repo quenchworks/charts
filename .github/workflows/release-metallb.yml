@@ -1,0 +1,143 @@
+name: release-metallb
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/metallb/**"
+      - ".github/workflows/release-metallb.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/metallb
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -euo pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/rtest-metallb-controller --timeout=300s
+          kubectl rollout status daemonset/rtest-metallb-speaker --timeout=300s
+
+          # A pool inside the kind Docker network, so the runner can reach the address.
+          subnet="$(docker network inspect kind -f '{{range .IPAM.Config}}{{.Subnet}} {{end}}' | tr ' ' '\n' | grep -m1 -E '^[0-9]+\.')"
+          base="$(echo "$subnet" | cut -d. -f1-2)"
+          echo "kind subnet $subnet -> pool ${base}.255.200-${base}.255.250"
+          # The validating webhook must admit these; retry while its cert settles.
+          for i in $(seq 1 30); do
+            if cat <<YAML | kubectl apply -f -
+          apiVersion: metallb.io/v1beta1
+          kind: IPAddressPool
+          metadata:
+            name: ci
+          spec:
+            addresses:
+              - ${base}.255.200-${base}.255.250
+          ---
+          apiVersion: metallb.io/v1beta1
+          kind: L2Advertisement
+          metadata:
+            name: ci
+          YAML
+            then break; fi
+            [ "$i" = 30 ] && { echo "webhook never admitted the pool"; exit 1; }
+            sleep 5
+          done
+
+          # A real HTTP backend behind a LoadBalancer Service.
+          kubectl create deployment web --image=ghcr.io/quenchworks/images/opa:1.21.0 -- /usr/bin/opa run --server --addr=0.0.0.0:8181
+          kubectl rollout status deployment/web --timeout=180s
+          kubectl expose deployment web --type=LoadBalancer --port=80 --target-port=8181
+          ip=""
+          for i in $(seq 1 30); do
+            ip="$(kubectl get svc web -o jsonpath='{.status.loadBalancer.ingress[0].ip}')"
+            [ -n "$ip" ] && break; sleep 2
+          done
+          echo "assigned LoadBalancer IP: ${ip:-none}"
+          case "$ip" in "${base}.255."*) ;; *) echo "no IP from the pool"; kubectl describe svc web; exit 1 ;; esac
+
+          # Reachable from outside the cluster only if the speaker announced it over L2 (ARP).
+          for i in $(seq 1 30); do
+            if curl -fsS --max-time 3 "http://${ip}/health" >/dev/null; then echo "L2 announcement works: http://${ip}/health"; exit 0; fi
+            sleep 2
+          done
+          echo "LoadBalancer IP ${ip} not reachable"; kubectl get servicel2statuses -A -o yaml || true; exit 1
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/metallb-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/metallb@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/metallb:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
