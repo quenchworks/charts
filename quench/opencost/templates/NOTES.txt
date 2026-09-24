@@ -1,0 +1,26 @@
+Quenchworks OpenCost is installed as {{ include "quench-common.fullname" . }}.
+
+The cost model runs nonroot and serves its API on container port 9003; the
+Service exposes it on port {{ .Values.service.port }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Check health and read allocations over a port-forward:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://127.0.0.1:{{ .Values.service.port }}/healthz
+  curl 'http://127.0.0.1:{{ .Values.service.port }}/allocation/compute?window=1d'
+
+{{ if .Values.prometheus.endpoint }}
+Reading metrics from Prometheus at {{ .Values.prometheus.endpoint }}.
+{{- else }}
+No Prometheus endpoint is set, so OpenCost uses its built-in collector data
+source. Set prometheus.endpoint (for example the QuenchWorks Prometheus or a
+Thanos/Mimir query frontend) for history across restarts and shards.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/opencost \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
