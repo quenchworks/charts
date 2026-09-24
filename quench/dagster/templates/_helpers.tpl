@@ -74,3 +74,29 @@ app.kubernetes.io/component: {{ .component }}
   configMap:
     name: {{ include "quench-common.fullname" . }}-config
 {{- end -}}
+
+{{/* Hold every Dagster process until PostgreSQL accepts connections. A code server that
+     starts first gives up after its retries and keeps serving the load error while its
+     TCP probe stays green. The image has no shell, so the wait is a python socket loop. */}}
+{{- define "dagster.waitForDb" -}}
+- name: wait-for-postgres
+  image: {{ include "quench-common.image" . }}
+  imagePullPolicy: {{ .Values.image.pullPolicy }}
+  command:
+    - /opt/dagster/venv/bin/python
+    - -c
+    - |
+      import socket, sys, time
+      host, port = sys.argv[1], int(sys.argv[2])
+      for _ in range(150):
+          try:
+              socket.create_connection((host, port), timeout=2).close()
+              sys.exit(0)
+          except OSError:
+              time.sleep(2)
+      sys.exit(f"postgres {host}:{port} not reachable")
+    - {{ include "dagster.pg.host" . | quote }}
+    - {{ include "dagster.pg.port" . | quote }}
+  securityContext:
+    {{- include "quench-common.containerSecurityContext" . | nindent 4 }}
+{{- end -}}
