@@ -1,0 +1,108 @@
+{{- $jm := .Values.jobmanager -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "flink.jobmanager" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: jobmanager
+spec:
+  # One jobmanager: without an HA backend (ZooKeeper or Kubernetes HA) a second one
+  # would be an independent cluster, not a standby.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "flink.selectorLabels" (dict "ctx" . "component" "jobmanager") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/properties: {{ include "flink.properties" (dict "ctx" . "role" "jobmanager") | sha256sum }}
+      labels:
+        {{- include "flink.selectorLabels" (dict "ctx" . "component" "jobmanager") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "flink.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: jobmanager
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["jobmanager"]
+          env:
+            - name: JOB_MANAGER_RPC_ADDRESS
+              value: {{ include "flink.jobmanager" . }}
+            - name: FLINK_PROPERTIES
+              value: |
+                {{- include "flink.properties" (dict "ctx" . "role" "jobmanager") | nindent 16 }}
+            {{- with .Values.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: rpc
+              containerPort: 6123
+            - name: blob
+              containerPort: 6124
+            - name: http
+              containerPort: 8081
+          readinessProbe:
+            httpGet:
+              path: /overview
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: rpc
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            {{- toYaml $jm.resources | nindent 12 }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            # read-only root filesystem: the config copy, logs and blob/tmp dirs go here
+            - name: tmp
+              mountPath: /tmp
+      {{- with $jm.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $jm.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $jm.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "flink.jobmanager" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: jobmanager
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: rpc
+      port: 6123
+      targetPort: rpc
+    - name: blob
+      port: 6124
+      targetPort: blob
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+  selector:
+    {{- include "flink.selectorLabels" (dict "ctx" . "component" "jobmanager") | nindent 4 }}

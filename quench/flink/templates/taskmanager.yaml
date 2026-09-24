@@ -1,0 +1,76 @@
+{{- $tm := .Values.taskmanager -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}-taskmanager
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: taskmanager
+spec:
+  replicas: {{ $tm.replicas }}
+  selector:
+    matchLabels:
+      {{- include "flink.selectorLabels" (dict "ctx" . "component" "taskmanager") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/properties: {{ include "flink.properties" (dict "ctx" . "role" "taskmanager") | sha256sum }}
+      labels:
+        {{- include "flink.selectorLabels" (dict "ctx" . "component" "taskmanager") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "flink.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: taskmanager
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["taskmanager"]
+          env:
+            # the jobmanager reaches each taskmanager on its pod IP (taskmanager.host)
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: JOB_MANAGER_RPC_ADDRESS
+              value: {{ include "flink.jobmanager" . }}
+            - name: FLINK_PROPERTIES
+              value: |
+                {{- include "flink.properties" (dict "ctx" . "role" "taskmanager") | nindent 16 }}
+            {{- with .Values.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: rpc
+              containerPort: 6122
+          livenessProbe:
+            tcpSocket:
+              port: rpc
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            {{- toYaml $tm.resources | nindent 12 }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      {{- with $tm.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $tm.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $tm.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}

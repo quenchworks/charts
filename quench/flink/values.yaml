@@ -1,0 +1,52 @@
+# Quenchworks Apache Flink: a session cluster (one jobmanager, N taskmanagers) on the
+# QuenchWorks image (official binary dist, log4j fixed, nonroot, 0-CVE, pinned by digest).
+image:
+  repository: ghcr.io/quenchworks/images/flink
+  digest: "sha256:c71999c3663a4bc3e69519cca3d3c714280a034b0079eac80528f8977adc179a"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+jobmanager:
+  # jobmanager.memory.process.size; keep it under the container memory limit
+  memoryProcessSize: 1600m
+  resources:
+    requests: { cpu: 250m, memory: 1600Mi }
+    limits: { cpu: 2000m, memory: 2Gi }
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+
+taskmanager:
+  replicas: 1
+  numberOfTaskSlots: 2
+  # taskmanager.memory.process.size; keep it under the container memory limit
+  memoryProcessSize: 1728m
+  resources:
+    requests: { cpu: 500m, memory: 1728Mi }
+    limits: { cpu: 2000m, memory: 2Gi }
+  nodeSelector: {}
+  affinity: {}
+  tolerations: []
+
+# Extra Flink configuration, applied to both roles as FLINK_PROPERTIES (key: value), e.g.
+#   state.backend.type: rocksdb
+#   execution.checkpointing.interval: 30s
+flinkProperties: {}
+
+extraEnvVars: []
+
+service:
+  type: ClusterIP
+  # REST API and web UI
+  port: 8081
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}

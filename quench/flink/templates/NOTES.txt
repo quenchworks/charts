@@ -1,0 +1,18 @@
+Quenchworks Apache Flink {{ .Chart.AppVersion }} session cluster is installed as {{ include "quench-common.fullname" . }}:
+one jobmanager and {{ .Values.taskmanager.replicas }} taskmanager(s) with {{ .Values.taskmanager.numberOfTaskSlots }} slot(s) each.
+
+Web UI and REST API:
+
+  kubectl port-forward svc/{{ include "flink.jobmanager" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://127.0.0.1:{{ .Values.service.port }}/overview
+
+Submit a job from a machine with the Flink CLI:
+
+  flink run -m 127.0.0.1:{{ .Values.service.port }} your-job.jar
+
+Scale processing capacity with taskmanager.replicas. The image is pinned by digest and
+signed:
+
+  cosign verify ghcr.io/quenchworks/images/flink \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
