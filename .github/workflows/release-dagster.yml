@@ -51,13 +51,17 @@ jobs:
           gql() { curl -fsS -H 'Content-Type: application/json' -d "{\"query\":\"$1\"}" http://127.0.0.1:3000/graphql; }
           # the webserver loads the example code location over gRPC
           for i in $(seq 1 30); do
-            out="$(gql '{ workspaceOrError { ... on Workspace { locationEntries { name loadStatus locationOrLoadError { __typename } } } } }' || true)"
+            out="$(gql '{ workspaceOrError { ... on Workspace { locationEntries { name loadStatus locationOrLoadError { __typename ... on PythonError { message } } } } } }' || true)"
             echo "$out" | grep -q '"__typename":"RepositoryLocation"' && break
             sleep 5
           done
           echo "$out"
           echo "$out" | grep -q '"name":"example"'
-          echo "$out" | grep -q '"__typename":"RepositoryLocation"'
+          echo "$out" | grep -q '"__typename":"RepositoryLocation"' || {
+            kubectl logs deployment/rtest-dagster-example --tail=100
+            kubectl logs deployment/rtest-dagster-webserver --tail=100
+            exit 1
+          }
           # the daemon heartbeats through the shared PostgreSQL storage
           for i in $(seq 1 30); do
             out="$(gql '{ instance { daemonHealth { allDaemonStatuses { daemonType healthy } } } }' || true)"
