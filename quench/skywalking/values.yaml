@@ -2,7 +2,7 @@
 # image-published dispatch after every green image build. It is never a tag.
 image:
   repository: ghcr.io/quenchworks/images/skywalking
-  digest: "sha256:584f4506232e839973b5ddf58b6a0be08995144118468295fef930db9ae51c7f"
+  digest: "sha256:c77e67112939e4d9e705caa285c97d845bc793739687d99268fccc124beffb01"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -23,16 +23,14 @@ oap:
 # SkyWalking 10.2+ REMOVED the H2 embedded store; OAP has NO built-in storage and REQUIRES
 # an external backend to become Ready.
 #
-# storage.type is the SW_STORAGE selector and stays "elasticsearch": OAP 10.4 has no separate
-# opensearch selector — its Elasticsearch client reads the distribution off the cluster root and
-# switches dialect, so the same driver serves both. What it will NOT serve is Elasticsearch 9;
-# ElasticSearchVersion accepts ES 6/7/8 and any OpenSearch, and throws
-# "Unsupported version: ElasticSearch 9.4" on anything newer. The Quenchworks Elasticsearch
-# chart ships ES 9, so the bundled backend here is OpenSearch (opensearch.* below).
+# storage.type is the SW_STORAGE selector and stays "elasticsearch": OAP has no separate
+# opensearch selector; its Elasticsearch client reads the distribution off the cluster root and
+# switches dialect, so the same driver serves both. OAP 11 accepts Elasticsearch 7.x, 8.x and
+# 9.x and OpenSearch (10.4 refused ES 9, which is why the bundled backend is OpenSearch).
 #
 # Either bundle it (opensearch.enabled=true, self-contained) or point
-# storage.elasticsearch.clusterNodes at an external cluster — an OpenSearch cluster or a real
-# Elasticsearch 8, both of which OAP supports. Other selectors (banyandb, mysql, postgresql)
+# storage.elasticsearch.clusterNodes at an external cluster: OpenSearch, or Elasticsearch
+# 7/8/9, including the QuenchWorks Elasticsearch chart. Other selectors (banyandb, mysql, postgresql)
 # are reachable via storage.type + extraEnvVars, but only the ES/OpenSearch driver is
 # first-class wired here.
 storage:
@@ -40,7 +38,7 @@ storage:
   elasticsearch:
     # host:port (comma-separated) of an EXTERNAL cluster. Used only when opensearch.enabled=false.
     # When opensearch.enabled=true the chart wires OAP to the bundled "<release>-opensearch:9200".
-    # An external Elasticsearch must be 8.x or older — OAP 10.4 rejects ES 9.
+    # An external Elasticsearch may be 7.x, 8.x or 9.x (OAP 11).
     clusterNodes: ""
     protocol: http
     namespace: ""

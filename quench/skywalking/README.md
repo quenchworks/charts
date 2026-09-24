@@ -3,16 +3,15 @@
 Hardened [Apache SkyWalking](https://skywalking.apache.org/) **OAP**
 (Observability Analysis Platform) backend — the APM collector that ingests
 trace/metric/log data from SkyWalking agents and serves it over a GraphQL query
-API. The chart deploys the OAP server only; the Quenchworks image ships the OAP
-backend and drops the Rocketbot web UI, so there is no UI workload here.
+API. The chart deploys the OAP server only; SkyWalking 11 no longer ships a UI in
+the OAP distribution (the Horizon UI is a separate project), so there is no UI
+workload here.
 
-> **Storage note.** OAP 10.4 accepts Elasticsearch 6/7/8 or any OpenSearch
-> distribution, and refuses Elasticsearch 9 outright
-> (`UnsupportedOperationException: Unsupported version: ElasticSearch 9.4`). Every
-> release of the Quenchworks `elasticsearch` chart ships Elasticsearch 9, so the
-> bundled backend here is **OpenSearch** (`opensearch.enabled=true`). An external
-> Elasticsearch stays a first-class option as long as it is 8.x or older — see
-> [Configuration examples](#configuration-examples).
+> **Storage note.** OAP 11 accepts Elasticsearch 7/8/9 or any OpenSearch
+> distribution. The bundled backend is **OpenSearch** (`opensearch.enabled=true`),
+> chosen when OAP 10.4 still refused Elasticsearch 9. An external Elasticsearch,
+> including the Quenchworks `elasticsearch` chart (ES 9), is a first-class option;
+> see [Configuration examples](#configuration-examples).
 
 OAP exposes two ports:
 
@@ -37,7 +36,7 @@ helm install apm oci://ghcr.io/quenchworks/charts/skywalking \
 
 SkyWalking 10.2+ removed the embedded H2 store, so OAP has no built-in storage
 and will not become Ready without a backend. `storage.type` stays
-`elasticsearch` either way: OAP 10.4 has no separate `opensearch` selector — its
+`elasticsearch` either way: OAP has no separate `opensearch` selector; its
 Elasticsearch client reads the distribution off the cluster root and switches to
 the OpenSearch dialect, so one driver serves both. The bundled subchart is
 disabled by default to keep the default render dependency-light; enable it, or
@@ -128,8 +127,8 @@ the same Elasticsearch client. A secured cluster's password is injected as
 ## Configuration examples
 
 Point at an external, secured cluster over HTTPS. This is also how you keep using
-Elasticsearch: an ES 8.x cluster is fully supported (ES 9 is not), so a site that
-already runs ES 8 should disable the bundle and point at it rather than adopt a
+Elasticsearch: ES 7.x, 8.x and 9.x are supported, so a site that already runs
+Elasticsearch should disable the bundle and point at it rather than adopt a
 second search engine.
 
 ```yaml
@@ -197,9 +196,9 @@ still present. `storage.elasticsearch.*` did not move.
 
 The chart depends on the `quench-common` library chart and, when enabled, the
 `opensearch` subchart, both pulled from `oci://ghcr.io/quenchworks/charts`. It
-used to bundle the `elasticsearch` subchart, which could never work: OAP 10.4
-rejects Elasticsearch 9 and that is the only major the Quenchworks Elasticsearch
-chart ships. Nothing about the external-cluster path changed — `storage.type`
+used to bundle the `elasticsearch` subchart, which could not work on OAP 10.4:
+10.4 rejected Elasticsearch 9, the only major the Quenchworks Elasticsearch chart
+ships. OAP 11 accepts it as an external cluster. Nothing about the external-cluster path changed — `storage.type`
 and every `storage.elasticsearch.*` key mean exactly what they did before. The
 image runs nonroot (uid 1001) on a read-only root filesystem with all
 capabilities dropped, and is pinned by digest.
