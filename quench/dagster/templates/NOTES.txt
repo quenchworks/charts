@@ -1,0 +1,15 @@
+Quenchworks Dagster {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }}: the webserver{{ if .Values.daemon.enabled }}, the daemon{{ end }}
+and {{ if .Values.postgresql.enabled }}a bundled PostgreSQL{{ else }}the external PostgreSQL at {{ .Values.externalDatabase.host }}{{ end }} for instance storage.
+
+Open the UI:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }}-webserver {{ .Values.service.port }}:{{ .Values.service.port }}
+  open http://127.0.0.1:{{ .Values.service.port }}
+
+{{- if not (or .Values.codeLocations .Values.example.enabled) }}
+
+No code locations are configured. Build your code into an image FROM
+ghcr.io/quenchworks/images/dagster, run it with
+  dagster code-server start -h 0.0.0.0 -p 4000 -m your_package
+and list it under codeLocations (or set example.enabled=true to try the one-asset example).
+{{- end }}

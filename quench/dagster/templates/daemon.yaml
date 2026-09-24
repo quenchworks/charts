@@ -1,0 +1,56 @@
+{{- if .Values.daemon.enabled }}
+{{- $d := .Values.daemon -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}-daemon
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: daemon
+spec:
+  # Exactly one daemon: it runs schedules, sensors and the run queue.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "dagster.selectorLabels" (dict "ctx" . "component" "daemon") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "dagster.selectorLabels" (dict "ctx" . "component" "daemon") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "dagster.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: daemon
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/opt/dagster/venv/bin/dagster-daemon"]
+          args: ["run", "-w", "/etc/dagster/workspace.yaml"]
+          env:
+            {{- include "dagster.env" . | nindent 12 }}
+          resources:
+            {{- toYaml $d.resources | nindent 12 }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- include "dagster.mounts" . | nindent 12 }}
+      {{- with $d.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $d.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        {{- include "dagster.volumes" . | nindent 8 }}
+{{- end }}

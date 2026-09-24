@@ -1,0 +1,83 @@
+# Quenchworks Dagster: the webserver (UI + GraphQL on 3000), the daemon (schedules,
+# sensors, run queue) and PostgreSQL instance storage, on the QuenchWorks dagster image
+# (nonroot, 0-CVE, cosign-signed, pinned by digest). Your code runs in code-location
+# gRPC servers listed in codeLocations.
+image:
+  repository: ghcr.io/quenchworks/images/dagster
+  digest: "sha256:bd7df6bfb8834e908ab60747af5050edb2add70c353f936a07647225e1cd1041"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# Code locations the webserver and daemon load, e.g. your own code-server Deployment:
+#   - name: analytics
+#     host: analytics-code.data.svc.cluster.local
+#     port: 4000
+codeLocations: []
+
+# A one-asset example code location from the dagster image itself. Off by default.
+example:
+  enabled: false
+  resources:
+    requests: { cpu: 50m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+runCoordinator:
+  # max_concurrent_runs for the QueuedRunCoordinator; empty keeps Dagster's default
+  maxConcurrentRuns: ""
+
+# Extra top-level keys merged into dagster.yaml (run_launcher, compute_logs, ...).
+instanceConfig: {}
+
+webserver:
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { cpu: 1000m, memory: 1Gi }
+  nodeSelector: {}
+  tolerations: []
+
+daemon:
+  enabled: true
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { cpu: 1000m, memory: 1Gi }
+  nodeSelector: {}
+  tolerations: []
+
+extraEnvVars: []
+
+service:
+  type: ClusterIP
+  port: 3000
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# --- STORAGE, mode 1: bundled PostgreSQL (the QuenchWorks postgresql chart).
+postgresql:
+  enabled: true
+  auth:
+    username: dagster
+    password: ""              # generated if empty; stored in <release>-postgresql
+    database: dagster
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- STORAGE, mode 2: external PostgreSQL (postgresql.enabled=false).
+externalDatabase:
+  host: ""
+  port: 5432
+  database: dagster
+  username: dagster
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+podSecurityContext: {}
+containerSecurityContext: {}
