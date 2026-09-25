@@ -1,0 +1,65 @@
+# Quenchworks Argo Events on the QuenchWorks argo-events image (nonroot, 0-CVE,
+# cosign-signed, pinned by digest). The controller starts EventSource and Sensor pods from
+# the same image, and EventBus pods from the images in eventBus below.
+image:
+  repository: ghcr.io/quenchworks/images/argo-events
+  digest: "sha256:401e4bbadaf9cc26eec92c2bd70b24f0e2d2e660e250d0efe990718a8f18af07"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# Two replicas elect a leader; only the leader reconciles.
+replicas: 1
+
+# Watch only the release namespace (a Role instead of a ClusterRole).
+namespaced: false
+
+# The images the controller runs a JetStream EventBus with. nats is the QuenchWorks image;
+# the config reloader and metrics exporter are upstream's (natsio), pinned by digest.
+# Our nats runs as uid 1001, so give the EventBus spec.jetstream.securityContext.fsGroup: 1001.
+eventBus:
+  jetstream:
+    version: "2.15.0"
+    natsImage: ghcr.io/quenchworks/images/nats@sha256:2cd50c9efb5742e2806ee71fc71a4bff42776bf97d8313a93e7ae55bbb009c46
+    startCommand: /usr/bin/nats-server
+    configReloaderImage: docker.io/natsio/nats-server-config-reloader@sha256:8c28b75bc416bb068761b19edf9a471bf8e35062bf619ea49c8e22af517e383e
+    metricsExporterImage: docker.io/natsio/prometheus-nats-exporter@sha256:839c59f6a23473a657f6560c2a14dca9b9ce722a017933a41d071a3c9dd3a7d7
+    # nats server settings (max_memory_store, max_file_store) and stream defaults
+    settings: |
+      max_memory_store: -1
+      max_file_store: 1TB
+    streamConfig: |
+      maxMsgs: 50000
+      maxAge: 168h
+      maxBytes: -1
+      replicas: 3
+      duplicates: 300s
+      retention: 0
+      discard: 0
+
+extraArgs: []
+extraEnvVars: []
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 1000m, memory: 512Mi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+rbac:
+  create: true
+  # aggregate read and write access to the Argo Events kinds into the admin, edit and
+  # view roles
+  aggregateToDefaultRoles: true
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: true
+
+podSecurityContext: {}
+containerSecurityContext: {}

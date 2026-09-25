@@ -1,0 +1,61 @@
+{{- if .Values.rbac.create }}
+{{- $kind := ternary "Role" "ClusterRole" .Values.namespaced }}
+# What the controller needs to run EventBus, EventSource and Sensor workloads (the same
+# resources upstream grants).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ $kind }}
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [argoproj.io]
+    resources: [sensors, sensors/finalizers, sensors/status, eventsources, eventsources/finalizers, eventsources/status, eventbus, eventbus/finalizers, eventbus/status]
+    verbs: [create, delete, deletecollection, get, list, patch, update, watch]
+  - apiGroups: [""]
+    resources: [pods, pods/exec, configmaps, services, persistentvolumeclaims]
+    verbs: [create, get, list, watch, update, patch, delete]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create, get, list, update, patch, delete]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets]
+    verbs: [create, get, list, watch, update, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ $kind }}Binding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: {{ $kind }}
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- if and .Values.rbac.aggregateToDefaultRoles (not .Values.namespaced) }}
+{{- range $role, $verbs := dict "admin" (list "create" "delete" "deletecollection" "get" "list" "patch" "update" "watch") "edit" (list "create" "delete" "deletecollection" "get" "list" "patch" "update" "watch") "view" (list "get" "list" "watch") }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" $ }}-aggregate-to-{{ $role }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+    rbac.authorization.k8s.io/aggregate-to-{{ $role }}: "true"
+rules:
+  - apiGroups: [argoproj.io]
+    resources: [sensors, sensors/finalizers, sensors/status, eventsources, eventsources/finalizers, eventsources/status, eventbus, eventbus/finalizers, eventbus/status]
+    verbs: {{ toJson $verbs }}
+{{- end }}
+{{- end }}
+{{- end }}

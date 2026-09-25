@@ -1,0 +1,16 @@
+Quenchworks Argo Events {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }} ({{ ternary "this namespace" "cluster-wide" .Values.namespaced }}).
+
+Create an EventBus in each namespace that runs EventSources and Sensors:
+
+  kubectl apply -f - <<'YAML'
+  apiVersion: argoproj.io/v1alpha1
+  kind: EventBus
+  metadata: { name: default }
+  spec:
+    jetstream:
+      version: latest
+      securityContext: { fsGroup: 1001 }
+  YAML
+
+Sensors that create Kubernetes resources run as the service account in
+spec.template.serviceAccountName, which needs its own RBAC.

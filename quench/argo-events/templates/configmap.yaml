@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-controller-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  controller-config.yaml: |
+    eventBus:
+      # the controller requires a non-empty list here even when only JetStream is used;
+      # NATS Streaming is deprecated upstream and has no QuenchWorks image
+      nats:
+        versions:
+          - version: 0.22.1
+            natsStreamingImage: nats-streaming:0.22.1
+            metricsExporterImage: {{ .Values.eventBus.jetstream.metricsExporterImage }}
+      jetstream:
+        settings: |
+          {{- .Values.eventBus.jetstream.settings | nindent 10 }}
+        streamConfig: |
+          {{- .Values.eventBus.jetstream.streamConfig | nindent 10 }}
+        versions:
+          - version: {{ .Values.eventBus.jetstream.version | quote }}
+            natsImage: {{ .Values.eventBus.jetstream.natsImage }}
+            startCommand: {{ .Values.eventBus.jetstream.startCommand }}
+            configReloaderImage: {{ .Values.eventBus.jetstream.configReloaderImage }}
+            metricsExporterImage: {{ .Values.eventBus.jetstream.metricsExporterImage }}
+          - version: latest
+            natsImage: {{ .Values.eventBus.jetstream.natsImage }}
+            startCommand: {{ .Values.eventBus.jetstream.startCommand }}
+            configReloaderImage: {{ .Values.eventBus.jetstream.configReloaderImage }}
+            metricsExporterImage: {{ .Values.eventBus.jetstream.metricsExporterImage }}
