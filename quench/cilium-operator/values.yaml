@@ -1,0 +1,60 @@
+# Quenchworks Cilium Operator (generic) on the QuenchWorks cilium-operator image (nonroot,
+# 0-CVE, cosign-signed, pinned by digest). It replaces the operator the Cilium chart
+# would deploy: install Cilium with operator.enabled=false, then this chart in the same
+# namespace. The operator reads Cilium's own ConfigMap, so both stay in step.
+image:
+  repository: ghcr.io/quenchworks/images/cilium-operator
+  digest: "sha256:128b7cf631cb0da37d658d6a43f432cb52b606f50c24c7dd801c75ad3010e01d"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# Two replicas elect a leader; the anti-affinity keeps them on different nodes.
+replicas: 2
+
+# The ConfigMap the Cilium chart renders (cluster name, IPAM mode, pod CIDRs, ...).
+ciliumConfigMap: cilium-config
+
+extraArgs: []
+extraEnvVars: []
+
+metrics:
+  enabled: false
+  port: 9963
+
+# The operator allocates pod CIDRs before the CNI is up, so it runs on the host network,
+# tolerates not-ready nodes, and is scheduled as cluster-critical, as upstream does.
+hostNetwork: true
+priorityClassName: system-cluster-critical
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { cpu: 1000m, memory: 512Mi }
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations:
+  - { key: node-role.kubernetes.io/control-plane, operator: Exists }
+  - { key: node.kubernetes.io/not-ready, operator: Exists }
+  - { key: node.cloudprovider.kubernetes.io/uninitialized, operator: Exists }
+  - { key: node.cilium.io/agent-not-ready, operator: Exists }
+# Empty: the chart spreads replicas across nodes. Set to replace that rule.
+affinity: {}
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # the operator is a controller: it needs its token
+  automountServiceAccountToken: true
+
+podSecurityContext: {}
+containerSecurityContext: {}
