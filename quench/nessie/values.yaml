@@ -1,0 +1,60 @@
+# Quenchworks Nessie: the lakehouse table catalog on the QuenchWorks nessie image
+# (nonroot, 0-CVE, cosign-signed, pinned by digest). API and Iceberg REST on 19120,
+# health and metrics on 9000.
+image:
+  repository: ghcr.io/quenchworks/images/nessie
+  digest: "sha256:70d029130f88fcf4af1fff343f1279ffb118dbb505be6d5f887a956f5c956151"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# Where Nessie keeps its commits:
+#   IN_MEMORY  lost on every restart (upstream's default; for trying it out)
+#   ROCKSDB    a RocksDB on a PVC; one replica, the pod is recreated on upgrade
+#   JDBC2      a PostgreSQL or MariaDB database (jdbc below); scales out
+versionStore:
+  type: IN_MEMORY
+
+rocksdb:
+  persistence:
+    size: 8Gi
+    storageClass: ""
+    accessModes: [ReadWriteOnce]
+    # an existing PVC instead of one the chart creates
+    existingClaim: ""
+
+jdbc:
+  # postgresql, mariadb or mysql
+  datasource: postgresql
+  url: ""                       # e.g. jdbc:postgresql://pg.data.svc:5432/nessie
+  # a Secret holding the database username and password
+  existingSecret: ""
+  usernameKey: username
+  passwordKey: password
+
+# Ignored for ROCKSDB, which needs a single writer.
+replicas: 1
+
+javaOpts: "-XX:MaxRAMPercentage=75"
+extraEnvVars: []
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { cpu: 1000m, memory: 1Gi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+  port: 19120
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}

@@ -1,0 +1,14 @@
+Quenchworks Nessie {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }} ({{ .Values.versionStore.type }} version store).
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 19120:{{ .Values.service.port }}
+  curl http://127.0.0.1:19120/api/v2/config
+
+Iceberg REST catalog: http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/iceberg
+{{- if eq .Values.versionStore.type "IN_MEMORY" }}
+
+The IN_MEMORY store loses every branch and commit when the pod restarts.
+Set versionStore.type to ROCKSDB or JDBC2 for anything you want to keep.
+{{- end }}
+
+Nessie has no authentication by default: anyone who reaches the Service can commit.
+Keep the Service internal, or configure OIDC through extraEnvVars (NESSIE_SERVER_AUTHENTICATION_ENABLED).
