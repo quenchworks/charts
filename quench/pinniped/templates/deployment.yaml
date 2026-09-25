@@ -1,0 +1,111 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pinniped.name" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    {{- include "pinniped.appLabel" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: concierge
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: concierge
+        {{- include "pinniped.appLabel" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "pinniped.name" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: concierge
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - pinniped-concierge
+            - --config=/etc/config/pinniped.yaml
+            - --downward-api-path=/etc/podinfo
+          ports:
+            - name: api
+              containerPort: 10250
+            - name: proxy
+              containerPort: 8444
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: api
+              scheme: HTTPS
+            initialDelaySeconds: 2
+            timeoutSeconds: 15
+            periodSeconds: 10
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: api
+              scheme: HTTPS
+            initialDelaySeconds: 2
+            timeoutSeconds: 3
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: config
+              mountPath: /etc/config
+              readOnly: true
+            - name: podinfo
+              mountPath: /etc/podinfo
+              readOnly: true
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      affinity:
+        {{- if .Values.affinity }}
+        {{- toYaml .Values.affinity | nindent 8 }}
+        {{- else }}
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    {{- include "quench-common.selectorLabels" . | nindent 20 }}
+                    app.kubernetes.io/component: concierge
+                topologyKey: kubernetes.io/hostname
+        {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 100Mi
+        - name: config
+          configMap:
+            name: {{ include "pinniped.suffixed" (dict "root" . "suffix" "config") }}
+        - name: podinfo
+          downwardAPI:
+            items:
+              - path: labels
+                fieldRef: { fieldPath: metadata.labels }
+              - path: name
+                fieldRef: { fieldPath: metadata.name }
+              - path: namespace
+                fieldRef: { fieldPath: metadata.namespace }

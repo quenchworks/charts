@@ -1,0 +1,74 @@
+apiVersion: v1
+kind: Service
+metadata:
+  # names.apiService in the config and spec.service.name in the APIServices point here
+  name: {{ include "pinniped.suffixed" (dict "root" . "suffix" "api") }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    {{- include "pinniped.appLabel" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: concierge
+  ports:
+    - protocol: TCP
+      port: 443
+      targetPort: api
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pinniped.suffixed" (dict "root" . "suffix" "proxy") }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    {{- include "pinniped.appLabel" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: concierge
+  ports:
+    - protocol: TCP
+      port: 443
+      targetPort: proxy
+{{- range list "login" "identity" }}
+---
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1alpha1.{{ . }}.concierge.pinniped.dev
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+    {{- include "pinniped.appLabel" $ | nindent 4 }}
+spec:
+  version: v1alpha1
+  group: {{ . }}.concierge.pinniped.dev
+  groupPriorityMinimum: 9900
+  versionPriority: 15
+  # caBundle is left out: the Concierge fills it in and owns it
+  service:
+    name: {{ include "pinniped.suffixed" (dict "root" $ "suffix" "api") }}
+    namespace: {{ $.Release.Namespace }}
+    port: 443
+{{- end }}
+---
+apiVersion: config.concierge.pinniped.dev/v1alpha1
+kind: CredentialIssuer
+metadata:
+  name: {{ include "pinniped.suffixed" (dict "root" . "suffix" "config") }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    {{- include "pinniped.appLabel" . | nindent 4 }}
+spec:
+  impersonationProxy:
+    mode: {{ .Values.impersonationProxy.mode }}
+    {{- with .Values.impersonationProxy.externalEndpoint }}
+    externalEndpoint: {{ . }}
+    {{- end }}
+    service:
+      type: {{ .Values.impersonationProxy.service.type }}
+      {{- with .Values.impersonationProxy.service.annotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

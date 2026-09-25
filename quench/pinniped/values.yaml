@@ -1,0 +1,47 @@
+# Quenchworks Pinniped Concierge on the QuenchWorks pinniped image (nonroot, 0-CVE,
+# cosign-signed, pinned by digest). The same image runs the kube cert agent.
+image:
+  repository: ghcr.io/quenchworks/images/pinniped
+  digest: "sha256:0e7b9819ba1212d018319e6aeea57a0b00ddc6f8f6478d3eaa3cdf4a493218cb"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+replicas: 2
+
+# How the Concierge issues cluster credentials when it cannot read the cluster's
+# signing key through the kube cert agent (managed control planes): an impersonation
+# proxy. "auto" enables it only then; "enabled" / "disabled" force it.
+impersonationProxy:
+  mode: auto
+  # Where clients reach the proxy; empty lets the Concierge use the Service address.
+  externalEndpoint: ""
+  service:
+    type: LoadBalancer
+    annotations: {}
+
+# Serving certificate for the aggregated API, rotated by the Concierge itself.
+apiServingCertificate:
+  durationSeconds: 2592000
+  renewBeforeSeconds: 2160000
+
+# Optional discovery URL advertised to clients; empty uses the cluster's own.
+discoveryURL: ""
+logLevel: ""
+priorityClassNameForKubeCertAgent: ""
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+nodeSelector: {}
+tolerations:
+  - key: CriticalAddonsOnly
+    operator: Exists
+  - key: node-role.kubernetes.io/control-plane
+    effect: NoSchedule
+affinity: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}

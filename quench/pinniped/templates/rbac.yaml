@@ -1,0 +1,226 @@
+{{- $name := include "pinniped.name" . -}}
+{{- $ns := .Release.Namespace -}}
+{{- $agg := include "pinniped.suffixed" (dict "root" . "suffix" "aggregated-api-server") -}}
+{{- $imp := include "pinniped.suffixed" (dict "root" . "suffix" "impersonation-proxy") -}}
+{{- $agent := include "pinniped.suffixed" (dict "root" . "suffix" "kube-cert-agent") -}}
+{{- range list $name $agent $imp }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ . }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+    {{- include "pinniped.appLabel" $ | nindent 4 }}
+---
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $agg }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [apiregistration.k8s.io]
+    resources: [apiservices]
+    verbs: [get, list, patch, update, watch]
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [validatingwebhookconfigurations, mutatingwebhookconfigurations, validatingadmissionpolicies, validatingadmissionpolicybindings, mutatingadmissionpolicies, mutatingadmissionpolicybindings]
+    verbs: [get, list, watch]
+  - apiGroups: [flowcontrol.apiserver.k8s.io]
+    resources: [flowschemas, prioritylevelconfigurations]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [list]
+  - apiGroups: [config.concierge.pinniped.dev]
+    resources: [credentialissuers]
+    verbs: [get, list, watch, create]
+  - apiGroups: [config.concierge.pinniped.dev]
+    resources: [credentialissuers/status]
+    verbs: [get, patch, update]
+  - apiGroups: [authentication.concierge.pinniped.dev]
+    resources: [jwtauthenticators, webhookauthenticators]
+    verbs: [get, list, watch]
+  - apiGroups: [authentication.concierge.pinniped.dev]
+    resources: [jwtauthenticators/status, webhookauthenticators/status]
+    verbs: [get, list, watch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $agg }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+subjects:
+  - { kind: ServiceAccount, name: {{ $name }}, namespace: {{ $ns }} }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ $agg }} }
+---
+# the impersonation proxy acts as the logged-in user
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $imp }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [users, groups, serviceaccounts]
+    verbs: [impersonate]
+  - apiGroups: [authentication.k8s.io]
+    resources: ["*"]
+    verbs: [impersonate]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $imp }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+subjects:
+  - { kind: ServiceAccount, name: {{ $imp }}, namespace: {{ $ns }} }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ $imp }} }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $agg }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [services, secrets]
+    verbs: [create, get, list, patch, update, watch, delete]
+  # find the kube cert agent pods, exec into them for the signing key, clean up old ones
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch, delete]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [create, get, list, patch, update, watch, delete]
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [list, get, watch]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create, get, update]
+  # short-lived tokens for the impersonation proxy
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [serviceaccounts/token]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $agg }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+subjects:
+  - { kind: ServiceAccount, name: {{ $name }}, namespace: {{ $ns }} }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $agg }} }
+---
+# locate the kube-controller-manager pod, whose node the kube cert agent runs on
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "pinniped.suffixed" (dict "root" . "suffix" "kube-system-pod-read") }}
+  namespace: kube-system
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "pinniped.suffixed" (dict "root" . "suffix" "kube-system-pod-read") }}
+  namespace: kube-system
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+subjects:
+  - { kind: ServiceAccount, name: {{ $name }}, namespace: {{ $ns }} }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ include "pinniped.suffixed" (dict "root" . "suffix" "kube-system-pod-read") }} }
+---
+# the login and whoami APIs are called before a user has an identity
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "pinniped.suffixed" (dict "root" . "suffix" "pre-authn-apis") }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [login.concierge.pinniped.dev]
+    resources: [tokencredentialrequests]
+    verbs: [create, list]
+  - apiGroups: [identity.concierge.pinniped.dev]
+    resources: [whoamirequests]
+    verbs: [create, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "pinniped.suffixed" (dict "root" . "suffix" "pre-authn-apis") }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+subjects:
+  - { kind: Group, name: "system:authenticated", apiGroup: rbac.authorization.k8s.io }
+  - { kind: Group, name: "system:unauthenticated", apiGroup: rbac.authorization.k8s.io }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ include "pinniped.suffixed" (dict "root" . "suffix" "pre-authn-apis") }} }
+---
+# aggregated API server: delegate authn/authz to the kube API server
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "pinniped.suffixed" (dict "root" . "suffix" "auth-delegator") }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+subjects:
+  - { kind: ServiceAccount, name: {{ $name }}, namespace: {{ $ns }} }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: "system:auth-delegator" }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "pinniped.suffixed" (dict "root" . "suffix" "extension-apiserver-authentication-reader") }}
+  namespace: kube-system
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+subjects:
+  - { kind: ServiceAccount, name: {{ $name }}, namespace: {{ $ns }} }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: extension-apiserver-authentication-reader }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "pinniped.suffixed" (dict "root" . "suffix" "cluster-info-lister-watcher") }}
+  namespace: kube-public
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "pinniped.suffixed" (dict "root" . "suffix" "cluster-info-lister-watcher") }}
+  namespace: kube-public
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+subjects:
+  - { kind: ServiceAccount, name: {{ $name }}, namespace: {{ $ns }} }
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ include "pinniped.suffixed" (dict "root" . "suffix" "cluster-info-lister-watcher") }} }

@@ -1,0 +1,189 @@
+name: release-pinniped
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/pinniped/**"
+      - ".github/workflows/release-pinniped.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/pinniped
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/rtest-pinniped --timeout=300s
+          img="$(helm get values rtest -a -o json | jq -r '.image.repository + "@" + .image.digest')"
+          want="v$(helm show chart "${CHART_DIR}" | awk '/^appVersion:/ {gsub(/"/,"",$2); print $2}')"
+          # 1. the aggregated login and identity APIs are served
+          for g in login identity; do
+            kubectl wait "apiservice/v1alpha1.$g.concierge.pinniped.dev" --for=condition=Available --timeout=300s
+          done
+          # 2. the kube cert agent read the cluster signing key: the Concierge can mint
+          #    client certificates without an impersonation proxy
+          for i in $(seq 1 60); do
+            st="$(kubectl get credentialissuer rtest-pinniped-config -o json | jq -r '.status.strategies[]? | select(.type=="KubeClusterSigningCertificate") | .status')"
+            [ "$st" = Success ] && break
+            [ "$i" = 60 ] && { kubectl get credentialissuer rtest-pinniped-config -o yaml; exit 1; }
+            sleep 5
+          done
+          echo "  CredentialIssuer: KubeClusterSigningCertificate Success"
+          # 3. a webhook identity provider: local-user-authenticator from the same image,
+          #    backed by one bcrypt user Secret
+          sudo apt-get install -y -qq apache2-utils >/dev/null
+          cat <<LUA | kubectl apply -f -
+          apiVersion: v1
+          kind: Namespace
+          metadata: { name: local-user-authenticator }
+          ---
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata: { name: local-user-authenticator, namespace: local-user-authenticator }
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          metadata: { name: local-user-authenticator, namespace: local-user-authenticator }
+          rules: [{ apiGroups: [""], resources: [secrets], verbs: [create, get, list, patch, update, watch] }]
+          ---
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          metadata: { name: local-user-authenticator, namespace: local-user-authenticator }
+          subjects: [{ kind: ServiceAccount, name: local-user-authenticator, namespace: local-user-authenticator }]
+          roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: local-user-authenticator }
+          ---
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata: { name: local-user-authenticator, namespace: local-user-authenticator }
+          spec:
+            selector: { matchLabels: { app: local-user-authenticator } }
+            template:
+              metadata: { labels: { app: local-user-authenticator } }
+              spec:
+                serviceAccountName: local-user-authenticator
+                securityContext: { runAsNonRoot: true, runAsUser: 1001, seccompProfile: { type: RuntimeDefault } }
+                containers:
+                  - name: lua
+                    image: $img
+                    command: [local-user-authenticator]
+                    securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata: { name: local-user-authenticator, namespace: local-user-authenticator }
+          spec:
+            selector: { app: local-user-authenticator }
+            ports: [{ port: 443, targetPort: 8443 }]
+          LUA
+          kubectl -n local-user-authenticator rollout status deployment/local-user-authenticator --timeout=300s
+          kubectl -n local-user-authenticator create secret generic pinny \
+            --from-literal=groups=gate-group \
+            --from-literal=passwordHash="$(htpasswd -nbBC 10 x gate-password | sed -e 's/^x://')"
+          for i in $(seq 1 30); do
+            ca="$(kubectl -n local-user-authenticator get secret local-user-authenticator-tls-serving-certificate -o jsonpath='{.data.caCertificate}' 2>/dev/null)" && [ -n "$ca" ] && break
+            [ "$i" = 30 ] && { echo "local-user-authenticator never wrote its CA"; exit 1; }
+            sleep 2
+          done
+          cat <<WA | kubectl apply -f -
+          apiVersion: authentication.concierge.pinniped.dev/v1alpha1
+          kind: WebhookAuthenticator
+          metadata: { name: gate-webhook }
+          spec:
+            endpoint: https://local-user-authenticator.local-user-authenticator.svc/authenticate
+            tls: { certificateAuthorityData: $ca }
+          WA
+          # 4. log in through the Concierge with the pinniped CLI from the image
+          cid="$(docker create "$img")"; docker cp "$cid:/usr/local/bin/pinniped" ./pinniped; docker rm "$cid" >/dev/null
+          test "$(./pinniped version | tail -1)" = "$want"
+          for i in $(seq 1 30); do
+            ./pinniped get kubeconfig --static-token "pinny:gate-password" \
+              --concierge-authenticator-type webhook --concierge-authenticator-name gate-webhook > pinny.yaml 2>gk.err \
+              && who="$(./pinniped whoami --kubeconfig pinny.yaml 2>&1)" && grep -q "Username: pinny" <<<"$who" && break
+            [ "$i" = 30 ] && { cat gk.err; echo "$who"; kubectl logs deployment/rtest-pinniped --tail=60; exit 1; }
+            sleep 5
+          done
+          echo "$who"
+          grep -q "gate-group" <<<"$who"
+          echo "install gate OK: APIs available, signing key strategy Success, pinny logged in through the webhook authenticator"
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/pinniped-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/pinniped@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/pinniped:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

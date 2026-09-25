@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pinniped.suffixed" (dict "root" . "suffix" "config") }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    {{- include "pinniped.appLabel" . | nindent 4 }}
+data:
+  pinniped.yaml: |
+    discovery:
+      url: {{ .Values.discoveryURL | default "null" }}
+    api:
+      servingCertificate:
+        durationSeconds: {{ .Values.apiServingCertificate.durationSeconds }}
+        renewBeforeSeconds: {{ .Values.apiServingCertificate.renewBeforeSeconds }}
+    apiGroupSuffix: pinniped.dev
+    aggregatedAPIServerDisableAdmissionPlugins: []
+    names:
+      servingCertificateSecret: {{ include "pinniped.suffixed" (dict "root" . "suffix" "api-tls-serving-certificate") }}
+      credentialIssuer: {{ include "pinniped.suffixed" (dict "root" . "suffix" "config") }}
+      apiService: {{ include "pinniped.suffixed" (dict "root" . "suffix" "api") }}
+      impersonationLoadBalancerService: {{ include "pinniped.suffixed" (dict "root" . "suffix" "impersonation-proxy-load-balancer") }}
+      impersonationClusterIPService: {{ include "pinniped.suffixed" (dict "root" . "suffix" "impersonation-proxy-cluster-ip") }}
+      impersonationTLSCertificateSecret: {{ include "pinniped.suffixed" (dict "root" . "suffix" "impersonation-proxy-tls-serving-certificate") }}
+      impersonationCACertificateSecret: {{ include "pinniped.suffixed" (dict "root" . "suffix" "impersonation-proxy-ca-certificate") }}
+      impersonationSignerSecret: {{ include "pinniped.suffixed" (dict "root" . "suffix" "impersonation-proxy-signer-ca-certificate") }}
+      agentServiceAccount: {{ include "pinniped.suffixed" (dict "root" . "suffix" "kube-cert-agent") }}
+      impersonationProxyServiceAccount: {{ include "pinniped.suffixed" (dict "root" . "suffix" "impersonation-proxy") }}
+      impersonationProxyLegacySecret: {{ include "pinniped.suffixed" (dict "root" . "suffix" "impersonation-proxy") }}
+    labels: {{ dict "app" (include "quench-common.fullname" .) | toJson }}
+    kubeCertAgent:
+      namePrefix: {{ include "pinniped.suffixed" (dict "root" . "suffix" "kube-cert-agent-") }}
+      priorityClassName: {{ .Values.priorityClassNameForKubeCertAgent | quote }}
+      image: {{ include "quench-common.image" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - {{ .name }}
+        {{- end }}
+      {{- end }}
+    {{- with .Values.logLevel }}
+    log:
+      level: {{ . }}
+    {{- end }}
