@@ -100,7 +100,14 @@ jobs:
             n="$(kubectl get k8srequiredlabels pods-need-owner -o jsonpath='{.status.totalViolations}')"
             [ -n "$n" ] && [ "$n" -ge 1 ] && break; sleep 3
           done
-          test "$(kubectl get k8srequiredlabels pods-need-owner -o jsonpath='{.status.totalViolations}')" -ge 1
+          n="$(kubectl get k8srequiredlabels pods-need-owner -o jsonpath='{.status.totalViolations}')"
+          if [ -z "$n" ] || [ "$n" -lt 1 ]; then
+            echo "audit reported no violation; the constraint:"
+            kubectl get k8srequiredlabels pods-need-owner -o yaml | sed -n '/^status:/,$p'
+            kubectl get pods -n gate --show-labels
+            kubectl -n gatekeeper-system logs deployment/rtest-opa-gatekeeper-audit | grep -iE 'constraint|violation|pods-need-owner|error' | tail -30
+            exit 1
+          fi
           ! kubectl -n gatekeeper-system logs deployment/rtest-opa-gatekeeper-webhook | grep -E 'panic:|"level":"fatal"'
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
