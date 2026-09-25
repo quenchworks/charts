@@ -1,0 +1,57 @@
+# Quenchworks AKHQ: the web UI for Apache Kafka on the QuenchWorks akhq image (nonroot,
+# 0-CVE, cosign-signed, pinned by digest). The chart renders AKHQ's application.yml into
+# a Secret, because connection properties often carry SASL passwords.
+image:
+  repository: ghcr.io/quenchworks/images/akhq
+  digest: "sha256:334e20a52f75a741ac75bf18ce3a68d04d8765e31ca527327fe296a8071efa9d"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+replicas: 1
+
+# Kafka clusters, as AKHQ's akhq.connections map: a name, the Kafka client
+# properties, and optionally a schema registry and Kafka Connect clusters. Example:
+#   connections:
+#     prod:
+#       properties:
+#         bootstrap.servers: "kafka.data.svc:9092"
+#         security.protocol: SASL_SSL
+#         sasl.mechanism: SCRAM-SHA-512
+#         sasl.jaas.config: org.apache.kafka.common.security.scram.ScramLoginModule required username="akhq" password="...";
+#       schema-registry:
+#         url: "http://schema-registry.data.svc:8081"
+#       connect:
+#         - name: connect
+#           url: "http://connect.data.svc:8083"
+connections: {}
+
+# Other AKHQ settings merged under `akhq:` (security, ui-options, topic defaults, ...).
+akhqConfig: {}
+
+# Use an existing Secret with an `application.yml` key instead of rendering one.
+existingSecret: ""
+
+javaOpts: "-XX:MaxRAMPercentage=75"
+extraEnvVars: []
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { cpu: 1000m, memory: 1Gi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+  port: 8080
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}
