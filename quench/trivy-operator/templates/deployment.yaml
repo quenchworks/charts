@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  # one active operator; a second would race the first on scan Jobs
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmaps.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "trivy-operator.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: operator
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: OPERATOR_NAMESPACE
+              value: {{ .Release.Namespace | quote }}
+            - name: OPERATOR_TARGET_NAMESPACES
+              value: {{ .Values.targetNamespaces | quote }}
+            - name: OPERATOR_EXCLUDE_NAMESPACES
+              value: {{ .Values.excludeNamespaces | quote }}
+            - name: OPERATOR_TARGET_WORKLOADS
+              value: {{ .Values.targetWorkloads | quote }}
+            - name: OPERATOR_SERVICE_ACCOUNT
+              value: {{ include "trivy-operator.serviceAccountName" . | quote }}
+          envFrom:
+            - configMapRef:
+                name: trivy-operator-config
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: probes
+              containerPort: 9090
+          readinessProbe:
+            httpGet:
+              path: /readyz/
+              port: probes
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz/
+              port: probes
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

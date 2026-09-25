@@ -1,0 +1,87 @@
+{{- $s := .Values.scanners -}}
+# The operator looks these up by name in its namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trivy-operator
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  vulnerabilityReports.scanner: Trivy
+  vulnerabilityReports.scanJobsInSameNamespace: "false"
+  configAuditReports.scanner: Trivy
+  report.recordFailedChecksOnly: "true"
+  scanJob.compressLogs: "true"
+  # scan jobs run nonroot with nothing to escalate
+  scanJob.podTemplateContainerSecurityContext: '{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]},"privileged":false,"readOnlyRootFilesystem":true}'
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trivy-operator-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  OPERATOR_LOG_DEV_MODE: "false"
+  OPERATOR_SCAN_JOB_TIMEOUT: {{ .Values.scanJob.timeout | quote }}
+  OPERATOR_CONCURRENT_SCAN_JOBS_LIMIT: {{ .Values.scanJob.concurrentLimit | quote }}
+  OPERATOR_SCAN_JOB_RETRY_AFTER: {{ .Values.scanJob.retryAfter | quote }}
+  OPERATOR_METRICS_BIND_ADDRESS: ":8080"
+  OPERATOR_HEALTH_PROBE_BIND_ADDRESS: ":9090"
+  OPERATOR_VULNERABILITY_SCANNER_ENABLED: {{ $s.vulnerability | quote }}
+  OPERATOR_SBOM_GENERATION_ENABLED: {{ $s.sbom | quote }}
+  OPERATOR_CONFIG_AUDIT_SCANNER_ENABLED: {{ $s.configAudit | quote }}
+  OPERATOR_RBAC_ASSESSMENT_SCANNER_ENABLED: {{ $s.rbacAssessment | quote }}
+  OPERATOR_EXPOSED_SECRET_SCANNER_ENABLED: {{ $s.exposedSecret | quote }}
+  OPERATOR_INFRA_ASSESSMENT_SCANNER_ENABLED: {{ $s.infraAssessment | quote }}
+  OPERATOR_CLUSTER_COMPLIANCE_ENABLED: {{ $s.clusterCompliance | quote }}
+  OPERATOR_VULNERABILITY_SCANNER_SCAN_ONLY_CURRENT_REVISIONS: "true"
+  OPERATOR_CONFIG_AUDIT_SCANNER_SCAN_ONLY_CURRENT_REVISIONS: "true"
+  OPERATOR_SCANNER_REPORT_TTL: "24h"
+  OPERATOR_BUILT_IN_TRIVY_SERVER: "false"
+  {{- range $k, $v := .Values.operatorConfig }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trivy-operator-trivy-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  trivy.repository: {{ .Values.trivy.repository | quote }}
+  trivy.tag: {{ .Values.trivy.tag | quote }}
+  trivy.imagePullPolicy: IfNotPresent
+  trivy.severity: {{ .Values.trivy.severity | quote }}
+  trivy.mode: Standalone
+  trivy.command: image
+  trivy.timeout: 5m0s
+  trivy.dbRepository: {{ .Values.trivy.dbRepository | quote }}
+  trivy.javaDbRepository: {{ .Values.trivy.javaDbRepository | quote }}
+  trivy.useEmbeddedRegoPolicies: "true"
+  trivy.useBuiltinRegoPolicies: "false"
+  trivy.imageScanCacheDir: /tmp/trivy/.cache
+  trivy.filesystemScanCacheDir: /var/trivyoperator/trivy-db
+  trivy.supportedConfigAuditKinds: Workload,Service,Role,ClusterRole,NetworkPolicy,Ingress,LimitRange,ResourceQuota
+  trivy.resources.requests.cpu: {{ .Values.trivy.resources.requests.cpu | quote }}
+  trivy.resources.requests.memory: {{ .Values.trivy.resources.requests.memory | quote }}
+  trivy.resources.limits.cpu: {{ .Values.trivy.resources.limits.cpu | quote }}
+  trivy.resources.limits.memory: {{ .Values.trivy.resources.limits.memory | quote }}
+---
+# Credentials the operator reads for private registries; empty by default.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: trivy-operator
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+type: Opaque
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: trivy-operator-trivy-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+type: Opaque

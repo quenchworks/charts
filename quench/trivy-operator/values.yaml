@@ -1,0 +1,67 @@
+# Quenchworks Trivy Operator on the QuenchWorks trivy-operator image (nonroot, 0-CVE,
+# cosign-signed, pinned by digest). The operator watches workloads and launches scan
+# Jobs in its own namespace; those Jobs run the scanner image below.
+#
+# The operator reads its settings from ConfigMaps and Secrets with FIXED names in its
+# namespace (trivy-operator, trivy-operator-config, trivy-operator-trivy-config), so
+# install one release per namespace.
+image:
+  repository: ghcr.io/quenchworks/images/trivy-operator
+  digest: "sha256:1f4887533cd15878869e7e0edc85d818a61f8b468c7d64c203df1322d05d275f"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# Namespaces to scan (comma-separated); empty scans all of them.
+targetNamespaces: ""
+excludeNamespaces: "kube-system"
+targetWorkloads: "pod,replicaset,replicationcontroller,statefulset,daemonset,cronjob,job"
+
+scanners:
+  vulnerability: true
+  configAudit: true
+  rbacAssessment: true
+  exposedSecret: true
+  sbom: true
+  # Infra assessment and cluster compliance need the node collector: a privileged
+  # hostPath pod on an image outside this catalog. Off unless you opt in.
+  infraAssessment: false
+  clusterCompliance: false
+
+scanJob:
+  concurrentLimit: 3
+  timeout: 5m
+  retryAfter: 30s
+
+# The scanner image the scan Jobs run (by tag: the operator composes repository:tag).
+trivy:
+  repository: ghcr.io/quenchworks/images/trivy
+  tag: "0.74.0"
+  severity: "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"
+  # where scan jobs download the vulnerability DBs from (mirror them for air-gapped clusters)
+  dbRepository: mirror.gcr.io/aquasec/trivy-db
+  javaDbRepository: mirror.gcr.io/aquasec/trivy-java-db
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+# Extra operator settings merged into the trivy-operator-config ConfigMap (OPERATOR_* keys).
+operatorConfig: {}
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { cpu: 500m, memory: 512Mi }
+nodeSelector: {}
+tolerations: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # the operator calls the Kubernetes API
+  automountServiceAccountToken: true
+
+podSecurityContext: {}
+containerSecurityContext: {}
