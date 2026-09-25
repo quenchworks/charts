@@ -76,18 +76,22 @@ jobs:
           B=http://127.0.0.1:12000
           for i in $(seq 1 30); do curl -fsS "$B/healthz" >/dev/null 2>&1 && break; sleep 1; done
           curl -fsS "$B/" | grep -q 'bundle.main'
-          # a gRPC-Web call as the browser makes it: nginx, then the backend, then the relay.
-          # One empty message frame; the reply must end with grpc-status 0 and carry the
-          # relay's view of the flows.
-          printf '\x00\x00\x00\x00\x00' > /tmp/req
-          for i in $(seq 1 20); do
-            curl -sS -o /tmp/resp -X POST -H 'Content-Type: application/grpc-web+proto' -H 'X-Grpc-Web: 1' \
-              --data-binary @/tmp/req "$B/api/ui.UI/GetStatus" && grep -aq 'grpc-status: *0' /tmp/resp && break
-            sleep 3
+          # the browser's API path: nginx, then the backend's polling protocol (JSON
+          # messages to /api/<route>). A control-stream channel makes the backend dial the
+          # relay; its log then shows the established connection.
+          J=(-sS -X POST -H 'Content-Type: application/json')
+          first="$(curl "${J[@]}" -d '{"meta":{"route_name":"control-stream"}}' "$B/api/control-stream")"
+          echo "$first" | head -c 300; echo
+          ch="$(echo "$first" | jq -r '.meta.channel_id // .meta.channelId // empty')"
+          test -n "$ch"
+          for i in $(seq 1 10); do
+            curl "${J[@]}" -d "{\"meta\":{\"route_name\":\"control-stream\",\"channel_id\":\"$ch\"}}" "$B/api/control-stream" >/dev/null
+            kubectl -n kube-system logs deployment/rtest-hubble-ui -c backend | grep -q 'connection established' && break
+            sleep 2
           done
-          grep -aq 'grpc-status: *0' /tmp/resp || { echo "GetStatus did not succeed:"; od -c /tmp/resp | head -20; exit 1; }
-          test "$(stat -c %s /tmp/resp)" -gt 30
-          kubectl -n kube-system logs deployment/rtest-hubble-ui -c backend | grep -q 'connection established'
+          kubectl -n kube-system logs deployment/rtest-hubble-ui -c backend > /tmp/backend.log
+          grep -q 'connection established' /tmp/backend.log || { tail -30 /tmp/backend.log; exit 1; }
+          grep -q 'addr=hubble-relay.kube-system.svc.cluster.local:80' /tmp/backend.log || { grep -i addr /tmp/backend.log | tail; exit 1; }
           ! kubectl -n kube-system logs deployment/rtest-hubble-ui -c backend | grep -E 'panic:|level=fatal'
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

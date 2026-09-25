@@ -40,7 +40,8 @@ is read-only (namespaces, pods, services, nodes, CRDs), the same resources upstr
 Both containers run with a read-only root filesystem and all capabilities dropped.
 
 The release gate starts a two-node kind cluster with upstream Cilium and the QuenchWorks
-hubble-relay chart, installs this chart, and requires the UI to load and a gRPC-Web
-status call from the browser path (nginx, backend, relay) to succeed.
+hubble-relay chart, installs this chart, and requires the UI to load and a control-stream
+channel opened on the browser path (nginx, then the backend) to make the backend connect
+to the relay.
 
 The chart depends on the `quench-common` chart from `oci://ghcr.io/quenchworks/charts`.
