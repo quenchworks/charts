@@ -1,0 +1,157 @@
+name: release-opa-gatekeeper
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/opa-gatekeeper/**"
+      - ".github/workflows/release-opa-gatekeeper.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/opa-gatekeeper
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -n gatekeeper-system --create-namespace -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 6m
+          kubectl wait --for=condition=Established crd/constrainttemplates.templates.gatekeeper.sh --timeout=60s
+          # the manager rotated its own certificate into the Secret and the webhook config
+          test -n "$(kubectl -n gatekeeper-system get secret gatekeeper-webhook-server-cert -o jsonpath='{.data.tls\.crt}')"
+          for i in $(seq 1 60); do [ -n "$(kubectl get validatingwebhookconfiguration rtest-opa-gatekeeper-validating -o jsonpath='{.webhooks[0].clientConfig.caBundle}')" ] && break; sleep 2; done
+          test -n "$(kubectl get validatingwebhookconfiguration rtest-opa-gatekeeper-validating -o jsonpath='{.webhooks[0].clientConfig.caBundle}')"
+          kubectl create namespace gate
+          # a violation that exists before the policy, for audit to find
+          kubectl -n gate run before --image=ghcr.io/quenchworks/images/nginx:1.28.3 --restart=Never
+          cat <<'YAML' | kubectl apply -f -
+          apiVersion: templates.gatekeeper.sh/v1
+          kind: ConstraintTemplate
+          metadata: { name: k8srequiredlabels }
+          spec:
+            crd:
+              spec:
+                names: { kind: K8sRequiredLabels }
+                validation:
+                  openAPIV3Schema:
+                    type: object
+                    properties:
+                      labels: { type: array, items: { type: string } }
+            targets:
+              - target: admission.k8s.gatekeeper.sh
+                rego: |
+                  package k8srequiredlabels
+                  violation[{"msg": msg}] {
+                    provided := {l | input.review.object.metadata.labels[l]}
+                    required := {l | l := input.parameters.labels[_]}
+                    missing := required - provided
+                    count(missing) > 0
+                    msg := sprintf("missing required labels: %v", [missing])
+                  }
+          YAML
+          for i in $(seq 1 60); do kubectl get crd k8srequiredlabels.constraints.gatekeeper.sh >/dev/null 2>&1 && break; sleep 2; done
+          kubectl wait --for=condition=Established crd/k8srequiredlabels.constraints.gatekeeper.sh --timeout=60s
+          cat <<'YAML' | kubectl apply -f -
+          apiVersion: constraints.gatekeeper.sh/v1beta1
+          kind: K8sRequiredLabels
+          metadata: { name: pods-need-owner }
+          spec:
+            match:
+              kinds: [{ apiGroups: [""], kinds: ["Pod"] }]
+              namespaces: ["gate"]
+            parameters: { labels: ["owner"] }
+          YAML
+          # enforcement: wait until the webhook denies, then check both sides
+          for i in $(seq 1 60); do
+            out="$(kubectl -n gate run probe-$i --image=ghcr.io/quenchworks/images/nginx:1.28.3 --restart=Never --dry-run=server 2>&1 || true)"
+            grep -q 'missing required labels' <<<"$out" && break; sleep 2
+          done
+          grep -q 'missing required labels' <<<"$out"
+          kubectl -n gate run labelled --image=ghcr.io/quenchworks/images/nginx:1.28.3 --restart=Never --labels=owner=gate --dry-run=server
+          # audit reports the pod that predates the policy
+          for i in $(seq 1 60); do
+            n="$(kubectl get k8srequiredlabels pods-need-owner -o jsonpath='{.status.totalViolations}')"
+            [ -n "$n" ] && [ "$n" -ge 1 ] && break; sleep 3
+          done
+          test "$(kubectl get k8srequiredlabels pods-need-owner -o jsonpath='{.status.totalViolations}')" -ge 1
+          ! kubectl -n gatekeeper-system logs deployment/rtest-opa-gatekeeper-webhook | grep -E 'panic:|"level":"fatal"'
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -A -o wide || true
+          kubectl -n gatekeeper-system describe pods || true
+          kubectl get constrainttemplates -o yaml | tail -40 || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl -n gatekeeper-system get pods -o name); do
+            for c in $(kubectl -n gatekeeper-system get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl -n gatekeeper-system logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl -n gatekeeper-system logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/opa-gatekeeper-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/opa-gatekeeper@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/opa-gatekeeper:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

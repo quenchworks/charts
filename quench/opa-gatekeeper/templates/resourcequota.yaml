@@ -1,0 +1,17 @@
+{{- if and (eq .Values.priorityClassName "system-cluster-critical") (ne .Release.Namespace "kube-system") }}
+# Pods at system-cluster-critical run outside kube-system only where a quota allows it.
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: {{ include "quench-common.fullname" . }}-critical-pods
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  hard:
+    pods: "100"
+  scopeSelector:
+    matchExpressions:
+      - operator: In
+        scopeName: PriorityClass
+        values: [system-cluster-critical]
+{{- end }}

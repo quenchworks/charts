@@ -1,0 +1,14 @@
+{{- if and .Values.podDisruptionBudget.enabled (gt (int .Values.replicas) 1) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "quench-common.fullname" . }}-webhook
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: webhook
+{{- end }}

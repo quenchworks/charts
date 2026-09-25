@@ -1,0 +1,60 @@
+# Quenchworks OPA Gatekeeper on the QuenchWorks opa-gatekeeper image (nonroot, 0-CVE,
+# cosign-signed, pinned by digest). One install per cluster: the webhooks are cluster-wide.
+image:
+  repository: ghcr.io/quenchworks/images/opa-gatekeeper
+  digest: "sha256:8e404a121556613691dcfde88ddf07d82e95b1de60f87f69dc7fdfbe18f87d94"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# Webhook pods (validating and mutating admission).
+replicas: 3
+# How the API server treats a webhook it cannot reach: Ignore (upstream's default) keeps
+# the cluster usable if Gatekeeper is down, Fail enforces policy strictly.
+validatingWebhook:
+  failurePolicy: Ignore
+  timeoutSeconds: 3
+mutatingWebhook:
+  enabled: true
+  failurePolicy: Ignore
+  timeoutSeconds: 1
+
+audit:
+  # seconds between audits of existing resources
+  interval: 60
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 1000m, memory: 1Gi }
+
+# Namespaces the webhooks never see, besides the release namespace.
+exemptNamespaces: []
+# OPA builtins turned off (http.send lets policies reach the network).
+disabledBuiltins: ["{http.send}"]
+
+extraArgs: []
+
+# Gatekeeper runs cluster-critical, as upstream does; outside kube-system that needs the
+# ResourceQuota the chart creates.
+priorityClassName: system-cluster-critical
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: 1000m, memory: 512Mi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: true
+
+podSecurityContext: {}
+containerSecurityContext: {}
