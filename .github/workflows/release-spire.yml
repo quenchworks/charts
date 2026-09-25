@@ -1,0 +1,143 @@
+name: release-spire
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/spire/**"
+      - ".github/workflows/release-spire.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/spire
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-spire-server --timeout=300s
+          kubectl rollout status daemonset/rtest-spire-agent --timeout=300s
+          srv() { kubectl exec rtest-spire-server-0 -- /usr/bin/spire-server "$@"; }
+          TD=spiffe://gate.quench-works.com
+          # 1. the image reports the chart's appVersion
+          want="$(helm show chart "${CHART_DIR}" | awk '/^appVersion:/ {gsub(/"/,"",$2); print $2}')"
+          test "$(srv --version 2>&1 | tail -1)" = "$want"
+          # 2. the server published its trust bundle, and every node's agent attested
+          #    with k8s_psat
+          kubectl get configmap rtest-spire-bundle -o jsonpath='{.data.bundle\.crt}' | grep -q "BEGIN CERTIFICATE"
+          nodes="$(kubectl get nodes --no-headers | wc -l)"
+          test "$(srv agent list | grep -c "Attestation type.*k8s_psat")" -ge "$nodes"
+          # 3. a pod attested by the k8s workload attestor gets an X.509 SVID for the entry
+          #    registered for its namespace and service account
+          srv entry create -node -spiffeID "$TD/ns/default/agents" -selector k8s_psat:cluster:kind
+          srv entry create -parentID "$TD/ns/default/agents" -spiffeID "$TD/ns/default/sa/default" \
+            -selector k8s:ns:default -selector k8s:sa:default
+          img="$(helm get values rtest -a -o json | jq -r '.image.repository + "@" + .image.digest')"
+          cat <<POD | kubectl apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata: { name: gate-workload, namespace: default }
+          spec:
+            securityContext: { runAsNonRoot: true, runAsUser: 1001, seccompProfile: { type: RuntimeDefault } }
+            containers:
+              - name: w
+                image: $img
+                command: ["/usr/bin/spire-agent"]
+                args: ["api", "watch", "-socketPath", "/run/spire/agent-sockets/agent.sock"]
+                securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+                volumeMounts: [{ name: s, mountPath: /run/spire/agent-sockets, readOnly: true }]
+            volumes: [{ name: s, hostPath: { path: /run/spire/agent-sockets, type: Directory } }]
+          POD
+          for i in $(seq 1 60); do
+            grep -q "$TD/ns/default/sa/default" <<<"$(kubectl logs gate-workload 2>/dev/null)" && break
+            [ "$i" = 60 ] && { echo "workload never received its SVID"; kubectl logs gate-workload || true; \
+              kubectl logs daemonset/rtest-spire-agent --tail=60; exit 1; }
+            sleep 3
+          done
+          echo "  gate-workload received $TD/ns/default/sa/default"
+          # 4. the datastore is on the PVC: the entry survives a server pod delete
+          kubectl delete pod rtest-spire-server-0 --wait
+          kubectl rollout status statefulset/rtest-spire-server --timeout=300s
+          kubectl wait pod/rtest-spire-server-0 --for=condition=Ready --timeout=300s
+          grep -q "$TD/ns/default/sa/default" <<<"$(srv entry show -spiffeID "$TD/ns/default/sa/default")"
+          echo "install gate OK: bundle published, agents attested, a pod got its SVID, entries kept across a restart"
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/spire-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/spire@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/spire:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

@@ -1,0 +1,112 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "spire.server" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+data:
+  server.conf: |
+    server {
+      bind_address = "0.0.0.0"
+      bind_port = "8081"
+      socket_path = "/tmp/spire-server/private/api.sock"
+      trust_domain = {{ .Values.trustDomain | quote }}
+      data_dir = "/data/spire"
+      log_level = {{ .Values.logLevel | quote }}
+      ca_ttl = {{ .Values.server.caTTL | quote }}
+      default_x509_svid_ttl = {{ .Values.server.defaultX509SVIDTTL | quote }}
+    }
+    plugins {
+      DataStore "sql" {
+        plugin_data {
+          database_type = "sqlite3"
+          connection_string = "/data/spire/datastore.sqlite3"
+        }
+      }
+      NodeAttestor "k8s_psat" {
+        plugin_data {
+          clusters = {
+            {{ .Values.clusterName | quote }} = {
+              service_account_allow_list = ["{{ .Release.Namespace }}:{{ include "spire.agent" . }}"]
+            }
+          }
+        }
+      }
+      KeyManager "disk" {
+        plugin_data {
+          keys_path = "/data/spire/keys.json"
+        }
+      }
+      Notifier "k8sbundle" {
+        plugin_data {
+          namespace = {{ .Release.Namespace | quote }}
+          config_map = {{ include "spire.bundle" . | quote }}
+        }
+      }
+    }
+    health_checks {
+      listener_enabled = true
+      bind_address = "0.0.0.0"
+      bind_port = "8080"
+      live_path = "/live"
+      ready_path = "/ready"
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "spire.agent" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+data:
+  agent.conf: |
+    agent {
+      data_dir = "/tmp/spire-agent/data"
+      log_level = {{ .Values.logLevel | quote }}
+      server_address = "{{ include "spire.server" . }}.{{ .Release.Namespace }}.svc"
+      server_port = "{{ .Values.server.service.port }}"
+      socket_path = "/run/spire/agent-sockets/agent.sock"
+      trust_bundle_path = "/run/spire/bundle/bundle.crt"
+      trust_domain = {{ .Values.trustDomain | quote }}
+    }
+    plugins {
+      NodeAttestor "k8s_psat" {
+        plugin_data {
+          cluster = {{ .Values.clusterName | quote }}
+          token_path = "/var/run/secrets/tokens/spire-agent"
+        }
+      }
+      KeyManager "memory" {
+        plugin_data {}
+      }
+      WorkloadAttestor "k8s" {
+        plugin_data {
+          skip_kubelet_verification = true
+          {{- if not .Values.agent.hostNetwork }}
+          node_name_env = "MY_NODE_NAME"
+          {{- end }}
+        }
+      }
+      WorkloadAttestor "unix" {
+        plugin_data {}
+      }
+    }
+    health_checks {
+      listener_enabled = true
+      bind_address = "0.0.0.0"
+      bind_port = "8080"
+      live_path = "/live"
+      ready_path = "/ready"
+    }
+---
+# The server's k8sbundle notifier writes the trust bundle here; agents bootstrap from
+# it. Created empty so it exists before the server starts. Helm leaves the key the
+# server adds alone on upgrade because the chart never sets it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "spire.bundle" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}

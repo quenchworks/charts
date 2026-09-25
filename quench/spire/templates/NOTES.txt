@@ -1,0 +1,13 @@
+Quenchworks SPIRE {{ .Chart.AppVersion }} is installed: trust domain spiffe://{{ .Values.trustDomain }}.
+
+  server: {{ include "spire.server" . }}.{{ .Release.Namespace }}.svc:{{ .Values.server.service.port }}
+  agents: DaemonSet {{ include "spire.agent" . }}, Workload API at {{ .Values.agent.socketDir }}/agent.sock on each node
+
+Register workloads with the server CLI. One node alias for every agent in the cluster,
+then an entry per workload under it:
+
+  kubectl exec -n {{ .Release.Namespace }} {{ include "spire.server" . }}-0 -- spire-server entry create -node \
+    -spiffeID spiffe://{{ .Values.trustDomain }}/ns/{{ .Release.Namespace }}/agents -selector k8s_psat:cluster:{{ .Values.clusterName }}
+  kubectl exec -n {{ .Release.Namespace }} {{ include "spire.server" . }}-0 -- spire-server entry create \
+    -parentID spiffe://{{ .Values.trustDomain }}/ns/{{ .Release.Namespace }}/agents \
+    -spiffeID spiffe://{{ .Values.trustDomain }}/ns/default/sa/default -selector k8s:ns:default -selector k8s:sa:default

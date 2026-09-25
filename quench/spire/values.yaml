@@ -1,0 +1,55 @@
+# Quenchworks SPIRE on the QuenchWorks spire image (server and agent in one image,
+# 0-CVE, cosign-signed, pinned by digest).
+image:
+  repository: ghcr.io/quenchworks/images/spire
+  digest: "sha256:533638bd4c1f8070378874a401ba6281ac2a02f0cd7b1b232f6c6c976ccff60c"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# The SPIFFE trust domain every identity is issued under (spiffe://<trustDomain>/...).
+trustDomain: example.org
+# Cluster name used by k8s_psat node attestation; it becomes part of each agent's ID
+# (spiffe://<trustDomain>/spire/agent/k8s_psat/<clusterName>/<node-uid>).
+clusterName: kubernetes
+logLevel: INFO
+
+server:
+  # The CA's TTL and the default X.509 SVID TTL.
+  caTTL: 24h
+  defaultX509SVIDTTL: 1h
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+    accessModes: ["ReadWriteOnce"]
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 1000m, memory: 512Mi }
+  service:
+    type: ClusterIP
+    port: 8081
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+agent:
+  # Host directory for the Workload API socket (agent.sock). Workloads mount it to
+  # fetch their SVIDs; the SPIFFE CSI driver can replace the hostPath for them.
+  socketDir: /run/spire/agent-sockets
+  # The k8s workload attestor asks the kubelet at <node name>:10250. Set true where
+  # node names do not resolve from pods; the agent then reaches it on localhost.
+  hostNetwork: false
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+  nodeSelector: {}
+  # Runs on every node, including control-plane nodes.
+  tolerations:
+    - operator: Exists
+  affinity: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}
