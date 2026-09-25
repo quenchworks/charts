@@ -69,20 +69,20 @@ jobs:
           kubectl -n gate get deploy gate-collector -o jsonpath='{.spec.template.spec.containers[0].image}' | grep -q '^ghcr.io/quenchworks/images/otel-collector@'
           # the conversion webhook serves the old version of the same object
           kubectl -n gate get opentelemetrycollectors.v1alpha1.opentelemetry.io gate -o jsonpath='{.apiVersion}' | grep -q v1alpha1
-          # the validating webhook rejects a collector with a broken pipeline
+          # a sidecar collector cannot carry tolerations: the webhook and the CRD CEL rule refuse it
           ! kubectl -n gate apply -f - <<'YAML' 2>/tmp/bad.txt
           apiVersion: opentelemetry.io/v1beta1
           kind: OpenTelemetryCollector
           metadata: { name: bad, namespace: gate }
           spec:
             mode: sidecar
-            replicas: 3
+            tolerations: [{ key: gate, operator: Exists }]
             config:
               receivers: { otlp: { protocols: { http: {} } } }
               exporters: { debug: {} }
               service: { pipelines: { traces: { receivers: [otlp], exporters: [debug] } } }
           YAML
-          cat /tmp/bad.txt; grep -qi 'denied\|invalid\|not supported' /tmp/bad.txt
+          cat /tmp/bad.txt; grep -qi 'does not support' /tmp/bad.txt
           # a span through the collector the operator runs
           kubectl -n gate port-forward svc/gate-collector 4318:4318 >/dev/null 2>&1 &
           for i in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:4318/ && break; sleep 1; done
