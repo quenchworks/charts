@@ -80,9 +80,12 @@ jobs:
           done
           # pods get addresses from those CIDRs and reach each other through Cilium
           kubectl -n kube-system rollout status deployment/coredns --timeout=180s
-          kubectl run gate-dns --rm -i --restart=Never --image=ghcr.io/quenchworks/images/busybox:1.37.0 --command -- \
-            busybox nslookup kubernetes.default.svc.cluster.local | tee /tmp/dns.txt
-          grep -q 'Address' /tmp/dns.txt
+          # run, wait, then read: an attached `run -i` loses a pod that exits this fast
+          kubectl run gate-dns --restart=Never --image=ghcr.io/quenchworks/images/busybox:1.37.0 --command -- \
+            busybox nslookup kubernetes.default.svc.cluster.local
+          kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/gate-dns --timeout=120s
+          kubectl logs gate-dns | tee /tmp/dns.txt
+          grep -q '^Address' /tmp/dns.txt
           # one leader of two replicas
           kubectl -n kube-system get lease cilium-operator-resource-lock -o jsonpath='{.spec.holderIdentity}' | grep .
           ! kubectl -n kube-system logs deployment/rtest-cilium-operator | grep -E 'level=(fatal|panic)'
