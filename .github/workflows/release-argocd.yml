@@ -156,9 +156,11 @@ jobs:
                        -o jsonpath='{.items[0].metadata.name}')"
           kubectl -n argocd port-forward "pod/${ctrl_pod}" 8082:8082 >/tmp/pf-ctrl.log 2>&1 &
           pfc=$!; trap 'kill $pf $pfc 2>/dev/null || true' EXIT; sleep 5
+          # Here-string, not a pipe: grep -q exits on the first match, curl takes
+          # SIGPIPE on a large /metrics body, and pipefail fails the found line.
           curl -fsS http://127.0.0.1:8082/healthz >/dev/null
           for i in $(seq 1 60); do
-            curl -fsS http://127.0.0.1:8082/metrics | grep -q 'argocd_app_info{.*name="gate-app"' && break
+            grep -q 'argocd_app_info{.*name="gate-app"' <<<"$(curl -fsS http://127.0.0.1:8082/metrics)" && break
             [ "$i" = 60 ] && { echo "application controller never reported argocd_app_info for gate-app"; \
               kubectl -n argocd logs "$ctrl_pod" --tail=200; exit 1; }
             sleep 2
