@@ -1,0 +1,55 @@
+{{- if .Values.worker.enabled }}
+{{- $w := .Values.worker -}}
+{{- $server := printf "%s-server" (include "quench-common.fullname" .) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}-worker
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "prefect.selectorLabels" (dict "ctx" . "component" "worker") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "prefect.selectorLabels" (dict "ctx" . "component" "worker") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "prefect.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        {{- include "prefect.waitFor" (dict "ctx" . "name" "server" "host" $server "port" (toString .Values.service.port)) | nindent 8 }}
+      containers:
+        - name: worker
+          {{- if $w.image.repository }}
+          image: "{{ $w.image.repository }}@{{ $w.image.digest }}"
+          {{- else }}
+          image: {{ include "quench-common.image" . }}
+          {{- end }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/opt/prefect/venv/bin/prefect"]
+          # the worker creates the pool on first start if it does not exist
+          args: ["worker", "start", "--pool", {{ $w.pool | quote }}, "--type", "process"]
+          env:
+            - name: PREFECT_API_URL
+              value: "http://{{ $server }}:{{ .Values.service.port }}/api"
+            {{- with .Values.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml $w.resources | nindent 12 }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            {{- include "prefect.mounts" . | nindent 12 }}
+      volumes:
+        {{- include "prefect.volumes" . | nindent 8 }}
+{{- end }}

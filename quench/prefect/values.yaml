@@ -1,0 +1,75 @@
+# Quenchworks Prefect: the Prefect server (API + UI on 4200, plus the background
+# services that schedule and track runs) with PostgreSQL storage, on the QuenchWorks
+# prefect image (nonroot, 0-CVE, cosign-signed, pinned by digest). An optional process
+# worker polls a work pool and runs flows.
+image:
+  repository: ghcr.io/quenchworks/images/prefect
+  digest: "sha256:9f956c68b387a8c85219dc9839614af41c264091b2ef75117d3a4ff6950365c5"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+server:
+  # One replica: every server process also runs the background services (scheduler,
+  # late-run marker, ...). Scale out only after moving those to separate processes.
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { cpu: 1000m, memory: 1Gi }
+  nodeSelector: {}
+  tolerations: []
+
+ui:
+  enabled: true
+  # The API URL the browser uses. The default fits `kubectl port-forward`; set your
+  # ingress URL (https://prefect.example.com/api) when exposing the UI.
+  apiUrl: http://127.0.0.1:4200/api
+
+# A process worker that polls one work pool and runs flow code inside its own pod.
+# Your flows must be importable from the worker image: build it FROM the prefect image.
+worker:
+  enabled: false
+  pool: default
+  image: {}          # repository/digest override; empty uses the server image
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 1000m, memory: 1Gi }
+
+extraEnvVars: []
+
+service:
+  type: ClusterIP
+  port: 4200
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# --- STORAGE, mode 1: bundled PostgreSQL (the QuenchWorks postgresql chart).
+postgresql:
+  enabled: true
+  auth:
+    username: prefect
+    password: ""              # generated if empty; stored in <release>-postgresql
+    # the postgresql chart creates this database only when its name differs from both
+    # "postgres" and auth.username, so it is not simply "prefect"
+    database: prefectdb
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- STORAGE, mode 2: external PostgreSQL (postgresql.enabled=false).
+externalDatabase:
+  host: ""
+  port: 5432
+  database: prefect
+  username: prefect
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+podSecurityContext: {}
+containerSecurityContext: {}
