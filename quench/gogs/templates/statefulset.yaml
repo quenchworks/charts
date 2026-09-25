@@ -56,8 +56,9 @@ spec:
             {{- with .Values.extraEnvVars }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          # Only `gogs web` creates the tables, so the admin is created once it answers.
-          # An existing admin is fine; any other error fails the container, loudly.
+          # Only `gogs web` creates the tables, so the admin is created once they exist:
+          # retry until create-user succeeds or reports the admin already there. Any
+          # other error that outlasts the retries fails the container, loudly.
           lifecycle:
             postStart:
               exec:
@@ -66,13 +67,13 @@ spec:
                   - -c
                   - |
                     i=0
-                    until wget -q -O /dev/null http://127.0.0.1:3000/healthcheck; do
-                      i=$((i+1)); [ "$i" -gt 90 ] && exit 1; sleep 2
+                    while :; do
+                      out="$(gogs admin create-user --name "$GOGS_ADMIN_USER" --password "$GOGS_ADMIN_PASSWORD" \
+                        --email "$GOGS_ADMIN_EMAIL" --admin --config /etc/gogs/app.ini 2>&1)" && exit 0
+                      echo "$out" | grep -q 'user already exists' && exit 0
+                      i=$((i+1)); [ "$i" -gt 60 ] && { echo "$out" >&2; exit 1; }
+                      sleep 2
                     done
-                    out="$(gogs admin create-user --name "$GOGS_ADMIN_USER" --password "$GOGS_ADMIN_PASSWORD" \
-                      --email "$GOGS_ADMIN_EMAIL" --admin --config /etc/gogs/app.ini 2>&1)" && exit 0
-                    echo "$out" | grep -q 'user already exists' && exit 0
-                    echo "$out" >&2; exit 1
           ports:
             - name: http
               containerPort: 3000
