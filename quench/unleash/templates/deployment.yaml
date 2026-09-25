@@ -1,0 +1,91 @@
+{{- if and (not .Values.postgresql.enabled) (not .Values.externalDatabase.existingSecret) }}
+{{- fail "externalDatabase.existingSecret (the database password) is required when postgresql.enabled=false" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: unleash
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - { name: UNLEASH_URL, value: {{ .Values.url | quote }} }
+            - { name: DATABASE_HOST, value: {{ include "unleash.dbHost" . | quote }} }
+            {{- if .Values.postgresql.enabled }}
+            - { name: DATABASE_PORT, value: "5432" }
+            - { name: DATABASE_NAME, value: {{ .Values.postgresql.auth.database | quote }} }
+            - { name: DATABASE_USERNAME, value: "postgres" }
+            - name: DATABASE_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ printf "%s-postgresql" .Release.Name }}, key: postgres-password } }
+            - { name: DATABASE_SSL, value: "false" }
+            {{- else }}
+            - { name: DATABASE_PORT, value: {{ .Values.externalDatabase.port | quote }} }
+            - { name: DATABASE_NAME, value: {{ .Values.externalDatabase.database | quote }} }
+            - { name: DATABASE_USERNAME, value: {{ .Values.externalDatabase.user | quote }} }
+            - name: DATABASE_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.externalDatabase.existingSecret }}, key: {{ .Values.externalDatabase.passwordKey }} } }
+            - { name: DATABASE_SSL, value: {{ .Values.externalDatabase.ssl | quote }} }
+            {{- end }}
+            - { name: UNLEASH_DEFAULT_ADMIN_USERNAME, value: {{ .Values.admin.username | quote }} }
+            - name: UNLEASH_DEFAULT_ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "unleash.adminSecretName" . }}, key: admin-password } }
+            - { name: CHECK_VERSION, value: {{ .Values.telemetry.enabled | quote }} }
+            - { name: SEND_TELEMETRY, value: {{ .Values.telemetry.enabled | quote }} }
+            {{- with .Values.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 4242
+          # the first start migrates the schema, so readiness waits on /health
+          startupProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}

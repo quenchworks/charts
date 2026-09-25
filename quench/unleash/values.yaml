@@ -1,0 +1,69 @@
+# Quenchworks Unleash on the QuenchWorks unleash image (nonroot, 0-CVE, cosign-signed,
+# pinned by digest). Unleash keeps everything in PostgreSQL, so the pods are stateless.
+image:
+  repository: ghcr.io/quenchworks/images/unleash
+  digest: "sha256:85b22c79b8cf7a5de2a5c70c06878b50798112067c26a225cf0fbb7f588659e1"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+replicas: 1
+
+# The public URL, used in links, e-mails and the OIDC/SAML callbacks.
+url: http://unleash.local
+
+# The first administrator, created when Unleash first migrates an empty database. With
+# no password the chart generates one into its Secret (key admin-password).
+admin:
+  username: admin
+  password: ""
+  # a Secret with key admin-password instead
+  existingSecret: ""
+
+# Upstream's version check and anonymous usage telemetry. Off: the pods call no one.
+telemetry:
+  enabled: false
+
+# The bundled QuenchWorks PostgreSQL chart. Its generated superuser password is in the
+# Secret <release>-postgresql (key postgres-password).
+postgresql:
+  enabled: true
+  auth:
+    database: unleash
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# An external PostgreSQL, used when postgresql.enabled=false.
+externalDatabase:
+  host: ""
+  port: 5432
+  database: unleash
+  user: unleash
+  existingSecret: ""
+  passwordKey: password
+  ssl: false
+
+extraEnvVars: []
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: 1000m, memory: 768Mi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+  port: 4242
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}
