@@ -1,0 +1,49 @@
+# Quenchworks Argo Rollouts on the QuenchWorks argo-rollouts image (nonroot, 0-CVE,
+# cosign-signed, pinned by digest). The chart installs the CRDs (crds/, applied once by
+# Helm; upgrade them with kubectl apply when the app version moves).
+image:
+  repository: ghcr.io/quenchworks/images/argo-rollouts
+  digest: "sha256:6c1bd0f0feb69940b7a25fdd15cd6269cde97cbc85c548c15178598ab83c39f0"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# Two replicas elect a leader; only the leader reconciles.
+replicas: 2
+
+# Watch one namespace instead of the cluster (the chart then still needs the CRDs,
+# which are cluster-scoped).
+namespaced: false
+
+metrics:
+  enabled: true
+  port: 8090
+
+extraArgs: []
+extraEnvVars: []
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 1000m, memory: 512Mi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # a controller: it needs its token
+  automountServiceAccountToken: true
+
+podSecurityContext: {}
+containerSecurityContext: {}

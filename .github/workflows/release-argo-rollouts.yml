@@ -1,0 +1,137 @@
+name: release-argo-rollouts
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/argo-rollouts/**"
+      - ".github/workflows/release-argo-rollouts.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/argo-rollouts
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 5m
+          kubectl wait --for=condition=Established crd/rollouts.argoproj.io crd/analysisruns.argoproj.io --timeout=60s
+          # a canary: 50%, a timed pause, then full
+          cat > /tmp/rollout.yaml <<'YAML'
+          apiVersion: argoproj.io/v1alpha1
+          kind: Rollout
+          metadata: { name: gate }
+          spec:
+            replicas: 2
+            revisionHistoryLimit: 2
+            selector: { matchLabels: { app: gate } }
+            template:
+              metadata: { labels: { app: gate } }
+              spec:
+                securityContext: { runAsNonRoot: true, runAsUser: 1001 }
+                containers:
+                  - name: web
+                    image: ghcr.io/quenchworks/images/nginx:1.28.3
+                    ports: [{ containerPort: 8080 }]
+            strategy:
+              canary:
+                steps:
+                  - setWeight: 50
+                  - pause: { duration: 10s }
+          YAML
+          kubectl apply -f /tmp/rollout.yaml
+          phase() { kubectl get rollout gate -o jsonpath='{.status.phase}'; }
+          waitfor() { for i in $(seq 1 90); do [ "$(phase)" = "$1" ] && return; sleep 2; done; kubectl get rollout gate -o yaml | tail -40; return 1; }
+          waitfor Healthy
+          first="$(kubectl get rollout gate -o jsonpath='{.status.stableRS}')"
+          # a new revision walks the steps
+          kubectl patch rollout gate --type json -p '[{"op":"replace","path":"/spec/template/spec/containers/0/image","value":"ghcr.io/quenchworks/images/nginx:1.26.3"}]'
+          for i in $(seq 1 60); do [ "$(kubectl get rollout gate -o jsonpath='{.status.currentStepIndex}')" = 1 ] && break; sleep 1; done
+          test "$(kubectl get rollout gate -o jsonpath='{.status.currentStepIndex}')" = 1
+          waitfor Healthy
+          second="$(kubectl get rollout gate -o jsonpath='{.status.stableRS}')"
+          test -n "$first" && test -n "$second" && test "$first" != "$second"
+          test "$(kubectl get rs -l rollouts-pod-template-hash="$second" -o jsonpath='{.items[0].status.readyReplicas}')" = 2
+          # one leader of two replicas
+          kubectl get lease -A | grep -i argo-rollouts
+          ! kubectl logs deployment/rtest-argo-rollouts | grep -E 'level=fatal|panic:'
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/argo-rollouts-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/argo-rollouts@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/argo-rollouts:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
