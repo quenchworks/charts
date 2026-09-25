@@ -1,0 +1,31 @@
+{{- if .Values.rbac.create }}
+# Read-only: what the backend needs for the service map (the same resources upstream grants).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [componentstatuses, namespaces, nodes, pods, services]
+    verbs: [get, list, watch]
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

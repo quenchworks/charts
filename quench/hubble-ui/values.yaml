@@ -1,0 +1,54 @@
+# Quenchworks Hubble UI on the QuenchWorks hubble-ui and hubble-ui-backend images
+# (nonroot, 0-CVE, cosign-signed, pinned by digest). The frontend (nginx, :8081) proxies
+# /api/ to the backend in the same pod, which reads Hubble Relay.
+image:
+  repository: ghcr.io/quenchworks/images/hubble-ui
+  digest: "sha256:7848c34ad688b75bd6d86a9535c9a2ca2e41f289921bcebef8921ac20f853e27"
+  pullPolicy: IfNotPresent
+backend:
+  image:
+    repository: ghcr.io/quenchworks/images/hubble-ui-backend
+    digest: "sha256:873c92b4782357e5f35b5af160c87c1bbf5a17737b2f7b4a176678ce51d97e60"
+    pullPolicy: IfNotPresent
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 1000m, memory: 512Mi }
+  extraEnvVars: []
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+replicas: 1
+
+# Hubble Relay's gRPC address (the hubble-relay chart's Service, port 80 in plaintext).
+relay:
+  address: hubble-relay.kube-system.svc.cluster.local:80
+  # TLS to the relay (its server TLS on): a Secret with ca.crt, tls.crt and tls.key
+  tls:
+    enabled: false
+    existingSecret: ""
+
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 128Mi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+  port: 80
+
+# The backend lists namespaces, pods, services and nodes for the service map.
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: true
+
+podSecurityContext: {}
+containerSecurityContext: {}
