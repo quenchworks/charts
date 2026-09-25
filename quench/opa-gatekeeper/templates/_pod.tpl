@@ -67,6 +67,10 @@ spec:
       volumeMounts:
         - { name: cert, mountPath: /certs, readOnly: true }
         - { name: tmp, mountPath: /tmp }
+        {{- if eq $c "audit" }}
+        # audit clears its API cache dir between runs but never creates it
+        - { name: audit-cache, mountPath: /tmp/audit }
+        {{- end }}
   {{- with .Values.nodeSelector }}
   nodeSelector:
     {{- toYaml . | nindent 4 }}
@@ -84,5 +88,9 @@ spec:
       secret: { secretName: gatekeeper-webhook-server-cert, defaultMode: 0440 }
     - name: tmp
       emptyDir: {}
+    {{- if eq $c "audit" }}
+    - name: audit-cache
+      emptyDir: {}
+    {{- end }}
 {{- end -}}
 {{- end -}}
