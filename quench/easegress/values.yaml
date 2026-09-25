@@ -1,0 +1,62 @@
+# Quenchworks Easegress on the QuenchWorks easegress image (nonroot, 0-CVE,
+# cosign-signed, pinned by digest). One member with its embedded etcd; objects
+# (HTTPServers, Pipelines, ...) live in etcd on the PVC.
+image:
+  repository: ghcr.io/quenchworks/images/easegress
+  digest: "sha256:a1dd5b759477a16b6bd93186b542e5575f3621ccc317d3af0e54244a6977b286"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# Objects created on startup if they do not exist yet, one entry per object. Later
+# edits here do not change an existing object; use `egctl apply -f` for that.
+# Example:
+#   initialObjects:
+#     - name: demo-server
+#       kind: HTTPServer
+#       port: 10080
+#       rules:
+#         - paths:
+#             - pathPrefix: /
+#               backend: demo-pipeline
+initialObjects: []
+
+# Container and Service ports for your HTTPServer objects. Easegress opens a port
+# only once an HTTPServer asks for it.
+trafficPorts: []
+#  - name: http
+#    port: 10080
+
+# Extra easegress-server flags, e.g. ["--debug"].
+extraArgs: []
+
+extraEnvVars: []
+
+persistence:
+  enabled: true
+  size: 8Gi
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: 2000m, memory: 1Gi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+  # The admin API has no authentication and full control of the gateway: keep it
+  # cluster-internal.
+  adminPort: 2381
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}

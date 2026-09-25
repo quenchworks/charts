@@ -1,0 +1,26 @@
+# Install gate on kind: persistence on, and an HTTPServer on 10080 whose Pipeline
+# proxies to the admin API, so the gate can send real traffic through the gateway.
+persistence:
+  enabled: true
+  size: 1Gi
+trafficPorts:
+  - name: http
+    port: 10080
+initialObjects:
+  - name: gate-pipeline
+    kind: Pipeline
+    flow:
+      - filter: proxy
+    filters:
+      - name: proxy
+        kind: Proxy
+        pools:
+          - servers:
+              - url: http://127.0.0.1:2381
+  - name: gate-server
+    kind: HTTPServer
+    port: 10080
+    rules:
+      - paths:
+          - pathPrefix: /apis
+            backend: gate-pipeline
