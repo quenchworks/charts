@@ -1,0 +1,74 @@
+# Quenchworks Gogs on the QuenchWorks gogs image (nonroot, 0-CVE, cosign-signed, pinned by
+# digest). The chart locks the install page, renders app.ini into a ConfigMap and passes
+# the secrets as environment variables (Gogs expands ${VAR} in every value).
+image:
+  repository: ghcr.io/quenchworks/images/gogs
+  digest: "sha256:e2360322d49cf358b52cc9006e6daae19631975bae1d9402974b1a02e5ae0217"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# The address people reach Gogs at: clone URLs, links in mail and webhooks use it.
+externalURL: http://gogs.local/
+# Shown in SSH clone URLs (git@<sshDomain>:owner/repo.git).
+sshDomain: gogs.local
+appName: Gogs
+
+# The first administrator, created once the database is ready. With no password the
+# chart generates one into its Secret (key admin-password).
+admin:
+  username: gogs-admin
+  email: admin@gogs.local
+  password: ""
+  # a Secret with key admin-password instead
+  existingSecret: ""
+
+# Open self-registration. Off: the admin creates accounts.
+registration:
+  enabled: false
+
+database:
+  # sqlite3 (on the data volume), postgres or mysql
+  type: sqlite3
+  host: ""                 # host:port for postgres or mysql
+  name: gogs
+  user: gogs
+  # a Secret holding the database password
+  existingSecret: ""
+  passwordKey: password
+  sslMode: disable         # postgres only
+
+ssh:
+  enabled: true
+  # the Service port, and the port shown in clone URLs
+  port: 22
+
+# More app.ini, appended as-is (sections and keys; ${VAR} is expanded from the env).
+extraConfig: ""
+extraEnvVars: []
+
+persistence:
+  size: 10Gi
+  storageClass: ""
+  accessModes: [ReadWriteOnce]
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: 1000m, memory: 512Mi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+  port: 3000
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}

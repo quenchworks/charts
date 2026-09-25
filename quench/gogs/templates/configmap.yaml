@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  app.ini: |
+    APP_NAME = {{ .Values.appName }}
+    RUN_USER = git
+    RUN_MODE = prod
+
+    [server]
+    EXTERNAL_URL = {{ .Values.externalURL }}
+    DOMAIN = {{ .Values.sshDomain }}
+    HTTP_PORT = 3000
+    {{- if .Values.ssh.enabled }}
+    START_SSH_SERVER = true
+    SSH_DOMAIN = {{ .Values.sshDomain }}
+    SSH_PORT = {{ .Values.ssh.port }}
+    SSH_LISTEN_PORT = 2222
+    {{- else }}
+    DISABLE_SSH = true
+    {{- end }}
+    APP_DATA_PATH = /data/app
+
+    [database]
+    TYPE = {{ .Values.database.type }}
+    {{- if eq .Values.database.type "sqlite3" }}
+    PATH = /data/gogs.db
+    {{- else }}
+    HOST = {{ .Values.database.host }}
+    NAME = {{ .Values.database.name }}
+    USER = {{ .Values.database.user }}
+    PASSWORD = ${GOGS_DB_PASSWORD}
+    SSL_MODE = {{ .Values.database.sslMode }}
+    {{- end }}
+
+    [repository]
+    ROOT = /data/repositories
+
+    [security]
+    INSTALL_LOCK = true
+    SECRET_KEY = ${GOGS_SECRET_KEY}
+
+    [auth]
+    DISABLE_REGISTRATION = {{ not .Values.registration.enabled }}
+
+    [log]
+    MODE = console
+    LEVEL = Info
+    {{- with .Values.extraConfig }}
+
+    {{ . | nindent 4 | trim }}
+    {{- end }}

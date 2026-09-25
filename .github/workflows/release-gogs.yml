@@ -1,0 +1,128 @@
+name: release-gogs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/gogs/**"
+      - ".github/workflows/release-gogs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/gogs
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-gogs --timeout=300s
+          test "$(kubectl get pvc data-rtest-gogs-0 -o jsonpath='{.status.phase}')" = Bound
+          pf() { kubectl port-forward svc/rtest-gogs 3000:3000 2222:22 >/dev/null 2>&1 & PF=$!
+                 for i in $(seq 1 30); do curl -fsS http://127.0.0.1:3000/healthcheck >/dev/null 2>&1 && return; sleep 1; done; return 1; }
+          URL=http://127.0.0.1:3000
+          PW=Quench-gate-pw-1
+          pf
+          curl -fsS "$URL/healthcheck" | grep -q 'Database connection: OK'
+          # the admin from values exists (created by the postStart hook) and gets a token
+          tok="$(curl -fsS -u "gogs-admin:$PW" -H 'Content-Type: application/json' -d '{"name":"gate"}' \
+            "$URL/api/v1/users/gogs-admin/tokens" | sed -n 's/.*"sha1":"\([0-9a-f]*\)".*/\1/p')"
+          test -n "$tok"
+          curl -fsS -o /dev/null -H "Authorization: token $tok" -H 'Content-Type: application/json' \
+            -d '{"name":"gate","auto_init":true,"readme":"Default"}' "$URL/api/v1/user/repos"
+          # clone and push over HTTP: the push runs the server-side hooks
+          git clone -q "http://gogs-admin:$PW@127.0.0.1:3000/gogs-admin/gate.git" /tmp/gate
+          ( cd /tmp/gate && echo quench > pushed.txt && git add pushed.txt \
+            && git -c user.email=gate@example.com -c user.name=gate commit -qm gate && git push -q origin master )
+          curl -fsS -H "Authorization: token $tok" "$URL/api/v1/repos/gogs-admin/gate/raw/master/pushed.txt" | grep -qx quench
+          # the built-in SSH server answers with its host keys
+          ssh-keyscan -p 2222 127.0.0.1 2>/dev/null | grep -q 'ssh-'
+          # self-registration is off
+          curl -fsS "$URL/user/sign_up" | grep -q 'registration has been disabled'
+          kill $PF
+          # repositories and SQLite are on the PVC: recreate the pod and read the file back
+          kubectl delete pod rtest-gogs-0 --wait
+          kubectl rollout status statefulset/rtest-gogs --timeout=300s
+          pf
+          curl -fsS -H "Authorization: token $tok" "$URL/api/v1/repos/gogs-admin/gate/raw/master/pushed.txt" | grep -qx quench
+          kill $PF
+          ! kubectl logs rtest-gogs-0 | grep -E '\[ERROR\]|\[FATAL\]|panic:'
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/gogs-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/gogs@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/gogs:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
