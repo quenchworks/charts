@@ -1,0 +1,125 @@
+name: release-kubo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/kubo/**"
+      - ".github/workflows/release-kubo.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/kubo
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-kubo --timeout=300s
+          test "$(kubectl get pvc data-rtest-kubo-0 -o jsonpath='{.status.phase}')" = Bound
+          kubectl port-forward svc/rtest-kubo 15001:5001 18080:8080 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf 2>/dev/null || true' EXIT; sleep 5
+          api() { curl -fsS -X POST "http://127.0.0.1:15001/api/v0/$1"; }
+          field() { sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"; }
+          # 1. the image reports the chart's appVersion
+          ver="$(api version | field Version)"
+          echo "kubo version: $ver"
+          test "$ver" = "$(helm show chart "${CHART_DIR}" | awk '/^appVersion:/ {gsub(/"/,"",$2); print $2}')"
+          # 2. a block added through the RPC API is served by the gateway Service
+          payload="quenchworks-gate-$RANDOM"
+          cid="$(curl -fsS -X POST -F "file=@-;filename=gate.txt" \
+            "http://127.0.0.1:15001/api/v0/add?cid-version=1&quieter=true" <<<"$payload" | field Hash)"
+          test -n "$cid"
+          test "$(curl -fsS "http://127.0.0.1:18080/ipfs/$cid")" = "$payload"
+          # 3. the "server" init profile took effect (no dialing private ranges)
+          grep -q '/ip4/10.0.0.0/ipcidr/8' <<<"$(api 'config?arg=Swarm.AddrFilters')"
+          peer="$(api id | field ID)"
+          # 4. the repo is on the PVC: delete the pod, the block and the identity survive
+          kill $pf; kubectl delete pod rtest-kubo-0 --wait
+          kubectl rollout status statefulset/rtest-kubo --timeout=300s
+          kubectl wait pod/rtest-kubo-0 --for=condition=Ready --timeout=300s
+          kubectl port-forward svc/rtest-kubo 15001:5001 18080:8080 >/tmp/pf.log 2>&1 &
+          pf=$!; sleep 5
+          test "$(api id | field ID)" = "$peer"
+          test "$(curl -fsS -X POST "http://127.0.0.1:15001/api/v0/cat?arg=$cid&offline=true")" = "$payload"
+          echo "install gate OK: $cid served, peer $peer kept across a pod restart"
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/kubo-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/kubo@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/kubo:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

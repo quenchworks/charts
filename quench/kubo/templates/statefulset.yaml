@@ -1,0 +1,123 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "quench-common.fullname" . }}-headless
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "kubo.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: kubo
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: IPFS_PROFILE
+              value: {{ .Values.profile | quote }}
+            {{- if .Values.swarmKey.existingSecret }}
+            - name: IPFS_SWARM_KEY_FILE
+              value: /etc/kubo/swarm.key
+            {{- end }}
+            {{- with .Values.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          # the image entrypoint creates the repo on first boot, then runs `ipfs <args>`
+          args:
+            - daemon
+            - --migrate=true
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          ports:
+            - name: swarm
+              containerPort: 4001
+              protocol: TCP
+            - name: swarm-udp
+              containerPort: 4001
+              protocol: UDP
+            - name: api
+              containerPort: 5001
+            - name: gateway
+              containerPort: 8080
+          # bafkqaaa is the identity CID of empty content: the gateway answers it from
+          # the CID itself, so the probe needs no network and no stored blocks
+          readinessProbe:
+            httpGet:
+              path: /ipfs/bafkqaaa
+              port: gateway
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: api
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data/ipfs
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.swarmKey.existingSecret }}
+            - name: swarm-key
+              mountPath: /etc/kubo
+              readOnly: true
+            {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.swarmKey.existingSecret }}
+        - name: swarm-key
+          secret:
+            secretName: {{ .Values.swarmKey.existingSecret }}
+            items:
+              - key: swarm.key
+                path: swarm.key
+        {{- end }}
+        {{- if not .Values.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: {{ toYaml .Values.persistence.accessModes | nindent 10 }}
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}
+  {{- end }}

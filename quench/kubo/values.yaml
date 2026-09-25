@@ -1,0 +1,64 @@
+# Quenchworks Kubo (IPFS) on the QuenchWorks kubo image (nonroot, 0-CVE, cosign-signed,
+# pinned by digest). The image creates the repo on first boot and binds the RPC API
+# (5001) and the HTTP gateway (8080) to all interfaces; the repo and the node's
+# identity key live on the PVC.
+image:
+  repository: ghcr.io/quenchworks/images/kubo
+  digest: "sha256:7106bec13092dc21998ddd04b1e136a6a0a38336f637ee8c41e5d16f2c785e03"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# Init profiles, applied once when the repo is created (later changes need
+# `ipfs config profile apply` in the pod). "server" stops Kubo dialing private
+# address ranges, which is what you want on a cluster network.
+profile: server
+
+# Private IPFS network: an existing Secret with a `swarm.key` key. Installed into the
+# repo on first boot only, and the node then talks only to peers holding the same key.
+swarmKey:
+  existingSecret: ""
+
+# Extra daemon flags, e.g. ["--enable-gc"].
+extraArgs: []
+
+extraEnvVars: []
+
+persistence:
+  enabled: true
+  size: 20Gi
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: 2000m, memory: 2Gi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Gateway and RPC API. The RPC API has no authentication and full control of the node
+# (add, pin, config, shutdown): keep it cluster-internal.
+service:
+  type: ClusterIP
+  gatewayPort: 8080
+  apiPort: 5001
+
+# libp2p swarm (TCP and QUIC on 4001). Off by default: the node still dials out and
+# serves peers over those connections. Enable with a LoadBalancer or NodePort for
+# inbound peers, and announce the address with `ipfs config Addresses.Announce`.
+swarm:
+  service:
+    enabled: false
+    type: LoadBalancer
+    port: 4001
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}
