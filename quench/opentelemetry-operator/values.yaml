@@ -1,0 +1,57 @@
+# Quenchworks OpenTelemetry Operator on the QuenchWorks opentelemetry-operator image
+# (nonroot, 0-CVE, cosign-signed, pinned by digest). The chart issues the webhook
+# certificate itself; cert-manager is not needed.
+image:
+  repository: ghcr.io/quenchworks/images/opentelemetry-operator
+  digest: "sha256:3c9a6c23f189e36c8ed274459a71d8e47caa1805a38f4244f52138c8e6590ee4"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+replicas: 1
+
+# The image OpenTelemetryCollector resources run when they name none: the QuenchWorks
+# collector (contrib distribution). A collector's own spec.image still wins.
+collector:
+  image: ghcr.io/quenchworks/images/otel-collector@sha256:19e461bc40f0e4e16cd02792d94fc0ce60fa48a0400ce1422044f9f77acd0a17
+
+# Other default images, as operator flags. Empty keeps the operator's built-in default
+# (upstream's image at the version this operator release pins).
+#   images:
+#     target-allocator-image: ghcr.io/example/target-allocator:0.159.0
+#     auto-instrumentation-java-image: ghcr.io/example/autoinstrumentation-java:2.31.1
+images:
+  target-allocator-image: ""
+  operator-opamp-bridge-image: ""
+  auto-instrumentation-java-image: ""
+  auto-instrumentation-nodejs-image: ""
+  auto-instrumentation-python-image: ""
+  auto-instrumentation-dotnet-image: ""
+  auto-instrumentation-go-image: ""
+  auto-instrumentation-apache-httpd-image: ""
+  auto-instrumentation-nginx-image: ""
+
+# The pod-mutation webhook (sidecar and auto-instrumentation injection). Ignore keeps pods
+# starting if the operator is down, as upstream ships it.
+podMutationFailurePolicy: Ignore
+
+extraArgs: []
+extraEnvVars: []
+
+resources:
+  requests: { cpu: 100m, memory: 64Mi }
+  limits: { cpu: 1000m, memory: 512Mi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: true
+
+podSecurityContext: {}
+containerSecurityContext: {}

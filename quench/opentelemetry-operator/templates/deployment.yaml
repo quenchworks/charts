@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+      annotations:
+        # roll the pods when the chart issues a new certificate
+        checksum/cert: {{ include "otelop.caBundle" . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: manager
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --zap-log-level=info
+            - --zap-time-encoding=rfc3339nano
+            - --health-probe-addr=:8081
+            - --webhook-port=9443
+            - --collector-image={{ .Values.collector.image }}
+            {{- if gt (int .Values.replicas) 1 }}
+            - --enable-leader-election
+            {{- end }}
+            {{- range $k, $v := .Values.images }}
+            {{- if $v }}
+            - --{{ $k }}={{ $v }}
+            {{- end }}
+            {{- end }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: SERVICE_ACCOUNT_NAME
+              valueFrom: { fieldRef: { fieldPath: spec.serviceAccountName } }
+            - name: NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            {{- with .Values.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - { name: webhook, containerPort: 9443 }
+            - { name: metrics, containerPort: 8443 }
+            - { name: health, containerPort: 8081 }
+          readinessProbe:
+            httpGet: { path: /readyz, port: health }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: health }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - { name: cert, mountPath: /tmp/k8s-webhook-server/serving-certs, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: cert
+          secret: { secretName: {{ include "otelop.certSecret" . }}, defaultMode: 0440 }
+        - name: tmp
+          emptyDir: {}

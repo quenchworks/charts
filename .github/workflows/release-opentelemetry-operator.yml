@@ -1,0 +1,150 @@
+name: release-opentelemetry-operator
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/opentelemetry-operator/**"
+      - ".github/workflows/release-opentelemetry-operator.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/opentelemetry-operator
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -n otel-operator --create-namespace -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 5m
+          kubectl wait --for=condition=Established crd/opentelemetrycollectors.opentelemetry.io --timeout=60s
+          kubectl create namespace gate
+          # a collector with no image of its own: the operator runs the QuenchWorks collector
+          cat > /tmp/col.yaml <<'YAML'
+          apiVersion: opentelemetry.io/v1beta1
+          kind: OpenTelemetryCollector
+          metadata: { name: gate, namespace: gate }
+          spec:
+            mode: deployment
+            config:
+              receivers:
+                otlp:
+                  protocols:
+                    http: { endpoint: 0.0.0.0:4318 }
+              exporters:
+                debug: { verbosity: detailed }
+              service:
+                pipelines:
+                  traces: { receivers: [otlp], exporters: [debug] }
+          YAML
+          for i in $(seq 1 30); do kubectl apply -f /tmp/col.yaml && break; sleep 3; done
+          for i in $(seq 1 60); do kubectl -n gate get deploy gate-collector >/dev/null 2>&1 && break; sleep 2; done
+          kubectl -n gate rollout status deploy/gate-collector --timeout=180s
+          kubectl -n gate get deploy gate-collector -o jsonpath='{.spec.template.spec.containers[0].image}' | grep -q '^ghcr.io/quenchworks/images/otel-collector@'
+          # the conversion webhook serves the old version of the same object
+          kubectl -n gate get opentelemetrycollectors.v1alpha1.opentelemetry.io gate -o jsonpath='{.apiVersion}' | grep -q v1alpha1
+          # the validating webhook rejects a collector with a broken pipeline
+          ! kubectl -n gate apply -f - <<'YAML' 2>/tmp/bad.txt
+          apiVersion: opentelemetry.io/v1beta1
+          kind: OpenTelemetryCollector
+          metadata: { name: bad, namespace: gate }
+          spec:
+            mode: sidecar
+            replicas: 3
+            config:
+              receivers: { otlp: { protocols: { http: {} } } }
+              exporters: { debug: {} }
+              service: { pipelines: { traces: { receivers: [otlp], exporters: [debug] } } }
+          YAML
+          cat /tmp/bad.txt; grep -qi 'denied\|invalid\|not supported' /tmp/bad.txt
+          # a span through the collector the operator runs
+          kubectl -n gate port-forward svc/gate-collector 4318:4318 >/dev/null 2>&1 &
+          for i in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:4318/ && break; sleep 1; done
+          cat > /tmp/span.json <<'JSON'
+          {"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"quench-gate"}}]},
+           "scopeSpans":[{"spans":[{"traceId":"5b8efff798038103d269b633813fc60c","spanId":"eee19b7ec3c1b174",
+             "name":"gate-span","kind":1,"startTimeUnixNano":"1700000000000000000","endTimeUnixNano":"1700000001000000000"}]}]}]}
+          JSON
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data @/tmp/span.json http://127.0.0.1:4318/v1/traces)" = 200
+          for i in $(seq 1 30); do kubectl -n gate logs deploy/gate-collector | grep -q 'gate-span' && break; sleep 2; done
+          kubectl -n gate logs deploy/gate-collector | grep -q 'gate-span'
+          ! kubectl -n otel-operator logs deployment/rtest-opentelemetry-operator | grep -E 'panic:|"level":"(fatal|FATAL)"'
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -A -o wide || true
+          kubectl -n gate get opentelemetrycollectors -o yaml | tail -40 || true
+          kubectl -n otel-operator logs deployment/rtest-opentelemetry-operator --tail=200 || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/opentelemetry-operator-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/opentelemetry-operator@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/opentelemetry-operator:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

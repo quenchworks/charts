@@ -1,0 +1,283 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "quench-common.fullname" . }}-mutating
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+webhooks:
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: {{ include "otelop.caBundle" . }}
+      service:
+        name: {{ include "quench-common.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /mutate-opentelemetry-io-v1alpha1-instrumentation
+    failurePolicy: Fail
+    name: minstrumentation.kb.io
+    rules:
+    - apiGroups:
+      - opentelemetry.io
+      apiVersions:
+      - v1alpha1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - instrumentations
+    sideEffects: None
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: {{ include "otelop.caBundle" . }}
+      service:
+        name: {{ include "quench-common.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /mutate-opentelemetry-io-v1alpha1-opampbridge
+    failurePolicy: Fail
+    name: mopampbridge.kb.io
+    rules:
+    - apiGroups:
+      - opentelemetry.io
+      apiVersions:
+      - v1alpha1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - opampbridges
+    sideEffects: None
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: {{ include "otelop.caBundle" . }}
+      service:
+        name: {{ include "quench-common.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /mutate-opentelemetry-io-v1beta1-opentelemetrycollector
+    failurePolicy: Fail
+    name: mopentelemetrycollectorbeta.kb.io
+    rules:
+    - apiGroups:
+      - opentelemetry.io
+      apiVersions:
+      - v1beta1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - opentelemetrycollectors
+    sideEffects: None
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: {{ include "otelop.caBundle" . }}
+      service:
+        name: {{ include "quench-common.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /mutate-v1-pod
+    failurePolicy: {{ .Values.podMutationFailurePolicy }}
+    name: mpod.kb.io
+    rules:
+    - apiGroups:
+      - ''
+      apiVersions:
+      - v1
+      operations:
+      - CREATE
+      resources:
+      - pods
+    sideEffects: None
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: {{ include "otelop.caBundle" . }}
+      service:
+        name: {{ include "quench-common.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /mutate-opentelemetry-io-v1beta1-targetallocator
+    failurePolicy: Fail
+    name: mtargetallocatorbeta.kb.io
+    rules:
+    - apiGroups:
+      - opentelemetry.io
+      apiVersions:
+      - v1beta1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - targetallocators
+    sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "quench-common.fullname" . }}-validating
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+webhooks:
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: {{ include "otelop.caBundle" . }}
+      service:
+        name: {{ include "quench-common.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-opentelemetry-io-v1alpha1-instrumentation
+    failurePolicy: Fail
+    name: vinstrumentationcreateupdate.kb.io
+    rules:
+    - apiGroups:
+      - opentelemetry.io
+      apiVersions:
+      - v1alpha1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - instrumentations
+    sideEffects: None
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: {{ include "otelop.caBundle" . }}
+      service:
+        name: {{ include "quench-common.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-opentelemetry-io-v1alpha1-instrumentation
+    failurePolicy: Ignore
+    name: vinstrumentationdelete.kb.io
+    rules:
+    - apiGroups:
+      - opentelemetry.io
+      apiVersions:
+      - v1alpha1
+      operations:
+      - DELETE
+      resources:
+      - instrumentations
+    sideEffects: None
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: {{ include "otelop.caBundle" . }}
+      service:
+        name: {{ include "quench-common.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-opentelemetry-io-v1alpha1-opampbridge
+    failurePolicy: Fail
+    name: vopampbridgecreateupdate.kb.io
+    rules:
+    - apiGroups:
+      - opentelemetry.io
+      apiVersions:
+      - v1alpha1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - opampbridges
+    sideEffects: None
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: {{ include "otelop.caBundle" . }}
+      service:
+        name: {{ include "quench-common.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-opentelemetry-io-v1alpha1-opampbridge
+    failurePolicy: Ignore
+    name: vopampbridgedelete.kb.io
+    rules:
+    - apiGroups:
+      - opentelemetry.io
+      apiVersions:
+      - v1alpha1
+      operations:
+      - DELETE
+      resources:
+      - opampbridges
+    sideEffects: None
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: {{ include "otelop.caBundle" . }}
+      service:
+        name: {{ include "quench-common.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-opentelemetry-io-v1beta1-opentelemetrycollector
+    failurePolicy: Fail
+    name: vopentelemetrycollectorcreateupdatebeta.kb.io
+    rules:
+    - apiGroups:
+      - opentelemetry.io
+      apiVersions:
+      - v1beta1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - opentelemetrycollectors
+    sideEffects: None
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: {{ include "otelop.caBundle" . }}
+      service:
+        name: {{ include "quench-common.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-opentelemetry-io-v1beta1-opentelemetrycollector
+    failurePolicy: Ignore
+    name: vopentelemetrycollectordeletebeta.kb.io
+    rules:
+    - apiGroups:
+      - opentelemetry.io
+      apiVersions:
+      - v1beta1
+      operations:
+      - DELETE
+      resources:
+      - opentelemetrycollectors
+    sideEffects: None
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: {{ include "otelop.caBundle" . }}
+      service:
+        name: {{ include "quench-common.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-opentelemetry-io-v1beta1-targetallocator
+    failurePolicy: Fail
+    name: vtargetallocatorcreateupdatebeta.kb.io
+    rules:
+    - apiGroups:
+      - opentelemetry.io
+      apiVersions:
+      - v1beta1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - targetallocators
+    sideEffects: None
+  - admissionReviewVersions:
+    - v1
+    clientConfig:
+      caBundle: {{ include "otelop.caBundle" . }}
+      service:
+        name: {{ include "quench-common.fullname" . }}-webhook
+        namespace: {{ .Release.Namespace }}
+        path: /validate-opentelemetry-io-v1beta1-targetallocator
+    failurePolicy: Ignore
+    name: vtargetallocatordeletebeta.kb.io
+    rules:
+    - apiGroups:
+      - opentelemetry.io
+      apiVersions:
+      - v1beta1
+      operations:
+      - DELETE
+      resources:
+      - targetallocators
+    sideEffects: None
