@@ -1,0 +1,60 @@
+# Quenchworks Zipkin: the distributed tracing server on the QuenchWorks zipkin image
+# (nonroot, 0-CVE, cosign-signed, pinned by digest). Spans arrive over HTTP
+# (/api/v2/spans) or gRPC on 9411; the Lens UI is at /zipkin/.
+image:
+  repository: ghcr.io/quenchworks/images/zipkin
+  digest: "sha256:897eec062fdd72cae314f27b57f9d1b4e8d8ddc5195c682064fabe42754a48f8"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# In-memory storage keeps spans in one pod; run one replica with it. With a real
+# backend Zipkin is stateless and scales out.
+replicas: 1
+
+storage:
+  # mem | elasticsearch | cassandra3 | mysql
+  type: mem
+  elasticsearch:
+    hosts: ""                 # e.g. http://opensearch:9200
+  cassandra:
+    contactPoints: ""         # e.g. cassandra:9042
+    keyspace: zipkin2
+  mysql:
+    host: ""
+    port: 3306
+    database: zipkin
+    user: zipkin
+  # Secret holding the backend password (ES_PASSWORD, CASSANDRA_PASSWORD or MYSQL_PASS)
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+# Heap and other JVM flags
+javaOpts: "-XX:MaxRAMPercentage=75"
+
+# Any other Zipkin setting as environment variables, e.g. COLLECTOR_SAMPLE_RATE: "0.1",
+# KAFKA_BOOTSTRAP_SERVERS: kafka:9092, RABBIT_ADDRESSES: rabbitmq:5672.
+env: {}
+
+extraEnvVars: []
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { cpu: 1000m, memory: 1Gi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+  port: 9411
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}
