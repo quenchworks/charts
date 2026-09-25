@@ -1,0 +1,56 @@
+# Quenchworks WireMock on the QuenchWorks wiremock image (nonroot, 0-CVE, cosign-signed,
+# pinned by digest). Stubs come from values (loaded at start) or the admin API (in memory,
+# lost on restart).
+image:
+  repository: ghcr.io/quenchworks/images/wiremock
+  digest: "sha256:1bac67a2c1168073f3ba26c8d1cea69d2a4ba0bc03200ba5f7306d0704ae2606"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# Each replica keeps its own admin-API stubs and journal; use more than one only when
+# every stub comes from values.
+replicas: 1
+
+# Stub files, as WireMock's mappings/ directory: file name to JSON (an object or a string).
+#   mappings:
+#     hello.json:
+#       request: { method: GET, urlPath: /hello }
+#       response: { status: 200, body: "hi {{request.query.name}}", transformers: [response-template] }
+mappings: {}
+# Response bodies, as WireMock's __files/ directory (bodyFileName in a stub): name to content.
+files: {}
+
+# Render every response as a handlebars template (otherwise per stub, with
+# transformers: [response-template]).
+globalResponseTemplating: false
+
+https:
+  enabled: false
+
+# More WireMock flags, e.g. --verbose, --max-request-journal-entries=1000, --no-request-journal.
+extraArgs: []
+javaOpts: "-XX:MaxRAMPercentage=75"
+extraEnvVars: []
+
+resources:
+  requests: { cpu: 50m, memory: 256Mi }
+  limits: { cpu: 1000m, memory: 768Mi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+  port: 8080
+  httpsPort: 8443
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}

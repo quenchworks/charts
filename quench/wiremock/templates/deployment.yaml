@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/stubs: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: wiremock
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # the image entrypoint already sets --port 8080, the root dir and --disable-banner
+          args:
+            {{- if .Values.globalResponseTemplating }}
+            - --global-response-templating
+            {{- end }}
+            {{- if .Values.https.enabled }}
+            - --https-port=8443
+            {{- end }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: {{ .Values.javaOpts | quote }}
+            {{- with .Values.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+            {{- if .Values.https.enabled }}
+            - name: https
+              containerPort: 8443
+            {{- end }}
+          readinessProbe:
+            httpGet: { path: /__admin/health, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /__admin/health, port: http }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          # One subPath mount per key: a whole ConfigMap volume carries ..data and
+          # timestamped copies, and WireMock loads mappings/ recursively, so every stub
+          # would load three times. Pods roll on the checksum when the values change.
+          volumeMounts:
+            {{- range $name, $_ := .Values.mappings }}
+            - { name: mappings, mountPath: /home/wiremock/mappings/{{ $name }}, subPath: {{ $name }}, readOnly: true }
+            {{- end }}
+            {{- range $name, $_ := .Values.files }}
+            - { name: files, mountPath: /home/wiremock/__files/{{ $name }}, subPath: {{ $name }}, readOnly: true }
+            {{- end }}
+            - { name: tmp, mountPath: /tmp }
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: mappings
+          configMap: { name: {{ include "quench-common.fullname" . }}-mappings }
+        - name: files
+          configMap: { name: {{ include "quench-common.fullname" . }}-files }
+        - name: tmp
+          emptyDir: {}
