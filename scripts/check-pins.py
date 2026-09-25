@@ -75,9 +75,25 @@ def main() -> int:
             if digest not in published:
                 stale.append((values.parent.name, image, digest))
 
+    # A chart that bundles a quench subchart deploys whatever image THAT release
+    # pinned, so a subchart dependency older than the subchart's current version is a
+    # stale pin too, just one values.yaml never shows. 35 charts sat on one until
+    # 2026-09-25, 17 of them on a superseded PostgreSQL build.
+    charts = {c.parent.name: yaml.safe_load(c.read_text())
+              for c in (ROOT / "quench").glob("*/Chart.yaml")}
+    lagging = [(name, d["name"], d["version"], charts[d["name"]]["version"])
+               for name, c in sorted(charts.items())
+               for d in c.get("dependencies") or []
+               if d["name"] != "quench-common" and d["name"] in charts
+               and str(d["version"]) != str(charts[d["name"]]["version"])]
+    for chart, sub, have, want in lagging:
+        print(f"  {chart} bundles {sub} {have}, current is {want}")
+    if lagging:
+        print(f"\n{len(lagging)} subchart dependencies lag; bump them and re-release.\n")
+
     if not stale:
         print(f"all {total} pins are published in the catalog")
-        return 0
+        return 1 if lagging else 0
 
     print(f"{len(stale)} of {total} pins are NOT in the catalog lock:\n")
     for chart, image, digest in stale:
