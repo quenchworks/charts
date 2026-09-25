@@ -1,0 +1,46 @@
+# Quenchworks Unbound: a validating, recursive, caching DNS resolver on the QuenchWorks
+# unbound image (nonroot, 0-CVE, cosign-signed, pinned by digest). The image listens on
+# 5053; the Service serves DNS on 53 over UDP and TCP.
+image:
+  repository: ghcr.io/quenchworks/images/unbound
+  digest: "sha256:100ed663fabe3e155c52baa39ba5bd5b458a4a4ae07779e2dc3cd0dc70876db0"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+replicas: 2
+
+# Extra unbound.conf content, mounted as /etc/unbound/conf.d/chart.conf and read by the
+# image's include-toplevel. Each clause names itself (server:, forward-zone:, ...).
+# The image's built-in config already sets the listener, DNSSEC and access control for
+# 127/8, 10/8, 172.16/12 and 192.168/16. Example:
+#   config: |
+#     server:
+#       local-data: "db.internal. A 10.0.0.5"
+#     forward-zone:
+#       name: "corp.example."
+#       forward-addr: 10.0.0.53
+config: ""
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+  port: 53
+  # a fixed address, e.g. to point a node's or a pod's dnsConfig at it
+  clusterIP: ""
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}
