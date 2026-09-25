@@ -4,7 +4,8 @@
 cluster continuously with Trivy and stores the results as custom resources:
 VulnerabilityReport, ConfigAuditReport, RbacAssessmentReport, ExposedSecretReport and
 SbomReport. This chart runs it on the QuenchWorks trivy-operator image, and its scan
-Jobs run the QuenchWorks trivy image. Both are nonroot, 0 fixable CVEs, cosign-signed.
+Jobs run the QuenchWorks trivy-scanner image (the trivy build plus a busybox shell, which
+the scan Job command line needs). Both are nonroot, 0 fixable CVEs, cosign-signed.
 
 ## Install
 
@@ -39,7 +40,7 @@ Scan Jobs download the vulnerability databases from `trivy.dbRepository` and
 | `excludeNamespaces` | `kube-system` | namespaces to skip |
 | `scanners.*` | see table | which scanners run |
 | `scanJob.concurrentLimit` | `3` | parallel scan Jobs |
-| `trivy.repository`, `trivy.tag` | QuenchWorks trivy `0.74.0` | the scanner image (the operator composes `repository:tag`) |
+| `trivy.repository`, `trivy.tag` | QuenchWorks trivy-scanner `0.74.0` | the scanner image (the operator composes `repository:tag`) |
 | `operatorConfig` | `{}` | extra `OPERATOR_*` settings |
 
 The operator pod runs with a read-only root filesystem and all capabilities dropped;
@@ -47,6 +48,6 @@ scan Jobs get the same container security context.
 
 The release gate installs the chart on kind, deploys a workload in a scanned namespace,
 and requires a VulnerabilityReport and a ConfigAuditReport for it, produced by a scan Job
-on the QuenchWorks trivy image.
+on the QuenchWorks trivy-scanner image.
 
 The chart depends on the `quench-common` chart from `oci://ghcr.io/quenchworks/charts`.
