@@ -1,0 +1,94 @@
+{{- if .Values.restProxy.enabled }}
+{{- $p := .Values.restProxy -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}-rest-proxy
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rest-proxy
+spec:
+  replicas: {{ $p.replicas }}
+  selector:
+    matchLabels:
+      {{- include "karapace.selectorLabels" (dict "ctx" . "component" "rest-proxy") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "karapace.selectorLabels" (dict "ctx" . "component" "rest-proxy") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "karapace.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: rest-proxy
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/opt/karapace/venv/bin/python", "-m", "karapace.kafka_rest_apis"]
+          env:
+            - name: KARAPACE_KARAPACE_REST
+              value: "true"
+            - name: KARAPACE_KARAPACE_REGISTRY
+              value: "false"
+            - name: KARAPACE_PORT
+              value: "8082"
+            # the proxy resolves Avro, JSON and Protobuf payloads through this registry
+            - name: KARAPACE_REGISTRY_HOST
+              value: {{ printf "%s-registry" (include "quench-common.fullname" .) | quote }}
+            - name: KARAPACE_REGISTRY_PORT
+              value: {{ .Values.service.registryPort | quote }}
+            {{- include "karapace.env" . | nindent 12 }}
+          {{- include "karapace.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 8082
+          readinessProbe:
+            httpGet:
+              path: /topics
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            {{- toYaml $p.resources | nindent 12 }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}-rest-proxy
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: rest-proxy
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.restProxyPort }}
+      targetPort: http
+  selector:
+    {{- include "karapace.selectorLabels" (dict "ctx" . "component" "rest-proxy") | nindent 4 }}
+{{- end }}

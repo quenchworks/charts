@@ -1,0 +1,61 @@
+# Quenchworks Karapace: the Kafka schema registry and REST proxy on the QuenchWorks
+# karapace image (nonroot, 0-CVE, cosign-signed, pinned by digest). Both read their
+# settings from KARAPACE_* variables; the chart sets the connection ones and passes the
+# rest through config.
+image:
+  repository: ghcr.io/quenchworks/images/karapace
+  digest: "sha256:d262a9b050453527e33fe47dd1acfce6c4fccb380a5734227622f6eb8c24e521"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+kafka:
+  # Kafka bootstrap servers, e.g. kafka.data.svc:9092 (required)
+  bootstrapServers: ""
+
+registry:
+  # Registry replicas elect a primary through the Kafka group; followers forward writes.
+  replicas: 1
+  # schemas topic and its replication factor (raise to 3 on a 3-broker cluster)
+  topicName: _schemas
+  replicationFactor: 1
+  compatibility: BACKWARD
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 1000m, memory: 1Gi }
+
+restProxy:
+  enabled: false
+  replicas: 1
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 1000m, memory: 1Gi }
+
+# Any other Karapace setting, as KARAPACE_ variables without the prefix, e.g.
+#   config:
+#     SECURITY_PROTOCOL: SASL_SSL
+#     SASL_MECHANISM: SCRAM-SHA-512
+#     LOG_LEVEL: INFO
+config: {}
+# Secret-backed settings (passwords): a Secret whose keys are KARAPACE_* variable names.
+existingSecret: ""
+
+extraEnvVars: []
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+  registryPort: 8081
+  restProxyPort: 8082
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}
