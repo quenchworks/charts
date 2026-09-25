@@ -67,14 +67,14 @@ jobs:
             "$B/browser/server/obj/1/")"
           echo "$out" | jq -e '.node.connected == true' >/dev/null
           sid="$(echo "$out" | jq -r '.node._id')"
-          curl -fsS "${H[@]}" "$B/browser/database/nodes/1/$sid/" | jq -e '[.data[].label] | index("postgres") != null' >/dev/null
+          curl -fsS "${H[@]}" "$B/browser/database/nodes/1/$sid/" | jq -e '[(.result // .data)[].label] | index("postgres") != null' >/dev/null
           kill $PF
           # accounts and saved servers are on the PVC: recreate the pod, sign in, find it
           kubectl delete pod rtest-pgadmin-0 --wait
           kubectl rollout status statefulset/rtest-pgadmin --timeout=300s
           pf
           login
-          curl -fsS "${H[@]}" "$B/browser/server/nodes/1/" | jq -e '[.data[].label] | index("gate") != null' >/dev/null
+          curl -fsS "${H[@]}" "$B/browser/server/nodes/1/" | jq -e '[(.result // .data)[].label] | index("gate") != null' >/dev/null
           kill $PF
           ! kubectl logs rtest-pgadmin-0 | grep -E 'Traceback|CRITICAL'
       # A failed install gate otherwise reports only "Progress deadline exceeded",
