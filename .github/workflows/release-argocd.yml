@@ -170,9 +170,21 @@ jobs:
           #    server's cache endpoints erroring while /healthz still returns 200.
           kubectl -n argocd get secret rtest-redis -o jsonpath='{.data.redis-password}' \
             | base64 -d | grep -q . || { echo "no redis password secret from the subchart"; exit 1; }
-          kubectl -n argocd logs "$ctrl_pod" --tail=500 \
-            | grep -qiE 'NOAUTH|WRONGPASS|connection refused.*6379' \
-            && { echo "controller cannot talk to redis"; exit 1; }
+          #    A refused dial at startup is a race (the controller can beat Redis to
+          #    Ready) and says nothing, so the proof is that the controller's cache
+          #    reached Redis. Auth errors never clear on their own and stay fatal.
+          clog="$(kubectl -n argocd logs "$ctrl_pod" --tail=500)"
+          grep -qiE 'NOAUTH|WRONGPASS' <<<"$clog" \
+            && { echo "controller is not authenticated against redis"; exit 1; }
+          rpw="$(kubectl -n argocd get secret rtest-redis -o jsonpath='{.data.redis-password}' | base64 -d)"
+          keys=0
+          for i in $(seq 1 30); do
+            keys="$(kubectl -n argocd exec rtest-redis-0 -- redis-cli --no-auth-warning -a "$rpw" DBSIZE 2>/dev/null | tr -dc 0-9)"
+            [ "${keys:-0}" -gt 0 ] && break
+            sleep 2
+          done
+          [ "${keys:-0}" -gt 0 ] || { echo "controller never wrote its cache to redis"; tail -40 <<<"$clog"; exit 1; }
+          echo "  controller cache in redis: $keys keys"
 
           echo "install gate OK: CRDs Established, console served, repo-server toolbelt present, ApplicationSet -> Application reconciled"
 
