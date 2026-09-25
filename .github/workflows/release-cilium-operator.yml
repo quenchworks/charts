@@ -67,8 +67,11 @@ jobs:
           set -o pipefail
           helm install rtest "${CHART_DIR}" -n kube-system -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 6m
           kubectl -n kube-system rollout status deployment/rtest-cilium-operator --timeout=120s
-          # this operator alone registered the CRDs and handed out the pod CIDRs
-          kubectl get crd ciliumnodes.cilium.io ciliumidentities.cilium.io ciliumendpoints.cilium.io
+          # this operator alone registers the CRDs (one at a time, after it wins the lease)
+          # and hands out the pod CIDRs
+          CRDS="ciliumnodes.cilium.io ciliumidentities.cilium.io ciliumendpoints.cilium.io"
+          for i in $(seq 1 90); do kubectl get crd $CRDS >/dev/null 2>&1 && break; sleep 2; done
+          for c in $CRDS; do kubectl wait --for=condition=Established "crd/$c" --timeout=60s; done
           kubectl -n kube-system rollout status daemonset/cilium --timeout=300s
           kubectl wait --for=condition=Ready nodes --all --timeout=300s
           for n in $(kubectl get nodes -o name | cut -d/ -f2); do
