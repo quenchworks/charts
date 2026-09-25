@@ -29,9 +29,8 @@ spec:
 ## EventBus images
 
 The controller builds JetStream EventBus pods from `eventBus.jetstream`: the QuenchWorks
-nats image, plus upstream's `natsio/nats-server-config-reloader` and
-`natsio/prometheus-nats-exporter` sidecars, pinned by digest. The two sidecars are not
-QuenchWorks-hardened images yet. Point them at your own images if that matters for you.
+nats, nats-server-config-reloader and prometheus-nats-exporter images, pinned by digest.
+All three run as uid 1001, which is why the EventBus sets `fsGroup: 1001`.
 
 The CRDs ship in `crds/`, which Helm applies on the first install only; apply them with
 `kubectl apply --server-side -f crds/` before upgrading across app versions.
@@ -48,8 +47,8 @@ The CRDs ship in `crds/`, which Helm applies on the first install only; apply th
 Sensors that create Kubernetes resources run as `spec.template.serviceAccountName`, which
 needs its own RBAC. Pods run with a read-only root filesystem and all capabilities dropped.
 
-The release gate installs the chart on kind, creates a JetStream EventBus on the
-QuenchWorks nats image, a webhook EventSource and a Sensor with a Kubernetes trigger, posts
+The release gate installs the chart on kind, creates a JetStream EventBus that must run
+only QuenchWorks images, a webhook EventSource and a Sensor with a Kubernetes trigger, posts
 to the webhook, and requires the trigger to create its ConfigMap.
 
 The chart depends on the `quench-common` chart from `oci://ghcr.io/quenchworks/charts`.

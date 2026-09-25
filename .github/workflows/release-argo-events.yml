@@ -101,7 +101,13 @@ jobs:
           # the JetStream EventBus runs on the QuenchWorks nats image
           for i in $(seq 1 60); do kubectl get statefulset eventbus-default-js >/dev/null 2>&1 && break; sleep 2; done
           kubectl rollout status statefulset/eventbus-default-js --timeout=300s
-          kubectl get statefulset eventbus-default-js -o jsonpath='{.spec.template.spec.containers[*].image}' | grep -q 'quenchworks/images/nats@'
+          # every EventBus container is a QuenchWorks image: nats, reloader and exporter
+          imgs="$(kubectl get statefulset eventbus-default-js -o jsonpath='{range .spec.template.spec.containers[*]}{.image}{"\n"}{end}')"
+          echo "$imgs"
+          test "$(echo "$imgs" | grep -c .)" = 3
+          ! echo "$imgs" | grep -v '^ghcr.io/quenchworks/images/'
+          # and the reloader and exporter are running beside nats
+          kubectl get pod eventbus-default-js-0 -o jsonpath='{.status.containerStatuses[*].ready}' | grep -qv false
           for d in gate-eventsource gate-sensor; do
             for i in $(seq 1 60); do kubectl get deploy -l "$( [ $d = gate-eventsource ] && echo eventsource-name=gate || echo sensor-name=gate )" -o name | grep -q . && break; sleep 2; done
           done
