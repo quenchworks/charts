@@ -1,0 +1,16 @@
+Quenchworks Ory Hydra {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }}, issuer {{ .Values.hydra.issuer }}.
+
+  public API: svc/{{ include "quench-common.fullname" . }}-public:{{ .Values.service.publicPort }}  (clients, browsers)
+  admin API:  svc/{{ include "quench-common.fullname" . }}-admin:{{ .Values.service.adminPort }}   (keep it inside the cluster)
+
+Create a client and mint a token:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }}-admin 4445:4445 &
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }}-public 4444:4444 &
+  curl -X POST -H 'Content-Type: application/json' http://127.0.0.1:4445/admin/clients \
+    -d '{"client_id":"demo","client_secret":"demo-secret-change-me","grant_types":["client_credentials"]}'
+  curl -u demo:demo-secret-change-me -d grant_type=client_credentials http://127.0.0.1:4444/oauth2/token
+{{- if .Values.hydra.dev }}
+
+WARNING: hydra.dev=true disables Hydra's TLS and HTTPS-issuer checks. Do not use it in production.
+{{- end }}

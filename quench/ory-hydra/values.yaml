@@ -1,0 +1,79 @@
+# Quenchworks Ory Hydra: the OAuth 2.0 and OpenID Connect provider, on the QuenchWorks
+# ory-hydra image (nonroot, 0-CVE, cosign-signed, pinned by digest). One Deployment
+# serves the public API (4444, what clients and browsers reach) and the admin API
+# (4445, keep it inside the cluster); an init container runs the SQL migrations.
+image:
+  repository: ghcr.io/quenchworks/images/ory-hydra
+  digest: "sha256:f95fa79894f8f2a0c12b0b601f43240952221220246240c12d4ea92c4b0f817f"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+replicas: 1
+
+hydra:
+  # The issuer URL as clients see it (the public API's external address).
+  issuer: http://127.0.0.1:4444
+  # Your login and consent app; Hydra redirects users here during authorization flows.
+  loginUrl: http://127.0.0.1:3000/login
+  consentUrl: http://127.0.0.1:3000/consent
+  # Run the SQL migrations in an init container on every rollout.
+  autoMigrate: true
+  # --dev disables the TLS and HTTPS-issuer checks. Only for local testing.
+  dev: false
+  # Existing Secret with a `secretsSystem` key (and optionally `secretsCookie`). Empty
+  # generates one, kept across upgrades. Rotating it invalidates stored secrets.
+  existingSecret: ""
+  # Extra Hydra config as environment variables, e.g. TTL_ACCESS_TOKEN: 1h.
+  config: {}
+
+extraEnvVars: []
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 1000m, memory: 512Mi }
+nodeSelector: {}
+tolerations: []
+
+service:
+  type: ClusterIP
+  publicPort: 4444
+  adminPort: 4445
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# --- STORAGE, mode 1: bundled PostgreSQL (the QuenchWorks postgresql chart).
+postgresql:
+  enabled: true
+  auth:
+    username: hydra
+    password: ""              # generated if empty (alphanumeric); stored in <release>-postgresql
+    # the postgresql chart creates this database only when its name differs from both
+    # "postgres" and auth.username, so it is not simply "hydra"
+    database: hydradb
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- STORAGE, mode 2: external PostgreSQL (postgresql.enabled=false). Hydra takes one
+# DSN URL: either an existing Secret holding the whole DSN, or host/user/database plus
+# a password Secret (the password must then be URL-safe).
+externalDatabase:
+  existingDsnSecret: ""
+  existingDsnSecretKey: dsn
+  host: ""
+  port: 5432
+  database: hydra
+  username: hydra
+  existingSecret: ""
+  existingSecretPasswordKey: password
+  sslmode: require
+
+podSecurityContext: {}
+containerSecurityContext: {}
