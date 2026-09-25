@@ -1,0 +1,127 @@
+{{- if and .Values.tls.server.enabled (not .Values.tls.server.existingSecret) }}
+{{- fail "tls.server.enabled needs tls.server.existingSecret" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "hubble-relay.serviceAccountName" . }}
+      # the relay talks only to the peer service and the Hubble servers, never the API
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: hubble-relay
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --peer-service={{ .Values.peerService }}
+            - --cluster-name={{ .Values.clusterName }}
+            - --listen-address=:4245
+            - --health-listen-address=:4222
+            - --gops=false
+            {{- if .Values.metrics.enabled }}
+            - --metrics-listen-address=:{{ .Values.metrics.port }}
+            {{- end }}
+            {{- if .Values.tls.client.enabled }}
+            - --tls-hubble-client-cert-file=/var/lib/hubble-relay/tls/client/tls.crt
+            - --tls-hubble-client-key-file=/var/lib/hubble-relay/tls/client/tls.key
+            - --tls-hubble-server-ca-files=/var/lib/hubble-relay/tls/client/ca.crt
+            {{- else }}
+            - --disable-client-tls
+            {{- end }}
+            {{- if .Values.tls.server.enabled }}
+            - --tls-relay-server-cert-file=/var/lib/hubble-relay/tls/server/tls.crt
+            - --tls-relay-server-key-file=/var/lib/hubble-relay/tls/server/tls.key
+            {{- else }}
+            - --disable-server-tls
+            {{- end }}
+            {{- with .Values.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.extraEnvVars }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: grpc
+              containerPort: 4245
+            - name: health
+              containerPort: 4222
+            {{- if .Values.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+            {{- end }}
+          # health turns SERVING once at least one Hubble peer is connected
+          readinessProbe:
+            grpc:
+              port: 4222
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          # liveness only asks that the process answers: no peers is a Cilium problem
+          livenessProbe:
+            tcpSocket:
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.tls.client.enabled }}
+            - name: client-tls
+              mountPath: /var/lib/hubble-relay/tls/client
+              readOnly: true
+            {{- end }}
+            {{- if .Values.tls.server.enabled }}
+            - name: server-tls
+              mountPath: /var/lib/hubble-relay/tls/server
+              readOnly: true
+            {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.tls.client.enabled }}
+        - name: client-tls
+          secret:
+            secretName: {{ .Values.tls.client.existingSecret }}
+            defaultMode: 0400
+        {{- end }}
+        {{- if .Values.tls.server.enabled }}
+        - name: server-tls
+          secret:
+            secretName: {{ .Values.tls.server.existingSecret }}
+            defaultMode: 0400
+        {{- end }}

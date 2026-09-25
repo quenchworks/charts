@@ -1,0 +1,138 @@
+name: release-hubble-relay
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/hubble-relay/**"
+      - ".github/workflows/release-hubble-relay.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/hubble-relay
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      # Cilium is the CNI, so kind starts without its default one
+      - name: Write kind config
+        run: |
+          cat > /tmp/kind-cilium.yaml <<'EOF'
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          networking:
+            disableDefaultCNI: true
+          nodes:
+            - role: control-plane
+            - role: worker
+          EOF
+      - uses: helm/kind-action@v1
+        with:
+          config: /tmp/kind-cilium.yaml
+          wait: 0s
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      # Upstream Cilium as the system under observation: Hubble on, Hubble TLS off, its
+      # own relay off. It is test scaffolding, not part of this chart.
+      - name: Install Cilium
+        run: |
+          helm repo add cilium https://helm.cilium.io
+          helm install cilium cilium/cilium --version 1.20.2 -n kube-system \
+            --set hubble.enabled=true --set hubble.tls.enabled=false --set hubble.relay.enabled=false \
+            --set operator.replicas=1 --wait --timeout 8m
+          kubectl -n kube-system rollout status daemonset/cilium --timeout=300s
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -n kube-system -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 5m
+          # ready means the grpc health probe reports SERVING: peers connected
+          kubectl -n kube-system rollout status deployment/rtest-hubble-relay --timeout=120s
+          # the hubble CLI through the relay: both nodes connected, and real flows
+          curl -fsSLo /tmp/hubble.tgz https://github.com/cilium/hubble/releases/download/v1.19.4/hubble-linux-amd64.tar.gz
+          echo "c7c37a5f27ed2ae2d5495c6ddbecc61cebbb841508e77af3c131e96f005ed247  /tmp/hubble.tgz" | sha256sum -c -
+          tar -xzf /tmp/hubble.tgz -C /tmp hubble
+          kubectl -n kube-system port-forward svc/rtest-hubble-relay 4245:80 >/dev/null 2>&1 &
+          for i in $(seq 1 30); do /tmp/hubble status --server localhost:4245 >/dev/null 2>&1 && break; sleep 2; done
+          /tmp/hubble status --server localhost:4245 | tee /tmp/status.txt
+          grep -Eq 'Connected Nodes: *2/2' /tmp/status.txt
+          # flows from both nodes come back through the relay (cluster traffic never stops:
+          # CoreDNS, the agents' health checks, kubelet probes)
+          /tmp/hubble observe --server localhost:4245 --last 100 -o compact | tee /tmp/flows.txt
+          test -s /tmp/flows.txt
+          ! kubectl -n kube-system logs deployment/rtest-hubble-relay | grep -E 'level=(error|fatal)'
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -A -o wide || true
+          kubectl -n kube-system describe pods -l app.kubernetes.io/instance=rtest || true
+          kubectl get events -A --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl -n kube-system get pods -l app.kubernetes.io/instance=rtest -o name); do
+            for c in $(kubectl -n kube-system get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl -n kube-system logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl -n kube-system logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/hubble-relay-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/hubble-relay@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/hubble-relay:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

@@ -1,0 +1,59 @@
+# Quenchworks Hubble Relay on the QuenchWorks hubble-relay image (nonroot, 0-CVE,
+# cosign-signed, pinned by digest). It needs a Cilium install with Hubble enabled: the
+# relay dials the agents' peer service and fans out to every node's Hubble server.
+# Install it in Cilium's namespace (usually kube-system) so it can mount the client
+# certificates Cilium issues.
+image:
+  repository: ghcr.io/quenchworks/images/hubble-relay
+  digest: "sha256:ce92ccf4136abc45349b32a188b680567dd7f541cc693c89e26e63565bd18049"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+replicas: 1
+
+# The Cilium agents' peer service: port 443 when Hubble TLS is on (Cilium's default),
+# 80 when it is off.
+peerService: hubble-peer.kube-system.svc.cluster.local:443
+# Must match Cilium's cluster.name.
+clusterName: default
+
+tls:
+  # mTLS from the relay to the Hubble servers (on in Cilium by default). The Secret holds
+  # ca.crt, tls.crt and tls.key; Cilium's certgen names it hubble-relay-client-certs.
+  client:
+    enabled: true
+    existingSecret: hubble-relay-client-certs
+  # TLS on the relay's own API for the hubble CLI and Hubble UI (same three keys).
+  server:
+    enabled: false
+    existingSecret: ""
+
+metrics:
+  enabled: false
+  port: 9966
+
+extraArgs: []
+extraEnvVars: []
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 1000m, memory: 512Mi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+  # upstream's convention: 80 for plaintext, 443 with server TLS
+  port: 80
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}
