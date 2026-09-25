@@ -77,21 +77,23 @@ jobs:
           for i in $(seq 1 30); do curl -fsS "$B/healthz" >/dev/null 2>&1 && break; sleep 1; done
           curl -fsS "$B/" | grep -q 'bundle.main'
           # the browser's API path: nginx, then the backend's polling protocol (JSON
-          # messages to /api/<route>). A control-stream channel makes the backend dial the
-          # relay; its log then shows the established connection.
+          # messages posted to /api/<route>). A control-stream channel streams the
+          # namespaces (from Kubernetes: the RBAC works) and the relay's status, whose node
+          # list carries the kind node names (the relay answered). Bodies are protobuf, so
+          # the names show up as plain strings once base64-decoded.
           J=(-sS -X POST -H 'Content-Type: application/json')
-          first="$(curl "${J[@]}" -d '{"meta":{"route_name":"control-stream"}}' "$B/api/control-stream")"
-          echo "$first" | head -c 300; echo
-          ch="$(echo "$first" | jq -r '.meta.channel_id // .meta.channelId // empty')"
-          test -n "$ch"
-          for i in $(seq 1 10); do
-            curl "${J[@]}" -d "{\"meta\":{\"route_name\":\"control-stream\",\"channel_id\":\"$ch\"}}" "$B/api/control-stream" >/dev/null
-            kubectl -n kube-system logs deployment/rtest-hubble-ui -c backend | grep -q 'connection established' && break
-            sleep 2
+          ch=""; next=""; : > /tmp/bodies
+          for i in $(seq 1 40); do
+            req="{\"meta\":{\"route_name\":\"control-stream\",\"channel_id\":\"$ch\",\"last_datum_id\":\"$next\"}}"
+            resp="$(curl "${J[@]}" -d "$req" "$B/api/control-stream")"
+            ch="$(echo "$resp" | jq -r '.meta.channel_id // empty')"
+            next="$(echo "$resp" | jq -r '.meta.next_datum_id // empty')"
+            echo "$resp" | jq -r '.body.content // empty' | base64 -d >> /tmp/bodies 2>/dev/null || true
+            grep -aq 'kube-system' /tmp/bodies && grep -aq 'chart-testing-worker' /tmp/bodies && break
+            sleep 1
           done
-          kubectl -n kube-system logs deployment/rtest-hubble-ui -c backend > /tmp/backend.log
-          grep -q 'connection established' /tmp/backend.log || { tail -30 /tmp/backend.log; exit 1; }
-          grep -q 'addr=hubble-relay.kube-system.svc.cluster.local:80' /tmp/backend.log || { grep -i addr /tmp/backend.log | tail; exit 1; }
+          grep -aq 'kube-system' /tmp/bodies || { echo "no namespaces from the backend; last: $resp"; exit 1; }
+          grep -aq 'chart-testing-worker' /tmp/bodies || { echo "no relay node status; last: $resp"; strings /tmp/bodies | head -20; exit 1; }
           ! kubectl -n kube-system logs deployment/rtest-hubble-ui -c backend | grep -E 'panic:|level=fatal'
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

@@ -41,7 +41,7 @@ Both containers run with a read-only root filesystem and all capabilities droppe
 
 The release gate starts a two-node kind cluster with upstream Cilium and the QuenchWorks
 hubble-relay chart, installs this chart, and requires the UI to load and a control-stream
-channel opened on the browser path (nginx, then the backend) to make the backend connect
-to the relay.
+channel opened on the browser path (nginx, then the backend) to deliver the cluster's
+namespaces and the relay's node status.
 
 The chart depends on the `quench-common` chart from `oci://ghcr.io/quenchworks/charts`.
