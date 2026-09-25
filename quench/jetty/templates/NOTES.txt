@@ -1,0 +1,18 @@
+Quenchworks Eclipse Jetty {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }}.
+
+  Endpoint: http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  curl -i http://127.0.0.1:8080/
+  # 404 until a web app claims a context: the image ships an empty webapps/.
+
+Deploy applications by baking WARs into a derived image at /var/lib/jetty/webapps, or
+by mounting them there with extraVolumes / extraVolumeMounts. Jetty deploys a WAR, an
+unpacked directory or a context XML file per entry.
+
+The image is nonroot (uid 1001) on a read-only root filesystem (an emptyDir at /tmp
+holds unpacked WARs and work files), pinned by digest and signed:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

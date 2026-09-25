@@ -1,0 +1,18 @@
+# Install gate on kind. The gate creates the gate-app ConfigMap first; mounting it as
+# webapps/hello deploys a directory web app, so the gate checks Jetty serves real
+# content, not only that the port answers.
+replicaCount: 1
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 512Mi }
+extraVolumes:
+  - name: gate-app
+    configMap:
+      name: gate-app
+      items:
+        - { key: index.html, path: index.html }
+        - { key: web.xml, path: WEB-INF/web.xml }
+extraVolumeMounts:
+  - name: gate-app
+    mountPath: /var/lib/jetty/webapps/hello
+    readOnly: true

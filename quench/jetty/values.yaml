@@ -1,0 +1,97 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image build after every green publish. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/jetty
+  digest: "sha256:f1f0587b8212adf06aec5f2980adb064598e99f3276dca948e49365d9da06868"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Eclipse Jetty is a stateless servlet container: this chart runs a Deployment (no
+# persistence, no stable identity) and scales horizontally behind the Service. Deploy
+# applications by baking WARs into a derived image at /var/lib/jetty/webapps, or by
+# mounting them there via extraVolumes/extraVolumeMounts.
+replicaCount: 1
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# Optional horizontal autoscaling on CPU (a stateless web container scales out well).
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+# Probes are tcpSocket on 8080: GET / is 404 until a web app claims the root
+# context, so an httpGet probe would wrongly fail. The startup probe is generous.
+livenessProbe: {}
+readinessProbe: {}
+startupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# A web server commonly wants ingress from outside the namespace (ingress
+# controllers, gateways), so unlike the database charts this defaults to allowing
+# external traffic. Set allowExternal=false to restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Optional Ingress (HTTP only). Disabled by default, so enabling it is an explicit
+# operator decision and this chart's behaviour is unchanged until then.
+ingress:
+  enabled: false
+  # IngressClass to claim this Ingress. Empty -> the cluster default applies.
+  className: ""
+  annotations: {}
+  # Service port to route to. Unset -> resolved from service.port, then
+  # service.ports.http / .https.
+  servicePort: null
+  # e.g. [{host: app.example.com, paths: [{path: /, pathType: Prefix}]}]
+  # `paths` may be omitted for the common "/" Prefix case.
+  hosts: []
+  # Standard Ingress TLS list, e.g. [{hosts: [app.example.com], secretName: app-tls}]
+  tls: []
