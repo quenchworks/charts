@@ -1,0 +1,104 @@
+{{- include "terralist.validate" . }}
+{{- $secret := include "quench-common.fullname" . }}
+{{- $p := include "terralist.oauthPrefix" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  # SQLite and the local store sit on one RWO volume: one pod, stopped before the next
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: terralist
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: [server]
+          env:
+            - { name: TERRALIST_PORT, value: "5758" }
+            - { name: TERRALIST_URL, value: {{ .Values.url | quote }} }
+            - { name: TERRALIST_OAUTH_PROVIDER, value: {{ .Values.oauth.provider | quote }} }
+            - name: TERRALIST_{{ $p }}_CLIENT_ID
+              valueFrom: { secretKeyRef: { name: {{ include "terralist.oauthSecretName" . }}, key: client-id } }
+            - name: TERRALIST_{{ $p }}_CLIENT_SECRET
+              valueFrom: { secretKeyRef: { name: {{ include "terralist.oauthSecretName" . }}, key: client-secret } }
+            {{- range $env, $key := dict "TOKEN_SIGNING_SECRET" "token-signing-secret" "LOCAL_TOKEN_SIGNING_SECRET" "local-token-signing-secret" "OAUTH_STATE_SECRET" "oauth-state-secret" "COOKIE_SECRET" "cookie-secret" }}
+            - name: TERRALIST_{{ $env }}
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: {{ $key }} } }
+            {{- end }}
+            {{- if .Values.masterApiKey.enabled }}
+            - name: TERRALIST_MASTER_API_KEY
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: master-api-key } }
+            {{- end }}
+            - { name: TERRALIST_DATABASE_BACKEND, value: {{ .Values.database.type | quote }} }
+            {{- if eq .Values.database.type "sqlite" }}
+            - { name: TERRALIST_SQLITE_PATH, value: /data/terralist.db }
+            {{- else }}
+            - name: TERRALIST_{{ ternary "POSTGRES" "MYSQL" (eq .Values.database.type "postgresql") }}_URL
+              valueFrom: { secretKeyRef: { name: {{ .Values.database.existingSecret }}, key: {{ .Values.database.urlKey }} } }
+            {{- end }}
+            - { name: TERRALIST_MODULES_STORAGE_RESOLVER, value: {{ .Values.storage.resolver | quote }} }
+            - { name: TERRALIST_PROVIDERS_STORAGE_RESOLVER, value: {{ .Values.storage.resolver | quote }} }
+            - { name: TERRALIST_LOCAL_STORE, value: /data/store }
+            - { name: TERRALIST_LOCAL_REGISTRY, value: /data/registry }
+            {{- with .Values.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 5758
+          # service discovery answers once the server is up; there is no health route
+          readinessProbe:
+            httpGet: { path: /.well-known/terraform.json, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /.well-known/terraform.json, port: http }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          {{- if include "terralist.needsVolume" . }}
+          persistentVolumeClaim:
+            claimName: {{ include "quench-common.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

@@ -1,0 +1,68 @@
+# Quenchworks Terralist on the QuenchWorks terralist image (nonroot, 0-CVE,
+# cosign-signed, pinned by digest). Every setting reaches Terralist as a TERRALIST_*
+# environment variable; secrets come from Secrets.
+image:
+  repository: ghcr.io/quenchworks/images/terralist
+  digest: "sha256:f3192fc73095d4d459499d720eace86fc51b81f6e02e3bc7b250f6c157a538f7"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# The public URL: Terraform and OpenTofu resolve module and provider downloads under it,
+# and the OAuth app's callback is <url>/v1/api/auth/redirect.
+url: http://terralist.local
+
+# Login. Terralist refuses to start without an OAuth provider.
+oauth:
+  # github, gitlab, bitbucket or oidc (provider-specific settings go in extraEnvVars,
+  # e.g. TERRALIST_OI_AUTHORIZE_URL for oidc)
+  provider: github
+  clientId: ""
+  clientSecret: ""
+  # a Secret with client-id and client-secret instead
+  existingSecret: ""
+
+# A pre-shared key with full access (X-API-Key header), for bootstrapping authorities
+# and CI uploads. Off by default; when on, the chart generates it (key master-api-key).
+masterApiKey:
+  enabled: false
+
+# Where uploaded module and provider archives live: local (the PVC), proxy (only the
+# upstream URL is stored), or s3, gcs, azure (configure through extraEnvVars).
+storage:
+  resolver: local
+
+database:
+  # sqlite (on the PVC), postgresql or mysql
+  type: sqlite
+  # a Secret whose key holds the connection URL, e.g. postgres://user:pw@host:5432/terralist
+  existingSecret: ""
+  urlKey: url
+
+extraEnvVars: []
+
+persistence:
+  size: 5Gi
+  storageClass: ""
+  accessModes: [ReadWriteOnce]
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 1000m, memory: 512Mi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+  port: 5758
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}

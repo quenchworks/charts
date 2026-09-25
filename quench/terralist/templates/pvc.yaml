@@ -1,0 +1,19 @@
+{{- if include "terralist.needsVolume" . }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "quench-common.fullname" . }}-data
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    # the registry's modules, providers and (on SQLite) its database live here
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: {{ toYaml .Values.persistence.accessModes | nindent 4 }}
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}

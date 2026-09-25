@@ -1,0 +1,12 @@
+Quenchworks Terralist {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }} at {{ .Values.url }} ({{ .Values.oauth.provider }} login, {{ .Values.database.type }}, {{ .Values.storage.resolver }} storage).
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "quench-common.fullname" . }} 5758:{{ .Values.service.port }}
+
+Terraform and OpenTofu log in with `terraform login <host of url>`; the OAuth app's callback
+URL is {{ .Values.url }}/v1/api/auth/redirect.
+{{- if .Values.masterApiKey.enabled }}
+
+The master API key has full access (X-API-Key header):
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "quench-common.fullname" . }} -o jsonpath='{.data.master-api-key}' | base64 -d
+Turn it off (masterApiKey.enabled=false) once authorities and API keys are set up.
+{{- end }}
