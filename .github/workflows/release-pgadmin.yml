@@ -1,0 +1,131 @@
+name: release-pgadmin
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/pgadmin/**"
+      - ".github/workflows/release-pgadmin.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/pgadmin
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          # a PostgreSQL to administer
+          helm install pg oci://ghcr.io/quenchworks/charts/postgresql --wait --timeout 6m
+          PGPW="$(kubectl get secret pg-postgresql -o jsonpath='{.data.postgres-password}' | base64 -d)"
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          test "$(kubectl get pvc data-rtest-pgadmin-0 -o jsonpath='{.status.phase}')" = Bound
+          pf() { kubectl port-forward svc/rtest-pgadmin 5050:5050 >/dev/null 2>&1 & PF=$!
+                 for i in $(seq 1 30); do [ "$(curl -fsS http://127.0.0.1:5050/misc/ping 2>/dev/null)" = PING ] && return; sleep 1; done; return 1; }
+          B=http://127.0.0.1:5050
+          login() {
+            rm -f /tmp/c
+            tok="$(curl -fsS -c /tmp/c -b /tmp/c "$B/login" | sed -n 's/.*"csrfToken": *"\([^"]*\)".*/\1/p')"
+            test -n "$tok"
+            test "$(curl -sS -o /dev/null -w '%{redirect_url}' -c /tmp/c -b /tmp/c --data-urlencode email=gate@example.com \
+              --data-urlencode password=Quench-gate-Pw-1 --data-urlencode "csrf_token=$tok" "$B/authenticate/login")" = "$B/browser/"
+            H=(-b /tmp/c -c /tmp/c -H "X-pgA-CSRFToken: $tok" -H 'Content-Type: application/json')
+          }
+          pf
+          login
+          # a wrong password is refused
+          test "$(curl -sS -o /dev/null -w '%{redirect_url}' -c /tmp/c2 -b /tmp/c2 --data-urlencode email=gate@example.com \
+            --data-urlencode password=wrong --data-urlencode "csrf_token=$tok" "$B/authenticate/login")" != "$B/browser/"
+          out="$(curl -fsS "${H[@]}" -d "{\"name\":\"gate\",\"host\":\"pg-postgresql\",\"port\":5432,\"db\":\"postgres\",\"username\":\"postgres\",\"password\":\"$PGPW\",\"sslmode\":\"prefer\",\"connect_now\":true}" \
+            "$B/browser/server/obj/1/")"
+          echo "$out" | jq -e '.node.connected == true' >/dev/null
+          sid="$(echo "$out" | jq -r '.node._id')"
+          curl -fsS "${H[@]}" "$B/browser/database/nodes/1/$sid/" | jq -e '[.data[].label] | index("postgres") != null' >/dev/null
+          kill $PF
+          # accounts and saved servers are on the PVC: recreate the pod, sign in, find it
+          kubectl delete pod rtest-pgadmin-0 --wait
+          kubectl rollout status statefulset/rtest-pgadmin --timeout=300s
+          pf
+          login
+          curl -fsS "${H[@]}" "$B/browser/server/nodes/1/" | jq -e '[.data[].label] | index("gate") != null' >/dev/null
+          kill $PF
+          ! kubectl logs rtest-pgadmin-0 | grep -E 'Traceback|CRITICAL'
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/pgadmin-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/pgadmin@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/pgadmin:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
