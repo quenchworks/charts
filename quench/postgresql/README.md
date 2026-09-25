@@ -99,6 +99,19 @@ gh attestation verify oci://ghcr.io/quenchworks/images/postgresql \
   --owner quenchworks
 ```
 
+## Extensions
+
+The image carries pgvector 0.8.6 plus a set of contrib extensions: btree_gin,
+btree_gist, pg_trgm, pgcrypto, hstore, citext, pg_stat_statements, intarray, ltree,
+unaccent, fuzzystrmatch, tablefunc and uuid-ossp. Enable one per database:
+
+```sql
+CREATE EXTENSION vector;
+CREATE TABLE items (id bigint, embedding vector(3));
+CREATE INDEX ON items USING hnsw (embedding vector_l2_ops);
+SELECT id FROM items ORDER BY embedding <-> '[1,2,3]' LIMIT 5;
+```
+
 ## Values
 
 | Key | Default | Notes |
