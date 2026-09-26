@@ -1,0 +1,166 @@
+name: release-mediawiki
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/mediawiki/**"
+      - ".github/workflows/release-mediawiki.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/mediawiki
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          appver="$(helm show chart "${CHART_DIR}" | awk '/^appVersion:/{gsub(/"/,"");print $2}')"
+          # smoke <base> <admin-password>: the API reports the chart's appVersion,
+          # the installer's admin account logs in (clientlogin), a page saves and
+          # renders with a ParserFunctions call in it. Prints the page's marker.
+          smoke() {
+            local BASE="$1" PASS="$2" jar gen lt st ct res html marker
+            jar="$(mktemp)"
+            api() { curl -fsS -b "$jar" -c "$jar" "$BASE/api.php" "$@"; }
+            gen="$(api -G -d action=query -d meta=siteinfo -d format=json | jq -r .query.general.generator)"
+            echo "generator: $gen" >&2
+            [ "$gen" = "MediaWiki $appver" ] || { echo "expected MediaWiki $appver" >&2; return 1; }
+            lt="$(api -G -d action=query -d meta=tokens -d type=login -d format=json | jq -r .query.tokens.logintoken)"
+            st="$(api -d action=clientlogin -d format=json --data-urlencode "username=Admin" --data-urlencode "password=$PASS" \
+                   --data-urlencode "logintoken=$lt" --data-urlencode "loginreturnurl=$BASE/" | jq -r .clientlogin.status)"
+            [ "$st" = "PASS" ] || { echo "clientlogin status: $st" >&2; return 1; }
+            marker="quench-gate-$RANDOM$RANDOM"
+            ct="$(api -G -d action=query -d meta=tokens -d format=json | jq -r .query.tokens.csrftoken)"
+            res="$(api -d action=edit -d format=json -d title=QuenchGate \
+                    --data-urlencode "text=$marker {{#if: x | pf-ok | pf-missing}}" --data-urlencode "token=$ct" | jq -r .edit.result)"
+            [ "$res" = "Success" ] || { echo "edit result: $res" >&2; return 1; }
+            html="$(curl -fsS "$BASE/index.php?title=QuenchGate&action=render")"
+            grep -q "$marker" <<<"$html" || { echo "saved text not rendered" >&2; return 1; }
+            grep -q "pf-ok" <<<"$html" || { echo "ParserFunctions did not run" >&2; return 1; }
+            echo "  logged in, page saved and rendered ($marker)" >&2
+            echo "$marker"
+          }
+
+          # --- 1. SQLite (the default) -------------------------------------------
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          uid="$(kubectl get pod -l app.kubernetes.io/instance=rtest -o jsonpath='{.items[0].spec.securityContext.runAsUser}')"
+          test "$uid" = "1001"
+          for c in uploads data; do
+            test "$(kubectl get pvc rtest-mediawiki-$c -o jsonpath='{.status.phase}')" = Bound
+          done
+          kubectl logs deploy/rtest-mediawiki -c install | grep -q "no schema: running the installer"
+          kubectl port-forward svc/rtest-mediawiki 8080:8080 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf 2>/dev/null || true' EXIT; sleep 5
+          marker="$(smoke http://127.0.0.1:8080 ci-Quench-wiki-2026)"
+          # the maintenance scripts are CLI-only
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/maintenance/run.php)" = 403
+
+          # A new pod must find the schema (no second install), run update.php,
+          # and still serve the page from the SQLite PVC.
+          kill $pf
+          kubectl delete pod -l app.kubernetes.io/instance=rtest --wait
+          kubectl rollout status deploy/rtest-mediawiki --timeout=300s
+          kubectl wait pod -l app.kubernetes.io/instance=rtest --for=condition=Ready --timeout=300s
+          ilog="$(kubectl logs deploy/rtest-mediawiki -c install)"
+          grep -q "schema present" <<<"$ilog" || { echo "restart re-ran the installer:"; echo "$ilog"; exit 1; }
+          kubectl port-forward svc/rtest-mediawiki 8080:8080 >/tmp/pf.log 2>&1 &
+          pf=$!; sleep 5
+          grep -q "$marker" <<<"$(curl -fsS 'http://127.0.0.1:8080/index.php?title=QuenchGate&action=render')" \
+            || { echo "the page did not survive a pod restart"; exit 1; }
+          echo "  restart: schema kept, update ran, page still served"
+          kill $pf
+
+          # --- 2. External MySQL (the quench mysql chart) -------------------------
+          helm install db oci://ghcr.io/quenchworks/charts/mysql --version 0.0.16 \
+            --set auth.rootPassword=ci-root-2026 --set auth.database=wiki \
+            --set auth.username=wiki --set auth.password=ci-wiki-db-2026 \
+            --set primary.persistence.size=1Gi --wait --timeout 8m
+          helm install rmy "${CHART_DIR}" --wait --timeout 8m \
+            --set mediawiki.server=http://127.0.0.1:8081 --set mediawiki.admin.password=ci-Quench-wiki-2026 \
+            --set database.type=mysql --set database.host=db-mysql --set database.name=wiki \
+            --set database.user=wiki --set database.password=ci-wiki-db-2026 --set persistence.size=1Gi
+          kubectl port-forward svc/rmy-mediawiki 8081:8080 >/tmp/pf2.log 2>&1 &
+          pf=$!; trap 'kill $pf 2>/dev/null || true' EXIT; sleep 5
+          smoke http://127.0.0.1:8081 ci-Quench-wiki-2026 >/dev/null
+          echo "install gate OK: SQLite install + restart, external MySQL install, login, edit, render"
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/mediawiki-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/mediawiki@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/mediawiki:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

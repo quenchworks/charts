@@ -1,0 +1,162 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/mediawiki
+  digest: "sha256:2b933c82fc82cf39cd64a704c3b6d82972cba71f340b5fb7b6a05fe457c24efb"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# MediaWiki is served by PHP-FPM + nginx (supervisord): nginx listens on 8080 and
+# FastCGI-passes .php to php-fpm on 127.0.0.1:9000. The image ships no
+# LocalSettings.php; this chart renders one into a ConfigMap and points
+# MW_CONFIG_FILE at it. Secrets (the wiki's secret key, upgrade key, DB password)
+# come from a managed Secret as env vars and never appear in argv.
+#
+# First start: an init container checks for the schema. If it is missing, it runs
+# maintenance/run.php install (which creates the tables, the admin account and the
+# Main Page), then it always runs update --quick, so a chart upgrade to a newer
+# MediaWiki migrates the schema before the wiki serves.
+#
+# Single replica: the default SQLite database and the uploads PVC are
+# ReadWriteOnce, and the object cache (APCu) is per pod.
+replicaCount: 1
+
+mediawiki:
+  siteName: "QuenchWiki"
+  # $wgServer: the URL readers use, scheme and host with no path, e.g.
+  # https://wiki.example.com. MediaWiki builds absolute links and redirects from
+  # it, so set it to the public URL before real use.
+  server: "http://localhost:8080"
+  language: en
+  # Pretty /wiki/Page URLs ($wgArticlePath = "/wiki/$1"). The image's nginx
+  # already routes /wiki/ to index.php.
+  shortUrls: true
+  defaultSkin: vector-2022
+  # Skins and extensions bundled in the release tarball to load. Extensions that
+  # add tables are fine: update --quick creates them on the next start.
+  # Scribunto is bundled but needs a Lua 5.1 binary the image does not ship.
+  skins: [Vector, MonoBook, Timeless]
+  extensions: [Cite, ParserFunctions, WikiEditor, CategoryTree, InputBox]
+  enableUploads: true
+  # Raw PHP appended to LocalSettings.php, after everything above. Use it for
+  # permissions ($wgGroupPermissions), SMTP, or extension settings.
+  extraConfig: ""
+  admin:
+    # The account the installer creates. The password is used only by the
+    # installer; changing it later does not change the account.
+    username: Admin
+    # Empty generates one into the managed Secret, kept across upgrades.
+    password: ""
+    existingSecret: ""
+    existingSecretPasswordKey: admin-password
+
+# --- Database ---
+# sqlite (default): a file database on its own PVC, no server to run.
+# mysql / postgres: an external server. The database and user must exist; the
+# installer creates the tables in it.
+database:
+  type: sqlite
+  name: my_wiki
+  # Table prefix, for several wikis in one MySQL database. Leave empty otherwise.
+  prefix: ""
+  host: ""
+  port: null            # default 3306 for mysql, 5432 for postgres
+  user: ""
+  password: ""          # generated into the managed Secret if empty and no existingSecret
+  existingSecret: ""
+  existingSecretPasswordKey: db-password
+  sqlite:
+    persistence:
+      enabled: true
+      size: 2Gi
+      # storageClass: ""
+      accessModes: ["ReadWriteOnce"]
+      annotations: {}
+      existingClaim: ""
+
+# Resources. PHP-FPM + nginx idle small; memory grows with concurrent parses.
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# --- Uploads volume (PVC) ---
+# Uploaded files and generated thumbnails live under /var/www/html/images, the
+# only writable app path on the read-only rootfs.
+persistence:
+  enabled: true
+  size: 10Gi
+  mountPath: /var/www/html/images
+  # storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  existingClaim: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Merged over the hardened quench-common defaults (nonroot uid 1001, fsGroup 1001
+# so the PVCs are writable, read-only rootfs).
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+# Resources for the install/update init container. The installer and update.php
+# parse the whole codebase once, which is the heaviest thing the chart runs.
+init:
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "2", memory: 1Gi }
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Ingress to the wiki is limited to the release namespace unless allowExternal.
+# Egress: DNS, the database port, and general egress (InstantCommons, mail,
+# extension fetches).
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []

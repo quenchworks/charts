@@ -1,0 +1,28 @@
+Quenchworks MediaWiki is installed as {{ include "quench-common.fullname" . }}.
+
+The wiki is served on port {{ .Values.service.port }} inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Reach it from your machine:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  # then open {{ .Values.mediawiki.server }}
+
+$wgServer is {{ .Values.mediawiki.server }}. MediaWiki builds absolute links and
+redirects from it, so set mediawiki.server to the URL readers use.
+
+Log in as {{ .Values.mediawiki.admin.username }}. The password:
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "mediawiki.admin.secretName" . }} \
+    -o jsonpath='{.data.{{ include "mediawiki.admin.secretKey" . }}}' | base64 -d
+
+Database: {{ include "mediawiki.db.type" . }}{{ if include "mediawiki.db.external" . }} at {{ include "mediawiki.db.host" . }}:{{ include "mediawiki.db.port" . }}, database {{ .Values.database.name }}{{ else }} on {{ if .Values.database.sqlite.persistence.enabled }}a PVC{{ else }}an emptyDir (NOT persistent){{ end }}{{ end }}.
+The init container installs the schema on first start and runs update.php on
+every start, so upgrading the chart migrates the schema.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }}@{{ .Values.image.digest }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

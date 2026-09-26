@@ -1,0 +1,180 @@
+{{/* Readiness asks api.php for siteinfo, which answers 200 only once php-fpm is up
+     AND the database is readable, so --wait on readiness is an integration test.
+     The init container has already installed or updated the schema by then. */}}
+{{- $siteinfo := "/api.php?action=query&meta=siteinfo&format=json" -}}
+{{- $liveness := dict "httpGet" (dict "path" $siteinfo "port" "http") "initialDelaySeconds" 20 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" $siteinfo "port" "http") "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $db := include "mediawiki.db.type" . -}}
+{{- $fullname := include "quench-common.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # The SQLite and uploads PVCs are ReadWriteOnce; Recreate keeps two pods from
+  # contending for them during a rollout.
+  strategy:
+    {{- if .Values.updateStrategy }}
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+    {{- else }}
+    type: Recreate
+    {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "mediawiki.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        - name: install
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/bin/sh", "/etc/mediawiki/local/install.sh"]
+          env:
+            {{- include "mediawiki.env" . | nindent 12 }}
+            - name: MW_DB_TYPE
+              value: {{ $db | quote }}
+            - name: MW_DB_NAME
+              value: {{ .Values.database.name | quote }}
+            - name: MW_DB_PREFIX
+              value: {{ .Values.database.prefix | quote }}
+            {{- if include "mediawiki.db.external" . }}
+            - name: MW_DB_HOST
+              value: {{ include "mediawiki.db.host" . | quote }}
+            - name: MW_DB_PORT
+              value: {{ include "mediawiki.db.port" . | quote }}
+            - name: MW_DB_USER
+              value: {{ .Values.database.user | quote }}
+            {{- end }}
+            - name: MW_SERVER_URL
+              value: {{ .Values.mediawiki.server | quote }}
+            - name: MW_LANG
+              value: {{ .Values.mediawiki.language | quote }}
+            - name: MW_SITENAME
+              value: {{ .Values.mediawiki.siteName | quote }}
+            - name: MW_ADMIN_USER
+              value: {{ .Values.mediawiki.admin.username | quote }}
+          resources:
+            {{- toYaml .Values.init.resources | nindent 12 }}
+          volumeMounts:
+            - name: local
+              mountPath: /etc/mediawiki/local
+              readOnly: true
+            # Password files for the installer's --passfile/--dbpassfile, so no
+            # password is ever an argument.
+            - name: secrets
+              mountPath: /etc/mediawiki/secrets
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: uploads
+              mountPath: {{ .Values.persistence.mountPath }}
+            {{- if eq $db "sqlite" }}
+            - name: data
+              mountPath: {{ include "mediawiki.sqliteDir" . }}
+            {{- end }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: mediawiki
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- include "quench-common.args" . | nindent 10 }}
+          env:
+            {{- include "mediawiki.env" . | nindent 12 }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: local
+              mountPath: /etc/mediawiki/local
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            - name: uploads
+              mountPath: {{ .Values.persistence.mountPath }}
+            {{- if eq $db "sqlite" }}
+            - name: data
+              mountPath: {{ include "mediawiki.sqliteDir" . }}
+            {{- end }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: local
+          configMap:
+            name: {{ $fullname }}
+        - name: secrets
+          projected:
+            sources:
+              - secret:
+                  name: {{ include "mediawiki.admin.secretName" . }}
+                  items:
+                    - key: {{ include "mediawiki.admin.secretKey" . }}
+                      path: admin-password
+              {{- if include "mediawiki.db.external" . }}
+              - secret:
+                  name: {{ include "mediawiki.db.secretName" . }}
+                  items:
+                    - key: {{ include "mediawiki.db.secretKey" . }}
+                      path: db-password
+              {{- end }}
+        - name: tmp
+          emptyDir: {}
+        - name: uploads
+        {{- if not .Values.persistence.enabled }}
+          emptyDir: {}
+        {{- else if .Values.persistence.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim }}
+        {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ $fullname }}-uploads
+        {{- end }}
+        {{- if eq $db "sqlite" }}
+        {{- $sp := .Values.database.sqlite.persistence }}
+        - name: data
+        {{- if not $sp.enabled }}
+          emptyDir: {}
+        {{- else if $sp.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ $sp.existingClaim }}
+        {{- else }}
+          persistentVolumeClaim:
+            claimName: {{ $fullname }}-data
+        {{- end }}
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

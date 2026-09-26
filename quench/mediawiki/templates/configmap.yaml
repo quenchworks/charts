@@ -1,0 +1,122 @@
+{{/* LocalSettings.php, found through MW_CONFIG_FILE. Plain settings are rendered
+     in; secrets are read from env at request time (see mediawiki.env). */}}
+{{- $m := .Values.mediawiki -}}
+{{- $db := include "mediawiki.db.type" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  LocalSettings.php: |
+    <?php
+    # Rendered by the quenchworks mediawiki chart. Edit values.yaml, not this file.
+    if ( !defined( 'MEDIAWIKI' ) ) {
+        exit;
+    }
+
+    $wgSitename = {{ include "mediawiki.phpstr" $m.siteName }};
+    $wgServer = {{ include "mediawiki.phpstr" $m.server }};
+    $wgScriptPath = '';
+    {{- if $m.shortUrls }}
+    $wgArticlePath = '/wiki/$1';
+    {{- end }}
+    $wgResourceBasePath = $wgScriptPath;
+    $wgLogos = [ '1x' => "$wgResourceBasePath/resources/assets/change-your-logo.svg", 'icon' => "$wgResourceBasePath/resources/assets/change-your-logo-icon.svg" ];
+    $wgLanguageCode = {{ include "mediawiki.phpstr" $m.language }};
+    $wgLocaltimezone = 'UTC';
+
+    $wgDBtype = {{ include "mediawiki.phpstr" $db }};
+    $wgDBname = {{ include "mediawiki.phpstr" .Values.database.name }};
+    $wgDBprefix = {{ include "mediawiki.phpstr" .Values.database.prefix }};
+    {{- if eq $db "sqlite" }}
+    $wgSQLiteDataDir = {{ include "mediawiki.phpstr" (include "mediawiki.sqliteDir" .) }};
+    {{- else }}
+    {{- if eq $db "postgres" }}
+    $wgDBserver = {{ include "mediawiki.phpstr" (include "mediawiki.db.host" .) }};
+    $wgDBport = {{ include "mediawiki.db.port" . | int }};
+    {{- else }}
+    $wgDBserver = {{ include "mediawiki.phpstr" (printf "%s:%s" (include "mediawiki.db.host" .) (include "mediawiki.db.port" .)) }};
+    {{- end }}
+    $wgDBuser = {{ include "mediawiki.phpstr" .Values.database.user }};
+    $wgDBpassword = getenv( 'MW_DB_PASSWORD' );
+    {{- if eq $db "mysql" }}
+    $wgDBTableOptions = 'ENGINE=InnoDB, DEFAULT CHARSET=binary';
+    {{- end }}
+    {{- end }}
+
+    $wgSecretKey = getenv( 'MW_SECRET_KEY' );
+    $wgUpgradeKey = getenv( 'MW_UPGRADE_KEY' );
+    $wgAuthenticationTokenVersion = '1';
+
+    # APCu is per pod, which is why the chart runs one replica. Sessions go to the
+    # database so a restart does not log everyone out.
+    $wgMainCacheType = CACHE_ACCEL;
+    $wgSessionCacheType = CACHE_DB;
+    $wgParserCacheType = CACHE_DB;
+    # The rootfs is read-only; /tmp is the pod's scratch emptyDir.
+    $wgCacheDirectory = '/tmp/mw-cache';
+    $wgTmpDirectory = '/tmp';
+
+    $wgEnableUploads = {{ ternary "true" "false" $m.enableUploads }};
+    $wgUploadDirectory = '/var/www/html/images';
+    $wgUseImageMagick = false;
+    $wgUseInstantCommons = false;
+    # No mail server is configured by default; set $wgSMTP in extraConfig.
+    $wgEnableEmail = false;
+    $wgEnableUserEmail = false;
+    $wgShellLocale = 'C.UTF-8';
+    $wgDiff3 = '';
+
+    $wgDefaultSkin = {{ include "mediawiki.phpstr" $m.defaultSkin }};
+    {{- range $m.skins }}
+    wfLoadSkin( {{ include "mediawiki.phpstr" . }} );
+    {{- end }}
+    {{- range $m.extensions }}
+    wfLoadExtension( {{ include "mediawiki.phpstr" . }} );
+    {{- end }}
+    {{- with $m.extraConfig }}
+
+    # --- mediawiki.extraConfig ---
+    {{- . | nindent 4 }}
+    {{- end }}
+  # Run by the init container before every start. Idempotent: the installer runs
+  # only when the page table is missing, and update --quick is a no-op on a
+  # current schema.
+  install.sh: |
+    set -eu
+    cd /var/www/html
+    run() { php maintenance/run.php "$@"; }
+    if [ "$MW_DB_TYPE" != sqlite ]; then
+      i=0
+      until run sql --query 'SELECT 1' >/dev/null 2>&1; do
+        i=$((i + 1))
+        if [ "$i" -ge 60 ]; then
+          echo "database not reachable after 300s:"; run sql --query 'SELECT 1'; exit 1
+        fi
+        echo "waiting for the database ($i/60)"; sleep 5
+      done
+    fi
+    if run sql --query "SELECT 1 FROM ${MW_DB_PREFIX}page LIMIT 1" >/dev/null 2>&1; then
+      echo "schema present"
+    else
+      echo "no schema: running the installer"
+      set -- --confpath=/tmp/mw-install --dbtype="$MW_DB_TYPE" --dbname="$MW_DB_NAME" \
+        --server="$MW_SERVER_URL" --scriptpath= --lang="$MW_LANG" \
+        --passfile=/etc/mediawiki/secrets/admin-password
+      [ -z "$MW_DB_PREFIX" ] || set -- "$@" --dbprefix="$MW_DB_PREFIX"
+      case "$MW_DB_TYPE" in
+        sqlite)   set -- "$@" --dbpath={{ include "mediawiki.sqliteDir" . }} ;;
+        mysql)    set -- "$@" --dbserver="$MW_DB_HOST:$MW_DB_PORT" --dbuser="$MW_DB_USER" \
+                    --dbpassfile=/etc/mediawiki/secrets/db-password ;;
+        postgres) set -- "$@" --dbserver="$MW_DB_HOST" --dbport="$MW_DB_PORT" --dbuser="$MW_DB_USER" \
+                    --dbpassfile=/etc/mediawiki/secrets/db-password ;;
+      esac
+      mkdir -p /tmp/mw-install
+      # The installer refuses to run while MW_CONFIG_FILE names an existing
+      # LocalSettings.php. It writes its own into --confpath; ours stays in use.
+      env -u MW_CONFIG_FILE php maintenance/run.php install "$@" "$MW_SITENAME" "$MW_ADMIN_USER"
+      rm -rf /tmp/mw-install
+    fi
+    run update --quick

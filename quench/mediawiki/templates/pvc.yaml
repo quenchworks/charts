@@ -1,0 +1,34 @@
+{{/* Standalone PVCs, not tied to the pod lifecycle, so data survives rollouts:
+     -uploads for /var/www/html/images, -data for the SQLite files. Each is skipped
+     when its persistence is off (emptyDir) or an existingClaim is given. */}}
+{{- $fullname := include "quench-common.fullname" . -}}
+{{- $claims := list -}}
+{{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) -}}
+{{- $claims = append $claims (dict "suffix" "uploads" "p" .Values.persistence) -}}
+{{- end -}}
+{{- $sp := .Values.database.sqlite.persistence -}}
+{{- if and (eq (include "mediawiki.db.type" .) "sqlite") $sp.enabled (not $sp.existingClaim) -}}
+{{- $claims = append $claims (dict "suffix" "data" "p" $sp) -}}
+{{- end -}}
+{{- range $claims }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fullname }}-{{ .suffix }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+  {{- with .p.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .p.accessModes | nindent 4 }}
+  {{- if .p.storageClass }}
+  storageClassName: {{ .p.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .p.size }}
+{{- end }}
