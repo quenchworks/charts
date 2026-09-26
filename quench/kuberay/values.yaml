@@ -1,0 +1,55 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/kuberay
+  digest: "sha256:21400b61098a802980ae8c6f8d6e0efcc741b1200ce0d536ce88188134faa16d"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# More than one replica needs leader election (on by default, as upstream).
+replicaCount: 1
+leaderElection:
+  enabled: true
+
+# Namespaces to watch for Ray custom resources; empty watches all namespaces.
+watchNamespaces: []
+
+# KubeRay feature gates, e.g. { RayJobDeletionPolicy: true }. Empty keeps the
+# operator's defaults.
+featureGates: {}
+
+# Extra operator flags, e.g. --batch-scheduler=volcano, --reconcile-concurrency=4.
+extraArgs: []
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: 500m, memory: 512Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# ClusterRole for Ray resources, Pods, Services, Jobs, Ingresses and Routes, plus
+# a namespaced Role for leader election. Rules match upstream's role.yaml.
+rbac:
+  create: true
