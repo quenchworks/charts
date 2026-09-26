@@ -1,0 +1,32 @@
+secrets-stack is installed in {{ .Release.Namespace }}.
+
+OpenBao unsealed itself (static seal) and configured itself on first start:
+  secret/            KV v2; the secrets-user policy covers secret/shared/*
+  auth/oidc          people sign in through Keycloak (role "user")
+  auth/jwt           workloads log in with Keycloak client-credentials tokens (role "machine")
+  auth/userpass      break-glass "admin" with the admin policy
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ .Release.Name }}-openbao 8200:8200
+  export BAO_ADDR=http://127.0.0.1:8200
+
+Sign in as a person (opens the Keycloak login page):
+
+  bao login -method=oidc role=user
+
+A workload: get a token for the "openbao" client, then log in with it:
+
+  CS=$(kubectl get secret -n {{ .Release.Namespace }} secrets-stack-openbao -o jsonpath='{.data.client-secret}' | base64 -d)
+  JWT=$(curl -s -d grant_type=client_credentials -u openbao:$CS {{ include "secrets-stack.issuer" . }}/protocol/openid-connect/token | jq -r .access_token)
+  bao write auth/jwt/login role=machine jwt=$JWT
+
+Break-glass admin:
+
+  bao login -method=userpass username=admin \
+    password=$(kubectl get secret -n {{ .Release.Namespace }} secrets-stack-openbao -o jsonpath='{.data.admin-password}' | base64 -d)
+
+Keycloak (issuer {{ include "secrets-stack.issuer" . }}):
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/secrets-keycloak 8080:8080
+
+KEEP secrets-stack-openbao (it has helm.sh/resource-policy: keep). It holds the seal
+key; without it the stored secrets cannot be decrypted.

@@ -1,0 +1,93 @@
+# secrets-stack: OpenBao behind Keycloak sign-in.
+#
+# OpenBao auto-unseals with a static seal key (a Secret this chart generates and
+# keeps across upgrades) and configures itself on first start (declarative
+# self-initialization): a KV v2 mount at secret/, OIDC auth for people (role
+# "user", sign in through Keycloak), JWT auth for workloads (role "machine",
+# Keycloak client-credentials tokens), and a break-glass userpass "admin".
+# Keycloak imports a "secrets" realm with the confidential "openbao" client.
+#
+# Names are FIXED (secrets-keycloak, secrets-stack-*): the subcharts take their
+# peers as plain values, not templates. One stack per namespace.
+
+# The Keycloak realm OpenBao trusts ("secrets", fixed: the wait-for-realm init
+# container below names it), and its "openbao" client.
+realm:
+  # Where people are sent back after signing in: the bao CLI's local callback
+  # and, if you expose OpenBao, its UI callback (<openbao url>/ui/vault/auth/oidc/oidc/callback).
+  redirectUris:
+    - http://localhost:8250/oidc/callback
+  # Optional realm users, e.g. for a demo or a gate: [{username, password}].
+  # Real deployments manage users in Keycloak (or federate an IdP) instead.
+  users: []
+
+# ---------------------------------------------------------------------------
+# Keycloak (subchart). production.hostname is the ISSUER: tokens carry it, and
+# OpenBao fetches the realm's discovery document from it. The default is the
+# in-cluster Service; for browser sign-in set it to the public URL (reachable
+# from both browsers and the OpenBao pod) and set proxyHeaders behind an ingress.
+# ---------------------------------------------------------------------------
+keycloak:
+  enabled: true
+  fullnameOverride: secrets-keycloak
+  production:
+    hostname: http://secrets-keycloak:8080
+  args: ["--import-realm"]
+  extraVolumes:
+    - name: realm
+      secret:
+        secretName: secrets-stack-realm
+  extraVolumeMounts:
+    - name: realm
+      mountPath: /opt/keycloak/data/import
+      readOnly: true
+
+# ---------------------------------------------------------------------------
+# OpenBao (subchart). The stack's config (static seal + self-init) is a
+# ConfigMap mounted at BAO_CONFIG_EXTRA_DIR; secrets come in as env.
+# ---------------------------------------------------------------------------
+openbao:
+  extraEnvVars:
+    - name: BAO_CONFIG_EXTRA_DIR
+      value: /openbao/extra
+    - name: STACK_ADMIN_PASSWORD
+      valueFrom:
+        secretKeyRef: { name: secrets-stack-openbao, key: admin-password }
+    - name: STACK_OIDC_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef: { name: secrets-stack-openbao, key: client-secret }
+  extraVolumes:
+    - name: stack-config
+      configMap:
+        name: secrets-stack-openbao-config
+    - name: stack-seal
+      secret:
+        secretName: secrets-stack-openbao
+        items:
+          - { key: seal-key, path: seal.key }
+  extraVolumeMounts:
+    - name: stack-config
+      mountPath: /openbao/extra
+      readOnly: true
+    - name: stack-seal
+      mountPath: /openbao/seal
+      readOnly: true
+  # Self-init configures OIDC once, on first start, and writing auth/oidc/config
+  # fetches the realm's discovery document. So OpenBao waits for it. busybox nc
+  # is the only HTTP client in the openbao image. Keep this digest equal to the
+  # openbao subchart's image.digest.
+  initContainers:
+    - name: wait-for-realm
+      image: ghcr.io/quenchworks/images/openbao@sha256:90b297669e2a3c457d25689243af86fe8b1ac90d7f5b5ef17818e11c81e3782a
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          until printf 'GET /realms/secrets/.well-known/openid-configuration HTTP/1.0\r\nHost: secrets-keycloak\r\n\r\n' \
+                | nc -w 5 secrets-keycloak 8080 2>/dev/null | head -1 | grep -q ' 200 '; do
+            echo "waiting for the Keycloak realm"; sleep 5
+          done
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        runAsNonRoot: true
+        capabilities: { drop: [ALL] }

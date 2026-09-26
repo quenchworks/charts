@@ -1,0 +1,101 @@
+{{/* OpenBao's stack config, merged after the image's seeded bao.hcl. Self-init runs
+     once, on first start; later changes here do not re-run it. */}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: secrets-stack-openbao-config
+  labels:
+    {{- include "secrets-stack.labels" . | nindent 4 }}
+data:
+  stack.hcl: |
+    seal "static" {
+      current_key_id = "secrets-stack-1"
+      current_key    = "file:///openbao/seal/seal.key"
+    }
+
+    initialize "stack" {
+      request "kv" {
+        operation = "update"
+        path      = "sys/mounts/secret"
+        data      = { type = "kv", options = { version = "2" } }
+      }
+      request "policy-secrets-user" {
+        operation = "update"
+        path      = "sys/policies/acl/secrets-user"
+        data = {
+          policy = <<-EOP
+            path "secret/data/shared/*"     { capabilities = ["create", "read", "update", "delete"] }
+            path "secret/metadata/shared/*" { capabilities = ["list", "read"] }
+          EOP
+        }
+      }
+      request "policy-admin" {
+        operation = "update"
+        path      = "sys/policies/acl/admin"
+        data      = { policy = "path \"*\" { capabilities = [\"create\", \"read\", \"update\", \"delete\", \"list\", \"sudo\"] }" }
+      }
+
+      # People: sign in through Keycloak.
+      request "oidc-enable" {
+        operation = "update"
+        path      = "sys/auth/oidc"
+        data      = { type = "oidc" }
+      }
+      request "oidc-config" {
+        operation = "update"
+        path      = "auth/oidc/config"
+        data = {
+          oidc_discovery_url = "{{ include "secrets-stack.issuer" . }}"
+          oidc_client_id     = "openbao"
+          oidc_client_secret = { eval_type = "string", eval_source = "env", env_var = "STACK_OIDC_CLIENT_SECRET", require_present = true }
+          default_role       = "user"
+        }
+      }
+      request "oidc-role-user" {
+        operation = "update"
+        path      = "auth/oidc/role/user"
+        data = {
+          role_type             = "oidc"
+          user_claim            = "preferred_username"
+          allowed_redirect_uris = {{ .Values.realm.redirectUris | toJson }}
+          token_policies        = ["secrets-user"]
+        }
+      }
+
+      # Workloads: Keycloak client-credentials tokens (audience "openbao").
+      request "jwt-enable" {
+        operation = "update"
+        path      = "sys/auth/jwt"
+        data      = { type = "jwt" }
+      }
+      request "jwt-config" {
+        operation = "update"
+        path      = "auth/jwt/config"
+        data      = { oidc_discovery_url = "{{ include "secrets-stack.issuer" . }}" }
+      }
+      request "jwt-role-machine" {
+        operation = "update"
+        path      = "auth/jwt/role/machine"
+        data = {
+          role_type       = "jwt"
+          bound_audiences = ["openbao"]
+          user_claim      = "sub"
+          token_policies  = ["secrets-user"]
+        }
+      }
+
+      # Break-glass: the only admin credential, in secrets-stack-openbao.
+      request "userpass-enable" {
+        operation = "update"
+        path      = "sys/auth/userpass"
+        data      = { type = "userpass" }
+      }
+      request "userpass-admin" {
+        operation = "update"
+        path      = "auth/userpass/users/admin"
+        data = {
+          password       = { eval_type = "string", eval_source = "env", env_var = "STACK_ADMIN_PASSWORD", require_present = true }
+          token_policies = ["admin"]
+        }
+      }
+    }
