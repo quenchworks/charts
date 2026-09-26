@@ -1,0 +1,14 @@
+Quenchworks CrateDB {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }} ({{ .Values.replicas }} node(s)).
+
+  PostgreSQL protocol: {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.pgPort }}
+  HTTP SQL endpoint:   http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.httpPort }}/_sql
+
+Host-based auth trusts the `crate` superuser from local connections only, and a
+port-forward counts as local. Create an application user that way:
+
+  kubectl port-forward {{ include "quench-common.fullname" . }}-0 4200 &
+  curl -s -H 'Content-Type: application/json' localhost:4200/_sql \
+    -d '{"stmt":"CREATE USER app WITH (password = '\''change-me'\'')"}'
+  curl -s -H 'Content-Type: application/json' localhost:4200/_sql -d '{"stmt":"GRANT ALL TO app"}'
+
+Then connect over the PostgreSQL protocol as app with that password.

@@ -1,0 +1,48 @@
+# Quenchworks CrateDB on the QuenchWorks cratedb image (nonroot, 0-CVE, cosign-signed,
+# pinned by digest).
+image:
+  repository: ghcr.io/quenchworks/images/cratedb
+  digest: "sha256:238f300ba20b109db487f3cbf7d8369ab13f50a9b6c421c077bcc5cae6fb7013"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# 1 runs a single node (discovery.type=single-node, which also skips the production
+# bootstrap checks). More than 1 forms a cluster over the headless Service, and then
+# every node must have vm.max_map_count >= 262144 (a node-level sysctl this chart does
+# not set).
+replicas: 1
+
+# Heap: the image defaults to -Xms256m -XX:MaxRAMPercentage=50 of the memory limit,
+# leaving the rest for Lucene's page cache. Override with JDK_JAVA_OPTIONS in extraEnv.
+extraEnv: []
+# Extra settings as -C flags, e.g. ["-Cstats.enabled=false"].
+extraArgs: []
+
+persistence:
+  enabled: true
+  size: 16Gi
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+
+resources:
+  requests: { cpu: 500m, memory: 2Gi }
+  limits: { cpu: "2", memory: 4Gi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+  httpPort: 4200
+  pgPort: 5432
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}
