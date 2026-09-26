@@ -1,0 +1,91 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/trino
+  digest: "sha256:9d5a642b3e21b47f38c0f31da740fe252198d8bc2179ac94c14637d00595fe03"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# One coordinator (Trino has no coordinator failover) plus N workers. With
+# worker.replicas 0 the coordinator also runs tasks: a single-node install.
+# The JVM heap is jvm.ramPercentage of each pod's memory limit, so size queries
+# by the limits below.
+coordinator:
+  resources:
+    requests: { cpu: 500m, memory: 2Gi }
+    limits: { cpu: "2", memory: 2Gi }
+worker:
+  replicas: 2
+  resources:
+    requests: { cpu: 500m, memory: 2Gi }
+    limits: { cpu: "2", memory: 2Gi }
+
+jvm:
+  ramPercentage: 75
+  extraOptions: []
+
+# node.environment; every node of one cluster must share it.
+nodeEnvironment: quench
+
+# Extra config.properties entries for every node, e.g.
+#   query.max-memory: 4GB
+#   query.max-memory-per-node: 1GB
+config: {}
+
+# log.properties, e.g. { io.trino: INFO }
+logLevels: {}
+
+# Catalogs, one file each under etc/catalog: <name>: <properties>. The image
+# ships the jmx, memory, tpcds, tpch and postgresql connectors. Keep secrets out
+# of values: reference environment variables with ${ENV:NAME} and set them from a
+# Secret through extraEnvVars or extraEnvVarsSecret, e.g.
+#   pg: |
+#     connector.name=postgresql
+#     connection-url=jdbc:postgresql://db:5432/app
+#     connection-user=${ENV:PG_USER}
+#     connection-password=${ENV:PG_PASSWORD}
+catalogs:
+  tpch: |
+    connector.name=tpch
+  memory: |
+    connector.name=memory
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Clients connect from across the cluster by default. allowExternal=false limits
+# ingress to pods in this namespace (the workers always reach the coordinator).
+networkPolicy:
+  enabled: true
+  allowExternal: true

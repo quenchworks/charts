@@ -1,0 +1,45 @@
+{{- $fullname := include "quench-common.fullname" . -}}
+{{- $discovery := printf "http://%s:%v" $fullname .Values.service.port -}}
+{{- range $role := list "coordinator" "worker" }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-{{ $role }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+data:
+  config.properties: |
+    {{- if eq $role "coordinator" }}
+    coordinator=true
+    node-scheduler.include-coordinator={{ eq (int $.Values.worker.replicas) 0 }}
+    {{- else }}
+    coordinator=false
+    {{- end }}
+    http-server.http.port=8080
+    discovery.uri={{ $discovery }}
+    {{- range $k, $v := $.Values.config }}
+    {{ $k }}={{ $v }}
+    {{- end }}
+  node.properties: |
+    node.environment={{ $.Values.nodeEnvironment }}
+    node.data-dir=/data/trino
+  jvm.config: |
+    {{- include "trino.jvmConfig" $ | nindent 4 }}
+  log.properties: |
+    {{- range $k, $v := $.Values.logLevels }}
+    {{ $k }}={{ $v }}
+    {{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-catalog
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  {{- range $name, $props := .Values.catalogs }}
+  {{ $name }}.properties: |
+    {{- $props | nindent 4 }}
+  {{- end }}

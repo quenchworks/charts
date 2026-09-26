@@ -1,0 +1,90 @@
+{{- $fullname := include "quench-common.fullname" . -}}
+{{- $probe := dict "httpGet" (dict "path" "/v1/info" "port" "http") -}}
+{{- $liveness := merge (dict "initialDelaySeconds" 30 "periodSeconds" 20 "timeoutSeconds" 5) $probe -}}
+{{- $readiness := merge (dict "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5) (deepCopy $probe) -}}
+{{- range $role := list "coordinator" "worker" }}
+{{- $r := index $.Values $role }}
+{{- if or (eq $role "coordinator") (gt (int $r.replicas) 0) }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-{{ $role }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $role }}
+spec:
+  {{- /* one coordinator: Trino has no coordinator failover */}}
+  replicas: {{ if eq $role "coordinator" }}1{{ else }}{{ $r.replicas }}{{ end }}
+  selector:
+    matchLabels:
+      {{- include "trino.componentLabels" (dict "ctx" $ "component" $role) | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") $ | sha256sum }}
+        {{- with $.Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "trino.componentLabels" (dict "ctx" $ "component" $role) | nindent 8 }}
+        {{- include "quench-common.podLabels" $ | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "trino.serviceAccountName" $ }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" $ | nindent 8 }}
+      {{- include "quench-common.podSpecFields" $ | nindent 6 }}
+      {{- include "quench-common.initContainers" $ | nindent 6 }}
+      containers:
+        - name: trino
+          image: {{ include "quench-common.image" $ }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" $ | nindent 12 }}
+          {{- with $.Values.extraEnvVars }}
+          env:
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.envFrom" $ | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" $ "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" $ "name" "readiness" "default" $readiness) | nindent 10 }}
+          resources:
+            {{- toYaml $r.resources | nindent 12 }}
+          volumeMounts:
+            # One projected volume: a catalog ConfigMap mounted inside the config
+            # ConfigMap's read-only volume cannot get its mount point created.
+            - name: config
+              mountPath: /etc/trino
+              readOnly: true
+            - name: data
+              mountPath: /data/trino
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" $ | nindent 12 }}
+        {{- include "quench-common.sidecars" $ | nindent 8 }}
+      volumes:
+        - name: config
+          projected:
+            sources:
+              - configMap:
+                  name: {{ $fullname }}-{{ $role }}
+              {{- if $.Values.catalogs }}
+              - configMap:
+                  name: {{ $fullname }}-catalog
+                  items:
+                    {{- range $name, $_ := $.Values.catalogs }}
+                    - key: {{ $name }}.properties
+                      path: catalog/{{ $name }}.properties
+                    {{- end }}
+              {{- end }}
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" $ | nindent 8 }}
+{{- end }}
+{{- end }}

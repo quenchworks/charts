@@ -1,0 +1,21 @@
+Quenchworks Trino is installed as {{ include "quench-common.fullname" . }}: one coordinator and {{ .Values.worker.replicas }} worker(s){{ if eq (int .Values.worker.replicas) 0 }} (single node: the coordinator runs tasks){{ end }}.
+
+Connect clients to the coordinator:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Try it over a port-forward with the REST protocol (or any Trino client):
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl -X POST -H 'X-Trino-User: me' --data 'SELECT * FROM system.runtime.nodes' \
+    http://127.0.0.1:{{ .Values.service.port }}/v1/statement
+
+Catalogs: {{ keys .Values.catalogs | sortAlpha | join ", " }}. Authentication is off
+by default; configure it through config (http-server.authentication.type) before
+exposing the coordinator.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/trino \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
