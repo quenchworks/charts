@@ -1,0 +1,27 @@
+Quenchworks Label Studio is installed as {{ include "quench-common.fullname" . }}.
+
+Reach the UI from your machine:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  # then open http://localhost:{{ .Values.service.port }}/
+
+Log in as {{ .Values.admin.username }}. The password:
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "quench-common.fullname" . }} -o jsonpath='{.data.admin-password}' | base64 -d; echo
+
+Database:
+{{- if .Values.postgresql.enabled }}
+  Bundled PostgreSQL, {{ include "label-studio.db.host" . }}/{{ include "label-studio.db.name" . }}.
+{{- else if .Values.externalDatabase.enabled }}
+  External PostgreSQL, {{ include "label-studio.db.host" . }}/{{ include "label-studio.db.name" . }}.
+{{- else }}
+  SQLite on the data volume (one pod only).
+{{- end }}
+
+The data volume holds uploads, exports and the generated SECRET_KEY; keep it.
+The SDK's brush-to-COCO export is not available in this image.
+{{- if not .Values.host }}
+
+Set host (e.g. https://label.example.com) before serving through an Ingress, so
+links and CSRF checks use the public URL.
+{{- end }}

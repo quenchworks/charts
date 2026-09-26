@@ -1,0 +1,125 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/label-studio
+  digest: "sha256:fcaff9893e4272c9a9883db65dde94c81cc7f15b053b4e20be13c5c416b2a42e"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Label Studio is a Django app with a bundled frontend, served on port 8080 by
+# "label-studio start". It runs as one pod (the data PVC is ReadWriteOnce).
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# The admin account, created (or its password reset) on every start. An empty
+# password is generated into the managed Secret and kept across upgrades.
+admin:
+  username: admin@example.com
+  password: ""
+
+# Refuse sign-ups that do not come through an invite link.
+disableSignup: true
+
+# Public URL, e.g. https://label.example.com. Sets LABEL_STUDIO_HOST (used in
+# generated links) and CSRF_TRUSTED_ORIGINS. Set it when serving through an Ingress.
+host: ""
+
+# Data directory: SQLite database (without PostgreSQL), uploaded files, exports
+# and the generated Django SECRET_KEY. Keep it: a new SECRET_KEY logs everyone out.
+persistence:
+  enabled: true
+  size: 10Gi
+  # storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  existingClaim: ""
+
+# --- Bundled database (default) ---
+# The Quenchworks PostgreSQL subchart; its Service is "<release>-postgresql".
+# The image creates auth.username as the superuser and the database only when it
+# differs from the user, so keep them distinct.
+postgresql:
+  enabled: true
+  auth:
+    username: labelstudio
+    password: ""            # generated if empty
+    database: label_studio
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- External database (postgresql.enabled=false, externalDatabase.enabled=true) ---
+# With both off, Label Studio uses SQLite on the data PVC.
+externalDatabase:
+  enabled: false
+  host: ""
+  port: 5432
+  database: label_studio
+  user: labelstudio
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: "db-password"
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+# Extra env vars (list of {name,value} or {name,valueFrom}), appended after the
+# chart's own, e.g. S3/GCS/Azure storage credentials.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Empty keeps the image entrypoint.
+command: []
+args: []
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Label Studio has its own login, but ingress stays namespace-local until you
+# opt in. Egress is open (cloud storage, ML backends, webhooks).
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  # e.g. [{host: label.example.com, paths: [{path: /, pathType: Prefix}]}]
+  hosts: []
+  tls: []
