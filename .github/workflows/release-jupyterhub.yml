@@ -49,24 +49,26 @@ jobs:
           p1=$!
           kubectl port-forward svc/rtest-jupyterhub-proxy-api 8001:8001 >/tmp/pf2.log 2>&1 &
           p2=$!; trap 'kill $p1 $p2' EXIT; sleep 5
-          # 1. Login through the proxy (user traffic path: proxy-public -> hub). JupyterHub
-          #    wants the _xsrf token from its login page on the POST.
-          jar=/tmp/jar.txt
-          curl -fsS -c "$jar" http://127.0.0.1:8000/hub/login >/dev/null
-          xsrf="$(awk '$6 == "_xsrf" { print $7 }' "$jar")"
-          [ -n "$xsrf" ] || { echo "no _xsrf cookie from /hub/login"; cat "$jar"; exit 1; }
-          code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" -c "$jar" \
-            --data-urlencode "username=admin" --data-urlencode "password=quench-ci-password" \
-            --data-urlencode "_xsrf=$xsrf" http://127.0.0.1:8000/hub/login)"
-          [ "$code" = 302 ] || { echo "login returned HTTP $code"; exit 1; }
-          code="$(curl -s -o /dev/null -w '%{http_code}' -b "$jar" -c "$jar" \
-            --data-urlencode "username=admin" --data-urlencode "password=wrong-password" \
-            --data-urlencode "_xsrf=$xsrf" http://127.0.0.1:8000/hub/login)"
-          [ "$code" != 302 ] || { echo "a wrong password logged in"; exit 1; }
+          # 1. Logins through the proxy (the user path: proxy-public -> hub). JupyterHub
+          #    wants the _xsrf token from its login page on every POST.
+          login() {
+            local jar x; jar="$(mktemp)"
+            curl -fsS -c "$jar" http://127.0.0.1:8000/hub/login >/dev/null
+            x="$(awk '$6 == "_xsrf" { print $7 }' "$jar")"
+            curl -s -o /dev/null -w '%{http_code}' -b "$jar" -c "$jar" --data-urlencode "username=$1" \
+              --data-urlencode "password=$2" --data-urlencode "_xsrf=$x" http://127.0.0.1:8000/hub/login
+            rm -f "$jar"
+          }
+          USERPW=quench-ci-password; ADMINPW=quench-ci-admin-password-32-characters-long
+          [ "$(login admin "$ADMINPW")" = 302 ] || { echo "admin login failed"; exit 1; }
+          [ "$(login student "$USERPW")" = 302 ] || { echo "user login failed"; exit 1; }
+          [ "$(login admin "$USERPW")" = 403 ] || { echo "admin got in with the user password"; exit 1; }
+          [ "$(login student wrong-password)" = 403 ] || { echo "a wrong password logged in"; exit 1; }
           # 2. The hub API with the service token sees the user that just logged in.
           tok="$(kubectl get secret rtest-jupyterhub-secrets -o jsonpath='{.data.api-token}' | base64 -d)"
           curl -fsS -H "Authorization: token $tok" http://127.0.0.1:8000/hub/api/users | tee /tmp/users.json; echo
           grep -q '"name": *"admin"' /tmp/users.json
+          grep -q '"name": *"student"' /tmp/users.json
           # 3. The hub registered its route in the proxy.
           ptok="$(kubectl get secret rtest-jupyterhub-secrets -o jsonpath='{.data.proxy-token}' | base64 -d)"
           curl -fsS -H "Authorization: token $ptok" http://127.0.0.1:8001/api/routes | tee /tmp/routes.json; echo

@@ -10,11 +10,13 @@ the hub starts the notebook pods.
 ```sh
 helm install hub oci://ghcr.io/quenchworks/charts/jupyterhub
 kubectl get secret hub-jupyterhub-secrets -o jsonpath='{.data.password}' | base64 -d
+kubectl get secret hub-jupyterhub-secrets -o jsonpath='{.data.admin-password}' | base64 -d
 kubectl port-forward svc/hub-jupyterhub-proxy-public 8000:80   # http://127.0.0.1:8000/
 ```
 
-Sign in with any username and that password. Users listed in `auth.adminUsers`
-(default `admin`) get the admin panel.
+Sign in with any username and the first password. Users listed in
+`auth.adminUsers` (default `admin`) sign in with the admin password and get the
+admin panel.
 
 ## How it runs
 
@@ -39,6 +41,7 @@ Sign in with any username and that password. Users listed in `auth.adminUsers`
 | Key | Default | Meaning |
 |---|---|---|
 | `auth.password` | generated | shared login password (8+ characters) |
+| `auth.adminPassword` | generated | admin login password (32+ characters) |
 | `auth.adminUsers` | `[admin]` | admin users |
 | `singleuser.image` | Jupyter base-notebook `hub-6.0.1` | notebook server image |
 | `singleuser.cpuLimit` / `memoryLimit` | `1` / `2G` | per-user limits |
@@ -49,8 +52,8 @@ Sign in with any username and that password. Users listed in `auth.adminUsers`
 
 ## Release gate
 
-On kind, the gate logs in through the proxy (the user path, proxy to hub), requires
-a wrong password to be refused, reads the logged-in user back through the hub API
+On kind, the gate logs in through the proxy (the user path, proxy to hub) as a user
+and as the admin, requires a wrong password to be refused, reads the logged-in user back through the hub API
 with the chart's service token, and requires the hub's route in the proxy. Spawning
 a notebook server pulls the upstream notebook image and is not part of the gate.
 

@@ -5,9 +5,15 @@ Open it:
   kubectl port-forward svc/{{ include "quench-common.fullname" . }}-proxy-public 8000:{{ .Values.proxy.service.port }}
   http://127.0.0.1:8000/
 
-Sign in with any username and the shared password{{ if .Values.auth.adminUsers }} (admins: {{ join ", " .Values.auth.adminUsers }}){{ end }}:
+Sign in with any username and the user password:
 
   kubectl get secret {{ include "jh.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+{{- if .Values.auth.adminUsers }}
+
+Admins ({{ join ", " .Values.auth.adminUsers }}) sign in with the admin password:
+
+  kubectl get secret {{ include "jh.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+{{- end }}
 
 Each user's notebook server runs as a pod ({{ .Values.singleuser.image }}).
 
