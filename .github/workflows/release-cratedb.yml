@@ -48,7 +48,11 @@ jobs:
           kubectl port-forward pod/rtest-cratedb-0 14200:4200 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf 2>/dev/null || true' EXIT; sleep 5
           # port-forward traffic is local to the pod: host-based auth trusts crate here
-          sql() { curl -fsS -H 'Content-Type: application/json' -d "{\"stmt\":\"$1\"}" http://127.0.0.1:14200/_sql; }
+          sql() {
+            local r; r="$(curl -sS -H 'Content-Type: application/json' -d "{\"stmt\":\"$1\"}" http://127.0.0.1:14200/_sql)"
+            echo "  $1 -> $r" >&2
+            ! grep -q '"error"' <<<"$r"
+          }
           # 1. the chart's CrateDB version
           want="$(helm show chart "${CHART_DIR}" | awk '/^appVersion:/ {gsub(/"/,"",$2); print $2}')"
           ver="$(curl -fsS http://127.0.0.1:14200/ | sed -n 's/.*"number" *: *"\([^"]*\)".*/\1/p')"
@@ -64,7 +68,9 @@ jobs:
           pg=ghcr.io/quenchworks/images/postgresql@sha256:4c0580fd2968b8d6e8fb008e0eb74b55c54464b041c235842e4d1cc37ed9a445
           psqlq() { kubectl run "psql-$RANDOM" --rm -i --restart=Never --quiet --image="$pg" --env="PGPASSWORD=$1" \
             --command -- psql -h rtest-cratedb -p 5432 -U gate -d doc -tAc "$2"; }
-          test "$(psqlq gate-pw-quench 'SELECT count(*) FROM doc.gate_t' | tr -d '\r' | head -1)" = 2
+          cnt="$(psqlq gate-pw-quench 'SELECT count(*) FROM doc.gate_t' 2>&1 | tr -d '\r')"
+          echo "  psql count: $cnt"
+          test "$(head -1 <<<"$cnt")" = 2
           ! psqlq wrong-password 'SELECT 1' >/dev/null 2>&1
           echo "  psql as gate over the Service: 2 rows; a wrong password is refused"
           # 4. the data is on the PVC: delete the pod and read it back
