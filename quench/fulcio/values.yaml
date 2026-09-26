@@ -1,0 +1,80 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/fulcio
+  digest: "sha256:a7be717074886a5589590e8cc01b2fdc48084e0d24c4a3bc9f6b878dfc3b3c98"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+# ephemeralca: a throwaway CA made at start (testing only; the root changes on
+# every restart). fileca: a PEM CA certificate and encrypted key from an
+# existing Secret. kmsca, tinkca and googleca take their settings through
+# extraArgs. PKCS#11 is not built into this image.
+ca:
+  type: ephemeralca
+  file:
+    existingSecret: ""
+    certKey: cert.pem
+    keyKey: key.pem
+    passwordKey: password
+
+# Certificate Transparency log to submit certificates to. Empty turns CT off.
+ctLogUrl: ""
+
+# Fulcio's issuer configuration (config.yaml): the OIDC providers it trusts.
+config:
+  oidc-issuers:
+    https://oauth2.sigstore.dev/auth:
+      issuer-url: https://oauth2.sigstore.dev/auth
+      client-id: sigstore
+      type: email
+
+extraArgs: []
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: "1", memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  grpcPort: 8081
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+podLabels: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}

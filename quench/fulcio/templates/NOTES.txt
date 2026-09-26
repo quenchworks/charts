@@ -1,0 +1,15 @@
+Quenchworks Sigstore Fulcio {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }} (CA: {{ .Values.ca.type }}).
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://127.0.0.1:{{ .Values.service.port }}/api/v2/trustBundle
+
+Use it with cosign: cosign sign --fulcio-url http://<service>:{{ .Values.service.port }} ...
+{{- if eq .Values.ca.type "ephemeralca" }}
+
+The ephemeral CA makes a new root on every start. It is for testing only: set
+ca.type=fileca with ca.file.existingSecret, or a KMS CA, for real certificates.
+{{- end }}
+{{- if not .Values.ctLogUrl }}
+
+Certificate Transparency is off (ctLogUrl is empty); certificates are not logged.
+{{- end }}

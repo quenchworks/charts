@@ -1,0 +1,82 @@
+{{- $probe := dict "httpGet" (dict "path" "/api/v2/trustBundle" "port" "http") "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  # ephemeralca makes a new CA on every start, so replicas would each issue from
+  # a different root; scale only with fileca, kmsca, tinkca or googleca.
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: fulcio
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          # The image entrypoint is "fulcio serve --host 0.0.0.0 --port 8080 --grpc-port 8081".
+          args:
+            - --ca={{ .Values.ca.type }}
+            - --config-path=/etc/fulcio-config/config.yaml
+            - --ct-log-url={{ .Values.ctLogUrl }}
+            {{- if eq .Values.ca.type "fileca" }}
+            - --fileca-cert=/etc/fulcio-ca/{{ .Values.ca.file.certKey }}
+            - --fileca-key=/etc/fulcio-ca/{{ .Values.ca.file.keyKey }}
+            - --fileca-key-passwd=$(FILECA_KEY_PASSWORD)
+            {{- end }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- if eq .Values.ca.type "fileca" }}
+          env:
+            - name: FILECA_KEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "ca.file.existingSecret is required with fileca" .Values.ca.file.existingSecret }}
+                  key: {{ .Values.ca.file.passwordKey }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: grpc
+              containerPort: 8081
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/fulcio-config
+              readOnly: true
+            {{- if eq .Values.ca.type "fileca" }}
+            - name: ca
+              mountPath: /etc/fulcio-ca
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-config
+        {{- if eq .Values.ca.type "fileca" }}
+        - name: ca
+          secret:
+            secretName: {{ .Values.ca.file.existingSecret }}
+        {{- end }}
