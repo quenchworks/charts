@@ -40,8 +40,8 @@ The install NOTES print the workload (JWT) and break-glass commands.
   deployment's UI callback to `realm.redirectUris`, and set
   `keycloak.production.proxyHeaders` behind an ingress.
 - **Start order.** Self-init runs once, and writing `auth/oidc/config` fetches the
-  realm's discovery document. An init container therefore holds OpenBao until the
-  realm answers.
+  realm's discovery document. An init container (bash `/dev/tcp`, in the keycloak
+  image) therefore holds OpenBao until the realm answers.
 - **Fixed names.** `secrets-keycloak` and `secrets-stack-*`, so one stack per namespace.
 
 ## Values
