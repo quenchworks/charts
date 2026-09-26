@@ -1,0 +1,58 @@
+# Quenchworks Apache ActiveMQ Classic on the QuenchWorks activemq image (nonroot,
+# 0-CVE, cosign-signed, pinned by digest). One broker with KahaDB on a PVC.
+image:
+  repository: ghcr.io/quenchworks/images/activemq
+  digest: "sha256:3bab94bcb86b5125ad6c77a0c6bd062eb0d19012a2be561f056c4331af146bff"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+auth:
+  # Broker (simpleAuthenticationPlugin) and web console (JAAS) share one admin user.
+  # Empty password generates one, kept across upgrades. false leaves the broker open,
+  # as upstream ships it.
+  enabled: true
+  username: admin
+  password: ""
+  # An existing Secret with keys credentials.properties and users.properties, in the
+  # formats this chart writes (see templates/secret.yaml).
+  existingSecret: ""
+
+# OpenWire is always on (61616). The others are optional.
+connectors:
+  amqp: false     # 5672
+  stomp: false    # 61613
+  mqtt: false     # 1883
+
+# KahaDB limits; keep store + temp under persistence.size.
+storeLimit: 6 gb
+tempLimit: 1 gb
+
+persistence:
+  enabled: true
+  size: 8Gi
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+
+# Heap: the image defaults to -Xms64m -XX:MaxRAMPercentage=75 of the memory limit.
+extraEnv: []
+
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "1", memory: 1Gi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}

@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  activemq.xml: |
+    <beans xmlns="http://www.springframework.org/schema/beans"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+      http://activemq.apache.org/schema/core http://activemq.apache.org/schema/core/activemq-core.xsd">
+        <bean class="org.springframework.beans.factory.config.PropertyPlaceholderConfigurer">
+            <property name="locations">
+                <value>file:${activemq.conf}/credentials.properties</value>
+            </property>
+        </bean>
+        <broker xmlns="http://activemq.apache.org/schema/core" brokerName="{{ include "quench-common.fullname" . }}" dataDirectory="${activemq.data}" id="broker">
+            <destinationPolicy>
+                <policyMap>
+                  <policyEntries>
+                    <policyEntry topic=">">
+                      <pendingMessageLimitStrategy>
+                        <constantPendingMessageLimitStrategy limit="1000"/>
+                      </pendingMessageLimitStrategy>
+                    </policyEntry>
+                  </policyEntries>
+                </policyMap>
+            </destinationPolicy>
+            <managementContext>
+                <managementContext createConnector="false"/>
+            </managementContext>
+            <persistenceAdapter>
+                <kahaDB directory="${activemq.data}/kahadb"/>
+            </persistenceAdapter>
+            {{- if .Values.auth.enabled }}
+            <plugins>
+                <simpleAuthenticationPlugin anonymousAccessAllowed="false">
+                    <users>
+                        <authenticationUser username="${activemq.username}" password="${activemq.password}" groups="admins,users"/>
+                    </users>
+                </simpleAuthenticationPlugin>
+            </plugins>
+            {{- end }}
+            <systemUsage>
+                <systemUsage>
+                    <memoryUsage><memoryUsage percentOfJvmHeap="70"/></memoryUsage>
+                    <storeUsage><storeUsage limit="{{ .Values.storeLimit }}"/></storeUsage>
+                    <tempUsage><tempUsage limit="{{ .Values.tempLimit }}"/></tempUsage>
+                </systemUsage>
+            </systemUsage>
+            <transportConnectors>
+                <transportConnector name="openwire" uri="tcp://0.0.0.0:61616?maximumConnections=1000&amp;wireFormat.maxFrameSize=10485760"/>
+                {{- if .Values.connectors.amqp }}
+                <transportConnector name="amqp" uri="amqp://0.0.0.0:5672?maximumConnections=1000&amp;wireFormat.maxFrameSize=10485760"/>
+                {{- end }}
+                {{- if .Values.connectors.stomp }}
+                <transportConnector name="stomp" uri="stomp://0.0.0.0:61613?maximumConnections=1000&amp;wireFormat.maxFrameSize=10485760"/>
+                {{- end }}
+                {{- if .Values.connectors.mqtt }}
+                <transportConnector name="mqtt" uri="mqtt://0.0.0.0:1883?maximumConnections=1000&amp;wireFormat.maxFrameSize=10485760"/>
+                {{- end }}
+            </transportConnectors>
+            <shutdownHooks>
+                <bean xmlns="http://www.springframework.org/schema/beans" class="org.apache.activemq.hooks.SpringContextHook"/>
+            </shutdownHooks>
+        </broker>
+        <import resource="jetty-spring.xml"/>
+    </beans>

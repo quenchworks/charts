@@ -1,0 +1,15 @@
+Quenchworks Apache ActiveMQ Classic {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }}.
+
+  OpenWire: tcp://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc:61616
+{{- if .Values.auth.enabled }}
+  user:     {{ .Values.auth.username }}
+  password: kubectl get secret {{ include "activemq.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+{{- else }}
+  auth:     OFF (auth.enabled=false): anyone who reaches the Service can publish and consume
+{{- end }}
+
+The web console accepts loopback clients only; reach it with a port-forward and log in
+with the same user:
+
+  kubectl port-forward {{ include "quench-common.fullname" . }}-0 8161
+  open http://127.0.0.1:8161/admin/

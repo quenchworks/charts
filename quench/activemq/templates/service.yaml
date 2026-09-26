@@ -1,0 +1,35 @@
+{{- $ports := list (dict "name" "openwire" "port" 61616) -}}
+{{- if .Values.connectors.amqp }}{{ $ports = append $ports (dict "name" "amqp" "port" 5672) }}{{ end -}}
+{{- if .Values.connectors.stomp }}{{ $ports = append $ports (dict "name" "stomp" "port" 61613) }}{{ end -}}
+{{- if .Values.connectors.mqtt }}{{ $ports = append $ports (dict "name" "mqtt" "port" 1883) }}{{ end -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    {{- range $ports }}
+    - name: {{ .name }}
+      port: {{ .port }}
+      targetPort: {{ .name }}
+    {{- end }}
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}-headless
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  ports:
+    - name: openwire
+      port: 61616
+      targetPort: openwire
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
