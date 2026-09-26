@@ -1,0 +1,72 @@
+{{- $probe := dict "httpGet" (dict "path" "/api/v1/timestamp/certchain" "port" "http") "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  # The memory signer makes a new key on every start, so replicas would each
+  # sign with a different key; scale only with the file, kms or tink signer.
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: timestamp-server
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          # The image entrypoint is "timestamp-server serve --host 0.0.0.0 --port 3000".
+          args:
+            - --timestamp-signer={{ .Values.signer.type }}
+            {{- if eq .Values.signer.type "file" }}
+            - --file-signer-key-path=/etc/tsa/{{ .Values.signer.file.keyKey }}
+            - --certificate-chain-path=/etc/tsa/{{ .Values.signer.file.chainKey }}
+            - --file-signer-passwd=$(TSA_KEY_PASSWORD)
+            {{- end }}
+            {{- if not .Values.ntpMonitoring }}
+            - --disable-ntp-monitoring
+            {{- end }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- if eq .Values.signer.type "file" }}
+          env:
+            - name: TSA_KEY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "signer.file.existingSecret is required with the file signer" .Values.signer.file.existingSecret }}
+                  key: {{ .Values.signer.file.passwordKey }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if eq .Values.signer.type "file" }}
+          volumeMounts:
+            - name: signer
+              mountPath: /etc/tsa
+              readOnly: true
+          {{- end }}
+      {{- if eq .Values.signer.type "file" }}
+      volumes:
+        - name: signer
+          secret:
+            secretName: {{ .Values.signer.file.existingSecret }}
+      {{- end }}

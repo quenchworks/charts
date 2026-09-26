@@ -1,0 +1,71 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/timestamp-authority
+  digest: "sha256:383b3ced033dc77c5ba806107f80a6fc454466a875864af5cf9d086c9eebef21"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+# memory: a throwaway key made at start (testing only; the chain changes on
+# every restart). file: a PEM key and certificate chain from an existing
+# Secret. kms and tink take their settings through extraArgs.
+signer:
+  type: memory
+  file:
+    existingSecret: ""
+    keyKey: key.pem
+    chainKey: chain.pem
+    passwordKey: password
+
+# Check the clock against public NTP servers and refuse to sign if it drifts.
+# Needs outbound UDP 123.
+ntpMonitoring: true
+
+extraArgs: []
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: "1", memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 3000
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+podLabels: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
