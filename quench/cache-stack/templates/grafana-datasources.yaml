@@ -1,0 +1,24 @@
+{{- if .Values.grafana.enabled }}
+# The Prometheus datasource, owned by the umbrella so it can name the
+# release-prefixed Prometheus Service. Fixed ConfigMap name so the static
+# grafana.extraVolumes value can reference it.
+# ponytail: fixed names => one cache-stack per namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cache-stack-datasources
+  labels:
+    {{- include "cache-stack.labels" . | nindent 4 }}
+data:
+  stack.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        # The bundled dashboard binds every panel to uid "prometheus".
+        uid: prometheus
+        access: proxy
+        url: http://{{ include "cache-stack.prometheusName" . }}:{{ .Values.prometheus.service.port | default 9090 }}
+        isDefault: true
+        editable: false
+{{- end }}

@@ -1,0 +1,119 @@
+# cache-stack: Valkey + redis_exporter + Prometheus + Grafana, wired together.
+#
+# Metrics path: the valkey subchart runs redis_exporter as a sidecar behind its
+# <release>-valkey-metrics Service (port "metrics", 9121). Prometheus finds it with
+# kubernetes_sd_configs (role: endpoints, own_namespace), so the scrape needs no
+# release name and gets a real `namespace` label, which the bundled dashboard
+# filters on. This umbrella grants the prometheus ServiceAccount read access to
+# endpoints in the release namespace only (templates/prometheus-rbac.yaml).
+
+# ---------------------------------------------------------------------------
+# Valkey (subchart). metrics.enabled is what this stack is for; everything else
+# is the valkey chart's own values (auth, persistence, replication, ...).
+# ---------------------------------------------------------------------------
+valkey:
+  enabled: true
+  metrics:
+    enabled: true
+
+# ---------------------------------------------------------------------------
+# Prometheus (subchart).
+# ---------------------------------------------------------------------------
+prometheus:
+  enabled: true
+  config:
+    prometheusYaml: |
+      global:
+        scrape_interval: 15s
+        evaluation_interval: 15s
+
+      scrape_configs:
+        - job_name: prometheus
+          static_configs:
+            - targets:
+                - localhost:9090
+        # Every redis_exporter in this namespace: Services labelled
+        # app.kubernetes.io/name=valkey with a port named "metrics".
+        - job_name: valkey
+          kubernetes_sd_configs:
+            - role: endpoints
+              namespaces:
+                own_namespace: true
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name, __meta_kubernetes_endpoint_port_name]
+              regex: valkey;metrics
+              action: keep
+            - source_labels: [__meta_kubernetes_namespace]
+              target_label: namespace
+            - source_labels: [__meta_kubernetes_service_name]
+              target_label: service
+            - source_labels: [__meta_kubernetes_pod_name]
+              target_label: pod
+  persistence:
+    enabled: true
+    size: 8Gi
+  # The prometheus chart's ServiceAccount sets automountServiceAccountToken: false,
+  # and kubernetes_sd_configs needs the token. Project the token, CA and namespace
+  # into the standard in-cluster path, paired with the Role this umbrella creates.
+  extraVolumes:
+    - name: kube-api-access
+      projected:
+        defaultMode: 420
+        sources:
+          - serviceAccountToken:
+              path: token
+              expirationSeconds: 3607
+          - configMap:
+              name: kube-root-ca.crt
+              items:
+                - key: ca.crt
+                  path: ca.crt
+          - downwardAPI:
+              items:
+                - path: namespace
+                  fieldRef:
+                    fieldPath: metadata.namespace
+  extraVolumeMounts:
+    - name: kube-api-access
+      mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      readOnly: true
+
+# ---------------------------------------------------------------------------
+# Grafana (subchart). The Prometheus datasource and the dashboard come from this
+# umbrella's own ConfigMaps (fixed names, so one cache-stack per namespace),
+# mounted via extraVolumes. adminPassword empty generates one into a Secret.
+# ---------------------------------------------------------------------------
+grafana:
+  enabled: true
+  datasources: []
+  auth:
+    adminPassword: ""
+  persistence:
+    enabled: false
+  extraVolumes:
+    - name: stack-datasources
+      configMap:
+        name: cache-stack-datasources
+    - name: stack-dashboard-provider
+      configMap:
+        name: cache-stack-dashboard-provider
+    - name: stack-dashboards
+      configMap:
+        name: cache-stack-dashboards
+  extraVolumeMounts:
+    - name: stack-datasources
+      mountPath: /etc/grafana/provisioning/datasources/stack.yaml
+      subPath: stack.yaml
+      readOnly: true
+    - name: stack-dashboard-provider
+      mountPath: /etc/grafana/provisioning/dashboards/stack.yaml
+      subPath: stack.yaml
+      readOnly: true
+    - name: stack-dashboards
+      mountPath: /var/lib/grafana/dashboards
+      readOnly: true
+
+# The redis_exporter dashboard (from oliver006/redis_exporter v1.92.0, MIT),
+# normalized to the provisioned "prometheus" datasource uid.
+dashboards:
+  enabled: true

@@ -1,0 +1,33 @@
+{{- if .Values.prometheus.enabled }}
+# Read access for Prometheus' kubernetes_sd_configs (role: endpoints,
+# own_namespace). Namespaced: this stack only discovers exporters in its own
+# release namespace, so it needs no ClusterRole.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cache-stack.prometheusName" . }}
+  labels:
+    {{- include "cache-stack.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [services, endpoints, pods]
+    verbs: [get, list, watch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "cache-stack.prometheusName" . }}
+  labels:
+    {{- include "cache-stack.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "cache-stack.prometheusName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "cache-stack.prometheusName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

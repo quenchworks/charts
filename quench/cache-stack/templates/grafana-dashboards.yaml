@@ -1,0 +1,37 @@
+{{- if .Values.grafana.enabled }}
+# A file provider watching /var/lib/grafana/dashboards, and the dashboard JSON
+# mounted there. Fixed names, referenced from grafana.extraVolumes.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cache-stack-dashboard-provider
+  labels:
+    {{- include "cache-stack.labels" . | nindent 4 }}
+data:
+  stack.yaml: |
+    apiVersion: 1
+    providers:
+      - name: cache-stack
+        orgId: 1
+        type: file
+        disableDeletion: true
+        allowUiUpdates: false
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+          foldersFromFilesStructure: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cache-stack-dashboards
+  labels:
+    {{- include "cache-stack.labels" . | nindent 4 }}
+data:
+  {{- if .Values.dashboards.enabled }}
+  {{- range $path, $_ := .Files.Glob "dashboards/*.json" }}
+  {{ base $path }}: |-
+    {{- $.Files.Get $path | nindent 4 }}
+  {{- end }}
+  {{- end }}
+{{- end }}

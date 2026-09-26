@@ -1,0 +1,22 @@
+cache-stack is installed as {{ .Release.Name }} in {{ .Release.Namespace }}.
+{{- if .Values.valkey.enabled }}
+
+Valkey (Redis protocol) at {{ include "cache-stack.valkeyName" . }}:6379. Password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "cache-stack.valkeyName" . }} -o jsonpath='{.data.valkey-password}' | base64 -d
+{{- end }}
+{{- if .Values.prometheus.enabled }}
+
+Prometheus discovers every redis_exporter in this namespace (job "valkey"):
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "cache-stack.prometheusName" . }} 9090:9090
+{{- end }}
+{{- if .Values.grafana.enabled }}
+
+Grafana, with the Prometheus datasource and the redis_exporter dashboard provisioned:
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "cache-stack.grafanaName" . }} 3000:3000
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "cache-stack.grafanaName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+{{- end }}
+
+One cache-stack per namespace: the Grafana provisioning ConfigMaps have fixed names.
