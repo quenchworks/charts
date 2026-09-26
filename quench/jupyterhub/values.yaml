@@ -1,0 +1,72 @@
+# The digests below are the contract with the image factory. They are never tags.
+image:
+  repository: ghcr.io/quenchworks/images/jupyterhub
+  digest: "sha256:1ee8b5eb9059f6fa49e632a58800dd39b014bde4b15c0d88fac67b58929b4899"
+  pullPolicy: IfNotPresent
+
+proxy:
+  image:
+    repository: ghcr.io/quenchworks/images/configurable-http-proxy
+    digest: "sha256:3a0fc43f02e95cb78ff77327fc78400b4da0ec1a34c003e513b1f3b435c99a23"
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+  # The Service users reach JupyterHub through.
+  service:
+    type: ClusterIP
+    port: 80
+
+nameOverride: ""
+
+hub:
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  # The hub's SQLite database (users, servers, tokens).
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClass: ""
+
+# Shared-password login: any username with this password; empty generates one
+# (kept in the <release>-jupyterhub-secrets Secret, key password). For SSO, set
+# extraConfig to an OAuthenticator (GitHub, GitLab, Google, generic OIDC).
+auth:
+  password: ""
+  adminUsers: [admin]
+
+# Each user's notebook server, run by KubeSpawner as a pod in this namespace.
+# The default is Jupyter's own base-notebook image at the hub's version (it is
+# not a QuenchWorks image); its jupyterhub version should match the hub's.
+singleuser:
+  image: quay.io/jupyter/base-notebook:hub-6.0.1@sha256:6d0358f11292d59dbf621ea5f3a68b7432f6873a03ed92513799939ab372a5f7
+  cpuLimit: 1
+  memoryLimit: 2G
+  startTimeout: 300
+  storage:
+    enabled: true
+    size: 5Gi
+    mountPath: /home/jovyan
+
+# Extra Python appended to jupyterhub_config.py, e.g. an authenticator:
+#   c.JupyterHub.authenticator_class = "github"
+#   c.GitHubOAuthenticator.oauth_callback_url = "https://hub.example.com/hub/oauth_callback"
+extraConfig: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+podSecurityContext: {}
+containerSecurityContext: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}

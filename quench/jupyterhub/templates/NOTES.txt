@@ -1,0 +1,18 @@
+Quenchworks JupyterHub is installed as {{ include "quench-common.fullname" . }}.
+
+Open it:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }}-proxy-public 8000:{{ .Values.proxy.service.port }}
+  http://127.0.0.1:8000/
+
+Sign in with any username and the shared password{{ if .Values.auth.adminUsers }} (admins: {{ join ", " .Values.auth.adminUsers }}){{ end }}:
+
+  kubectl get secret {{ include "jh.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+
+Each user's notebook server runs as a pod ({{ .Values.singleuser.image }}).
+
+The hub and proxy images are pinned by digest and signed. Verify one:
+
+  cosign verify ghcr.io/quenchworks/images/jupyterhub \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

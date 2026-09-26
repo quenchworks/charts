@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-hub
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  jupyterhub_config.py: |
+    import os
+
+    # The hub API and the proxy are separate pods; the hub only drives the
+    # proxy's REST API.
+    c.JupyterHub.hub_ip = "0.0.0.0"
+    c.JupyterHub.hub_port = 8081
+    c.JupyterHub.hub_connect_url = "http://{{ include "quench-common.fullname" . }}-hub:8081"
+    c.ConfigurableHTTPProxy.should_start = False
+    c.ConfigurableHTTPProxy.api_url = "http://{{ include "quench-common.fullname" . }}-proxy-api:8001"
+    c.ConfigurableHTTPProxy.auth_token = os.environ["CONFIGPROXY_AUTH_TOKEN"]
+    c.JupyterHub.db_url = "sqlite:////srv/jupyterhub/jupyterhub.sqlite"
+    # JPY_COOKIE_SECRET comes from the Secret, so logins survive restarts.
+
+    # Login: JupyterHub's shared-password authenticator. Everyone signs in with
+    # any username and the shared password; the admin users use it too.
+    c.JupyterHub.authenticator_class = "shared-password"
+    c.SharedPasswordAuthenticator.user_password = os.environ["JUPYTERHUB_PASSWORD"]
+    c.Authenticator.allow_all = True
+    c.Authenticator.admin_users = set({{ .Values.auth.adminUsers | toJson }})
+
+    # A service token for automation (and the chart's own gate).
+    c.JupyterHub.services = [{"name": "quench-api", "api_token": os.environ["JUPYTERHUB_API_TOKEN_SERVICE"]}]
+    c.JupyterHub.load_roles = [{"name": "quench-api", "scopes": ["read:hub", "list:users", "read:users"], "services": ["quench-api"]}]
+
+    # Single-user servers as pods in this namespace.
+    c.JupyterHub.spawner_class = "kubespawner.KubeSpawner"
+    c.KubeSpawner.namespace = os.environ["POD_NAMESPACE"]
+    c.KubeSpawner.image = {{ .Values.singleuser.image | quote }}
+    c.KubeSpawner.cpu_limit = {{ .Values.singleuser.cpuLimit }}
+    c.KubeSpawner.mem_limit = {{ .Values.singleuser.memoryLimit | quote }}
+    c.KubeSpawner.start_timeout = {{ .Values.singleuser.startTimeout }}
+    {{- with .Values.singleuser.storage }}
+    {{- if .enabled }}
+    c.KubeSpawner.storage_pvc_ensure = True
+    c.KubeSpawner.storage_capacity = {{ .size | quote }}
+    c.KubeSpawner.pvc_name_template = "claim-{username}"
+    c.KubeSpawner.volumes = [{"name": "home", "persistentVolumeClaim": {"claimName": "claim-{username}"}}]
+    c.KubeSpawner.volume_mounts = [{"name": "home", "mountPath": {{ .mountPath | quote }}}]
+    {{- end }}
+    {{- end }}
+    {{- with .Values.extraConfig }}
+
+    # extraConfig from values
+    {{- . | nindent 4 }}
+    {{- end }}

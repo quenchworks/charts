@@ -1,0 +1,79 @@
+{{- $fullname := include "quench-common.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-proxy
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: proxy
+spec:
+  # configurable-http-proxy keeps its routes in memory: one replica, and the hub
+  # re-adds the routes when the proxy restarts.
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "jh.labels" (dict "ctx" . "component" "proxy") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "jh.labels" (dict "ctx" . "component" "proxy") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: proxy
+          image: "{{ .Values.proxy.image.repository }}@{{ .Values.proxy.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          # node runs the CLI directly: the image has no /usr/bin/env for its shebang.
+          command:
+            - /usr/bin/node
+            - /opt/chp/node_modules/configurable-http-proxy/bin/configurable-http-proxy
+            - --ip=0.0.0.0
+            - --port=8000
+            - --api-ip=0.0.0.0
+            - --api-port=8001
+            - --default-target=http://{{ $fullname }}-hub:8081
+            - --error-target=http://{{ $fullname }}-hub:8081/hub/error
+          env:
+            - name: CONFIGPROXY_AUTH_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ include "jh.secretName" . }}, key: proxy-token } }
+          ports:
+            - { name: http, containerPort: 8000, protocol: TCP }
+            - { name: api, containerPort: 8001, protocol: TCP }
+          livenessProbe:
+            httpGet: { path: /_chp_healthz, port: http }
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /_chp_healthz, port: http }
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.proxy.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-proxy-public
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.proxy.service.type }}
+  ports:
+    - { name: http, port: {{ .Values.proxy.service.port }}, targetPort: http, protocol: TCP }
+  selector:
+    {{- include "jh.labels" (dict "ctx" . "component" "proxy") | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-proxy-api
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  ports:
+    - { name: api, port: 8001, targetPort: api, protocol: TCP }
+  selector:
+    {{- include "jh.labels" (dict "ctx" . "component" "proxy") | nindent 4 }}

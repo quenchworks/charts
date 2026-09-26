@@ -1,0 +1,107 @@
+{{- $fullname := include "quench-common.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-hub
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: hub
+spec:
+  # One hub: its SQLite database is on a ReadWriteOnce volume.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "jh.labels" (dict "ctx" . "component" "hub") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "jh.labels" (dict "ctx" . "component" "hub") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "jh.serviceAccountName" . }}
+      # KubeSpawner creates the user pods through the API; quench-common leaves
+      # the token off.
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: hub
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/jupyterhub", "-f", "/etc/jupyterhub/jupyterhub_config.py"]
+          env:
+            - name: POD_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - name: CONFIGPROXY_AUTH_TOKEN
+              valueFrom: { secretKeyRef: { name: {{ include "jh.secretName" . }}, key: proxy-token } }
+            - name: JPY_COOKIE_SECRET
+              valueFrom: { secretKeyRef: { name: {{ include "jh.secretName" . }}, key: cookie-secret } }
+            - name: JUPYTERHUB_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "jh.secretName" . }}, key: password } }
+            - name: JUPYTERHUB_API_TOKEN_SERVICE
+              valueFrom: { secretKeyRef: { name: {{ include "jh.secretName" . }}, key: api-token } }
+          ports:
+            - { name: hub, containerPort: 8081, protocol: TCP }
+          livenessProbe:
+            httpGet: { path: /hub/health, port: hub }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /hub/health, port: hub }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.hub.resources | nindent 12 }}
+          volumeMounts:
+            - { name: config, mountPath: /etc/jupyterhub, readOnly: true }
+            - { name: data, mountPath: /srv/jupyterhub }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $fullname }}-hub
+        - name: data
+          {{- if .Values.hub.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ $fullname }}-hub
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-hub
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  ports:
+    - { name: hub, port: 8081, targetPort: hub, protocol: TCP }
+  selector:
+    {{- include "jh.labels" (dict "ctx" . "component" "hub") | nindent 4 }}
+{{- if .Values.hub.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fullname }}-hub
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  {{- with .Values.hub.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.hub.persistence.size }}
+{{- end }}
