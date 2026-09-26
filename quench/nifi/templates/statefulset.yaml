@@ -1,0 +1,124 @@
+{{- $fullname := include "quench-common.fullname" . -}}
+{{- $persist := list "conf" "database_repository" "flowfile_repository" "content_repository" "provenance_repository" "state" -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  # One node. NiFi clustering (Kubernetes leader election and state provider) is
+  # not wired by this chart yet.
+  replicas: 1
+  serviceName: {{ $fullname }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "nifi.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        # 1. First start: seed conf/ on the volume from the image's defaults.
+        - name: seed-conf
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/bin/sh", "-c", "[ -f /seed/nifi.properties ] || cp -a /opt/nifi/conf/. /seed/"]
+          volumeMounts:
+            - name: data
+              mountPath: /seed
+              subPath: conf
+        # 2. Every start: apply the login from the Secret and the accepted host
+        #    names. Both edit conf/ in place and are idempotent.
+        - name: configure
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: NIFI_USERNAME
+              valueFrom: { secretKeyRef: { name: {{ include "nifi.secretName" . }}, key: username } }
+            - name: NIFI_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "nifi.secretName" . }}, key: password } }
+            - { name: PROXY_HOSTS, value: {{ include "nifi.proxyHosts" . | quote }} }
+            - { name: HEAP, value: {{ .Values.heap | quote }} }
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              /opt/nifi/bin/nifi.sh set-single-user-credentials "$NIFI_USERNAME" "$NIFI_PASSWORD"
+              sed -i "s|^nifi.web.proxy.host=.*|nifi.web.proxy.host=${PROXY_HOSTS}|" /opt/nifi/conf/nifi.properties
+              sed -i -e "s|^java.arg.2=-Xms.*|java.arg.2=-Xms${HEAP}|" -e "s|^java.arg.3=-Xmx.*|java.arg.3=-Xmx${HEAP}|" /opt/nifi/conf/bootstrap.conf
+          volumeMounts:
+            - { name: data, mountPath: /opt/nifi/conf, subPath: conf }
+            - { name: logs, mountPath: /opt/nifi/logs }
+            - { name: run, mountPath: /opt/nifi/run }
+            - { name: tmp, mountPath: /tmp }
+      containers:
+        - name: nifi
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/opt/nifi/bin/nifi.sh", "run"]
+          {{- with .Values.extraEnvVars }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+          # NiFi checks the Host header, so HTTP probes from the kubelet (Host is
+          # the pod IP) get 400. The TCP port opens only once the UI is serving.
+          startupProbe:
+            tcpSocket: { port: https }
+            periodSeconds: 10
+            failureThreshold: 60
+          livenessProbe:
+            tcpSocket: { port: https }
+            periodSeconds: 20
+          readinessProbe:
+            tcpSocket: { port: https }
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- range $persist }}
+            - { name: data, mountPath: /opt/nifi/{{ . }}, subPath: {{ . }} }
+            {{- end }}
+            - { name: work, mountPath: /opt/nifi/work }
+            - { name: logs, mountPath: /opt/nifi/logs }
+            - { name: run, mountPath: /opt/nifi/run }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: work, emptyDir: {} }
+        - { name: logs, emptyDir: {} }
+        - { name: run, emptyDir: {} }
+        - { name: tmp, emptyDir: {} }
+        {{- if not .Values.persistence.enabled }}
+        - { name: data, emptyDir: {} }
+        {{- end }}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}
+  {{- end }}

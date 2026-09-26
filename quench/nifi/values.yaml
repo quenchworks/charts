@@ -1,0 +1,60 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/nifi
+  digest: "sha256:8fe94f3c366a676580c11c2591cf3c50906413ab778e8e0e88155bd3da743619"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Single-user login (NiFi's default mode). The password needs 12+ characters;
+# empty generates one, kept across upgrades. Or point existingSecret at a Secret
+# with username and password keys.
+auth:
+  username: admin
+  password: ""
+  existingSecret: ""
+
+# JVM heap (-Xms and -Xmx in bootstrap.conf). Keep it well under the memory limit:
+# NiFi also uses off-heap memory for content and native libraries.
+heap: 1g
+
+resources:
+  requests: { cpu: 500m, memory: 2Gi }
+  limits: { cpu: "2", memory: 3Gi }
+
+# conf/, the flowfile, content, provenance and database repositories, and local
+# state, on one volume. Off: an emptyDir, so the flow is lost on restart.
+persistence:
+  enabled: true
+  size: 20Gi
+  storageClass: ""
+
+# The UI is HTTPS on 8443 with a certificate NiFi generates on first start.
+service:
+  type: ClusterIP
+
+# Extra Host header values NiFi accepts (nifi.web.proxy.host), e.g. the name you
+# expose it under: [nifi.example.com, nifi.example.com:443]. The Service names and
+# localhost:8443 are always included.
+proxyHosts: []
+
+extraEnvVars: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+podSecurityContext: {}
+containerSecurityContext: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
