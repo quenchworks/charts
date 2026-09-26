@@ -1,0 +1,63 @@
+# Quenchworks Fluentd on the QuenchWorks fluentd image (nonroot, 0-CVE, cosign-signed,
+# pinned by digest). Runs as an aggregator: collectors and apps send to it.
+image:
+  repository: ghcr.io/quenchworks/images/fluentd
+  digest: "sha256:0a25bd830c72aa67f0a8d6b9644f6d5f71d19a5cb4b7e86f2fede6338f35fa6b"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+replicas: 1
+
+# The pipeline, as fluent.conf text. Sources must match the ports below. Put file
+# buffers under /fluentd/buffer (the PVC) so they survive a restart.
+config: |
+  <source>
+    @type forward
+    bind 0.0.0.0
+    port 24224
+  </source>
+  <source>
+    @type http
+    bind 0.0.0.0
+    port 9880
+  </source>
+  <match **>
+    @type stdout
+  </match>
+
+# Ports the Service exposes; keep in step with the sources in config.
+ports:
+  - name: forward
+    port: 24224
+  - name: http
+    port: 9880
+
+extraArgs: []
+extraEnv: []
+
+persistence:
+  enabled: true
+  size: 8Gi
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}
