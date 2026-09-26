@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: driver
+      port: {{ .Values.service.port }}
+      targetPort: driver
+    {{- if .Values.service.exposeAdmin }}
+    - name: http
+      port: 8080
+      targetPort: http
+    {{- end }}
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}-headless
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  ports:
+    - name: driver
+      port: 28015
+      targetPort: driver
+    - name: cluster
+      port: 29015
+      targetPort: cluster
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

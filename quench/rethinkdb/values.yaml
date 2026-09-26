@@ -1,0 +1,48 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/rethinkdb
+  digest: "sha256:be7925d569dbda64b14205aa5fb6716b9dfed0bc4c9c9593dfca9d51c8bdbbe0"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# The admin user's password, set when the data directory is first created.
+# Empty generates one into a Secret, kept across upgrades. With existingSecret,
+# that Secret must hold the password under the "password" key.
+auth:
+  existingSecret: ""
+
+# Extra rethinkdb flags, e.g. ["--cache-size", "1024"].
+extraArgs: []
+
+persistence:
+  enabled: true
+  size: 8Gi
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: 2000m, memory: 2Gi }
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+  port: 28015
+  # The web admin UI has no login; keep it off the Service unless you front it
+  # with an authenticating proxy.
+  exposeAdmin: false
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}
