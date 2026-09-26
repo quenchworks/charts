@@ -1,0 +1,22 @@
+QuenchWorks ml-stack is installed in {{ .Release.Namespace }}.
+{{- if .Values.jupyterhub.enabled }}
+
+  JupyterHub    kubectl port-forward svc/ml-jupyterhub-proxy-public 8000:80, then http://127.0.0.1:8000
+{{- end }}
+{{- if .Values.mlflow.enabled }}
+  MLflow        kubectl port-forward svc/ml-mlflow 5000:5000, then http://127.0.0.1:5000
+                (notebooks already have MLFLOW_TRACKING_URI=http://ml-mlflow:5000)
+{{- end }}
+{{- if (index .Values "label-studio").enabled }}
+  Label Studio  kubectl port-forward svc/ml-label-studio 8080:8080, then http://127.0.0.1:8080
+                admin password: kubectl get secret ml-label-studio -o jsonpath='{.data.admin-password}' | base64 -d
+{{- end }}
+
+MLflow has no login. Keep its NetworkPolicy namespace-local, or put it behind an
+authenticating proxy, before exposing it.
+
+Every QuenchWorks image is pinned by digest and signed. Verify one:
+
+  cosign verify ghcr.io/quenchworks/images/mlflow \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

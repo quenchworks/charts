@@ -1,0 +1,39 @@
+# ml-stack: JupyterHub + MLflow (with PostgreSQL) + Label Studio.
+#
+# Names are FIXED (ml-mlflow, ml-jupyterhub, ml-label-studio) because the
+# notebooks reach MLflow by a plain address in jupyterhub.extraConfig. One stack
+# per namespace.
+#
+#   JupyterHub   http://ml-jupyterhub-proxy-public:80
+#   MLflow       http://ml-mlflow:5000   (MLFLOW_TRACKING_URI in every notebook)
+#   Label Studio http://ml-label-studio:8080
+
+# ---------------------------------------------------------------------------
+# MLflow (subchart): tracking server and model registry on its bundled
+# PostgreSQL, artifacts on a PVC. It has no login; its NetworkPolicy admits only
+# pods in this namespace, which includes the notebooks.
+# ---------------------------------------------------------------------------
+mlflow:
+  enabled: true
+  fullnameOverride: ml-mlflow
+
+# ---------------------------------------------------------------------------
+# JupyterHub (subchart): hub, proxy, and one notebook pod per user. Every
+# notebook gets MLFLOW_TRACKING_URI, so mlflow.log_* reaches this MLflow.
+# ---------------------------------------------------------------------------
+jupyterhub:
+  enabled: true
+  fullnameOverride: ml-jupyterhub
+  extraConfig: |
+    c.KubeSpawner.environment = {"MLFLOW_TRACKING_URI": "http://ml-mlflow:5000"}
+
+# ---------------------------------------------------------------------------
+# Label Studio (subchart): data labeling. It runs on SQLite on its data PVC
+# here: its bundled PostgreSQL would take the same <release>-postgresql name as
+# MLflow's. For PostgreSQL, set label-studio.externalDatabase.*.
+# ---------------------------------------------------------------------------
+label-studio:
+  enabled: true
+  fullnameOverride: ml-label-studio
+  postgresql:
+    enabled: false
