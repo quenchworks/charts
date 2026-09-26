@@ -1,0 +1,91 @@
+{{- $probe := dict "httpGet" (dict "path" "/metrics" "port" "metrics") -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  # One replica per registered runner token: two pods with the same token
+  # compete for the same jobs.
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "glr.serviceAccountName" . }}
+      # The runner creates job pods through the API; quench-common leaves the
+      # token off.
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      containers:
+        - name: gitlab-runner
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command:
+            - /usr/bin/gitlab-runner
+            - run
+            - --working-directory=/home/gitlab-runner
+            - --config=/home/gitlab-runner/config.toml
+          ports:
+            - name: metrics
+              containerPort: 9252
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml (merge (dict "initialDelaySeconds" 10 "periodSeconds" 20) $probe) | nindent 12 }}
+          readinessProbe:
+            {{- toYaml (merge (dict "initialDelaySeconds" 5 "periodSeconds" 10) (deepCopy $probe)) | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # The runner saves .runner_system_id beside config.toml, so the
+            # directory is a writable emptyDir and only the file comes from the
+            # Secret. (A subPath mount does not follow Secret updates; the
+            # checksum annotation restarts the pod instead.)
+            - name: home
+              mountPath: /home/gitlab-runner
+            - name: config
+              mountPath: /home/gitlab-runner/config.toml
+              subPath: config.toml
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          secret:
+            secretName: {{ include "glr.secretName" . }}
+        - name: home
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: metrics
+      port: 9252
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

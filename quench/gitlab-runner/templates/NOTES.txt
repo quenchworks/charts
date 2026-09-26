@@ -1,0 +1,15 @@
+Quenchworks GitLab Runner is installed as {{ include "quench-common.fullname" . }}, connected to {{ .Values.gitlabUrl | default "(existing config)" }}.
+
+Jobs run as pods in the {{ .Values.jobs.namespace | default .Release.Namespace }} namespace (Kubernetes executor), up to {{ .Values.concurrent }} at a time.
+Check it registered: the runner shows as online in GitLab under Settings > CI/CD > Runners,
+and its logs show "Checking for jobs":
+
+  kubectl logs deploy/{{ include "quench-common.fullname" . }}
+
+Job pods use the helper image {{ .Values.jobs.helperImage | default "registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper (GitLab's, at the runner's version)" }}.
+
+The runner image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/gitlab-runner \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

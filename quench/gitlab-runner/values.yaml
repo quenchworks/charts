@@ -1,0 +1,68 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/gitlab-runner
+  digest: "sha256:5f45e3aef44bca372c57778365560eee983d0946de0c746cb37f46106c1a5575"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Your GitLab instance, e.g. https://gitlab.com or https://gitlab.example.com.
+gitlabUrl: ""
+
+runner:
+  # The runner authentication token (glrt-...) from creating a runner in GitLab:
+  # Settings > CI/CD > Runners > New project/group runner. Required unless
+  # existingConfigSecret is set.
+  token: ""
+  # Shown in GitLab's runner list; defaults to the release name.
+  name: ""
+
+# Use your own Secret with a config.toml key instead of rendering one.
+existingConfigSecret: ""
+
+# How many jobs run at once, and how often the runner asks GitLab for work.
+concurrent: 4
+checkInterval: 3
+
+# The Kubernetes executor: one pod per job in jobs.namespace (default: the
+# release namespace).
+jobs:
+  namespace: ""
+  # Image for jobs that do not set `image:` in .gitlab-ci.yml (a shell for
+  # `script:` lines; most pipelines name their own image).
+  image: ghcr.io/quenchworks/images/busybox@sha256:b851333cd0a8a05a4b7569f4f1007f4e237b34295f84033e6ab6aa428fb33eef
+  # The helper container that clones the repo and handles artifacts. Empty uses
+  # GitLab's own registry.gitlab.com/gitlab-org/gitlab-runner/gitlab-runner-helper
+  # at the runner's version.
+  helperImage: ""
+  pollTimeout: 180
+  cpuLimit: ""
+  memoryLimit: ""
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+# Running jobs get this long to finish when the runner stops.
+terminationGracePeriodSeconds: 3600
+podSecurityContext: {}
+containerSecurityContext: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# The namespaced Role the executor needs for job pods.
+rbac:
+  create: true
