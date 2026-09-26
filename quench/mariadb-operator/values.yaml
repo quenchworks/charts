@@ -1,0 +1,57 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/mariadb-operator
+  digest: "sha256:62d007ebdbab91443b40be1cdb7cd0c34ebd0df4374c2679114a440557a24369"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+# More than one replica turns on leader election.
+replicaCount: 1
+
+logLevel: INFO
+clusterName: cluster.local
+# Watch only the release namespace instead of the whole cluster.
+currentNamespaceOnly: false
+extraArgs: []
+extraEnvVars: []
+
+# Images the operator uses in the pods it creates. Both defaults are
+# QuenchWorks images pinned by digest.
+config:
+  mariadbImage:
+    repository: ghcr.io/quenchworks/images/mariadb
+    digest: "sha256:3c37e899fb35ce9fa782363fda52d664ec1eaed22592a2fcba3ca907f1b7944a"
+  mariadbImageName: ghcr.io/quenchworks/images/mariadb
+  # Used when an image tag carries no MariaDB version.
+  mariadbDefaultVersion: "12.3"
+  galeraLibPath: /usr/lib/galera/libgalera_smm.so
+  exporterImage:
+    repository: ghcr.io/quenchworks/images/mysqld-exporter
+    digest: "sha256:988a5eaeeed9ba05789eb80f682ffb6d80567c2b4e75abf622762177c2b8b827"
+  # MaxScale is BSL-licensed and has no QuenchWorks image; these upstream images
+  # are only pulled if you create a MaxScale resource.
+  maxscaleImage: mariadb/maxscale:23.08.13-2
+  exporterMaxscaleImage: mariadb/maxscale-prometheus-exporter-ubi:v0.0.1
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podLabels: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
