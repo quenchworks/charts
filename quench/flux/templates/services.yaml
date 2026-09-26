@@ -1,0 +1,58 @@
+{{- $full := include "quench-common.fullname" . -}}
+{{- if .Values.controllers.source.enabled }}
+# serves artifacts to the other controllers (--storage-adv-addr)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $full }}-source
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: source-controller
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: source-controller
+{{- end }}
+{{- if .Values.controllers.notification.enabled }}
+---
+# receives events from the other controllers (--events-addr)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $full }}-notification
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: notification-controller
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: notification-controller
+---
+# incoming webhooks for Receivers (GitHub, GitLab, ...); expose through an Ingress
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $full }}-webhook-receiver
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: notification-controller
+spec:
+  type: {{ .Values.webhookReceiver.service.type }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http-webhook
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: notification-controller
+{{- end }}

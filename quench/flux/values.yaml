@@ -1,0 +1,61 @@
+# Quenchworks Flux: the four core GitOps controllers on QuenchWorks images (nonroot,
+# 0-CVE, cosign-signed, pinned by digest), versioned as Flux 2.9.5 ships them.
+controllers:
+  source:
+    enabled: true
+    image:
+      repository: ghcr.io/quenchworks/images/flux-source-controller
+      digest: "sha256:92497be696e0d4eb5d2c4c24fc572b2b731ea876be3aa55fc670c45e0ced08cf"   # 1.9.5
+    extraArgs: []
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { cpu: "1", memory: 1Gi }
+  kustomize:
+    enabled: true
+    image:
+      repository: ghcr.io/quenchworks/images/flux-kustomize-controller
+      digest: "sha256:e8f8b6ebd54bee81637792eb77a2af58719d0dcc7305b34e69b2a8440db9dad3"   # 1.9.5
+    extraArgs: []
+    resources:
+      requests: { cpu: 100m, memory: 64Mi }
+      limits: { cpu: "1", memory: 1Gi }
+  helm:
+    enabled: true
+    image:
+      repository: ghcr.io/quenchworks/images/flux-helm-controller
+      digest: "sha256:092c8f165a1ff602b995334809731fb2a223d0437528b2791e8d56ef967ad544"   # 1.6.4
+    extraArgs: []
+    resources:
+      requests: { cpu: 100m, memory: 64Mi }
+      limits: { cpu: "1", memory: 1Gi }
+  notification:
+    enabled: true
+    image:
+      repository: ghcr.io/quenchworks/images/flux-notification-controller
+      digest: "sha256:cf142b6dbb1dfdd0d6d491823a082e11fafe237a61b05c9de4c79bc2ceda0008"   # 1.9.4
+    extraArgs: []
+    resources:
+      requests: { cpu: 100m, memory: 64Mi }
+      limits: { cpu: "1", memory: 1Gi }
+
+# Reconcile Flux objects in every namespace (false: only the release namespace).
+watchAllNamespaces: true
+logLevel: info
+
+# kustomize- and helm-controller apply what your repositories hold; upstream binds them
+# to cluster-admin. false leaves that to you (serviceAccountName per object).
+clusterReconciler:
+  enabled: true
+
+webhookReceiver:
+  service:
+    type: ClusterIP
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+nodeSelector: {}
+tolerations: []
+
+podSecurityContext: {}
+containerSecurityContext: {}
