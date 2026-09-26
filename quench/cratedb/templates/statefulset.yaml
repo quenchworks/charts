@@ -40,7 +40,10 @@ spec:
           # the image entrypoint is the JVM command; these are CrateDB -C settings
           args:
             - -Cpath.data=/data
-            - -Cnetwork.host=_site_
+            # bind every interface (a port-forward arrives on 127.0.0.1, which is how the
+            # locally trusted superuser gets in) but advertise the pod address
+            - -Cnetwork.bind_host=0.0.0.0
+            - -Cnetwork.publish_host=_site_
             - -Cnode.name=$(POD_NAME)
             - -Ccluster.name={{ $full }}
             {{- if eq (int .Values.replicas) 1 }}
