@@ -1,0 +1,122 @@
+name: release-openresty
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/openresty/**"
+      - ".github/workflows/release-openresty.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/openresty
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      # pin actions to SHAs before going public (renovate)
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v5
+      - uses: helm/kind-action@v1
+      - uses: sigstore/cosign-installer@v3
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/rtest-openresty --timeout=300s
+          uid="$(kubectl get pod -l app.kubernetes.io/instance=rtest -o jsonpath='{.items[0].spec.securityContext.runAsUser}')"
+          test "$uid" = "1001"
+          kubectl port-forward deployment/rtest-openresty 8080:8080 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          appver="$(helm show chart "${CHART_DIR}" | awk '/^appVersion:/{gsub(/"/,"");print $2}')"
+          # The ci server block replaces the default server and answers from Lua:
+          # proves the chart's ConfigMap path, lua-nginx-module and LuaJIT.
+          body="$(curl -fsS http://127.0.0.1:8080/)"
+          echo "$body"
+          grep -q '^quench openresty [0-9]* LuaJIT 2\.1' <<<"$body" || { echo "Lua handler did not answer"; exit 1; }
+          # the image reports the chart's appVersion
+          kubectl exec deploy/rtest-openresty -- /usr/local/openresty/bin/openresty -v 2>&1 | grep -q "openresty/${appver}" \
+            || { echo "image is not openresty ${appver}"; exit 1; }
+          # resty.sha256 is FFI into the libcrypto nginx links
+          test "$(curl -fsS http://127.0.0.1:8080/sha)" = "a8b51e95fe15708a5f253f567e72f00f052cd6c11f013b19c5b122bc52b98073"
+          grep -q 'Active connections' <<<"$(curl -fsS http://127.0.0.1:8080/stub_status)"
+          if kubectl logs deploy/rtest-openresty | grep -qiE '\[emerg\]|\[alert\]|read-only file system'; then
+            kubectl logs deploy/rtest-openresty | tail -30; exit 1
+          fi
+          echo "install gate OK: Lua served from the chart config, resty.sha256 correct, appVersion ${appver}"
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      - name: Package and push (OCI)
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/openresty-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"   # fail loudly rather than handing cosign an empty ref
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/openresty@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        uses: oras-project/setup-oras@v2
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push. Register the ArtifactHub repo and set the ID."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/openresty:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

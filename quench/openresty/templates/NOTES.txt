@@ -1,0 +1,30 @@
+Quenchworks OpenResty is installed as {{ include "quench-common.fullname" . }}.
+
+Reach it from inside the cluster (HTTP on port {{ .Values.service.port }}):
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Or port-forward from your workstation:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  curl http://127.0.0.1:8080/
+{{- if .Values.config.extraConfigMap }}
+
+Serving the server blocks in ConfigMap "{{ .Values.config.extraConfigMap }}", mounted at /etc/nginx/conf.d.
+{{- else if .Values.config.serverBlock }}
+
+Serving your server block from /etc/nginx/conf.d/default-quench.conf.
+{{- else }}
+
+No custom config set: serving the image's default page and /stub_status. Set
+config.serverBlock (inline, Lua blocks included) or config.extraConfigMap (an
+existing ConfigMap of *.conf drop-ins); either replaces the default server.
+{{- end }}
+
+The image is nonroot (uid 1001) and shell-free, runs on a read-only root filesystem
+(an emptyDir is mounted at /tmp for the pid and temp paths), and is pinned by digest
+and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }}@{{ .Values.image.digest }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

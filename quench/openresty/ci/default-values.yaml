@@ -1,0 +1,25 @@
+# Install gate. No image override: the install uses the chart's real, CI-maintained
+# digest. The inline server block replaces the default server and runs Lua, so the
+# gate proves the chart's config path and LuaJIT together.
+replicaCount: 1
+resources:
+  requests: { cpu: 50m, memory: 32Mi }
+  limits: { cpu: 250m, memory: 128Mi }
+config:
+  serverBlock: |
+    server {
+        listen 8080;
+        location = / {
+            default_type text/plain;
+            content_by_lua_block { ngx.say("quench openresty ", ngx.config.nginx_version, " ", jit.version) }
+        }
+        location = /sha {
+            default_type text/plain;
+            content_by_lua_block {
+                local sha = require("resty.sha256"):new()
+                sha:update("quench")
+                ngx.say(require("resty.string").to_hex(sha:final()))
+            }
+        }
+        location = /stub_status { stub_status; }
+    }
