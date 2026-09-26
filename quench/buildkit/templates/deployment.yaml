@@ -73,7 +73,11 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             # The root filesystem is read-only; rootlesskit and buildkitd write
-            # only under these.
+            # only under these. buildkitd also writes dot-directories in $HOME
+            # (~/.docker on the first pull), so all of $HOME is an emptyDir and the
+            # cache and tmp mounts nest inside it.
+            - name: home
+              mountPath: /home/nonroot
             - name: cache
               mountPath: /home/nonroot/.local/share/buildkit
             - name: tmp
@@ -98,6 +102,8 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        - name: home
+          emptyDir: {}
         - name: tmp
           emptyDir: {}
         - name: runtime
