@@ -1,0 +1,25 @@
+postgres-ha-stack is installed as {{ .Release.Name }} in {{ .Release.Namespace }}.
+
+PostgreSQL: a {{ .Values.postgresql.ha.replicaCount }}-node Patroni cluster (automatic failover).
+  postgres-ha-primary:5432   the current leader (read-write)
+  postgres-ha-replica:5432   the standbys (read-only)
+{{- if .Values.pgbouncer.enabled }}
+  postgres-ha-pgbouncer:6432 PgBouncer, pooling in front of the leader. Point apps here.
+{{- end }}
+
+Superuser postgres, database {{ .Values.postgresql.auth.database }}. Password:
+
+  kubectl get secret -n {{ .Release.Namespace }} postgres-ha-auth -o jsonpath='{.data.postgres-password}' | base64 -d
+
+Cluster state:
+
+  kubectl exec -n {{ .Release.Namespace }} postgres-ha-0 -c postgresql -- patronictl list
+{{- if .Values.grafana.enabled }}
+
+Grafana, with the Prometheus datasource and the Postgres Overview dashboard:
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "postgres-ha-stack.grafanaName" . }} 3000:3000
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "postgres-ha-stack.grafanaName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+{{- end }}
+
+One postgres-ha-stack per namespace: object names are fixed (postgres-ha-*).

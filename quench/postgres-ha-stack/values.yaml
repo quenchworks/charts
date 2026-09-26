@@ -1,0 +1,165 @@
+# postgres-ha-stack: Patroni PostgreSQL + PgBouncer + postgres_exporter +
+# Prometheus + Grafana, wired together.
+#
+# Names are FIXED (postgres-ha, postgres-ha-primary, postgres-ha-auth, ...) because
+# the subcharts take their backend host as a plain value, not a template. One
+# stack per namespace.
+#
+# Credentials: this umbrella renders one generated superuser password (kept across
+# upgrades) into two Secrets: postgres-ha-auth for PostgreSQL, the exporter and
+# pgbouncer, and postgres-ha-userlist, pgbouncer's userlist.txt. Set
+# auth.password to choose it yourself.
+auth:
+  password: ""
+
+# ---------------------------------------------------------------------------
+# PostgreSQL (subchart), in Patroni replication mode: 3 pods, leader election
+# through the Kubernetes API, automatic failover. postgres-ha-primary follows
+# the leader; postgres-ha-replica fans reads out to the standbys.
+# ---------------------------------------------------------------------------
+postgresql:
+  fullnameOverride: postgres-ha
+  architecture: replication
+  auth:
+    existingSecret: postgres-ha-auth
+    existingSecretPasswordKey: postgres-password
+    # Created on the bootstrapping leader. Keep it different from "postgres", and
+    # keep pgbouncer.externalDatabase.database in step with it.
+    database: appdb
+  ha:
+    replicaCount: 3
+    persistence:
+      size: 8Gi
+
+# ---------------------------------------------------------------------------
+# PgBouncer (subchart), pooling in front of the leader. Its own bundled
+# PostgreSQL is off; the backend is this stack's primary Service.
+# ---------------------------------------------------------------------------
+pgbouncer:
+  enabled: true
+  fullnameOverride: postgres-ha-pgbouncer
+  postgresql:
+    enabled: false
+  externalDatabase:
+    host: postgres-ha-primary
+    port: 5432
+    database: appdb
+    user: postgres
+  userlist:
+    existingSecret: postgres-ha-userlist
+  pgbouncer:
+    adminUsers: postgres
+
+# ---------------------------------------------------------------------------
+# postgres_exporter, run by this umbrella as its own Deployment against the
+# primary Service (the HA StatefulSet has no exporter sidecar), so it always
+# reports the current leader.
+# ---------------------------------------------------------------------------
+exporter:
+  enabled: true
+  image:
+    repository: ghcr.io/quenchworks/images/postgres-exporter
+    digest: "sha256:e7dfea0c79bf106078d5d9985106dde12395e7db0bef70a0a4c08d71c9675d93"
+    pullPolicy: IfNotPresent
+  port: 9187
+  resources:
+    requests: { cpu: 50m, memory: 32Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+
+# ---------------------------------------------------------------------------
+# Prometheus (subchart). Discovers the exporter with kubernetes_sd (endpoints,
+# own namespace) under a namespaced Role this umbrella creates.
+# ---------------------------------------------------------------------------
+prometheus:
+  enabled: true
+  config:
+    prometheusYaml: |
+      global:
+        scrape_interval: 15s
+        evaluation_interval: 15s
+
+      scrape_configs:
+        - job_name: prometheus
+          static_configs:
+            - targets:
+                - localhost:9090
+        # Services labelled app.kubernetes.io/name=postgres-exporter with a port
+        # named "metrics", in this namespace.
+        - job_name: postgresql
+          kubernetes_sd_configs:
+            - role: endpoints
+              namespaces:
+                own_namespace: true
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_service_label_app_kubernetes_io_name, __meta_kubernetes_endpoint_port_name]
+              regex: postgres-exporter;metrics
+              action: keep
+            - source_labels: [__meta_kubernetes_namespace]
+              target_label: namespace
+            - source_labels: [__meta_kubernetes_service_name]
+              target_label: service
+  persistence:
+    enabled: true
+    size: 8Gi
+  # The prometheus chart does not mount the SA token; kubernetes_sd needs it.
+  extraVolumes:
+    - name: kube-api-access
+      projected:
+        defaultMode: 420
+        sources:
+          - serviceAccountToken:
+              path: token
+              expirationSeconds: 3607
+          - configMap:
+              name: kube-root-ca.crt
+              items:
+                - key: ca.crt
+                  path: ca.crt
+          - downwardAPI:
+              items:
+                - path: namespace
+                  fieldRef:
+                    fieldPath: metadata.namespace
+  extraVolumeMounts:
+    - name: kube-api-access
+      mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      readOnly: true
+
+# ---------------------------------------------------------------------------
+# Grafana (subchart), with the datasource and dashboard from this umbrella's
+# fixed-name ConfigMaps.
+# ---------------------------------------------------------------------------
+grafana:
+  enabled: true
+  datasources: []
+  auth:
+    adminPassword: ""
+  persistence:
+    enabled: false
+  extraVolumes:
+    - name: stack-datasources
+      configMap:
+        name: postgres-ha-stack-datasources
+    - name: stack-dashboard-provider
+      configMap:
+        name: postgres-ha-stack-dashboard-provider
+    - name: stack-dashboards
+      configMap:
+        name: postgres-ha-stack-dashboards
+  extraVolumeMounts:
+    - name: stack-datasources
+      mountPath: /etc/grafana/provisioning/datasources/stack.yaml
+      subPath: stack.yaml
+      readOnly: true
+    - name: stack-dashboard-provider
+      mountPath: /etc/grafana/provisioning/dashboards/stack.yaml
+      subPath: stack.yaml
+      readOnly: true
+    - name: stack-dashboards
+      mountPath: /var/lib/grafana/dashboards
+      readOnly: true
+
+# The postgres_exporter "Postgres Overview" mixin dashboard (v0.20.1, Apache-2.0),
+# normalized to the provisioned "prometheus" datasource uid.
+dashboards:
+  enabled: true
