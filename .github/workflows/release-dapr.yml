@@ -51,6 +51,14 @@ jobs:
           echo "$imgs"
           test "$imgs" = "$want"
           # 2. an annotated pod gets the daprd sidecar from that image
+          #    The webhook fails open (failurePolicy Ignore): until the injector has written
+          #    its CA into the webhook config, pods are admitted without a sidecar.
+          for i in $(seq 1 60); do
+            ca="$(kubectl get mutatingwebhookconfiguration dapr-sidecar-injector -o jsonpath='{.webhooks[0].clientConfig.caBundle}' 2>/dev/null)"
+            [ -n "$ca" ] && break
+            [ "$i" = 60 ] && { echo "injector never published its CA"; kubectl -n dapr-system logs deploy/dapr-sidecar-injector --tail=40; exit 1; }
+            sleep 2
+          done
           cat <<Y | kubectl apply -f -
           apiVersion: dapr.io/v1alpha1
           kind: Component
@@ -75,7 +83,7 @@ jobs:
           # restartPolicy Always) where the cluster supports it, a container otherwise
           side="$(kubectl -n default get pod gate-app -o jsonpath='{.spec.initContainers[?(@.name=="daprd")].image}{.spec.containers[?(@.name=="daprd")].image}')"
           echo "sidecar: $side"
-          test "$side" = "$want"
+          [ "$side" = "$want" ] || { kubectl -n default get pod gate-app -o yaml | head -60; kubectl -n dapr-system logs deploy/dapr-sidecar-injector --tail=40; exit 1; }
           # 3. state round-trips through the sidecar's API
           kubectl -n default port-forward pod/gate-app 13500:3500 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf 2>/dev/null || true' EXIT; sleep 5
