@@ -85,6 +85,8 @@ def main() -> int:
                for name, c in sorted(charts.items())
                for d in c.get("dependencies") or []
                if d["name"] != "quench-common" and d["name"] in charts
+               # only our own subcharts: dapr's dependency is upstream's chart, also "dapr"
+               and d.get("repository", "").rstrip("/") == "oci://ghcr.io/quenchworks/charts"
                and str(d["version"]) != str(charts[d["name"]]["version"])]
     for chart, sub, have, want in lagging:
         print(f"  {chart} bundles {sub} {have}, current is {want}")
