@@ -1,0 +1,168 @@
+{{/* The controller reads this ConfigMap by name from its own namespace. The
+     data is upstream's, with Standard (raw Deployment) mode and no ingress
+     creation, so neither Knative nor Istio is needed. The agent, router and
+     storage-initializer images are upstream's; KServe pulls them only for
+     logging, batching, inference graphs and model download. */}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inferenceservice-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  explainers: |-
+    {
+        "art": {
+            "image" : "kserve/art-explainer",
+            "defaultImageVersion": "latest"
+        }
+    }
+
+  storageInitializer: |-
+    {
+        "image" : "kserve/storage-initializer:v{{ .Chart.AppVersion }}",
+        "memoryRequest": "100Mi",
+        "memoryLimit": "1Gi",
+        "cpuRequest": "100m",
+        "cpuLimit": "1",
+        "caBundleConfigMapName": "",
+        "caBundleVolumeMountPath": "/etc/ssl/custom-certs",
+        "enableModelcar": true,
+        "cpuModelcar": "10m",
+        "memoryModelcar": "15Mi",
+        "uidModelcar": 1010
+    }
+
+  credentials: |-
+    {
+       "storageSpecSecretName": "storage-config",
+       "storageSecretNameAnnotation": "serving.kserve.io/storageSecretName",
+       "gcs": {
+           "gcsCredentialFileName": "gcloud-application-credentials.json"
+       },
+       "s3": {
+           "s3AccessKeyIDName": "AWS_ACCESS_KEY_ID",
+           "s3SecretAccessKeyName": "AWS_SECRET_ACCESS_KEY",
+           "s3Endpoint": "",
+           "s3UseHttps": "",
+           "s3Region": "",
+           "s3VerifySSL": "",
+           "s3UseVirtualBucket": "",
+           "s3UseAccelerate": "",
+           "s3UseAnonymousCredential": "",
+           "s3CABundleConfigMap": "",
+           "s3CABundle": ""
+       }
+    }
+
+  ingress: |-
+    {
+        "enableGatewayApi": false,
+        "kserveIngressGateway": "kserve/kserve-ingress-gateway",
+        "ingressGateway" : "knative-serving/knative-ingress-gateway",
+        "localGateway" : "knative-serving/knative-local-gateway",
+        "localGatewayService" : "knative-local-gateway.istio-system.svc.cluster.local",
+        "ingressDomain"  : "example.com",
+        "ingressClassName" : "istio",
+        "domainTemplate": "{{`{{ .Name }}-{{ .Namespace }}.{{ .IngressDomain }}`}}",
+        "urlScheme": "http",
+        "disableIstioVirtualHost": false,
+        "disableIngressCreation": true,
+        "disableHTTPRouteTimeout": false
+    }
+
+  logger: |-
+    {
+        "image" : "kserve/agent:v{{ .Chart.AppVersion }}",
+        "memoryRequest": "100Mi",
+        "memoryLimit": "1Gi",
+        "cpuRequest": "100m",
+        "cpuLimit": "1",
+        "defaultUrl": "http://default-broker"
+    }
+
+  batcher: |-
+    {
+        "image" : "kserve/agent:v{{ .Chart.AppVersion }}",
+        "memoryRequest": "1Gi",
+        "memoryLimit": "1Gi",
+        "cpuRequest": "1",
+        "cpuLimit": "1",
+        "maxBatchSize": "32",
+        "maxLatency": "5000"
+    }
+
+  agent: |-
+    {
+        "image" : "kserve/agent:v{{ .Chart.AppVersion }}",
+        "memoryRequest": "100Mi",
+        "memoryLimit": "1Gi",
+        "cpuRequest": "100m",
+        "cpuLimit": "1"
+    }
+
+  router: |-
+    {
+        "image" : "kserve/router:v{{ .Chart.AppVersion }}",
+        "memoryRequest": "100Mi",
+        "memoryLimit": "1Gi",
+        "cpuRequest": "100m",
+        "cpuLimit": "1",
+        "imagePullPolicy": "IfNotPresent"
+    }
+
+  deploy: |-
+    {
+      "defaultDeploymentMode": {{ .Values.deploymentMode | quote }}
+    }
+
+  metricsAggregator: |-
+    {
+      "enableMetricAggregation": "false",
+      "enablePrometheusScraping" : "false"
+    }
+
+  localModel: |-
+    {
+      "enabled": false,
+      "jobNamespace": "kserve-localmodel-jobs",
+      "defaultJobImage" : "kserve/storage-initializer:v{{ .Chart.AppVersion }}",
+      "fsGroup": 1000,
+      "jobTTLSecondsAfterFinished": 3600,
+      "reconcilationFrequencyInSecs": 60,
+      "disableVolumeManagement": false
+    }
+
+  security: |-
+    {
+      "autoMountServiceAccountToken": true
+    }
+
+  inferenceService: |-
+    {
+      "resource": {
+          "cpuLimit": "1",
+          "memoryLimit": "2Gi",
+          "cpuRequest": "1",
+          "memoryRequest": "2Gi"
+        }
+    }
+
+  opentelemetryCollector: |-
+    {
+      "scrapeInterval": "5s",
+      "metricReceiverEndpoint": "keda-otel-scaler.keda.svc:4317",
+      "metricScalerEndpoint": "keda-otel-scaler.keda.svc:4318",
+      "resource": {
+          "cpuLimit": "1",
+          "memoryLimit": "2Gi",
+          "cpuRequest": "200m",
+          "memoryRequest": "512Mi"
+      }
+    }
+
+  autoscaler: |-
+    {
+      "scaleUpStabilizationWindowSeconds": "0",
+      "scaleDownStabilizationWindowSeconds": "300"
+    }
