@@ -71,7 +71,9 @@ jobs:
                 securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
           Y
           kubectl -n default wait pod/gate-app --for=condition=Ready --timeout=300s
-          side="$(kubectl -n default get pod gate-app -o jsonpath='{.spec.containers[?(@.name=="daprd")].image}')"
+          # recent Dapr injects daprd as a native sidecar (an initContainer with
+          # restartPolicy Always) where the cluster supports it, a container otherwise
+          side="$(kubectl -n default get pod gate-app -o jsonpath='{.spec.initContainers[?(@.name=="daprd")].image}{.spec.containers[?(@.name=="daprd")].image}')"
           echo "sidecar: $side"
           test "$side" = "$want"
           # 3. state round-trips through the sidecar's API
