@@ -147,7 +147,25 @@ jobs:
           kubectl get events -A --sort-by=.lastTimestamp | tail -40 || true
           helm status rtest -n linkerd || true
 
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
         id: push
         run: |
           helm package "${CHART_DIR}" -d .
@@ -158,12 +176,15 @@ jobs:
           echo "ver=${ver}" >> "$GITHUB_OUTPUT"
 
       - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
         run: cosign sign --yes "ghcr.io/quenchworks/charts/linkerd-crds@${{ steps.push.outputs.digest }}"
 
       - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
         uses: oras-project/setup-oras@22ce207df3b08e061f537244349aac6ae1d214f6 # v1.2.4
 
       - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
         run: |
           # Anchored to the repositoryID LINE, matching every other release
           # workflow. A bare `grep -q REPLACE_WITH_REPOSITORY_ID` also matches the
