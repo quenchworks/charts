@@ -51,12 +51,13 @@ jobs:
           #    that buildkitd started. The base is this chart's own signed image.
           kubectl exec "$pod" -- sh -c 'mkdir -p /home/nonroot/.local/tmp/ctx && cd /home/nonroot/.local/tmp/ctx \
             && echo quench > hello.txt \
-            && printf "FROM %s\nCOPY hello.txt /hello.txt\nRUN [\"/bin/sh\", \"-c\", \"id -u > /uid\"]\n" "$1" > Dockerfile' _ "$img"
+            && printf "FROM %s\nUSER 0\nCOPY hello.txt /hello.txt\nRUN [\"/bin/sh\", \"-c\", \"id -u > /uid\"]\n" "$1" > Dockerfile' _ "$img"
           kubectl exec "$pod" -- buildctl build --frontend dockerfile.v0 \
             --local context=/home/nonroot/.local/tmp/ctx --local dockerfile=/home/nonroot/.local/tmp/ctx \
             --output type=tar,dest=- > /tmp/out.tar
           tar -xOf /tmp/out.tar hello.txt | grep -qx quench
-          # RUN steps execute as root inside the build's user namespace
+          # The base image runs as 1001; USER 0 in the build is root inside the
+          # build's user namespace, which only works if the subuid map is in place.
           tar -xOf /tmp/out.tar uid | grep -qx 0
           # 2. A separate client pod over the Service's TCP endpoint (same namespace,
           #    which the default NetworkPolicy allows).
