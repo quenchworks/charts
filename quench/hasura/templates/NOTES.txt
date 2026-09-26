@@ -1,0 +1,23 @@
+Quenchworks Hasura GraphQL Engine (Community Edition) is installed as {{ include "quench-common.fullname" . }}.
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  # GraphQL: http://localhost:{{ .Values.service.port }}/v1/graphql
+{{- if .Values.console }}
+  # Console: http://localhost:{{ .Values.service.port }}/console
+{{- end }}
+
+The admin secret (X-Hasura-Admin-Secret):
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "quench-common.fullname" . }} -o jsonpath='{.data.admin-secret}' | base64 -d; echo
+
+Metadata database:
+{{- if .Values.postgresql.enabled }}
+  Bundled PostgreSQL, {{ include "hasura.db.host" . }}/{{ include "hasura.db.name" . }}.
+{{- else }}
+  External PostgreSQL, {{ include "hasura.db.host" . }}/{{ include "hasura.db.name" . }}.
+{{- end }}
+{{- if not .Values.unauthorizedRole }}
+
+Requests without credentials are refused. Configure JWT or webhook auth with
+extraEnvVars (HASURA_GRAPHQL_JWT_SECRET, HASURA_GRAPHQL_AUTH_HOOK) for clients.
+{{- end }}

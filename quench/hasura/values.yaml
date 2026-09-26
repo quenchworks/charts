@@ -1,0 +1,116 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/hasura
+  digest: "sha256:2f4d008c54b0da96bc4372b8379e6e5515f431ed02a6a8dcb1a4f66ba9811168"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Hasura GraphQL Engine (Community Edition) serves GraphQL, the metadata API
+# and the console on port 8080. It keeps its metadata in PostgreSQL, so it is
+# stateless and scales horizontally.
+replicaCount: 1
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# Admin secret for the console and the metadata API. Empty generates one into
+# the release Secret, kept across upgrades.
+adminSecret: ""
+
+# Serve the web console at /console (it asks for the admin secret).
+console: true
+
+# Role for requests with no credentials. Empty refuses them.
+unauthorizedRole: ""
+
+# --- Bundled database (default) ---
+# The Quenchworks PostgreSQL subchart; its Service is "<release>-postgresql".
+# The image creates auth.username as the superuser and the database only when it
+# differs from the user, so keep them distinct.
+postgresql:
+  enabled: true
+  auth:
+    username: hasura
+    password: ""            # generated if empty
+    database: hasura_metadata
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- External database (postgresql.enabled=false) ---
+# With existingSecret, that Secret must hold the full postgres:// URL under
+# existingSecretUrlKey; otherwise the chart assembles it.
+externalDatabase:
+  host: ""
+  port: 5432
+  database: hasura
+  user: hasura
+  password: ""
+  sslMode: require
+  existingSecret: ""
+  existingSecretUrlKey: "database-url"
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# Extra env vars (list of {name,value} or {name,valueFrom}), appended after the
+# chart's own, e.g. HASURA_GRAPHQL_JWT_SECRET.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Empty keeps the image entrypoint.
+command: []
+args: []
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Ingress stays namespace-local until you opt in. Egress is open (remote
+# schemas, actions, event triggers call out).
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
