@@ -1,0 +1,114 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/wildfly.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/wildfly
+  digest: "sha256:76813383fcedea207d22f78e33adb78aac47b8f63ad43d6ab58d970e10913206"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# WildFly is served by one JVM per pod; the image's entrypoint makes /tmp/wildfly
+# the server base (an emptyDir here), so pods are stateless and scale horizontally.
+# Applications come from a derived image (FROM this image, COPY app.war into
+# /opt/wildfly/standalone/deployments) or are mounted there with extraVolumes and
+# extraVolumeMounts; the entrypoint copies that directory into the base at start.
+replicaCount: 1
+
+# Server configuration file under standalone/configuration, passed as -c.
+# standalone.xml (web profile), standalone-full.xml (messaging, JMS),
+# standalone-microprofile.xml (MicroProfile incl. Telemetry/OpenTelemetry), and the
+# -ha variants.
+serverConfig: standalone.xml
+
+# Extra server arguments, e.g. ["-Dmy.prop=value"].
+extraArgs: []
+
+# JAVA_OPTS for the JVM. Empty keeps standalone.conf's defaults (-Xms64m -Xmx512m
+# plus the module flags). Setting it REPLACES those defaults, so include heap size.
+javaOpts: ""
+
+# HTTP path the probes hit on 8080.
+probePath: /
+
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# Optional horizontal autoscaling on CPU (a stateless web container scales out well).
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+# Probes are tcpSocket on 8080: GET / is 404 by design (empty ROOT webapp), so an
+# httpGet probe would wrongly fail. The startup probe is generous for JVM boot.
+livenessProbe: {}
+readinessProbe: {}
+startupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# A web server commonly wants ingress from outside the namespace (ingress
+# controllers, gateways), so unlike the database charts this defaults to allowing
+# external traffic. Set allowExternal=false to restrict ingress to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Optional Ingress (HTTP only). Disabled by default, so enabling it is an explicit
+# operator decision and this chart's behaviour is unchanged until then.
+ingress:
+  enabled: false
+  # IngressClass to claim this Ingress. Empty -> the cluster default applies.
+  className: ""
+  annotations: {}
+  # Service port to route to. Unset -> resolved from service.port, then
+  # service.ports.http / .https.
+  servicePort: null
+  # e.g. [{host: app.example.com, paths: [{path: /, pathType: Prefix}]}]
+  # `paths` may be omitted for the common "/" Prefix case.
+  hosts: []
+  # Standard Ingress TLS list, e.g. [{hosts: [app.example.com], secretName: app-tls}]
+  tls: []

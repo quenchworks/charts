@@ -1,0 +1,26 @@
+Quenchworks WildFly is installed as {{ include "quench-common.fullname" . }} (config: {{ .Values.serverConfig }}).
+
+HTTP on port {{ .Values.service.port }} inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+
+Applications: build FROM this image and COPY your WAR/EAR into
+/opt/wildfly/standalone/deployments, or mount it there with extraVolumes and
+extraVolumeMounts. The entrypoint copies that directory into the server base
+(/tmp/wildfly) at start.
+
+The management interface (9990, CLI and console) is bound to loopback only:
+
+  kubectl exec -it deploy/{{ include "quench-common.fullname" . }} -- /opt/wildfly/bin/jboss-cli.sh --connect
+
+Changes made through the CLI live in the pod's /tmp copy of the configuration and
+are lost on restart; put lasting changes in a mounted configuration file.
+
+The image is nonroot (uid 1001) on a read-only root filesystem, pinned by digest
+and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }}@{{ .Values.image.digest }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
