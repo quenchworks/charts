@@ -1,0 +1,154 @@
+name: release-streaming-stack
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/streaming-stack/**"
+      - ".github/workflows/release-streaming-stack.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/streaming-stack
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          kubectl rollout status statefulset/streaming-kafka --timeout=300s
+          for d in streaming-karapace-registry streaming-karapace-rest-proxy streaming-akhq; do
+            kubectl rollout status deployment/$d --timeout=300s
+          done
+          kubectl exec streaming-kafka-0 -- /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 \
+            --create --topic orders --partitions 1 --replication-factor 1
+          # probe over port-forwards (the runtime images have no HTTP client)
+          kubectl port-forward svc/streaming-karapace-registry 8081:8081 >/tmp/pf1.log 2>&1 &
+          p1=$!
+          kubectl port-forward svc/streaming-karapace-rest-proxy 8082:8082 >/tmp/pf2.log 2>&1 &
+          p2=$!
+          kubectl port-forward deploy/streaming-akhq 8080:8080 28081:28081 >/tmp/pf3.log 2>&1 &
+          p3=$!; trap 'kill $p1 $p2 $p3' EXIT; sleep 5
+          # 1. Karapace registers a schema (writes wait for the registry to elect itself primary).
+          H='Content-Type: application/vnd.schemaregistry.v1+json'
+          avro='{"schema":"{\"type\":\"record\",\"name\":\"Order\",\"fields\":[{\"name\":\"id\",\"type\":\"string\"}]}"}'
+          for i in $(seq 1 60); do
+            out="$(curl -fsS -X POST -H "$H" -d "$avro" http://127.0.0.1:8081/subjects/orders-value/versions || true)"
+            grep -q '"id"' <<<"$out" && break
+            sleep 2
+          done
+          echo "schema: $out"; grep -q '"id"' <<<"$out"
+          # 2. The REST proxy produces a record into Kafka, and a Kafka consumer reads it back.
+          curl -fsS -X POST -H 'Content-Type: application/vnd.kafka.json.v2+json' \
+            -d '{"records":[{"value":{"id":"quench-1"}}]}' http://127.0.0.1:8082/topics/orders | tee /tmp/produce.json; echo
+          grep -q '"offset"' /tmp/produce.json
+          got="$(kubectl exec streaming-kafka-0 -- /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+            --topic orders --from-beginning --max-messages 1 --timeout-ms 30000)"
+          echo "consumed: $got"; grep -q 'quench-1' <<<"$got"
+          # 3. AKHQ is healthy and sees the topic and the schema through its wiring.
+          curl -fsS http://127.0.0.1:28081/health | grep -q '"status":"UP"'
+          curl -fsS 'http://127.0.0.1:8080/api/streaming/topic?show=ALL' > /tmp/topics.json
+          grep -q '"name":"orders"' /tmp/topics.json || { head -c 600 /tmp/topics.json; exit 1; }
+          curl -fsS 'http://127.0.0.1:8080/api/streaming/schema' > /tmp/schemas.json
+          grep -q 'orders-value' /tmp/schemas.json || { head -c 600 /tmp/schemas.json; exit 1; }
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/streaming-stack-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/streaming-stack@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/streaming-stack:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

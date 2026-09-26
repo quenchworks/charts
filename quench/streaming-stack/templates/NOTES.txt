@@ -1,0 +1,21 @@
+QuenchWorks streaming-stack is installed in {{ .Release.Namespace }}.
+
+  Kafka            streaming-kafka:9092
+{{- if .Values.karapace.enabled }}
+  Schema registry  http://streaming-karapace-registry:8081
+{{- if .Values.karapace.restProxy.enabled }}
+  REST proxy       http://streaming-karapace-rest-proxy:8082
+{{- end }}
+{{- end }}
+{{- if .Values.akhq.enabled }}
+  AKHQ console     kubectl port-forward svc/streaming-akhq 8080:8080, then http://127.0.0.1:8080
+
+AKHQ has no login by default. Configure akhq.akhqConfig.security, or put it behind
+oauth2-proxy, before exposing it.
+{{- end }}
+
+Every image is pinned by digest and signed. Verify one:
+
+  cosign verify ghcr.io/quenchworks/images/kafka \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

@@ -1,0 +1,47 @@
+# streaming-stack: Kafka (KRaft) + Karapace (schema registry, REST proxy) + AKHQ.
+#
+# Names are FIXED (streaming-kafka, streaming-karapace-registry, streaming-akhq)
+# because each subchart takes the others' addresses as plain values, not templates.
+# One stack per namespace.
+#
+# Clients use:
+#   Kafka            streaming-kafka:9092
+#   Schema registry  http://streaming-karapace-registry:8081
+#   REST proxy       http://streaming-karapace-rest-proxy:8082
+#   AKHQ console     http://streaming-akhq:8080
+
+# ---------------------------------------------------------------------------
+# Kafka (subchart): 3 combined broker/controller nodes in KRaft mode. Everything
+# under kafka.* is the kafka chart's own values.
+# ---------------------------------------------------------------------------
+kafka:
+  fullnameOverride: streaming-kafka
+
+# ---------------------------------------------------------------------------
+# Karapace (subchart): the schema registry and the Kafka REST proxy. Schemas live
+# in the _schemas topic; its replication factor follows the Kafka cluster's.
+# ---------------------------------------------------------------------------
+karapace:
+  enabled: true
+  fullnameOverride: streaming-karapace
+  kafka:
+    bootstrapServers: streaming-kafka:9092
+  registry:
+    replicationFactor: 3
+  restProxy:
+    enabled: true
+
+# ---------------------------------------------------------------------------
+# AKHQ (subchart): the web console, connected to this Kafka cluster and schema
+# registry. It has no login by default; configure akhq.akhqConfig.security (or
+# put it behind oauth2-proxy) before exposing it.
+# ---------------------------------------------------------------------------
+akhq:
+  enabled: true
+  fullnameOverride: streaming-akhq
+  connections:
+    streaming:
+      properties:
+        bootstrap.servers: streaming-kafka:9092
+      schema-registry:
+        url: http://streaming-karapace-registry:8081
