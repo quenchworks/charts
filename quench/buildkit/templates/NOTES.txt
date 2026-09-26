@@ -1,0 +1,25 @@
+Quenchworks BuildKit is installed as {{ include "quench-common.fullname" . }}.
+
+buildkitd runs rootless (uid 1001 in a user namespace) and serves gRPC on:
+
+  tcp://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Use it from buildctl or docker buildx:
+
+  buildctl --addr tcp://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }} build \
+    --frontend dockerfile.v0 --local context=. --local dockerfile=.
+  docker buildx create --name quench --driver remote tcp://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}
+
+{{ if .Values.tls.existingSecret -}}
+mTLS is on (Secret {{ .Values.tls.existingSecret }}): clients need a certificate signed by its ca.crt.
+{{- else -}}
+The endpoint is PLAINTEXT and runs any build it is sent. {{ if .Values.networkPolicy.enabled }}The NetworkPolicy limits it to
+{{- if .Values.networkPolicy.allowExternal }} the whole cluster{{ else }} pods in {{ .Release.Namespace }}{{ end }}.{{ else }}No NetworkPolicy is applied.{{ end }}
+Set tls.existingSecret for mTLS.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/buildkit \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

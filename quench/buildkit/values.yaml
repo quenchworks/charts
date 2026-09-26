@@ -1,0 +1,103 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/buildkit
+  digest: "sha256:b0b5d1a3ae91df1c7a06fe482dabf83d1bc0e5f1f3223e5143e199ed810e92c4"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# One buildkitd. More replicas are independent daemons with separate caches;
+# clients see a random one per connection, so scale only with that in mind.
+replicaCount: 1
+
+# buildkitd runs ROOTLESS: rootlesskit puts it in a user namespace as uid 1001,
+# mapped through /etc/subuid by the setuid newuidmap. That needs, and this chart
+# sets by default:
+#   - seccomp and AppArmor Unconfined (the runtime profiles block unshare/mount)
+#   - allowPrivilegeEscalation: true (so newuidmap's setuid bit takes effect)
+#   - SETUID and SETGID kept in the bounding set (everything else is dropped)
+# It is NOT privileged and does not run as root on the node.
+podSecurityContext:
+  seccompProfile:
+    type: Unconfined
+  appArmorProfile:
+    type: Unconfined
+containerSecurityContext:
+  allowPrivilegeEscalation: true
+  capabilities:
+    drop: ["ALL"]
+    add: ["SETUID", "SETGID"]
+
+# Flags passed to buildkitd after the listen addresses. The default is what
+# upstream uses in Kubernetes: a nested PID namespace (the process sandbox) needs
+# a fresh /proc mount that an unprivileged pod cannot make.
+extraArgs:
+  - --oci-worker-no-process-sandbox
+
+# The gRPC endpoint clients use: buildctl --addr tcp://<service>:1234, or
+# docker buildx create --driver remote tcp://<service>:1234.
+service:
+  type: ClusterIP
+  port: 1234
+
+# mTLS on the TCP endpoint. Point existingSecret at a Secret with ca.crt, tls.crt
+# and tls.key (for example from cert-manager); buildkitd then only accepts
+# clients presenting a certificate signed by that CA. Without it the endpoint is
+# plaintext, and anyone who can reach it can run builds, so keep networkPolicy on.
+tls:
+  existingSecret: ""
+
+# Build cache and image store (~/.local/share/buildkit). Off: an emptyDir, lost
+# on restart. On: a PersistentVolumeClaim (ReadWriteOnce, so keep replicaCount 1).
+persistence:
+  enabled: false
+  existingClaim: ""
+  storageClass: ""
+  size: 20Gi
+  accessModes: ["ReadWriteOnce"]
+
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "2", memory: 4Gi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy:
+  type: Recreate
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# A build endpoint runs whatever Dockerfile it is sent, so ingress is limited to
+# pods in this namespace by default. allowExternal=true opens it cluster-wide.
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
