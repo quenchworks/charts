@@ -1,0 +1,69 @@
+# Quenchworks OWASP Dependency-Track: the API server and the web UI (both QuenchWorks
+# images, 0-CVE, cosign-signed, pinned by digest) and a bundled PostgreSQL.
+image:
+  repository: ghcr.io/quenchworks/images/dependency-track
+  digest: "sha256:cb8b5cb2ac1f186003eca81353864a7b2899bd21e33db25b2a55e97e54fc17ff"
+  pullPolicy: IfNotPresent
+
+frontend:
+  enabled: true
+  image:
+    repository: ghcr.io/quenchworks/images/dependency-track-frontend
+    digest: "sha256:e33caa28408159ed660fbdacc2d426c5131a38da399945b007ddd81dd9ab67e6"
+  replicas: 1
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { cpu: 250m, memory: 128Mi }
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+apiServer:
+  # Extra JVM flags, appended to the image's defaults (G1, MaxRAMPercentage=80).
+  extraJavaOptions: ""
+  # Extra DT_* settings as env vars, e.g. [{name: DT_LOGGING_LEVEL, value: DEBUG}].
+  extraEnv: []
+  resources:
+    requests: { cpu: 500m, memory: 2Gi }
+    limits: { cpu: "2", memory: 4Gi }
+
+# One Service for users: the UI, with /api proxied to the API server.
+service:
+  type: ClusterIP
+  port: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  tls: []
+
+# Bundled PostgreSQL (the QuenchWorks postgresql chart). The API server reads the
+# password from the Secret that chart generates (<release>-postgresql).
+postgresql:
+  enabled: true
+  auth:
+    # the bundled image creates auth.database only when it differs from the superuser
+    username: postgres
+    database: dtrack
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# Used when postgresql.enabled=false.
+externalDatabase:
+  # jdbc:postgresql://host:5432/dtrack
+  url: ""
+  username: dtrack
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}
