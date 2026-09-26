@@ -1,0 +1,85 @@
+{{- $probe := dict "httpGet" (dict "path" "/readyz" "port" 9443 "scheme" "HTTPS") -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "cnpg.serviceAccountName" . }}
+      # The operator talks to the API server; quench-common leaves the token off.
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: manager
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/manager"]
+          args:
+            - controller
+            - --leader-elect
+            - --max-concurrent-reconciles={{ .Values.maxConcurrentReconciles }}
+            - --config-map-name={{ include "quench-common.fullname" . }}-config
+            - --secret-name={{ include "quench-common.fullname" . }}-config
+            - --webhook-port=9443
+          env:
+            # Copied into every PostgreSQL pod by the bootstrap-controller
+            # initContainer, so it must be this exact image.
+            - name: OPERATOR_IMAGE_NAME
+              value: {{ include "quench-common.image" . | quote }}
+            - name: OPERATOR_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - name: MONITORING_QUERIES_CONFIGMAP
+              value: cnpg-default-monitoring
+            # Default spec.imageName for Clusters that do not set one. It carries a
+            # tag as well as the digest: CloudNativePG reads the PostgreSQL major
+            # version from the tag.
+            - name: POSTGRES_IMAGE_NAME
+              value: {{ printf "%s:%s@%s" .Values.postgresImage.repository .Values.postgresImage.tag .Values.postgresImage.digest | quote }}
+          ports:
+            - { name: metrics, containerPort: 8080, protocol: TCP }
+            - { name: webhook-server, containerPort: 9443, protocol: TCP }
+          startupProbe:
+            {{- toYaml (merge (dict "periodSeconds" 5 "failureThreshold" 12) $probe) | nindent 12 }}
+          livenessProbe:
+            {{- toYaml (deepCopy $probe) | nindent 12 }}
+          readinessProbe:
+            {{- toYaml (deepCopy $probe) | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: scratch-data, mountPath: /controller }
+            - { name: webhook-certificates, mountPath: /run/secrets/cnpg.io/webhook }
+      volumes:
+        - { name: scratch-data, emptyDir: {} }
+        - name: webhook-certificates
+          secret:
+            secretName: cnpg-webhook-cert
+            optional: true
+            defaultMode: 420
+{{- with .Values.config }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" $ }}-config
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+data:
+  {{- toYaml . | nindent 2 }}
+{{- end }}

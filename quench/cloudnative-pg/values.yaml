@@ -1,0 +1,49 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/cloudnative-pg
+  digest: "sha256:5b5f94e614807c5a82988d0ce5bea0917cd69a9cc1506d16f55635c45164fbed"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# More than one replica is fine: the operator elects a leader.
+replicaCount: 1
+maxConcurrentReconciles: 10
+
+# The default PostgreSQL image for Clusters that do not set spec.imageName: the
+# QuenchWorks postgresql image. It runs as uid 1001, so Clusters set
+#   spec.postgresUID: 1001
+#   spec.postgresGID: 1001
+# (CloudNativePG's default is 26, which this image has no user for).
+postgresImage:
+  repository: ghcr.io/quenchworks/images/postgresql
+  tag: "18.6"
+  digest: "sha256:4c0580fd2968b8d6e8fb008e0eb74b55c54464b041c235842e4d1cc37ed9a445"
+
+# Operator settings (the ConfigMap the operator reads at start), e.g.
+#   INHERITED_LABELS: "team,environment"
+#   WATCH_NAMESPACE: "db"
+config: {}
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: 500m, memory: 512Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 10
+podSecurityContext: {}
+containerSecurityContext: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}

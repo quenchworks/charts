@@ -1,0 +1,26 @@
+Quenchworks CloudNativePG is installed as {{ include "quench-common.fullname" . }} in {{ .Release.Namespace }}.
+
+Create a PostgreSQL cluster (3 instances, one primary, automatic failover):
+
+  apiVersion: postgresql.cnpg.io/v1
+  kind: Cluster
+  metadata:
+    name: pg
+  spec:
+    instances: 3
+    postgresUID: 1001
+    postgresGID: 1001
+    storage:
+      size: 10Gi
+
+postgresUID/postgresGID 1001 match the default image ({{ .Values.postgresImage.repository }}:{{ .Values.postgresImage.tag }}).
+Applications connect to the pg-rw Service with the credentials in the pg-app Secret.
+
+The CRDs are in the chart's crds/ directory: Helm installs them once and never
+upgrades them. Apply a newer chart's crds/ with kubectl apply --server-side.
+
+The images are pinned by digest and signed. Verify one:
+
+  cosign verify ghcr.io/quenchworks/images/cloudnative-pg \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
