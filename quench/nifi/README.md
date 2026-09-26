@@ -20,8 +20,8 @@ a certificate NiFi generates; log in as `admin` with the password above.
 - **One node.** A StatefulSet with one replica. NiFi's Kubernetes clustering (leader
   election and state provider) is not wired yet.
 - **Persistence.** `conf/` (the flow, the generated keystore and sensitive-properties
-  key), the flowfile, content, provenance and database repositories, and local state
-  share one volume. Logs and the NAR working directory are emptyDirs.
+  key), the flowfile, content, provenance, status, NAR and database repositories, the
+  asset directories and local state share one volume. Logs and the NAR working directory are emptyDirs.
 - **Login.** Single-user mode. An init container applies `auth.username` and
   `auth.password` (12+ characters) on every start, so changing them in values takes
   effect on the next restart.
