@@ -65,27 +65,33 @@ jobs:
           metadata: { name: gatestate, namespace: default }
           spec: { type: state.in-memory, version: v1, metadata: [] }
           ---
-          apiVersion: v1
-          kind: Pod
-          metadata:
-            name: gate-app
-            namespace: default
-            annotations: { dapr.io/enabled: "true", dapr.io/app-id: "gate-app" }
+          # a Deployment, not a bare Pod: the injector only patches pods a controller
+          # (here the ReplicaSet controller) creates, not ones a user creates directly
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata: { name: gate-app, namespace: default }
           spec:
-            securityContext: { runAsNonRoot: true, runAsUser: 1001, seccompProfile: { type: RuntimeDefault } }
-            containers:
-              - name: app
-                image: ghcr.io/quenchworks/images/opa@sha256:ee532239a909beba856a6caf4039667f3d2984eb9c29d42810fea722bb258d34
-                securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
+            selector: { matchLabels: { app: gate-app } }
+            template:
+              metadata:
+                labels: { app: gate-app }
+                annotations: { dapr.io/enabled: "true", dapr.io/app-id: "gate-app" }
+              spec:
+                securityContext: { runAsNonRoot: true, runAsUser: 1001, seccompProfile: { type: RuntimeDefault } }
+                containers:
+                  - name: app
+                    image: ghcr.io/quenchworks/images/opa@sha256:ee532239a909beba856a6caf4039667f3d2984eb9c29d42810fea722bb258d34
+                    securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: [ALL] } }
           Y
-          kubectl -n default wait pod/gate-app --for=condition=Ready --timeout=300s
+          kubectl -n default rollout status deployment/gate-app --timeout=300s
+          pod="$(kubectl -n default get pod -l app=gate-app -o jsonpath='{.items[0].metadata.name}')"
           # recent Dapr injects daprd as a native sidecar (an initContainer with
           # restartPolicy Always) where the cluster supports it, a container otherwise
-          side="$(kubectl -n default get pod gate-app -o jsonpath='{.spec.initContainers[?(@.name=="daprd")].image}{.spec.containers[?(@.name=="daprd")].image}')"
+          side="$(kubectl -n default get pod "$pod" -o jsonpath='{.spec.initContainers[?(@.name=="daprd")].image}{.spec.containers[?(@.name=="daprd")].image}')"
           echo "sidecar: $side"
-          [ "$side" = "$want" ] || { kubectl -n default get pod gate-app -o yaml | head -60; kubectl -n dapr-system logs deploy/dapr-sidecar-injector --tail=40; exit 1; }
+          [ "$side" = "$want" ] || { kubectl -n default get pod "$pod" -o yaml | head -60; kubectl -n dapr-system logs deploy/dapr-sidecar-injector --tail=40; exit 1; }
           # 3. state round-trips through the sidecar's API
-          kubectl -n default port-forward pod/gate-app 13500:3500 >/tmp/pf.log 2>&1 &
+          kubectl -n default port-forward "pod/$pod" 13500:3500 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf 2>/dev/null || true' EXIT; sleep 5
           curl -fsS -X POST -H 'Content-Type: application/json' -d '[{"key":"k","value":"quenchworks"}]' http://127.0.0.1:13500/v1.0/state/gatestate
           test "$(curl -fsS http://127.0.0.1:13500/v1.0/state/gatestate/k)" = '"quenchworks"'
