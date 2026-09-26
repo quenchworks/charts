@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "guacamole.guacdName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: guacd
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "guacamole.componentLabels" (dict "ctx" . "component" "guacd") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "guacamole.componentLabels" (dict "ctx" . "component" "guacd") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "guacamole.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: guacd
+          image: "{{ .Values.guacd.image.repository }}@{{ .Values.guacd.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/guacd", "-f", "-b", "0.0.0.0", "-l", "4822", "-L", {{ .Values.guacd.logLevel | quote }}]
+          ports:
+            - name: guacd
+              containerPort: 4822
+              protocol: TCP
+          livenessProbe:
+            tcpSocket: { port: guacd }
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          readinessProbe:
+            tcpSocket: { port: guacd }
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.guacd.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "guacamole.guacdName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: guacd
+      port: 4822
+      targetPort: guacd
+      protocol: TCP
+  selector:
+    {{- include "guacamole.componentLabels" (dict "ctx" . "component" "guacd") | nindent 4 }}
+{{- if .Values.networkPolicy.enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "guacamole.guacdName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "guacamole.componentLabels" (dict "ctx" . "component" "guacd") | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "guacamole.componentLabels" (dict "ctx" . "component" "web") | nindent 14 }}
+      ports:
+        - port: guacd
+          protocol: TCP
+{{- end }}

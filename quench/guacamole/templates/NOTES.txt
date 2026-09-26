@@ -1,0 +1,19 @@
+Quenchworks Guacamole is installed: the web app, guacd and PostgreSQL.
+
+Open it:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  http://127.0.0.1:{{ .Values.service.port }}/guacamole/
+
+Log in as guacadmin with the password from the guacamole-db Secret:
+
+  kubectl get secret guacamole-db -o jsonpath='{.data.admin-password}' | base64 -d
+
+Upstream's default guacadmin/guacadmin does not work: the database init replaced it.
+guacd accepts connections only from the web app's pods{{ if not .Values.networkPolicy.enabled }} (NetworkPolicy disabled){{ end }}.
+
+The images are pinned by digest and signed. Verify one:
+
+  cosign verify ghcr.io/quenchworks/images/guacamole \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

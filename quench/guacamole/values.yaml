@@ -1,0 +1,95 @@
+# guacamole: the Apache Guacamole web app, the guacd proxy daemon and PostgreSQL.
+#
+# Names of the database pieces are FIXED (guacamole-postgresql, the guacamole-db
+# Secret) because the postgresql subchart takes them as plain values. One install
+# per namespace.
+
+# The digests below are the contract with the image factory. They are never tags.
+image:
+  repository: ghcr.io/quenchworks/images/guacamole
+  digest: "sha256:642ae691b03777ea053628a2df213edfebd9f83d294d1b9133ef52fd7df37639"
+  pullPolicy: IfNotPresent
+
+guacd:
+  image:
+    repository: ghcr.io/quenchworks/images/guacd
+    digest: "sha256:c2aa2a8412dbba8fbc7dc2901d11a1a1a2bb335619d7647e430b549add174937"
+  # guacd logs at info; debug shows every protocol step
+  logLevel: info
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+
+nameOverride: ""
+
+# The web app. More than one replica works (sessions live in guacd and the DB).
+replicaCount: 1
+javaOpts: "-XX:MaxRAMPercentage=75"
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+# The guacadmin password. Upstream's schema creates guacadmin/guacadmin; the
+# database init replaces that password on first install. Empty generates one,
+# kept across upgrades in the guacamole-db Secret (key admin-password).
+admin:
+  password: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# Extra environment for the web app. Any Guacamole property works as an
+# upper-case variable (enable-environment-properties), e.g.
+#   - { name: TOTP_ENABLED, value: "true" }   (needs that extension)
+#   - { name: RECORDING_SEARCH_PATH, value: /recordings }
+extraEnvVars: []
+
+# ---------------------------------------------------------------------------
+# PostgreSQL (subchart). The database init creates Guacamole's tables on first
+# install; later upgrades leave existing tables alone.
+# ---------------------------------------------------------------------------
+postgresql:
+  fullnameOverride: guacamole-postgresql
+  auth:
+    username: guacamole
+    database: guacamole_db
+    existingSecret: guacamole-db
+    existingSecretPasswordKey: postgres-password
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# psql for the database init, the same image the postgresql subchart pins.
+dbInit:
+  image:
+    repository: ghcr.io/quenchworks/images/postgresql
+    digest: "sha256:4c0580fd2968b8d6e8fb008e0eb74b55c54464b041c235842e4d1cc37ed9a445"
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# guacd accepts only the web app's pods: it has no authentication of its own and
+# opens connections to whatever host a client names.
+networkPolicy:
+  enabled: true

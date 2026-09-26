@@ -1,0 +1,141 @@
+name: release-guacamole
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/guacamole/**"
+      - ".github/workflows/release-guacamole.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/guacamole
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          kubectl rollout status deployment/rtest-guacamole --timeout=300s
+          kubectl rollout status deployment/rtest-guacamole-guacd --timeout=300s
+          kubectl port-forward svc/rtest-guacamole 8080:8080 >/tmp/pf1.log 2>&1 &
+          p1=$!
+          kubectl port-forward svc/rtest-guacamole-guacd 4822:4822 >/tmp/pf2.log 2>&1 &
+          p2=$!; trap 'kill $p1 $p2' EXIT; sleep 5
+          # 1. The init created the schema and set the configured admin password.
+          tok="$(curl -fsS -X POST -d 'username=guacadmin&password=ci-admin-pass' http://127.0.0.1:8080/guacamole/api/tokens)"
+          token="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["authToken"])' "$tok")"
+          [ -n "$token" ] || { echo "login failed: $tok"; exit 1; }
+          # 2. Upstream's default guacadmin/guacadmin must not work.
+          code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -d 'username=guacadmin&password=guacadmin' http://127.0.0.1:8080/guacamole/api/tokens)"
+          [ "$code" = 403 ] || { echo "default password was not refused (HTTP $code)"; exit 1; }
+          # 3. The token reads from the database.
+          curl -fsS -H "Guacamole-Token: $token" "http://127.0.0.1:8080/guacamole/api/session/data/postgresql/connections" | tee /tmp/conns.json; echo
+          grep -q '^{' /tmp/conns.json
+          # 4. guacd loads each protocol plugin.
+          for p in rdp vnc ssh; do
+            r="$(python3 -c 'import socket,sys; p=sys.argv[1]; s=socket.create_connection(("127.0.0.1",4822),5); s.sendall(f"6.select,{len(p)}.{p};".encode()); s.settimeout(10); print(s.recv(4096).decode(errors="replace"))' "$p")"
+            echo "$p: ${r:0:60}"
+            grep -q '^4\.args,' <<<"$r"
+          done
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/guacamole-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/guacamole@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/guacamole:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
