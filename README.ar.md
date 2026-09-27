@@ -19,7 +19,7 @@
   <a href="https://quench-works.com"><img src="https://raw.githubusercontent.com/quenchworks/.github/main/profile/assets/demo.gif" alt="QuenchWorks في الطرفية: تشغيل صورة بصفر ثغرات، والتحقق منها باستخدام cosign، ونشر مخطط Helm، ومراقبة وصول الـ pod إلى حالة Running." width="760"></a>
 </p>
 
-**50+ مخططًا.** بلا جدار دفع، بلا حساب، بلا احتكار مورّد. تصفّحها جميعًا على [quench-works.com/charts](https://quench-works.com/charts).
+**230+ مخططًا.** بلا جدار دفع، بلا حساب، بلا احتكار مورّد. تصفّحها جميعًا على [quench-works.com/charts](https://quench-works.com/charts).
 
 ```bash
 helm install cache oci://ghcr.io/quenchworks/charts/redis
