@@ -133,6 +133,7 @@ namespace. Browse them at [quench-works.com/stacks](https://quench-works.com/sta
 | `sigstore-stack` | Fulcio, Rekor v2, Timestamp Authority |
 | `backup-stack` | Velero with its AWS plugin, SeaweedFS |
 | `ingress-stack` | ingress-nginx, cert-manager, a cluster CA issuer |
+| `supply-chain-stack` | Kyverno admitting only signed QuenchWorks images, trivy-operator |
 
 ## Verify a chart
 
