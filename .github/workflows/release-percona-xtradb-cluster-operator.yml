@@ -56,6 +56,8 @@ jobs:
           spec:
             crVersion: 1.20.0
             secretsName: gate-secrets
+            initContainer:
+              image: percona/percona-xtradb-cluster-operator:1.20.0
             unsafeFlags:
               tls: true
               pxcSize: true
@@ -91,12 +93,13 @@ jobs:
           # the database and proxy pods ran our image as their init container
           for p in gate-pxc-0 $(kubectl get pod -l app.kubernetes.io/component=haproxy -o name | head -1 | cut -d/ -f2); do
             init="$(kubectl get pod "$p" -o jsonpath='{.spec.initContainers[0].image}')"
-            echo "$p init image: $init"; test "$init" = "$op_image"
+            echo "$p init image: $init"
           done
           # a query through HAProxy reaches the Galera node
           pw="$(kubectl get secret gate-secrets -o jsonpath='{.data.root}' | base64 -d)"
           size="$(kubectl exec gate-pxc-0 -c pxc -- mysql -uroot -p"$pw" -h gate-haproxy -N -e "SELECT variable_value FROM performance_schema.global_status WHERE variable_name='wsrep_cluster_size'" 2>/dev/null)"
-          echo "wsrep_cluster_size via HAProxy: $size"; test "$size" = 1
+          echo "wsrep_cluster_size via HAProxy: $size"
+          echo "DIAGNOSTIC RUN with upstream's init image: never publishes"; exit 1
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
