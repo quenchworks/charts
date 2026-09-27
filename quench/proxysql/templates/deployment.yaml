@@ -1,0 +1,91 @@
+{{/* tcpSocket probes: the image has no shell and no client, and ProxySQL's REST
+     API is off. The MySQL port only opens once the config is loaded. */}}
+{{- $liveness := dict "tcpSocket" (dict "port" "admin") "initialDelaySeconds" 10 "periodSeconds" 15 -}}
+{{- $readiness := dict "tcpSocket" (dict "port" "mysql") "initialDelaySeconds" 3 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # proxysql.cnf is read once at startup. A checksum of the inputs, not the
+        # rendered file, because a generated admin password renders differently
+        # each time it is computed.
+        checksum/config: {{ list .Values.admin .Values.monitor .Values.mysqlServers .Values.mysqlUsers .Values.replicationHostgroups .Values.extraConfig .Values.threads .Values.maxConnections | toJson | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "proxysql.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: proxysql
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/proxysql", "-f", "-c", "/etc/proxysql/proxysql.cnf", "-D", "/var/lib/proxysql"]
+          {{- with .Values.extraEnvVars }}
+          env:
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: mysql
+              containerPort: 6033
+              protocol: TCP
+            - name: admin
+              containerPort: 6032
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/proxysql/proxysql.cnf
+              subPath: proxysql.cnf
+              readOnly: true
+            # proxysql.db (its SQLite config store) and stats. An emptyDir, so a
+            # restart always reloads proxysql.cnf.
+            - name: data
+              mountPath: /var/lib/proxysql
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: config
+          secret:
+            secretName: {{ include "quench-common.fullname" . }}
+            items:
+              - key: proxysql.cnf
+                path: proxysql.cnf
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

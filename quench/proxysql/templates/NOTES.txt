@@ -1,0 +1,26 @@
+Quenchworks ProxySQL is installed as {{ include "quench-common.fullname" . }}.
+
+Applications connect as if it were MySQL:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+{{ if not .Values.mysqlServers -}}
+No backends are configured (mysqlServers is empty), so client queries have
+nowhere to go. Set mysqlServers and mysqlUsers.
+{{- else -}}
+Backends: {{ range $i, $s := .Values.mysqlServers }}{{ if $i }}, {{ end }}{{ $s.hostname }}:{{ $s.port | default 3306 }} (hg {{ $s.hostgroup | default 0 }}){{ end }}.
+{{- end }}
+
+Admin interface (release namespace only), user {{ .Values.admin.username }}:
+
+  kubectl get secret {{ include "quench-common.fullname" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+  mariadb -h {{ include "quench-common.fullname" . }}-admin -P {{ .Values.service.adminPort }} -u {{ .Values.admin.username }} -p
+
+Runtime changes made over the admin interface last until the pod restarts. Put
+them in values to keep them.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/proxysql \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

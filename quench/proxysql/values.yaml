@@ -1,0 +1,108 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/proxysql
+  digest: "sha256:5b637cb0e3e481e60046c5b21e9a0f842bdbe68a3beb62009a4f959805fdcb61"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# ProxySQL reads proxysql.cnf only when its datadir has no proxysql.db. The
+# datadir here is an emptyDir, so every pod starts from this file: the values
+# below are the source of truth. A change made at runtime over the admin
+# interface lasts until the pod restarts. Put it in values to keep it.
+replicaCount: 1
+
+# Remote admin account for the admin interface (6032). The built-in `admin`
+# user only works from inside the pod; ProxySQL enforces that itself.
+# An empty password is generated once and kept across upgrades, in the Secret
+# <fullname> under the key admin-password.
+admin:
+  username: radmin
+  password: ""
+
+# Account ProxySQL's monitor uses to health-check backends. Create it on every
+# backend (it needs USAGE, plus REPLICATION CLIENT for replication checks).
+monitor:
+  username: monitor
+  password: monitor
+
+# Backends. hostgroup groups servers for routing; weight balances within one.
+#   mysqlServers:
+#     - { hostname: db-primary, port: 3306, hostgroup: 0 }
+#     - { hostname: db-replica, port: 3306, hostgroup: 1, weight: 100 }
+mysqlServers: []
+
+# Frontend users. ProxySQL authenticates clients and then logs in to the backend
+# with the SAME username and password, so each user must exist on the backends.
+#   mysqlUsers:
+#     - { username: app, password: secret, defaultHostgroup: 0 }
+mysqlUsers: []
+
+# Optional read/write split: hostgroup pairs whose members ProxySQL sorts by
+# read_only, e.g. [{ writerHostgroup: 0, readerHostgroup: 1 }].
+replicationHostgroups: []
+
+# Raw libconfig blocks appended to proxysql.cnf, for anything the values above
+# do not cover (mysql_query_rules, extra mysql_variables and so on).
+extraConfig: ""
+
+threads: 4
+maxConnections: 2048
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 3306
+  # The admin interface gets its own ClusterIP Service, <fullname>-admin, so it is
+  # never exposed by changing service.type.
+  adminPort: 6032
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Clients are usually apps in other namespaces, so ingress to the MySQL port is
+# allowed from anywhere by default. The admin port is only reachable from the
+# release namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
