@@ -133,7 +133,8 @@ jobs:
             sleep 2
           done
           for i in $(seq 1 90); do
-            phase="$(kubectl get workflow -l gate=pipeline -o jsonpath='{.items[0].status.phase}' 2>/dev/null)"
+            # items[0] of an empty list is an error; under set -e it would end the step
+            phase="$(kubectl get workflow -l gate=pipeline -o jsonpath='{.items[0].status.phase}' 2>/dev/null || true)"
             [ "$phase" = Succeeded ] && break
             case "$phase" in Failed|Error) kubectl get workflow -l gate=pipeline -o yaml | tail -40; exit 1;; esac
             [ "$i" = 90 ] && { echo "no pipeline run: ${phase:-none}"; kubectl logs deploy/$(kubectl get deploy -l sensor-name=gate -o name | cut -d/ -f2) --tail=40; exit 1; }
