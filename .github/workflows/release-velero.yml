@@ -43,9 +43,9 @@ jobs:
         run: |
           set -o pipefail
           helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
-          kubectl rollout status deployment/rtest-velero --timeout=300s
+          kubectl rollout status deployment/velero --timeout=300s
           # scrape metrics over a port-forward (the runtime image has no HTTP client)
-          kubectl port-forward deployment/rtest-velero 8085:8085 >/tmp/pf.log 2>&1 &
+          kubectl port-forward deployment/velero 8085:8085 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # /metrics answers 200 once the server is up; grep a known velero metric
           curl -fsS http://127.0.0.1:8085/metrics | grep -q '^# HELP velero_'
