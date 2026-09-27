@@ -1,0 +1,50 @@
+{{- if and .Values.modelPull.enabled .Values.ollama.enabled .Values.models }}
+# Pulls the listed models into Ollama. It retries until the server is up; the
+# models land on Ollama's volume, so a re-run only checks they are current.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: llm-model-pull-{{ .Release.Revision }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  backoffLimit: {{ .Values.modelPull.backoffLimit }}
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: llm-model-pull
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        {{- range $i, $m := .Values.models }}
+        - name: pull-{{ $i }}
+          image: "{{ $.Values.modelPull.image.repository }}@{{ $.Values.modelPull.image.digest }}"
+          command: ["/usr/bin/ollama", "pull", {{ $m | quote }}]
+          env:
+            - name: OLLAMA_HOST
+              value: http://llm-ollama:11434
+            - name: HOME
+              value: /tmp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 500m, memory: 256Mi }
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+        {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

@@ -1,0 +1,149 @@
+name: release-llm-stack
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/llm-stack/**"
+      - ".github/workflows/release-llm-stack.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/llm-stack
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install llm "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 15m
+          kubectl wait --for=condition=complete job/llm-model-pull-1 --timeout=600s
+          echo "model pull: complete"
+          key="$(kubectl get secret llm-litellm-master-key -o jsonpath='{.data.master-key}' | base64 -d)"
+          kubectl port-forward svc/llm-litellm 14000:4000 >/tmp/pf1.log 2>&1 &
+          kubectl port-forward svc/llm-qdrant 16333:6333 >/tmp/pf2.log 2>&1 &
+          trap 'kill $(jobs -p) 2>/dev/null' EXIT; sleep 6
+          embed() {
+            curl -fsS http://127.0.0.1:14000/v1/embeddings -H "Authorization: Bearer $key" \
+              -H 'Content-Type: application/json' -d "$(jq -nc --arg t "$1" '{model:"embed",input:[$t]}')" \
+              | jq -c '.data[0].embedding'
+          }
+          # embeddings come from Ollama through LiteLLM
+          a="$(embed 'QuenchWorks builds hardened container images with zero CVEs')"
+          b="$(embed 'Bananas are a yellow fruit rich in potassium')"
+          dim="$(jq length <<<"$a")"; echo "litellm -> ollama embedding: $dim dimensions"; test "$dim" -gt 100
+          # stored and searched in Qdrant
+          curl -fsS -X PUT http://127.0.0.1:16333/collections/docs -H 'Content-Type: application/json' \
+            -d "{\"vectors\":{\"size\":$dim,\"distance\":\"Cosine\"}}" >/dev/null
+          jq -nc --argjson a "$a" --argjson b "$b" '{points:[{id:1,vector:$a,payload:{doc:"images"}},{id:2,vector:$b,payload:{doc:"fruit"}}]}' \
+            | curl -fsS -X PUT 'http://127.0.0.1:16333/collections/docs/points?wait=true' -H 'Content-Type: application/json' -d @- >/dev/null
+          q="$(embed 'secure container images')"
+          top="$(jq -nc --argjson v "$q" '{vector:$v,limit:1,with_payload:true}' \
+            | curl -fsS -X POST http://127.0.0.1:16333/collections/docs/points/search -H 'Content-Type: application/json' -d @- \
+            | jq -r '.result[0].payload.doc')"
+          echo "qdrant nearest to 'secure container images': $top"; test "$top" = images
+          # every pod runs as uid 1001
+          for p in $(kubectl get pods -o name | grep -v model-pull); do
+            uid="$(kubectl get "$p" -o jsonpath='{.spec.securityContext.runAsUser}')"
+            echo "runAsUser $p: $uid"; test "$uid" = "1001"
+          done
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/llm-stack-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/llm-stack@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/llm-stack:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

@@ -1,0 +1,16 @@
+QuenchWorks llm-stack is installed in {{ .Release.Namespace }}.
+{{- if .Values.litellm.enabled }}
+
+  LiteLLM   kubectl port-forward svc/llm-litellm 4000:4000, then http://127.0.0.1:4000/v1
+            key: kubectl get secret llm-litellm-master-key -o jsonpath='{.data.master-key}' | base64 -d
+            models: {{ range .Values.litellm.config.model_list }}{{ .model_name }} {{ end }}
+{{- end }}
+{{- if .Values.ollama.enabled }}
+  Ollama    http://llm-ollama:11434 (models pulled by Job llm-model-pull-{{ .Release.Revision }}: {{ join ", " .Values.models }})
+{{- end }}
+{{- if .Values.qdrant.enabled }}
+  Qdrant    http://llm-qdrant:6333
+{{- end }}
+
+Ollama here is CPU-only. Pick models that fit the node's memory; the defaults
+are small ones for trying the stack out.

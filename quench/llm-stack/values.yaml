@@ -1,0 +1,47 @@
+# llm-stack: Ollama + LiteLLM + Qdrant.
+#
+# Names are FIXED (llm-ollama, llm-litellm, llm-qdrant) because LiteLLM reaches
+# Ollama by a plain address in its model_list. One stack per namespace.
+#
+#   LiteLLM  http://llm-litellm:4000/v1   (OpenAI-compatible; key in Secret llm-litellm-master-key)
+#   Ollama   http://llm-ollama:11434
+#   Qdrant   http://llm-qdrant:6333
+
+ollama:
+  enabled: true
+  fullnameOverride: llm-ollama
+
+# Models the pull Job fetches into Ollama after install. Names from
+# https://ollama.com/library; each must also appear in litellm.config.model_list
+# to be served through LiteLLM.
+models:
+  - all-minilm
+  - qwen2.5:0.5b
+
+# The model names clients use, mapped to the Ollama models above.
+litellm:
+  enabled: true
+  fullnameOverride: llm-litellm
+  config:
+    model_list:
+      - model_name: embed
+        litellm_params:
+          model: ollama/all-minilm
+          api_base: http://llm-ollama:11434
+      - model_name: chat
+        litellm_params:
+          model: ollama_chat/qwen2.5:0.5b
+          api_base: http://llm-ollama:11434
+
+qdrant:
+  enabled: true
+  fullnameOverride: llm-qdrant
+
+# The pull Job runs the Ollama image's own client against the server. Its image
+# is pinned here because a parent chart cannot read the subchart's defaults.
+modelPull:
+  enabled: true
+  backoffLimit: 20
+  image:
+    repository: ghcr.io/quenchworks/images/ollama
+    digest: "sha256:dfb68575295c9f774cc3df3482564f5b252fca4f1c29f2cf58f816db0074e3e5"
