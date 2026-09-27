@@ -105,6 +105,7 @@ ingress:
 | `gitops-stack` | Argo CD, Rollouts, Workflows, Events |
 | `sigstore-stack` | Fulcio, Rekor v2, Timestamp Authority |
 | `backup-stack` | Velero + AWS plugin, SeaweedFS |
+| `ingress-stack` | ingress-nginx, cert-manager, a cluster CA issuer |
 
 ## التحقق من مخطط
 

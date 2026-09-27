@@ -132,6 +132,7 @@ namespace. Browse them at [quench-works.com/stacks](https://quench-works.com/sta
 | `gitops-stack` | Argo CD, Rollouts, Workflows, Events |
 | `sigstore-stack` | Fulcio, Rekor v2, Timestamp Authority |
 | `backup-stack` | Velero with its AWS plugin, SeaweedFS |
+| `ingress-stack` | ingress-nginx, cert-manager, a cluster CA issuer |
 
 ## Verify a chart
 
