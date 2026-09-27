@@ -1,0 +1,66 @@
+{{- $probe := dict "httpGet" (dict "path" "/metrics" "port" "metrics") "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 3 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "pxc-operator.serviceAccountName" . }}
+      # The operator talks to the API server; quench-common leaves the token off.
+      automountServiceAccountToken: true
+      # Upstream's value: a draining operator finishes its reconcile first.
+      terminationGracePeriodSeconds: 600
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        # The operator finds its own image, which is also the init image of the
+        # pods it creates, by this container name. Do not rename it.
+        - name: percona-xtradb-cluster-operator
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: LOG_STRUCTURED
+              value: {{ .Values.logStructured | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            - name: WATCH_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OPERATOR_NAME
+              value: percona-xtradb-cluster-operator
+            - name: DISABLE_TELEMETRY
+              value: {{ (not .Values.telemetry) | quote }}
+            - name: MAX_CONCURRENT_RECONCILES
+              value: {{ .Values.maxConcurrentReconciles | quote }}
+            - name: PXCO_FEATURE_GATES
+              value: {{ .Values.featureGates | quote }}
+            - name: PXCO_LEADER_ELECTION_ENABLED
+              value: "true"
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          ports:
+            - name: metrics
+              containerPort: 8080
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
