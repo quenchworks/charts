@@ -1,0 +1,127 @@
+{{/* clamd opens its port only after the database has loaded, so a tcpSocket
+     probe is a real readiness signal. Loading the full database takes a minute
+     or more; the startup probe allows five. */}}
+{{- $liveness := dict "tcpSocket" (dict "port" "clamd") "periodSeconds" 30 "failureThreshold" 4 -}}
+{{- $readiness := dict "tcpSocket" (dict "port" "clamd") "periodSeconds" 10 -}}
+{{- $fcCmd := list "/usr/bin/freshclam" "--config-file=/etc/clamav/freshclam.conf" "--stdout" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ list (include "clamav.clamdConf" .) (include "clamav.freshclamConf" .) .Values.customSignatures | toJson | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "clamav.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if or .Values.freshclam.enabled .Values.initContainers }}
+      initContainers:
+        {{- if .Values.freshclam.enabled }}
+        # clamd will not start without a database, so fetch one first.
+        - name: freshclam-init
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: {{ toJson $fcCmd }}
+          resources:
+            {{- toYaml .Values.freshclam.resources | nindent 12 }}
+          volumeMounts:
+            - { name: config, mountPath: /etc/clamav/freshclam.conf, subPath: freshclam.conf, readOnly: true }
+            - { name: db, mountPath: /var/lib/clamav }
+            - { name: tmp, mountPath: /tmp }
+        {{- end }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: clamd
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/bin/clamd", "--config-file=/etc/clamav/clamd.conf"]
+          {{- with .Values.extraEnvVars }}
+          env:
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: clamd
+              containerPort: 3310
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          startupProbe:
+            {{- if .Values.customStartupProbe }}
+            {{- toYaml .Values.customStartupProbe | nindent 12 }}
+            {{- else }}
+            tcpSocket: { port: clamd }
+            periodSeconds: 5
+            failureThreshold: 60
+            {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: config, mountPath: /etc/clamav/clamd.conf, subPath: clamd.conf, readOnly: true }
+            - { name: db, mountPath: /var/lib/clamav }
+            {{- range $file, $_ := .Values.customSignatures }}
+            - { name: signatures, mountPath: /var/lib/clamav/{{ $file }}, subPath: {{ $file }}, readOnly: true }
+            {{- end }}
+            - { name: tmp, mountPath: /tmp }
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- if .Values.freshclam.enabled }}
+        - name: freshclam
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: {{ toJson (append $fcCmd "--daemon") }}
+          resources:
+            {{- toYaml .Values.freshclam.resources | nindent 12 }}
+          volumeMounts:
+            - { name: config, mountPath: /etc/clamav/freshclam.conf, subPath: freshclam.conf, readOnly: true }
+            - { name: db, mountPath: /var/lib/clamav }
+            - { name: tmp-freshclam, mountPath: /tmp }
+        {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}
+        {{- if .Values.customSignatures }}
+        - name: signatures
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-signatures
+        {{- end }}
+        - name: db
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.freshclam.enabled }}
+        - name: tmp-freshclam
+          emptyDir: {}
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

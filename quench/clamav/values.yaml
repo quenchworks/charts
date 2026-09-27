@@ -1,0 +1,101 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/clamav
+  digest: "sha256:c470cb121cf3cd2cf92fed503ab65d91a503b7116e9426e4ba2c2994a0e9dd51"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Each replica keeps its own signature database and downloads it on start.
+replicaCount: 1
+
+# freshclam: an init container fills the database before clamd starts (clamd
+# will not boot without one), and a sidecar refreshes it `checks` times a day.
+# clamd picks the new files up on its next self-check.
+freshclam:
+  enabled: true
+  checks: 12
+  # database.clamav.net is a CDN that rate-limits heavy users and whole cloud
+  # ranges. With several clusters, run a private mirror and set it here.
+  mirror: database.clamav.net
+  privateMirror: ""
+  resources:
+    requests: { cpu: 10m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+
+# Extra signature files placed in the database directory, as {filename: content}.
+# Any ClamAV format works (.hdb hashes, .ndb patterns, .yar rules and so on).
+# With freshclam disabled, these are the whole database, which suits air-gapped
+# clusters and tests:
+#   customSignatures:
+#     local.hdb: |
+#       44d88612fea8a8f36de82e1278abb02f:68:Local.EICAR
+customSignatures: {}
+
+# clamd tuning.
+clamd:
+  maxThreads: 10
+  # Largest stream clamd accepts over INSTREAM. Clients get "size limit
+  # exceeded" above it.
+  streamMaxLength: 100M
+  # How often clamd checks the database for updates, in seconds.
+  selfCheck: 600
+  # Raw clamd.conf lines appended to the generated file.
+  extraConfig: ""
+
+# The full signature database needs about 1.5 GiB resident, and briefly twice
+# that while clamd reloads it. Keep the limit at 3Gi or more for real use.
+resources:
+  requests: { cpu: 100m, memory: 1536Mi }
+  limits: { cpu: "2", memory: 3Gi }
+
+service:
+  type: ClusterIP
+  port: 3310
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Apps that scan uploads are usually in other namespaces, so the clamd port is
+# open to every namespace by default. Set allowExternal=false to limit it to
+# the release namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
