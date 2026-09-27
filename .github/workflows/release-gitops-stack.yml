@@ -1,0 +1,219 @@
+name: release-gitops-stack
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/gitops-stack/**"
+      - ".github/workflows/release-gitops-stack.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/gitops-stack
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        env:
+          STEP_IMAGE: ghcr.io/quenchworks/images/busybox@sha256:96bfb56285a65f978985de00bec071bb9e52d3c588cd26febed64ff36651c526
+          WEB_IMAGE: ghcr.io/quenchworks/images/nginx:1.28.3
+        run: |
+          set -o pipefail
+          helm install gitops "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 12m
+          for d in gitops-argocd-server gitops-argocd-repo-server gitops-rollouts gitops-workflows-controller gitops-workflows-server gitops-events-controller; do
+            kubectl rollout status deployment/$d --timeout=300s
+          done
+          kubectl rollout status statefulset/gitops-argocd-application-controller --timeout=300s
+          # Argo CD answers its API
+          kubectl port-forward svc/gitops-argocd-server 18080:8080 >/tmp/pf1.log 2>&1 &
+          kubectl port-forward svc/gitops-workflows-server 12746:2746 >/tmp/pf2.log 2>&1 &
+          trap 'kill $(jobs -p) 2>/dev/null' EXIT; sleep 6
+          ver="$(curl -fsS http://127.0.0.1:18080/api/version)"; echo "argocd: $ver"
+          jq -e '.Version | startswith("v3.")' <<<"$ver" >/dev/null
+          # Argo Rollouts brings a canary to Healthy
+          kubectl apply -f - <<YAML
+          apiVersion: argoproj.io/v1alpha1
+          kind: Rollout
+          metadata: { name: gate }
+          spec:
+            replicas: 1
+            selector: { matchLabels: { app: gate } }
+            template:
+              metadata: { labels: { app: gate } }
+              spec:
+                securityContext: { runAsNonRoot: true, runAsUser: 1001 }
+                containers: [{ name: web, image: ${WEB_IMAGE}, ports: [{ containerPort: 8080 }] }]
+            strategy: { canary: { steps: [{ setWeight: 50 }] } }
+          YAML
+          for i in $(seq 1 90); do [ "$(kubectl get rollout gate -o jsonpath='{.status.phase}')" = Healthy ] && break; [ "$i" = 90 ] && { kubectl get rollout gate -o yaml | tail -30; exit 1; }; sleep 2; done
+          echo "rollouts: canary Healthy"
+          # Argo Events runs a pipeline: webhook -> EventBus -> Sensor (as
+          # gitops-sensor) -> Argo Workflows
+          kubectl apply -f - <<YAML
+          apiVersion: argoproj.io/v1alpha1
+          kind: EventBus
+          metadata: { name: default }
+          spec:
+            jetstream:
+              version: latest
+              securityContext: { fsGroup: 1001 }
+          ---
+          apiVersion: argoproj.io/v1alpha1
+          kind: EventSource
+          metadata: { name: gate }
+          spec:
+            service:
+              ports: [{ port: 12000, targetPort: 12000 }]
+            webhook:
+              hook: { port: "12000", endpoint: /hook, method: POST }
+          ---
+          apiVersion: argoproj.io/v1alpha1
+          kind: Sensor
+          metadata: { name: gate }
+          spec:
+            template: { serviceAccountName: gitops-sensor }
+            dependencies:
+              - { name: hook, eventSourceName: gate, eventName: hook }
+            triggers:
+              - template:
+                  name: run-pipeline
+                  k8s:
+                    operation: create
+                    source:
+                      resource:
+                        apiVersion: argoproj.io/v1alpha1
+                        kind: Workflow
+                        metadata:
+                          generateName: pipeline-
+                          labels: { gate: pipeline }
+                        spec:
+                          entrypoint: main
+                          templates:
+                            - name: main
+                              container:
+                                image: ${STEP_IMAGE}
+                                command: ["/bin/sh", "-c"]
+                                args: ["echo QUENCHWORKS-GITOPS-PIPELINE-OK"]
+          YAML
+          for i in $(seq 1 60); do kubectl get statefulset eventbus-default-js >/dev/null 2>&1 && break; sleep 2; done
+          kubectl rollout status statefulset/eventbus-default-js --timeout=300s
+          for l in eventsource-name=gate sensor-name=gate; do
+            for i in $(seq 1 60); do kubectl get deploy -l $l -o name | grep -q . && break; sleep 2; done
+            kubectl wait --for=condition=Available deploy -l $l --timeout=180s
+          done
+          kubectl port-forward svc/gate-eventsource-svc 12000:12000 >/tmp/pf3.log 2>&1 &
+          for i in $(seq 1 60); do
+            [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"gate":true}' http://127.0.0.1:12000/hook)" = 200 ] && break
+            sleep 2
+          done
+          for i in $(seq 1 90); do
+            phase="$(kubectl get workflow -l gate=pipeline -o jsonpath='{.items[0].status.phase}' 2>/dev/null)"
+            [ "$phase" = Succeeded ] && break
+            case "$phase" in Failed|Error) kubectl get workflow -l gate=pipeline -o yaml | tail -40; exit 1;; esac
+            [ "$i" = 90 ] && { echo "no pipeline run: ${phase:-none}"; kubectl logs deploy/$(kubectl get deploy -l sensor-name=gate -o name | cut -d/ -f2) --tail=40; exit 1; }
+            sleep 2
+          done
+          echo "events: webhook ran a workflow, phase $phase"
+          # the Workflows server lists it
+          curl -fsS "http://127.0.0.1:12746/api/v1/workflows/default?listOptions.labelSelector=gate%3Dpipeline" | jq -e '.items | length >= 1' >/dev/null
+          echo "workflows server: pipeline listed"
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/gitops-stack-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/gitops-stack@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/gitops-stack:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

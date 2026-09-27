@@ -1,0 +1,20 @@
+QuenchWorks gitops-stack is installed in {{ .Release.Namespace }}.
+{{- if .Values.argocd.enabled }}
+
+  Argo CD          kubectl port-forward svc/gitops-argocd-server 8080:8080, then http://127.0.0.1:8080
+                   admin password: kubectl get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d
+{{- end }}
+{{- if (index .Values "argo-workflows").enabled }}
+  Argo Workflows   kubectl port-forward svc/gitops-workflows-server 2746:2746, then http://127.0.0.1:2746
+{{- end }}
+{{- if (index .Values "argo-rollouts").enabled }}
+  Argo Rollouts    kind: Rollout resources are reconciled by gitops-rollouts
+{{- end }}
+{{- if (index .Values "argo-events").enabled }}
+  Argo Events      create an EventBus named "default", then EventSources and Sensors
+{{- end }}
+{{- if .Values.sensorServiceAccount.create }}
+
+Sensors that set spec.template.serviceAccountName: gitops-sensor may create
+Workflows in this namespace, so a webhook can start a pipeline.
+{{- end }}
