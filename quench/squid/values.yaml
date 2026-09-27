@@ -1,0 +1,106 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/squid
+  digest: "sha256:6cc7f23e56b076b4cff8340983ca0d35fdcbf5ca02952521f1f0289a61486913"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Squid's cache here is memory only (no cache_dir), so the pod keeps no state and
+# runs as a Deployment. Each replica has its own cache.
+replicaCount: 1
+
+# Client source ranges allowed to use the proxy. The default covers RFC 1918 and
+# CGN space, which is where pod and node CIDRs live. Squid refuses anything else
+# with 403. Narrow it to your pod CIDR for a tighter policy, and keep the NODE
+# CIDR in the list: the kubelet's probes come from the node IP.
+allowedSources:
+  - 10.0.0.0/8
+  - 100.64.0.0/10
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+  - fc00::/7
+
+# Destination ports. CONNECT (HTTPS tunnelling) is allowed only to sslPorts, and
+# plain requests only to safePorts, so the proxy is not an open relay to SMTP and
+# the like.
+sslPorts: [443]
+safePorts: ["80", "21", "443", "1025-65535"]
+
+# In-memory object cache (cache_mem). Keep it well below resources.limits.memory.
+cacheMem: 64 MB
+
+# Lines appended to the generated squid.conf just before the final
+# `http_access deny all`, e.g. extra ACLs, cache_peer or dns_nameservers.
+extraConfig: ""
+
+# A COMPLETE squid.conf that replaces the generated one, or an existing ConfigMap
+# with a `squid.conf` key. The probes GET /squid-internal-static/icons/SN.png, so
+# your config must allow it from the node CIDR, or override the probes.
+config:
+  raw: ""
+  existingConfigMap: ""
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 3128
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+# Squid waits shutdown_lifetime (set to 5s in the generated config) for open
+# connections before it exits.
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Clients are usually pods in other namespaces, so ingress from anywhere is
+# allowed by default (squid's own allowedSources still applies). Set
+# allowExternal=false to restrict it to the release namespace. Egress is not
+# restricted: a forward proxy has to reach the internet.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
