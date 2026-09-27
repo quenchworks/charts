@@ -1,0 +1,32 @@
+name: check-pins
+
+# Every chart pins images by digest, and a stale pin installs cleanly while
+# shipping the CVEs its rebuild fixed. scripts/check-pins.py compares every pin
+# (values, inline refs, ArtifactHub image lists) and every quench subchart
+# dependency with the catalog lock; this runs it on each push and daily, since
+# an image rebuild in the images repo makes pins stale without touching this one.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-pins:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: quenchworks/images
+          path: images
+          sparse-checkout: catalog.lock.yaml
+          sparse-checkout-cone-mode: false
+      - name: Every pin is a published image and every subchart is current
+        run: |
+          pip install --quiet pyyaml
+          python3 scripts/check-pins.py --lock images/catalog.lock.yaml
