@@ -1,0 +1,21 @@
+QuenchWorks ingress-stack is installed in {{ .Release.Namespace }}.
+
+  IngressClass   nginx (cluster default)
+  ClusterIssuer  ingress-ca, cert-manager's default; root CA in Secret ingress-root-ca
+
+Give an Ingress a certificate from the stack's CA:
+
+  metadata:
+    annotations:
+      kubernetes.io/tls-acme: "true"
+  spec:
+    tls:
+      - hosts: [app.example.internal]
+        secretName: app-tls
+
+Clients trust the root:
+
+  kubectl -n {{ .Release.Namespace }} get secret ingress-root-ca -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+
+ingress-ca is a private CA. For public certificates, add an ACME ClusterIssuer
+and annotate Ingresses with cert-manager.io/cluster-issuer: <its name>.

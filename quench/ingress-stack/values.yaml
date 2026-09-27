@@ -1,0 +1,35 @@
+# ingress-stack: ingress-nginx + cert-manager + a cluster CA issuer.
+#
+# After install, an Ingress gets a certificate from the stack's CA with one
+# annotation, kubernetes.io/tls-acme: "true", and a tls section naming the
+# secret. Or name any issuer yourself with cert-manager.io/cluster-issuer.
+#
+#   IngressClass   nginx (the cluster default)
+#   ClusterIssuer  ingress-ca (cert-manager's default), root CA in Secret ingress-root-ca
+
+ingress-nginx:
+  enabled: true
+  ingressClass:
+    isDefaultClass: true
+
+cert-manager:
+  enabled: true
+  controller:
+    # Ingresses annotated kubernetes.io/tls-acme get certificates from ingress-ca.
+    extraArgs:
+      - --default-issuer-name=ingress-ca
+      - --default-issuer-kind=ClusterIssuer
+
+# The cluster CA the stack creates once cert-manager's webhook answers: a
+# self-signed root (Secret ingress-root-ca in this namespace) and the
+# ingress-ca ClusterIssuer that signs with it. Clients trust the root's ca.crt.
+# It is a private CA; for public certificates add an ACME ClusterIssuer and
+# point the default at it.
+clusterIssuer:
+  enabled: true
+  rootCommonName: QuenchWorks ingress-stack root CA
+  rootDuration: 87600h   # 10 years
+  image:
+    repository: ghcr.io/quenchworks/images/kubectl
+    digest: "sha256:4033ac5e5f359739cf017a256188a8da7592edae86e452c6327dc4865a66a580"
+imagePullSecrets: []
