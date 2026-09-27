@@ -1,0 +1,137 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "quench-common.fullname" . }}
+  # One writer: the POSIX backend keeps the log in one directory on one volume.
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "rekor-tiles.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: rekor
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # The image entrypoint serves on all interfaces with the log in
+          # /var/lib/rekor.
+          args:
+            - --hostname={{ include "rekor-tiles.hostname" . }}
+            - --signer-filepath=/etc/rekor/signer/{{ .Values.signer.key }}
+            - --checkpoint-interval={{ .Values.checkpointInterval }}
+            - --log-level={{ .Values.logLevel }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 3000
+            - name: grpc
+              containerPort: 3001
+            - name: metrics
+              containerPort: 2112
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/rekor
+            - name: signer
+              mountPath: /etc/rekor/signer
+              readOnly: true
+        {{- if .Values.readServer.enabled }}
+        # The read API: checkpoint, tiles and entry bundles are static files in
+        # the log directory, served as they are by Caddy.
+        - name: read
+          image: "{{ .Values.readServer.image.repository }}@{{ .Values.readServer.image.digest }}"
+          imagePullPolicy: {{ .Values.readServer.image.pullPolicy }}
+          command: ["/usr/bin/caddy"]
+          args: ["file-server", "--root", "/var/lib/rekor", "--listen", ":8080"]
+          env:
+            - name: HOME
+              value: /tmp
+            - name: XDG_CONFIG_HOME
+              value: /tmp/config
+            - name: XDG_DATA_HOME
+              value: /tmp/data
+          ports:
+            - name: read
+              containerPort: 8080
+          readinessProbe:
+            tcpSocket:
+              port: read
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.readServer.resources | nindent 12 }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/rekor
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: signer
+          secret:
+            secretName: {{ include "rekor-tiles.secretName" . }}
+            defaultMode: 0440
+        {{- if not .Values.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: {{ toYaml .Values.persistence.accessModes | nindent 10 }}
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}
+  {{- end }}

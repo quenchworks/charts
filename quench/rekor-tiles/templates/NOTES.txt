@@ -1,0 +1,12 @@
+Quenchworks Rekor v2 (rekor-tiles) {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }}.
+
+  write API (HTTP): http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}/api/v2/log/entries
+  write API (gRPC): {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.grpcPort }}
+{{- if .Values.readServer.enabled }}
+  read API:         http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.readPort }}/checkpoint
+{{- end }}
+  log origin:       {{ include "rekor-tiles.hostname" . }}
+
+Clients verify checkpoints with the log's public key. It is printed at start:
+
+  kubectl logs statefulset/{{ include "quench-common.fullname" . }} -c rekor | grep "Loaded signing key"

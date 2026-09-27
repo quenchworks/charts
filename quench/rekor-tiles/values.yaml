@@ -1,0 +1,66 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/rekor-tiles
+  digest: "sha256:4a51c3565f88789ff8d8dc2c808a32b67ee6b34f509d8b58dd80e1d403febdc2"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# The log origin, signed into every checkpoint. Empty uses the release fullname.
+# Set it once, before the first entry: changing it later starts a different log.
+hostname: ""
+
+# The checkpoint signing key (ed25519, ECDSA or RSA, PEM). Empty generates an
+# ed25519 key into a Secret that is kept across upgrades and uninstalls. With
+# existingSecret, that Secret must hold the key under `key`.
+signer:
+  existingSecret: ""
+  key: private.pem
+
+checkpointInterval: 10s
+logLevel: info
+
+# Extra rekor-server flags, e.g. ["--witness-policy-path=/etc/witness/policy.yaml"].
+extraArgs: []
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+# Serves the log directory (checkpoint, tiles, entry bundles) read-only, which is
+# the whole Rekor v2 read API. Turn it off to serve the volume some other way.
+readServer:
+  enabled: true
+  image:
+    repository: ghcr.io/quenchworks/images/caddy
+    digest: "sha256:8e89a25b3251eedd7a4b1867e81168de2848a480deb2a1b164d07a16a3b71c84"
+    pullPolicy: IfNotPresent
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { cpu: 500m, memory: 128Mi }
+
+persistence:
+  enabled: true
+  size: 8Gi
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+
+service:
+  type: ClusterIP
+  port: 3000
+  grpcPort: 3001
+  readPort: 8080
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podSecurityContext: {}
+containerSecurityContext: {}
