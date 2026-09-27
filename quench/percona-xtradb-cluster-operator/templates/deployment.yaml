@@ -45,8 +45,9 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            # The webhook looks up the operator Deployment by this name.
             - name: OPERATOR_NAME
-              value: percona-xtradb-cluster-operator
+              value: {{ include "quench-common.fullname" . }}
             - name: DISABLE_TELEMETRY
               value: {{ (not .Values.telemetry) | quote }}
             - name: MAX_CONCURRENT_RECONCILES
@@ -64,3 +65,10 @@ spec:
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          # The webhook server writes its TLS certificate under /tmp.
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
