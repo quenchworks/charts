@@ -58,7 +58,7 @@ ingress:
 
 المخططات التي **لا** تتحدث HTTP — PostgreSQL وRedis وKafka وMariaDB وetcd — لا تملك مفتاح `ingress` إطلاقًا. فـ `Ingress` موجِّه HTTP ولا يمكنه أن يتقدمها؛ اعرضها عبر `service.type=LoadBalancer` أو تمرير TCP في وحدة التحكم. ومفتاح لا يفعل شيئًا بصمت أسوأ من عدم وجوده.
 
-أما **الحِزم** (stacks) فلا تملك خدمة خاصة بها، لذا يتقدّم `ingress` فيها خدمةَ مخطط فرعي — واجهة الحزمة الأساسية افتراضيًا (Grafana، أو Keycloak في `identity-stack`) — ويوجّهه `ingress.serviceName` / `ingress.servicePort` إلى أي مكوّن آخر. ويمكنك بدلًا من ذلك تركه معطلًا وتمكين ingress المخطط الفرعي نفسه، مثل `grafana.ingress.enabled=true`.
+خمس **حِزم** (observability وlogging وtracing وlgtm وidentity) تملك `ingress` خاصًا بها. وهي لا تملك خدمة خاصة، لذا يتقدّم ذلك الـ `ingress` خدمةَ مخطط فرعي — واجهة الحزمة الأساسية افتراضيًا (Grafana، أو Keycloak في `identity-stack`) — ويوجّهه `ingress.serviceName` / `ingress.servicePort` إلى أي مكوّن آخر. ويمكنك بدلًا من ذلك تركه معطلًا وتمكين ingress المخطط الفرعي نفسه، مثل `grafana.ingress.enabled=true`. أما بقية الحِزم فلا تملك `ingress` على مستوى الحزمة؛ استخدم `ingress` مخططاتها الفرعية.
 
 وإلى جانب ذلك يكشف كل مخطط `commonLabels` و`commonAnnotations` و`podLabels` (وكلها آمنة للتغيير على إصدار حيّ)، إضافةً إلى `partOf` و`fullnameOverride` و`image.registry` و`imagePullSecrets`. ويوجد `selectorLabels` أيضًا، لكنه يغذّي `spec.selector` الذي يعتبره Kubernetes **غير قابل للتغيير** — اضبطه قبل أول تثبيت وإلا فشل كل `helm upgrade` لاحق برسالة `field is immutable`.
 
@@ -83,6 +83,28 @@ ingress:
 | السجل · Git · التكامل المستمر/البنية التحتية ككود | `harbor` · `gitea` · `atlantis` |
 
 ⚠️ = متاح المصدر، **ليس** برمجيات مفتوحة المصدر معتمدة من OSI (راجع [الترخيص](#a-note-on-licensing)).
+
+### الحِزم
+
+تثبّت الحزمة عدة مخططات موصولة ببعضها: أسماء خدمات ثابتة، وبيانات اعتماد مشتركة، وإعدادات الاتصال مكتوبة مسبقًا. حزمة واحدة لكل namespace. تصفّحها على [quench-works.com/stacks](https://quench-works.com/ar/stacks).
+
+| الحزمة | ما تثبّته |
+|-------|------------------|
+| `observability-stack` | Prometheus, Grafana, Alertmanager, kube-state-metrics, node-exporter |
+| `logging-stack` | Loki, Grafana, Vector |
+| `tracing-stack` | Tempo, Grafana, OpenTelemetry Collector |
+| `lgtm-stack` | Loki, Grafana, Tempo, VictoriaMetrics |
+| `identity-stack` | Keycloak, PostgreSQL, oauth2-proxy |
+| `secrets-stack` | OpenBao + Keycloak |
+| `cache-stack` | Valkey, Prometheus, Grafana |
+| `postgres-ha-stack` | Patroni PostgreSQL (3), PgBouncer |
+| `streaming-stack` | Kafka, Karapace, AKHQ |
+| `ml-stack` | JupyterHub, MLflow, Label Studio |
+| `llm-stack` | Ollama, LiteLLM, Qdrant |
+| `lakehouse-stack` | Trino, Nessie, SeaweedFS (Apache Iceberg) |
+| `gitops-stack` | Argo CD, Rollouts, Workflows, Events |
+| `sigstore-stack` | Fulcio, Rekor v2, Timestamp Authority |
+| `backup-stack` | Velero + AWS plugin, SeaweedFS |
 
 ## التحقق من مخطط
 

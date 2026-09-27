@@ -58,7 +58,7 @@ El puerto de backend se resuelve segun la forma de service que use el chart, asi
 
 Los charts que **no** hablan HTTP (PostgreSQL, Redis, Kafka, MariaDB, etcd) no tienen knob `ingress` en absoluto. Un `Ingress` es un router HTTP y no puede ponerse delante de ellos; exponlos con `service.type=LoadBalancer` o el passthrough TCP de tu controlador. Un flag que silenciosamente no hiciera nada seria peor que no tenerlo.
 
-Los **stacks** no tienen Service propio, asi que su `ingress` expone el Service de un subchart: por defecto la UI principal del stack (Grafana, o Keycloak en `identity-stack`), y `ingress.serviceName` / `ingress.servicePort` lo apuntan a cualquier otro componente. Tambien puedes dejarlo desactivado y activar el ingress del subchart, por ejemplo `grafana.ingress.enabled=true`.
+Cinco **stacks** (observability, logging, tracing, lgtm, identity) tienen `ingress` propio. No tienen Service, asi que ese `ingress` expone el Service de un subchart: por defecto la UI principal del stack (Grafana, o Keycloak en `identity-stack`), y `ingress.serviceName` / `ingress.servicePort` lo apuntan a cualquier otro componente. Tambien puedes dejarlo desactivado y activar el ingress del subchart, por ejemplo `grafana.ingress.enabled=true`. Los demas stacks no tienen `ingress` a nivel de stack; usa el de sus subcharts.
 
 Ademas, cada chart expone `commonLabels`, `commonAnnotations` y `podLabels` (todos seguros de cambiar en un release en vivo), mas `partOf`, `fullnameOverride`, `image.registry` e `imagePullSecrets`. `selectorLabels` tambien existe, pero alimenta `spec.selector`, que Kubernetes trata como **inmutable**: definelo antes de la primera instalacion o cada `helm upgrade` posterior fallara con `field is immutable`.
 
@@ -83,6 +83,28 @@ Ademas, cada chart expone `commonLabels`, `commonAnnotations` y `podLabels` (tod
 | Registro · Git · CI/IaC | `harbor` · `gitea` · `atlantis` |
 
 ⚠️ = source-available, **no** es codigo abierto aprobado por OSI (consulta [licencias](#una-nota-sobre-las-licencias)).
+
+### Stacks
+
+Un stack instala varios charts ya conectados entre si: nombres de servicio fijos, credenciales compartidas y la configuracion de conexion ya escrita. Un stack por namespace. Todos en [quench-works.com/stacks](https://quench-works.com/es/stacks).
+
+| Stack | Que instala |
+|-------|------------------|
+| `observability-stack` | Prometheus, Grafana, Alertmanager, kube-state-metrics, node-exporter |
+| `logging-stack` | Loki, Grafana, Vector |
+| `tracing-stack` | Tempo, Grafana, OpenTelemetry Collector |
+| `lgtm-stack` | Loki, Grafana, Tempo, VictoriaMetrics |
+| `identity-stack` | Keycloak, PostgreSQL, oauth2-proxy |
+| `secrets-stack` | OpenBao + Keycloak |
+| `cache-stack` | Valkey, Prometheus, Grafana |
+| `postgres-ha-stack` | Patroni PostgreSQL (3), PgBouncer |
+| `streaming-stack` | Kafka, Karapace, AKHQ |
+| `ml-stack` | JupyterHub, MLflow, Label Studio |
+| `llm-stack` | Ollama, LiteLLM, Qdrant |
+| `lakehouse-stack` | Trino, Nessie, SeaweedFS (Apache Iceberg) |
+| `gitops-stack` | Argo CD, Rollouts, Workflows, Events |
+| `sigstore-stack` | Fulcio, Rekor v2, Timestamp Authority |
+| `backup-stack` | Velero + AWS plugin, SeaweedFS |
 
 ## Verifica un chart
 

@@ -74,11 +74,12 @@ Charts that do **not** speak HTTP — PostgreSQL, Redis, Kafka, MariaDB, etcd �
 those with `service.type=LoadBalancer` or your controller's TCP passthrough. A flag
 that silently did nothing would be worse than no flag.
 
-The umbrella **stacks** have no Service of their own, so their `ingress` fronts a
-subchart Service — the stack's primary UI by default (Grafana, or Keycloak for
+Five umbrella **stacks** (observability, logging, tracing, lgtm, identity) have an
+`ingress` of their own. They have no Service, so it fronts a subchart Service — the stack's primary UI by default (Grafana, or Keycloak for
 `identity-stack`) — and `ingress.serviceName` / `ingress.servicePort` point it at any
 other component. You can equally leave it off and enable the subchart's own ingress,
-e.g. `grafana.ingress.enabled=true`.
+e.g. `grafana.ingress.enabled=true`. The other stacks have no stack-level
+`ingress`; use their subcharts' own.
 
 Alongside those, every chart exposes `commonLabels`, `commonAnnotations` and
 `podLabels` (all safe to change on a live release), plus `partOf`, `fullnameOverride`,
@@ -107,6 +108,30 @@ install or every later `helm upgrade` fails with `field is immutable`.
 | Registry · Git · CI/IaC | `harbor` · `gitea` · `atlantis` |
 
 ⚠️ = source-available, **not** OSI-approved open source (see [licensing](#a-note-on-licensing)).
+
+### Stacks
+
+A stack installs several charts wired together: fixed service names, shared
+credentials, and the connection settings already filled in. One stack per
+namespace. Browse them at [quench-works.com/stacks](https://quench-works.com/stacks).
+
+| Stack | What it installs |
+|-------|------------------|
+| `observability-stack` | Prometheus, Grafana, Alertmanager, kube-state-metrics, node-exporter |
+| `logging-stack` | Loki, Grafana, Vector |
+| `tracing-stack` | Tempo, Grafana, an OpenTelemetry Collector gateway |
+| `lgtm-stack` | Loki, Grafana, Tempo, VictoriaMetrics, collectors |
+| `identity-stack` | Keycloak, PostgreSQL, oauth2-proxy |
+| `secrets-stack` | OpenBao signing in through Keycloak |
+| `cache-stack` | Valkey with metrics, Prometheus, Grafana |
+| `postgres-ha-stack` | 3-node Patroni PostgreSQL, PgBouncer, metrics |
+| `streaming-stack` | Kafka, Karapace, AKHQ |
+| `ml-stack` | JupyterHub, MLflow, Label Studio |
+| `llm-stack` | Ollama, LiteLLM, Qdrant |
+| `lakehouse-stack` | Trino, Nessie, SeaweedFS (Apache Iceberg) |
+| `gitops-stack` | Argo CD, Rollouts, Workflows, Events |
+| `sigstore-stack` | Fulcio, Rekor v2, Timestamp Authority |
+| `backup-stack` | Velero with its AWS plugin, SeaweedFS |
 
 ## Verify a chart
 
