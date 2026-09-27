@@ -84,7 +84,11 @@ jobs:
           for i in $(seq 1 90); do
             state="$(kubectl get pxc gate -o jsonpath='{.status.state}' 2>/dev/null)"
             [ "$state" = ready ] && break
-            [ "$i" = 90 ] && { echo "cluster not ready: ${state:-none}"; kubectl get pxc gate -o yaml | tail -40; exit 1; }
+            [ "$i" = 90 ] && {
+              echo "cluster not ready: ${state:-none}"; kubectl get pxc gate -o yaml | tail -40
+              # what mysqld in the database pod actually reads
+              kubectl exec gate-pxc-0 -c pxc -- bash -c 'ls -la /etc/my.cnf /etc/mysql /etc/my.cnf.d /etc/percona-xtradb-cluster.conf.d; for f in /etc/my.cnf /etc/my.cnf.d/* /etc/percona-xtradb-cluster.conf.d/*; do echo "== $f"; cat "$f"; done; echo "== print-defaults"; mysqld --print-defaults; env | sort | grep -iE "^my|wsrep"' || true
+              exit 1; }
             sleep 10
           done
           echo "cluster state: $state"
