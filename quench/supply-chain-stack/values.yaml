@@ -1,0 +1,32 @@
+# supply-chain-stack: Kyverno + trivy-operator + a signed-images ClusterPolicy.
+#
+# Label a namespace to enforce the policy in it:
+#   kubectl label namespace my-app quench-works.com/verify-images=true
+# Pods there may only run images from ghcr.io/quenchworks/images, and each must
+# carry a cosign signature from a QuenchWorks build workflow. Other namespaces
+# are untouched.
+
+kyverno:
+  enabled: true
+
+trivy-operator:
+  enabled: true
+
+verifyImages:
+  enabled: true
+  # The namespace label that opts a namespace in.
+  namespaceLabel: quench-works.com/verify-images
+  # Registries allowed in opted-in namespaces, as Kyverno image patterns.
+  allowedImages:
+    - "ghcr.io/quenchworks/images/*"
+  # Who signed the images: the QuenchWorks images repo's workflows on main,
+  # through GitHub Actions OIDC, logged in Sigstore's public Rekor.
+  subjectRegExp: '^https://github\.com/quenchworks/images/\.github/workflows/[a-z0-9-]+\.yml@refs/heads/main$'
+  issuer: https://token.actions.githubusercontent.com
+  rekorUrl: https://rekor.sigstore.dev
+  # Verification fetches signatures and Sigstore's root over the network.
+  webhookTimeoutSeconds: 30
+  image:
+    repository: ghcr.io/quenchworks/images/kubectl
+    digest: "sha256:4033ac5e5f359739cf017a256188a8da7592edae86e452c6327dc4865a66a580"
+imagePullSecrets: []

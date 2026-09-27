@@ -1,0 +1,146 @@
+{{- if .Values.verifyImages.enabled }}
+{{- $v := .Values.verifyImages }}
+{{- $allowed := join " | " $v.allowedImages }}
+# Kyverno's webhook rejects policy writes until it serves, which is after Helm
+# applies the release, so a post-install Job applies the policy once it answers.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: supply-chain-stack-policy
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  policy.yaml: |
+    apiVersion: kyverno.io/v1
+    kind: ClusterPolicy
+    metadata:
+      name: quench-signed-images
+      annotations:
+        policies.kyverno.io/title: Signed QuenchWorks images only
+        policies.kyverno.io/description: >-
+          In namespaces labelled {{ $v.namespaceLabel }}=true, Pods may only run
+          images from the allowed registries, and QuenchWorks images must carry a
+          cosign signature from a QuenchWorks build workflow.
+    spec:
+      background: false
+      webhookTimeoutSeconds: {{ $v.webhookTimeoutSeconds }}
+      rules:
+        - name: allowed-registries
+          match:
+            any:
+              - resources:
+                  kinds: [Pod]
+                  namespaceSelector:
+                    matchLabels: { {{ $v.namespaceLabel | quote }}: "true" }
+          validate:
+            failureAction: Enforce
+            message: "Only images from {{ join ", " $v.allowedImages }} may run in this namespace."
+            pattern:
+              spec:
+                =(initContainers):
+                  - image: {{ $allowed | quote }}
+                containers:
+                  - image: {{ $allowed | quote }}
+        - name: signed-by-quenchworks
+          match:
+            any:
+              - resources:
+                  kinds: [Pod]
+                  namespaceSelector:
+                    matchLabels: { {{ $v.namespaceLabel | quote }}: "true" }
+          verifyImages:
+            - imageReferences: ["ghcr.io/quenchworks/images/*"]
+              failureAction: Enforce
+              mutateDigest: true
+              verifyDigest: true
+              required: true
+              attestors:
+                - entries:
+                    - keyless:
+                        subjectRegExp: {{ $v.subjectRegExp | quote }}
+                        issuer: {{ $v.issuer | quote }}
+                        rekor:
+                          url: {{ $v.rekorUrl | quote }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: supply-chain-stack-policy
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-supply-chain-stack-policy
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["kyverno.io"]
+    resources: ["clusterpolicies"]
+    verbs: ["get", "list", "watch", "create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-supply-chain-stack-policy
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+subjects:
+  - { kind: ServiceAccount, name: supply-chain-stack-policy, namespace: {{ .Release.Namespace }} }
+roleRef: { kind: ClusterRole, name: {{ .Release.Name }}-supply-chain-stack-policy, apiGroup: rbac.authorization.k8s.io }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: supply-chain-stack-policy
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: supply-chain-stack-policy
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: supply-chain-stack-policy
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile: { type: RuntimeDefault }
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: apply
+          image: "{{ $v.image.repository }}@{{ $v.image.digest }}"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              # Kyverno's webhook refuses policy writes until it is serving
+              until kubectl apply -f /policy/policy.yaml; do sleep 5; done
+              kubectl wait --for=condition=Ready clusterpolicy/quench-signed-images --timeout=300s
+          env:
+            - { name: HOME, value: /tmp }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+          volumeMounts:
+            - { name: policy, mountPath: /policy }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: policy
+          configMap: { name: supply-chain-stack-policy }
+        - name: tmp
+          emptyDir: {}
+{{- end }}
