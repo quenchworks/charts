@@ -28,7 +28,6 @@ retry -- retrying would also re-send load.
 {{- define "k6.podSpec" -}}
 restartPolicy: Never
 serviceAccountName: {{ include "k6.serviceAccountName" . }}
-{{- include "quench-common.imagePullSecrets" . | nindent 0 }}
 securityContext:
   {{- include "quench-common.podSecurityContext" . | nindent 2 }}
 {{- include "quench-common.podSpecFields" . | nindent 0 }}
