@@ -67,7 +67,18 @@ jobs:
           # allow 15 minutes, as the trivy-operator chart's own gate does.
           for i in $(seq 1 180); do
             r="$(kubectl -n demo get vulnerabilityreports -o jsonpath='{.items[0].report.summary}' 2>/dev/null)"
-            [ -n "$r" ] && break; sleep 5
+            [ -n "$r" ] && break
+            # every minute: where the scan stands, and why any scan container exited
+            if [ $((i % 12)) = 0 ]; then
+              echo "--- t=$((i*5))s"
+              kubectl get jobs,pods -l app.kubernetes.io/managed-by=trivy-operator -o wide 2>/dev/null | tail -n +1
+              for p in $(kubectl get pods -l app.kubernetes.io/managed-by=trivy-operator -o name 2>/dev/null); do
+                kubectl get "$p" -o jsonpath='{range .status.initContainerStatuses[*]}{"init "}{.name}{" "}{.state}{"\n"}{end}{range .status.containerStatuses[*]}{.name}{" "}{.state}{"\n"}{end}' 2>/dev/null
+                kubectl logs "$p" --all-containers --tail=15 2>/dev/null | sed 's/^/    /'
+              done
+              kubectl get events --sort-by=.lastTimestamp 2>/dev/null | grep -iE "scan|trivy" | tail -5
+            fi
+            sleep 5
           done
           echo "trivy-operator report for the signed pod: $r"; test -n "$r"
           for p in $(kubectl get pods -o name | grep -v scan-vulnerabilityreport); do
