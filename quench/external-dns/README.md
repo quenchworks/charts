@@ -39,8 +39,12 @@ extraEnvVarsSecret: cloudflare-api-token   # supplies CF_API_TOKEN
 Publish a hostname by annotating a Service or Ingress:
 
 ```bash
-kubectl annotate svc my-app external-dns.alpha.kubernetes.io/hostname=app.example.com
+kubectl annotate svc my-app external-dns.kubernetes.io/hostname=app.example.com
 ```
+
+ExternalDNS 0.23 reads only the `external-dns.kubernetes.io/` prefix. For
+resources still annotated `external-dns.alpha.kubernetes.io/`, add
+`--enable-legacy-annotation-prefix` to `extraArgs`.
 
 ## Verify it is actually working
 
