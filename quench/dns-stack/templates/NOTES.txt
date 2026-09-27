@@ -1,0 +1,17 @@
+dns-stack is installed in {{ .Release.Namespace }}.
+
+  DNS   dns-powerdns.{{ .Release.Namespace }}.svc:53 (UDP and TCP)
+  API   dns-powerdns-api.{{ .Release.Namespace }}.svc:8081, key in Secret dns-stack-pdns-api
+  Zones {{ join ", " .Values.zones }}
+
+Publish a Service:
+
+  kubectl annotate service web external-dns.kubernetes.io/hostname=web.{{ first .Values.zones }}
+
+and resolve it:
+
+  kubectl run -it --rm q --image=ghcr.io/quenchworks/images/busybox:1.38.0 --restart=Never -- \
+    nslookup web.{{ first .Values.zones }} dns-powerdns.{{ .Release.Namespace }}.svc
+
+To have cluster Pods resolve these names, forward the zone to dns-powerdns in
+CoreDNS (a `forward` stanza for {{ first .Values.zones }}).

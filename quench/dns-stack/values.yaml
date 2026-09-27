@@ -1,0 +1,52 @@
+# dns-stack: PowerDNS Authoritative + external-dns.
+#
+# Annotate a Service or Ingress with
+#   external-dns.kubernetes.io/hostname: web.k8s.internal
+# (external-dns 0.23 reads this prefix only; the old external-dns.alpha.kubernetes.io
+# prefix needs --enable-legacy-annotation-prefix in external-dns.extraArgs.)
+# and external-dns writes the record into PowerDNS, which serves it on port 53
+# of the dns-powerdns Service. The zones below are created once PowerDNS's API
+# answers; external-dns only manages records inside existing zones.
+#
+#   DNS         dns-powerdns:53 (UDP and TCP)
+#   API         dns-powerdns-api:8081, key in Secret dns-stack-pdns-api (api-key)
+
+# Zones the stack creates, with ns1.<zone> as their nameserver. external-dns
+# is limited to these (its domainFilters). Keep them in sync with
+# external-dns.domainFilters below.
+zones:
+  - k8s.internal
+
+powerdns:
+  fullnameOverride: dns-powerdns
+  api:
+    existingSecret: dns-stack-pdns-api
+    existingSecretKey: api-key
+
+external-dns:
+  fullnameOverride: dns-external-dns
+  provider: pdns
+  domainFilters:
+    - k8s.internal
+  # sync also deletes records whose Service or Ingress is gone. Ownership TXT
+  # records keep it to records this owner created.
+  policy: sync
+  txtOwnerId: dns-stack
+  sources: [service, ingress]
+  extraArgs:
+    - --pdns-server=http://dns-powerdns-api:8081
+    # ClusterIP Services get records too: this is cluster DNS, not only public.
+    - --publish-internal-services
+  extraEnvVars:
+    - name: EXTERNAL_DNS_PDNS_API_KEY
+      valueFrom:
+        secretKeyRef: { name: dns-stack-pdns-api, key: api-key }
+
+# The zone-creation Job. A parent chart cannot read a subchart's image pins, so
+# the Job's image is pinned here.
+zoneJob:
+  image:
+    repository: ghcr.io/quenchworks/images/busybox
+    digest: "sha256:b851333cd0a8a05a4b7569f4f1007f4e237b34295f84033e6ab6aa428fb33eef"
+
+imagePullSecrets: []

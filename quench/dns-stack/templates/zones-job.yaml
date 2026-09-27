@@ -1,0 +1,60 @@
+{{- if .Values.zones }}
+# external-dns writes records but never creates zones, so the stack does it
+# once the PowerDNS API answers. Idempotent: an existing zone is left alone.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dns-stack-zones
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dns-stack-zones
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile: { type: RuntimeDefault }
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: zones
+          image: "{{ .Values.zoneJob.image.repository }}@{{ .Values.zoneJob.image.digest }}"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              api=http://dns-powerdns-api:8081/api/v1/servers/localhost
+              hdr="X-API-Key: $PDNS_API_KEY"
+              until wget -q -O /dev/null --header "$hdr" "$api"; do echo "waiting for the PowerDNS API"; sleep 3; done
+              for z in {{ join " " .Values.zones }}; do
+                if wget -q -O /dev/null --header "$hdr" "$api/zones/$z."; then
+                  echo "zone $z. exists"
+                else
+                  wget -q -O - --header "$hdr" --header "Content-Type: application/json" \
+                    --post-data "{\"name\":\"$z.\",\"kind\":\"Native\",\"nameservers\":[\"ns1.$z.\"]}" "$api/zones" >/dev/null
+                  echo "zone $z. created"
+                fi
+              done
+          env:
+            - name: PDNS_API_KEY
+              valueFrom:
+                secretKeyRef: { name: dns-stack-pdns-api, key: api-key }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+{{- end }}
