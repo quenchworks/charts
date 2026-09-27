@@ -1,0 +1,110 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/powerdns-recursor
+  digest: "sha256:5dc5a735915b24c97c4d5ac69d582bce660ee4c185d03a66705eeca0b168ba0f"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The recursor keeps only a cache, so replicas are independent and stateless.
+replicaCount: 2
+
+# Client source ranges allowed to query. The recursor drops queries from
+# everyone else without an answer (over TCP it closes the connection). Do not
+# add 0.0.0.0/0 on a public address: an open resolver is abused for
+# amplification attacks.
+allowFrom:
+  - 127.0.0.0/8
+  - 10.0.0.0/8
+  - 100.64.0.0/10
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+  - ::1/128
+  - fc00::/7
+  - fe80::/10
+
+# DNSSEC validation: off, process-no-validate, process, log-fail or validate.
+# `process` validates when the client asks (DO bit), which breaks nothing.
+dnssec: process
+
+# Zones sent to specific servers instead of recursing from the root, e.g. an
+# internal zone served by the dns-stack's PowerDNS Authoritative:
+#   forwardZones:
+#     - zone: k8s.internal
+#       forwarders: ['10.96.12.34:53']
+# forwarders are IP addresses, not names: use the target Service's ClusterIP
+# (kubectl get svc dns-powerdns -n dns -o jsonpath='{.spec.clusterIP}').
+forwardZones: []
+
+# Zones the recursor answers itself from zone-file text, e.g. split-horizon
+# names. Keys are zone names, values are the zone file.
+#   authZones:
+#     corp.internal: |
+#       $ORIGIN corp.internal.
+#       @ 300 IN SOA ns1 hostmaster 1 3600 600 86400 300
+#       www 300 IN A 10.0.0.10
+authZones: {}
+
+# Raw YAML merged at the top level of recursor.yml, for anything else
+# (outgoing, recordcache, webservice and so on).
+extraConfig: {}
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 53
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# DNS clients are in every namespace, so ingress to the DNS port is open to
+# the cluster. allowFrom above is what refuses outsiders.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

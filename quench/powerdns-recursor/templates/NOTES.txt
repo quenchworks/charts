@@ -1,0 +1,22 @@
+Quenchworks PowerDNS Recursor is installed as {{ include "quench-common.fullname" . }}.
+
+Resolver (UDP and TCP): {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+Clients allowed: {{ join ", " .Values.allowFrom }}. Queries from anyone else are dropped.
+DNSSEC: {{ .Values.dnssec }}.
+{{- with .Values.forwardZones }}
+Forward zones: {{ range $i, $z := . }}{{ if $i }}, {{ end }}{{ $z.zone }} -> {{ join " " $z.forwarders }}{{ end }}.
+{{- end }}
+{{- with .Values.authZones }}
+Local zones: {{ keys . | sortAlpha | join ", " }}.
+{{- end }}
+
+Query it:
+
+  kubectl run -it --rm q --image=ghcr.io/quenchworks/images/busybox:1.38.0 --restart=Never -- \
+    nslookup quench-works.com {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/powerdns-recursor \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

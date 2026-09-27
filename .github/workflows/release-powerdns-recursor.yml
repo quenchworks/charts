@@ -1,0 +1,159 @@
+name: release-powerdns-recursor-recursor
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/powerdns-recursor/**"
+      - ".github/workflows/release-powerdns-recursor.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/powerdns-recursor
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          command -v dig >/dev/null || { sudo apt-get update && sudo apt-get install -y bind9-dnsutils; }
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/rtest-powerdns-recursor --timeout=300s
+
+          fwd() {
+            kubectl port-forward "deployment/$1" 15353:5353 >/tmp/pf.log 2>&1 &
+            pf=$!
+            for i in $(seq 1 30); do grep -q 'Forwarding from 127.0.0.1:15353' /tmp/pf.log && return; sleep 1; done
+            cat /tmp/pf.log; return 1
+          }
+          q() { dig @127.0.0.1 -p 15353 +tcp +time=5 +tries=2 "$@"; }
+
+          # --- PROVE THE RECURSOR ANSWERS FROM ITS CONFIG, and refuses outsiders. ---
+          # 1. The authZones zone from ci values: the ConfigMap reached the pod
+          #    and the recursor loaded it. TCP, because port-forward is TCP only.
+          fwd rtest-powerdns-recursor
+          a="$(q www.quench.test A)"; echo "$a"
+          grep -qE '^www\.quench\.test\.\s+[0-9]+\s+IN\s+A\s+192\.0\.2\.10' <<<"$a"
+          q missing.quench.test A | grep -q 'status: NXDOMAIN'
+
+          # 2. Real recursion from the root. The runner's network is not ours to
+          #    promise, so a failure here warns instead of failing the release.
+          r="$(q quench-works.com A || true)"
+          if grep -q 'status: NOERROR' <<<"$r"; then echo "recursion from the root: NOERROR"
+          else echo "::warning::recursion to quench-works.com did not return NOERROR"; echo "$r"; fi
+          kill $pf 2>/dev/null || true
+
+          # 3. allowFrom is enforced: a release that allows only 192.0.2.0/24 must
+          #    not answer the port-forwarded client (127.0.0.1). The recursor does
+          #    not send REFUSED; it drops the query (over TCP it closes the
+          #    connection), so the check is "no answer" plus the ACL it logged.
+          helm install strict "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set 'allowFrom[0]=192.0.2.0/24' --wait --timeout 5m
+          fwd strict-powerdns-recursor
+          r="$(q www.quench.test A 2>&1 || true)"; echo "$r"
+          if grep -q '192\.0\.2\.10' <<<"$r"; then echo "answered a client outside allowFrom"; exit 1; fi
+          kubectl logs deployment/strict-powerdns-recursor | grep 'acl="allow-from"' | grep -q 'addresses="192.0.2.0/24"'
+          echo "client outside allowFrom got no answer"
+          kill $pf 2>/dev/null || true
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/powerdns-recursor-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/powerdns-recursor@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/powerdns-recursor:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
