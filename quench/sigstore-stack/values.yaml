@@ -1,0 +1,36 @@
+# sigstore-stack: Fulcio + Rekor v2 + Timestamp Authority.
+#
+# Names are FIXED (sigstore-fulcio, sigstore-rekor, sigstore-tsa) so the cosign
+# URLs below are the same in every install. One stack per namespace.
+#
+#   Fulcio       http://sigstore-fulcio:8080          (cosign --fulcio-url)
+#   Rekor write  http://sigstore-rekor:3000           (cosign --rekor-url)
+#   Rekor read   http://sigstore-rekor:8080/checkpoint
+#   TSA          http://sigstore-tsa:3000/api/v1/timestamp   (cosign --timestamp-server-url)
+
+# ---------------------------------------------------------------------------
+# Fulcio (subchart): issues short-lived signing certificates for OIDC
+# identities. The default ephemeral CA gets a new root on every restart; for
+# anything real, set fulcio.ca.type=fileca with a CA in a Secret.
+# ---------------------------------------------------------------------------
+fulcio:
+  enabled: true
+  fullnameOverride: sigstore-fulcio
+
+# ---------------------------------------------------------------------------
+# Rekor v2 (subchart): the transparency log, on a PVC, with a generated
+# ed25519 checkpoint key. Set rekor-tiles.hostname (the log origin) before the
+# first entry.
+# ---------------------------------------------------------------------------
+rekor-tiles:
+  enabled: true
+  fullnameOverride: sigstore-rekor
+
+# ---------------------------------------------------------------------------
+# Timestamp Authority (subchart): RFC 3161 timestamps. The default in-memory
+# signer is for testing; set timestamp-authority.signer.type=file for a real
+# signing key and chain.
+# ---------------------------------------------------------------------------
+timestamp-authority:
+  enabled: true
+  fullnameOverride: sigstore-tsa

@@ -1,0 +1,20 @@
+QuenchWorks sigstore-stack is installed in {{ .Release.Namespace }}.
+{{- if .Values.fulcio.enabled }}
+
+  Fulcio       http://sigstore-fulcio.{{ .Release.Namespace }}.svc:8080
+               trust bundle: /api/v2/trustBundle
+{{- end }}
+{{- if (index .Values "rekor-tiles").enabled }}
+  Rekor v2     write http://sigstore-rekor.{{ .Release.Namespace }}.svc:3000
+               read  http://sigstore-rekor.{{ .Release.Namespace }}.svc:8080/checkpoint
+               log key: kubectl logs statefulset/sigstore-rekor -c rekor | grep "Loaded signing key"
+{{- end }}
+{{- if (index .Values "timestamp-authority").enabled }}
+  TSA          http://sigstore-tsa.{{ .Release.Namespace }}.svc:3000/api/v1/timestamp
+               cert chain: /api/v1/timestamp/certchain
+{{- end }}
+
+Clients trust this Sigstore through a trusted root made from the Fulcio trust
+bundle, the Rekor log key and the TSA cert chain. The defaults (an ephemeral
+Fulcio CA and an in-memory TSA signer) change on every restart and are for
+testing only; see the README for the file-backed settings.
