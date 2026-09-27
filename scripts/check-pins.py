@@ -32,7 +32,12 @@ import yaml
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_LOCK = ROOT.parent / "images" / "catalog.lock.yaml"
 PIN = re.compile(r'digest:\s*"?(sha256:[0-9a-f]{64})"?')
-REPO = re.compile(r"repository:\s*ghcr\.io/quenchworks/images/([A-Za-z0-9._-]+)")
+# Charts spell the repository as `repository:` or, in the stacks, `image:`; both
+# with the digest on a later line. An inline ref (`images/<name>@sha256:...`) is
+# a pin too, in values.yaml and in Chart.yaml's artifacthub.io/images, which is
+# what ArtifactHub tells users to pull.
+REPO = re.compile(r'(?:repository|image):\s*"?ghcr\.io/quenchworks/images/([A-Za-z0-9._-]+)"?\s*$')
+INLINE = re.compile(r"ghcr\.io/quenchworks/images/([A-Za-z0-9._-]+)@(sha256:[0-9a-f]{64})")
 
 
 def pins(values: pathlib.Path):
@@ -47,6 +52,12 @@ def pins(values: pathlib.Path):
         if d and owner:
             yield owner, d.group(1)
             owner = None
+
+
+def inline_pins(path: pathlib.Path):
+    """Yield (image, digest) for every inline name@digest ref in the file."""
+    for m in INLINE.finditer(path.read_text()):
+        yield m.group(1), m.group(2)
 
 
 def main() -> int:
@@ -69,11 +80,17 @@ def main() -> int:
     }
 
     total, stale = 0, []
-    for values in sorted((ROOT / "quench").glob("*/values.yaml")):
-        for image, digest in pins(values):
+    for chart in sorted((ROOT / "quench").glob("*/")):
+        found = set()
+        values, meta = chart / "values.yaml", chart / "Chart.yaml"
+        if values.exists():
+            found |= set(pins(values)) | set(inline_pins(values))
+        if meta.exists():
+            found |= set(inline_pins(meta))
+        for image, digest in sorted(found):
             total += 1
             if digest not in published:
-                stale.append((values.parent.name, image, digest))
+                stale.append((chart.name, image, digest))
 
     # A chart that bundles a quench subchart deploys whatever image THAT release
     # pinned, so a subchart dependency older than the subchart's current version is a
