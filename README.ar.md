@@ -106,6 +106,7 @@ ingress:
 | `sigstore-stack` | Fulcio, Rekor v2, Timestamp Authority |
 | `backup-stack` | Velero + AWS plugin, SeaweedFS |
 | `ingress-stack` | ingress-nginx, cert-manager, a cluster CA issuer |
+| `dns-stack` | PowerDNS Authoritative, external-dns, a zone Job |
 | `supply-chain-stack` | Kyverno admitting only signed QuenchWorks images, trivy-operator |
 
 ## التحقق من مخطط

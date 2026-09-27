@@ -106,6 +106,7 @@ Un stack instala varios charts ya conectados entre si: nombres de servicio fijos
 | `sigstore-stack` | Fulcio, Rekor v2, Timestamp Authority |
 | `backup-stack` | Velero + AWS plugin, SeaweedFS |
 | `ingress-stack` | ingress-nginx, cert-manager, a cluster CA issuer |
+| `dns-stack` | PowerDNS Authoritative, external-dns, a zone Job |
 | `supply-chain-stack` | Kyverno admitting only signed QuenchWorks images, trivy-operator |
 
 ## Verifica un chart
