@@ -1,0 +1,26 @@
+Quenchworks PowerDNS Authoritative is installed as {{ include "quench-common.fullname" . }}.
+
+DNS (UDP and TCP): {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+Zones are stored in LMDB{{ if .Values.persistence.enabled }} on a {{ .Values.persistence.size }} volume{{ else }} on an emptyDir, and are LOST when the pod restarts{{ end }}.
+
+{{ if .Values.api.enabled -}}
+The HTTP API is on {{ include "quench-common.fullname" . }}-api:{{ .Values.service.apiPort }}. Get the key and create a zone:
+
+  KEY=$(kubectl get secret {{ include "powerdns.apiSecretName" . }} -o jsonpath='{.data.{{ .Values.api.existingSecretKey }}}' | base64 -d)
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }}-api {{ .Values.service.apiPort }} &
+  curl -H "X-API-Key: $KEY" -X POST http://127.0.0.1:{{ .Values.service.apiPort }}/api/v1/servers/localhost/zones \
+    -d '{"name": "example.com.", "kind": "Native", "nameservers": ["ns1.example.com."]}'
+
+external-dns can manage records through this API with --provider=pdns.
+{{- else -}}
+The HTTP API is off. Manage zones with pdnsutil:
+
+  kubectl exec {{ include "quench-common.fullname" . }}-0 -- pdnsutil --config-dir=/etc/powerdns create-zone example.com ns1.example.com
+  kubectl exec {{ include "quench-common.fullname" . }}-0 -- pdns_control --config-dir=/etc/powerdns rediscover
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/powerdns \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

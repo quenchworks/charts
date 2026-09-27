@@ -1,0 +1,160 @@
+name: release-powerdns
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/powerdns/**"
+      - ".github/workflows/release-powerdns.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/powerdns
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          command -v dig >/dev/null || { sudo apt-get update && sudo apt-get install -y bind9-dnsutils; }
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-powerdns --timeout=300s
+          KEY=gate-api-key
+          API=http://127.0.0.1:8081/api/v1/servers/localhost
+
+          fwd() {
+            kubectl port-forward pod/rtest-powerdns-0 8081:8081 15353:5353 >/tmp/pf.log 2>&1 &
+            pf=$!
+            for i in $(seq 1 30); do grep -q 'Forwarding from 127.0.0.1:15353' /tmp/pf.log && return; sleep 1; done
+            cat /tmp/pf.log; return 1
+          }
+          fwd
+
+          # --- PROVE POWERDNS SERVES A ZONE IT WAS GIVEN OVER THE API. ---
+          # 1. The API refuses a request without the key, so the key is live.
+          code="$(curl -s -o /dev/null -w '%{http_code}' "$API/zones")"
+          test "$code" = 401
+
+          # 2. Create a zone and an A record over the API, the way external-dns does.
+          curl -fsS -H "X-API-Key: $KEY" -X POST "$API/zones" \
+            -d '{"name":"quench.test.","kind":"Native","nameservers":["ns1.quench.test."]}' >/dev/null
+          curl -fsS -H "X-API-Key: $KEY" -X PATCH "$API/zones/quench.test." -d '{"rrsets":[{"name":"www.quench.test.","type":"A","ttl":300,"changetype":"REPLACE","records":[{"content":"192.0.2.10","disabled":false}]}]}'
+
+          # 3. The record comes back over DNS, authoritative. TCP, because
+          #    port-forward carries TCP only.
+          ans() { dig @127.0.0.1 -p 15353 +tcp +time=3 +tries=2 www.quench.test A; }
+          a1="$(ans)"; echo "$a1"
+          grep -qE '^www\.quench\.test\.\s+300\s+IN\s+A\s+192\.0\.2\.10' <<<"$a1"
+          grep -qE 'flags:[^;]* aa' <<<"$a1"
+
+          # 4. The zone survives a pod restart: it is in LMDB on the PVC.
+          kill $pf
+          kubectl delete pod rtest-powerdns-0 --wait=true
+          kubectl rollout status statefulset/rtest-powerdns --timeout=300s
+          kubectl wait --for=condition=Ready pod/rtest-powerdns-0 --timeout=180s
+          fwd
+          a2="$(ans)"; echo "$a2"
+          grep -qE '^www\.quench\.test\.\s+300\s+IN\s+A\s+192\.0\.2\.10' <<<"$a2"
+          kill $pf
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/powerdns-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/powerdns@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/powerdns:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

@@ -1,0 +1,98 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/powerdns
+  digest: "sha256:a9a0c1b66f1513e309a60eda1dfbca732fc07c8f374f0d549fcb316da000fa34"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# One replica, on purpose: the LMDB backend is a local file, and two servers
+# cannot share it. For more than one server, run secondaries that AXFR from this
+# one (their own releases with `extraConfig: "secondary=yes"`), or point every
+# replica at a shared SQL backend through extraConfig.
+
+# The HTTP API: zone and record management, and what external-dns's PowerDNS
+# provider talks to. The key is generated once and kept across upgrades, in the
+# Secret <fullname> under api-key, unless you set it or bring your own Secret.
+api:
+  enabled: true
+  key: ""
+  existingSecret: ""
+  existingSecretKey: api-key
+  # Source ranges the webserver answers. The key still applies to /api.
+  allowFrom: ["0.0.0.0/0", "::/0"]
+
+# Zones and DNSSEC keys live in LMDB on this volume.
+persistence:
+  enabled: true
+  size: 1Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""
+
+# Raw pdns.conf lines appended to the generated config, e.g.
+#   extraConfig: |
+#     default-soa-content=ns1.example.com. hostmaster.@ 0 10800 3600 604800 3600
+#     allow-axfr-ips=10.0.0.0/8
+extraConfig: ""
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: "1", memory: 256Mi }
+
+service:
+  # LoadBalancer is the usual choice for a public authoritative server. Both UDP
+  # and TCP go out on the same port; DNS needs both.
+  type: ClusterIP
+  port: 53
+  # The API has its own ClusterIP Service, <fullname>-api.
+  apiPort: 8081
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# DNS is open to every source by default, since answering the world is an
+# authoritative server's job. The API port is reachable from the release
+# namespace only; add apiAllowNamespaces for external-dns elsewhere.
+networkPolicy:
+  enabled: true
+  apiAllowNamespaces: []
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
