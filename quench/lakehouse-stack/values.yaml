@@ -1,0 +1,51 @@
+# lakehouse-stack: Trino + Nessie + SeaweedFS (Apache Iceberg tables on S3).
+#
+# Names are FIXED (lake-trino, lake-nessie, lake-seaweedfs) because the Trino
+# catalog below reaches the others by plain address. One stack per namespace.
+#
+#   Trino     http://lake-trino:8080        catalog "lake" = Iceberg on Nessie + S3
+#   Nessie    http://lake-nessie:19120/api/v2
+#   S3        http://lake-seaweedfs:8333    keys in Secret lake-s3, bucket "lake"
+
+trino:
+  enabled: true
+  fullnameOverride: lake-trino
+  # AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY, for the catalog below.
+  extraEnvVarsSecret: lake-s3
+  catalogs:
+    lake: |
+      connector.name=iceberg
+      iceberg.catalog.type=nessie
+      iceberg.nessie-catalog.uri=http://lake-nessie:19120/api/v2
+      iceberg.nessie-catalog.default-warehouse-dir=s3://lake/warehouse
+      fs.native-s3.enabled=true
+      s3.endpoint=http://lake-seaweedfs:8333
+      s3.region=us-east-1
+      s3.path-style-access=true
+      s3.aws-access-key=${ENV:AWS_ACCESS_KEY_ID}
+      s3.aws-secret-key=${ENV:AWS_SECRET_ACCESS_KEY}
+
+nessie:
+  enabled: true
+  fullnameOverride: lake-nessie
+  # Keep the catalog across restarts (the chart's default is in-memory).
+  versionStore:
+    type: ROCKSDB
+
+seaweedfs:
+  enabled: true
+  fullnameOverride: lake-seaweedfs
+  auth:
+    enabled: true
+    existingSecret: lake-s3
+    existingSecretAccessKeyKey: AWS_ACCESS_KEY_ID
+    existingSecretSecretKeyKey: AWS_SECRET_ACCESS_KEY
+
+# Creates the "lake" bucket with rclone (the catalog above names it). Its image
+# is pinned here because a parent chart cannot read a subchart's defaults.
+bucketJob:
+  enabled: true
+  backoffLimit: 20
+  image:
+    repository: ghcr.io/quenchworks/images/rclone
+    digest: "sha256:283c1e9a365c3ab48f92713469e9cc9a61c1377b81b2908c69bae19c3843e105"
