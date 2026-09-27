@@ -1,0 +1,56 @@
+# backup-stack: Velero + SeaweedFS (S3) for cluster backups.
+#
+# Names are FIXED (backup-velero, backup-seaweedfs) because the backup location
+# below reaches SeaweedFS by a plain address. One stack per namespace; create
+# Backup and Restore resources in it.
+#
+#   S3  http://backup-seaweedfs:8333   keys in Secret backup-s3, bucket "velero"
+
+velero:
+  enabled: true
+  fullnameOverride: backup-velero
+  # The AWS plugin talks to any S3-compatible store; it is copied into the
+  # plugins volume before Velero starts.
+  initContainers:
+    - name: velero-plugin-for-aws
+      image: ghcr.io/quenchworks/images/velero-plugin-for-aws@sha256:1f5ad24c95e960be5868f4d2e47474748d753ed46fc357fe1a16a769f2266196
+      volumeMounts:
+        - name: plugins
+          mountPath: /target
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: { drop: ["ALL"] }
+  backupStorageLocation:
+    create: true
+    name: default
+    default: true
+    provider: aws
+    bucket: velero
+    config:
+      region: us-east-1
+      s3ForcePathStyle: "true"
+      s3Url: http://backup-seaweedfs:8333
+  credentials:
+    existingSecret: backup-s3
+    secretKey: cloud
+
+seaweedfs:
+  enabled: true
+  fullnameOverride: backup-seaweedfs
+  auth:
+    enabled: true
+    existingSecret: backup-s3
+    existingSecretAccessKeyKey: AWS_ACCESS_KEY_ID
+    existingSecretSecretKeyKey: AWS_SECRET_ACCESS_KEY
+  persistence:
+    size: 50Gi
+
+# Creates the "velero" bucket with rclone (the backup location names it). Its
+# image is pinned here because a parent chart cannot read a subchart's defaults.
+bucketJob:
+  enabled: true
+  backoffLimit: 20
+  image:
+    repository: ghcr.io/quenchworks/images/rclone
+    digest: "sha256:283c1e9a365c3ab48f92713469e9cc9a61c1377b81b2908c69bae19c3843e105"

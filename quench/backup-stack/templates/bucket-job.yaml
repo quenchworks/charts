@@ -1,0 +1,52 @@
+{{- if and .Values.bucketJob.enabled .Values.seaweedfs.enabled }}
+# Creates the backup bucket. It retries until SeaweedFS answers; an existing
+# bucket is left as it is.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: backup-bucket-{{ .Release.Revision }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  backoffLimit: {{ .Values.bucketJob.backoffLimit }}
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: backup-bucket
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      restartPolicy: OnFailure
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: mkbucket
+          image: "{{ .Values.bucketJob.image.repository }}@{{ .Values.bucketJob.image.digest }}"
+          args: ["mkdir", "s3:velero"]
+          env:
+            - { name: RCLONE_CONFIG_S3_TYPE, value: s3 }
+            - { name: RCLONE_CONFIG_S3_PROVIDER, value: SeaweedFS }
+            - { name: RCLONE_CONFIG_S3_ENDPOINT, value: "http://backup-seaweedfs:8333" }
+            - name: RCLONE_CONFIG_S3_ACCESS_KEY_ID
+              valueFrom: { secretKeyRef: { name: backup-s3, key: AWS_ACCESS_KEY_ID } }
+            - name: RCLONE_CONFIG_S3_SECRET_ACCESS_KEY
+              valueFrom: { secretKeyRef: { name: backup-s3, key: AWS_SECRET_ACCESS_KEY } }
+            - { name: RCLONE_CONFIG_DIR, value: /tmp }
+            - { name: HOME, value: /tmp }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}
