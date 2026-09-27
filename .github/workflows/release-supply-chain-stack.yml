@@ -62,8 +62,10 @@ jobs:
           fi
           echo "denied: $(grep -o 'Only images from[^"]*' <<<"$out" | head -1)"
           grep -q "allowed-registries" <<<"$out"
-          # trivy-operator scans the admitted pod
-          for i in $(seq 1 90); do
+          # trivy-operator scans the admitted pod. Its scan Job appeared about 7.5
+          # minutes after the pod in kind, then fetches the Trivy DB before scanning:
+          # allow 15 minutes, as the trivy-operator chart's own gate does.
+          for i in $(seq 1 180); do
             r="$(kubectl -n demo get vulnerabilityreports -o jsonpath='{.items[0].report.summary}' 2>/dev/null)"
             [ -n "$r" ] && break; sleep 5
           done
