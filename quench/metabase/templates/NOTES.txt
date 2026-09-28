@@ -1,0 +1,18 @@
+Quenchworks Metabase is installed as {{ include "quench-common.fullname" . }}.
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 3000:{{ .Values.service.port }}
+  open http://localhost:3000     # the first visit runs the setup wizard
+
+The first start migrates the application database and can take a few minutes.
+Application database: {{ if .Values.postgresql.enabled }}the bundled PostgreSQL ({{ .Release.Name }}-postgresql){{ else }}{{ .Values.externalDatabase.host }}:{{ .Values.externalDatabase.port }}{{ end }}.
+{{- if not .Values.encryptionKey.existingSecret }}
+
+Saved database connections are encrypted with the key in Secret
+{{ include "quench-common.fullname" . }} (encryption-key). Back it up: without it they cannot be read.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/metabase \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

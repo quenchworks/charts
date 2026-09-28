@@ -1,0 +1,115 @@
+{{/* /api/health answers ok only once the application database is migrated
+     and Metabase serves requests. The first start migrates an empty database
+     for several minutes, which the startup probe allows (15 minutes). */}}
+{{- $hc := dict "httpGet" (dict "path" "/api/health" "port" "http") -}}
+{{- $liveness := merge (dict "periodSeconds" 20 "timeoutSeconds" 5 "failureThreshold" 6) (deepCopy $hc) -}}
+{{- $readiness := merge (dict "periodSeconds" 10 "timeoutSeconds" 5) (deepCopy $hc) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "metabase.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if or .Values.waitForDatabase.enabled .Values.initContainers }}
+      initContainers:
+        {{- if .Values.waitForDatabase.enabled }}
+        - name: wait-for-database
+          image: "{{ .Values.waitForDatabase.image.repository }}@{{ .Values.waitForDatabase.image.digest }}"
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/bin/sh", "-c", "until pg_isready -h \"$DB_HOST\" -p \"$DB_PORT\" -t 3; do echo waiting for $DB_HOST:$DB_PORT; sleep 3; done"]
+          env:
+            - { name: DB_HOST, value: {{ include "metabase.db.host" . | quote }} }
+            - { name: DB_PORT, value: {{ include "metabase.db.port" . | quote }} }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+        {{- end }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: metabase
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - { name: MB_DB_TYPE, value: postgres }
+            - { name: MB_DB_HOST, value: {{ include "metabase.db.host" . | quote }} }
+            - { name: MB_DB_PORT, value: {{ include "metabase.db.port" . | quote }} }
+            - { name: MB_DB_DBNAME, value: {{ include "metabase.db.name" . | quote }} }
+            - { name: MB_DB_USER, value: {{ include "metabase.db.user" . | quote }} }
+            - name: MB_DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "metabase.db.secretName" . }}
+                  key: {{ include "metabase.db.secretKey" . }}
+            - name: MB_ENCRYPTION_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "metabase.keySecretName" . }}
+                  key: {{ .Values.encryptionKey.existingSecretKey }}
+            {{- with .Values.siteUrl }}
+            - { name: MB_SITE_URL, value: {{ . | quote }} }
+            {{- end }}
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Djava.io.tmpdir=/tmp -XX:MaxRAMPercentage={{ .Values.javaMaxRamPercentage }}"
+            {{- with .Values.extraEnvVars }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+            {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          startupProbe:
+            {{- if .Values.customStartupProbe }}
+            {{- toYaml .Values.customStartupProbe | nindent 12 }}
+            {{- else }}
+            httpGet: { path: /api/health, port: http }
+            periodSeconds: 10
+            failureThreshold: 90
+            {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # Drivers unpack into plugins/; JNI natives (lz4) into /tmp, which
+            # must allow exec (emptyDir does).
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

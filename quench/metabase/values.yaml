@@ -1,0 +1,121 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/metabase
+  digest: "sha256:20e8d52c8102c80e3174c2fd35ed24e6cc558a3f6144a0df78df2340abe6a239"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# One replica: Metabase runs its database migrations at startup, and upstream
+# documents a single instance per application database unless you run the
+# Enterprise clustering setup.
+replicaCount: 1
+
+# Metabase encrypts the connection details of every database you add with this
+# key. Losing it makes all saved connections unreadable. Empty: generated once
+# and kept across upgrades in the Secret <fullname> (encryption-key). Or set it,
+# or bring a Secret.
+encryptionKey:
+  value: ""
+  existingSecret: ""
+  existingSecretKey: encryption-key
+
+# Public URL, used in emails and embeds (MB_SITE_URL).
+siteUrl: ""
+
+# --- DATABASE, mode 1 (default): the bundled PostgreSQL subchart. ---
+postgresql:
+  enabled: true
+  auth:
+    # username and database MUST differ: the bundled PostgreSQL only creates the
+    # application database when its name differs from the superuser's.
+    username: metabasedb
+    password: ""              # generated if empty; in the Secret <release>-postgresql
+    database: metabase
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- DATABASE, mode 2: external PostgreSQL (postgresql.enabled=false). ---
+externalDatabase:
+  host: ""
+  port: 5432
+  database: metabase
+  username: metabase
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+# Waits for the database before Metabase starts, so the first boot does not burn
+# its startup attempts on a PostgreSQL that is still initialising. Uses our
+# postgresql image for pg_isready (a parent chart cannot read a subchart's pin).
+waitForDatabase:
+  enabled: true
+  image:
+    repository: ghcr.io/quenchworks/images/postgresql
+    digest: "sha256:4c0580fd2968b8d6e8fb008e0eb74b55c54464b041c235842e4d1cc37ed9a445"
+
+# JVM heap as a percentage of the container memory limit.
+javaMaxRamPercentage: 75
+
+resources:
+  requests: { cpu: 250m, memory: 1536Mi }
+  limits: { cpu: "2", memory: 3Gi }
+
+service:
+  type: ClusterIP
+  port: 3000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy:
+  type: Recreate
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
