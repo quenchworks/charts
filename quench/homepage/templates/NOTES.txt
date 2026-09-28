@@ -1,0 +1,25 @@
+Quenchworks Homepage is installed as {{ include "quench-common.fullname" . }}.
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 3000:{{ .Values.service.port }}
+  open http://localhost:3000
+
+{{ if .Values.allowedHosts -}}
+Allowed Host headers besides localhost:3000: {{ join ", " .Values.allowedHosts }}.
+{{- else -}}
+Only localhost:3000 is an allowed Host. Reaching Homepage through an Ingress or
+another name needs that name in allowedHosts, or every request gets 400.
+{{- end }}
+
+Edit the dashboard through config.services, config.bookmarks and
+config.widgets in values; `helm upgrade` rolls the pod with the new files.
+{{- if and (ne (toString .Values.config.kubernetes.mode) "disabled") (not .Values.rbac.create) }}
+
+WARNING: config.kubernetes.mode is {{ .Values.config.kubernetes.mode }} but rbac.create is false, so
+Homepage cannot read the API. Set rbac.create=true.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/homepage \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

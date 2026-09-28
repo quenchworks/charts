@@ -1,0 +1,102 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/homepage
+  digest: "sha256:5af95ab01e8e3f20b2cef860b87dd4282a4377b1e3a62719fec51bc29e09bac3"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+replicaCount: 1
+
+# Host headers Homepage answers. It refuses every other Host with 400 (DNS
+# rebinding protection), so list the names users reach it by: the Ingress host,
+# or the Service name if you port-forward or proxy to it. localhost:3000 is
+# always allowed. "*" turns the check off.
+allowedHosts: []
+
+# Homepage's config files, as YAML (mapped straight to the file of that name)
+# or raw strings. Anything left out is created from Homepage's defaults on
+# first start. See https://gethomepage.dev/configs/.
+config:
+  settings:
+    title: Homepage
+  services:
+    - Infrastructure:
+        - Kubernetes:
+            href: https://kubernetes.io/docs/
+            description: Edit config.services in the chart values.
+  bookmarks: []
+  widgets:
+    - resources:
+        cpu: true
+        memory: true
+  # kubernetes.yaml. mode: cluster makes Homepage read Ingresses, HTTPRoutes and
+  # Traefik IngressRoutes annotated with gethomepage.dev/enabled: "true", and
+  # needs rbac.create=true.
+  kubernetes:
+    mode: disabled
+  docker: {}
+  customCss: ""
+  customJs: ""
+
+# Read-only ClusterRole for config.kubernetes.mode: cluster: namespaces, pods,
+# nodes, ingresses, HTTPRoutes, Traefik IngressRoutes, CRDs (to detect those),
+# and metrics for the resource widgets. Also mounts the ServiceAccount token.
+rbac:
+  create: false
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 3000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
