@@ -1,0 +1,135 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/odoo
+  digest: "sha256:fb7b9b31f618b0dd175b6cdc5b2324c24d9ed2e45cfc1ba2106327939639e071"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# One replica: the filestore is a ReadWriteOnce PVC, and the init container installs
+# modules into the database before the server starts.
+replicaCount: 1
+
+# The "admin" user's login password. Empty: generated once and kept across upgrades
+# in the Secret <fullname> (admin-password). Upstream's base install sets it to
+# "admin"; the init container replaces it on first install.
+adminPassword:
+  value: ""
+  existingSecret: ""
+  existingSecretKey: admin-password
+
+# Modules the init container installs into an empty database (comma separated).
+initModules: base
+# Install demo data. Off for anything but a trial.
+demoData: false
+
+# Behind an ingress or load balancer that sets X-Forwarded-*.
+proxyMode: false
+
+# Odoo's multi-process mode (0 = threaded server). With workers > 0, the websocket
+# (live chat, notifications) needs its own route to the gevent port; see README.
+workers: 0
+
+# Extra command-line flags for the server, for example --log-level=debug.
+extraArgs: []
+
+# --- DATABASE, mode 1 (default): the bundled PostgreSQL subchart. ---
+postgresql:
+  enabled: true
+  auth:
+    # username and database MUST differ: the bundled PostgreSQL only creates the
+    # application database when its name differs from the superuser's. Odoo refuses
+    # the user "postgres".
+    username: odoodb
+    password: ""              # generated if empty; in the Secret <release>-postgresql
+    database: odoo
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- DATABASE, mode 2: external PostgreSQL (postgresql.enabled=false). ---
+externalDatabase:
+  host: ""
+  port: 5432
+  database: odoo
+  username: odoo
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+# Waits for the database before the init container runs. Uses our postgresql image
+# for pg_isready (a parent chart cannot read a subchart's pin).
+waitForDatabase:
+  image:
+    repository: ghcr.io/quenchworks/images/postgresql
+    digest: "sha256:4c0580fd2968b8d6e8fb008e0eb74b55c54464b041c235842e4d1cc37ed9a445"
+
+# The filestore (attachments, images) and sessions, under /data.
+persistence:
+  enabled: true
+  size: 8Gi
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  existingClaim: ""
+
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  port: 8069
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy:
+  type: Recreate
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

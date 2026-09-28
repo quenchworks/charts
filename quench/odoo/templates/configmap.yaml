@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-init
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # Runs in the Odoo image, which has no shell. Installs the modules into an empty
+  # database once, then replaces the "admin" user's password; an initialised
+  # database is left alone (upgrade modules with -u in extraArgs or a one-off Job).
+  init.py: |
+    import os, subprocess, sys
+    import psycopg2
+
+    ODOO = "/opt/odoo/venv/bin/odoo"
+    args = sys.argv[1:]
+    db = os.environ["ODOO_DB"]
+    conn = psycopg2.connect(host=os.environ["ODOO_DB_HOST"], port=os.environ["ODOO_DB_PORT"],
+                            user=os.environ["ODOO_DB_USER"], dbname=db)
+    with conn, conn.cursor() as cur:
+        cur.execute("select 1 from information_schema.tables where table_name = 'ir_module_module'")
+        initialised = cur.fetchone() is not None
+    conn.close()
+    if initialised:
+        print(f"database {db} is already initialised")
+        sys.exit(0)
+
+    install = [ODOO, *args, "-i", os.environ["ODOO_INIT_MODULES"], "--stop-after-init"]
+    if os.environ.get("ODOO_DEMO") != "true":
+        install.append("--without-demo=all")
+    print("installing", os.environ["ODOO_INIT_MODULES"], "into", db, flush=True)
+    subprocess.run(install, check=True)
+
+    # odoo shell runs its standard input as Python with env bound to the database
+    script = (
+        "import os\n"
+        "env.ref('base.user_admin').password = os.environ['ODOO_ADMIN_PASSWORD']\n"
+        "env.cr.commit()\n"
+    )
+    subprocess.run([ODOO, "shell", *args, "--no-http"], input=script, text=True, check=True)
+    print("admin password set", flush=True)

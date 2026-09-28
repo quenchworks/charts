@@ -1,0 +1,130 @@
+{{/* /web/health answers once the server is up; it does not touch the database. */}}
+{{- $hc := dict "httpGet" (dict "path" "/web/health" "port" "http") -}}
+{{- $liveness := merge (dict "periodSeconds" 20 "timeoutSeconds" 5 "failureThreshold" 6) (deepCopy $hc) -}}
+{{- $readiness := merge (dict "periodSeconds" 10 "timeoutSeconds" 5) (deepCopy $hc) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/init: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "odoo.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        - name: wait-for-database
+          image: "{{ .Values.waitForDatabase.image.repository }}@{{ .Values.waitForDatabase.image.digest }}"
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/bin/sh", "-c", "until pg_isready -h \"$DB_HOST\" -p \"$DB_PORT\" -t 3; do echo waiting for $DB_HOST:$DB_PORT; sleep 3; done"]
+          env:
+            - { name: DB_HOST, value: {{ include "odoo.db.host" . | quote }} }
+            - { name: DB_PORT, value: {{ include "odoo.db.port" . | quote }} }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+        - name: init-database
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/opt/odoo/venv/bin/python", "/init/init.py"]
+          args:
+            {{- include "odoo.args" . | nindent 12 }}
+          env:
+            {{- include "odoo.env" . | nindent 12 }}
+            - { name: ODOO_INIT_MODULES, value: {{ .Values.initModules | quote }} }
+            - { name: ODOO_DEMO, value: {{ .Values.demoData | quote }} }
+            - name: ODOO_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "odoo.adminSecretName" . }}
+                  key: {{ .Values.adminPassword.existingSecretKey }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+            - { name: init, mountPath: /init, readOnly: true }
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: odoo
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            {{- include "odoo.args" . | nindent 12 }}
+            - --http-port=8069
+            - --workers={{ .Values.workers }}
+            {{- if .Values.proxyMode }}
+            - --proxy-mode
+            {{- end }}
+            {{- with .Values.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            {{- include "odoo.env" . | nindent 12 }}
+            {{- with .Values.extraEnvVars }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+            {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 8069
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          startupProbe:
+            {{- if .Values.customStartupProbe }}
+            {{- toYaml .Values.customStartupProbe | nindent 12 }}
+            {{- else }}
+            httpGet: { path: /web/health, port: http }
+            periodSeconds: 5
+            failureThreshold: 60
+            {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ default (include "quench-common.fullname" .) .Values.persistence.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+        - name: init
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-init
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
