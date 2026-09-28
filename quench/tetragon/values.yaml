@@ -1,0 +1,44 @@
+# Tetragon: an eBPF agent on every node (DaemonSet) plus an operator that
+# installs the TracingPolicy and PodInfo CRDs. Digests below are the contract
+# with the image factory; they are never tags.
+
+agent:
+  image:
+    repository: ghcr.io/quenchworks/images/tetragon
+    digest: "sha256:cbacfcd34c1d995ea819764f3ac5004711c418afbbb3ba316a139598dd685b90"
+    pullPolicy: IfNotPresent
+  # Name reported on every event, to tell clusters apart in one sink.
+  clusterName: ""
+  # Watch the Kubernetes API so events carry pod, namespace and labels, and
+  # TracingPolicy CRDs are loaded.
+  enableK8sApi: true
+  # Process credentials and namespaces on every exec event (larger events).
+  enableProcessCred: false
+  enableProcessNs: false
+  # Prometheus metrics on this port (0 turns the metrics server off).
+  metricsPort: 2112
+  # Raw agent options, as {flag: value} without the leading --, e.g.
+  #   extraConfig: { export-rate-limit: "1000", process-cache-size: "131072" }
+  extraConfig: {}
+  resources:
+    requests: { cpu: 50m, memory: 256Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  tolerations:
+    - operator: Exists
+  nodeSelector: {}
+  priorityClassName: ""
+
+operator:
+  enabled: true
+  image:
+    repository: ghcr.io/quenchworks/images/tetragon-operator
+    digest: "sha256:e7d4c1fe171808657e3cc514134b6ffc4076993c4a7415306f6ad0dd340c0058"
+    pullPolicy: IfNotPresent
+  resources:
+    requests: { cpu: 10m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+  nodeSelector: {}
+  tolerations: []
+
+nameOverride: ""
+imagePullSecrets: []

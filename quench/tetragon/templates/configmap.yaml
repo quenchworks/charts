@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tetragon.agentName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  {{- range $k, $v := (include "tetragon.agentConfig" . | fromYaml) }}
+  {{ $k }}: {{ $v | toString | quote }}
+  {{- end }}
+{{- if .Values.operator.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tetragon.operatorName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  skip-crd-creation: "false"
+  skip-pod-info-crd: "true"
+  skip-tracing-policy-crd: "false"
+  force-update-crds: "false"
+  leader-election: "false"
+{{- end }}

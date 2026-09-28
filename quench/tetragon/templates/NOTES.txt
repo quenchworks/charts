@@ -1,0 +1,25 @@
+Quenchworks Tetragon is installed in {{ .Release.Namespace }}: an agent on every node{{ if .Values.operator.enabled }} and an operator for the TracingPolicy CRDs{{ end }}.
+
+Watch events from one node's agent (the tetra CLI is in the agent image):
+
+  kubectl exec -n {{ .Release.Namespace }} ds/{{ include "tetragon.agentName" . }} -c tetragon -- tetra getevents -o compact
+
+{{- if and .Values.agent.enableK8sApi .Values.operator.enabled }}
+
+Add hooks with a TracingPolicy, for example every file opened under /etc:
+
+  kubectl apply -f https://raw.githubusercontent.com/cilium/tetragon/v{{ .Chart.AppVersion }}/examples/tracingpolicy/filename_monitoring.yaml
+{{- end }}
+{{- if gt (int .Values.agent.metricsPort) 0 }}
+
+Prometheus metrics: port {{ .Values.agent.metricsPort }} on every agent pod.
+{{- end }}
+
+The agent runs privileged as root with host PID: it loads eBPF programs into
+the kernel. Nodes need a kernel with BTF (/sys/kernel/btf/vmlinux).
+
+The images are pinned by digest and signed. Verify them:
+
+  cosign verify ghcr.io/quenchworks/images/tetragon \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

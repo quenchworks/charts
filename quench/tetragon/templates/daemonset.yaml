@@ -1,0 +1,96 @@
+{{- $a := .Values.agent -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "tetragon.agentName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+spec:
+  selector:
+    matchLabels:
+      {{- include "tetragon.selectorLabels" (dict "ctx" . "component" "agent") | nindent 6 }}
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include "tetragon.agentConfig" . | sha256sum }}
+      labels:
+        {{- include "tetragon.selectorLabels" (dict "ctx" . "component" "agent") | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "tetragon.agentName" . }}
+      automountServiceAccountToken: {{ $a.enableK8sApi }}
+      # The agent attributes events to processes by host PID.
+      hostPID: true
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $a.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with $a.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $a.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: tetragon
+          image: {{ include "tetragon.image" $a.image }}
+          imagePullPolicy: {{ $a.image.pullPolicy }}
+          args: ["--config-dir=/etc/tetragon/tetragon.conf.d/"]
+          # Loading eBPF programs needs root and full privileges; the image's
+          # default user (1001) is overridden for this container only.
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            runAsGroup: 0
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - { name: health, containerPort: 6789, protocol: TCP }
+            {{- if gt (int $a.metricsPort) 0 }}
+            - { name: metrics, containerPort: {{ $a.metricsPort }}, protocol: TCP }
+            {{- end }}
+          # The agent's own gRPC health service: SERVING only once its sensors
+          # are loaded and the event pipeline runs.
+          livenessProbe:
+            grpc: { port: 6789 }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            grpc: { port: 6789 }
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml $a.resources | nindent 12 }}
+          volumeMounts:
+            - { name: config, mountPath: /etc/tetragon/tetragon.conf.d/, readOnly: true }
+            - { name: bpf-maps, mountPath: /sys/fs/bpf, mountPropagation: Bidirectional }
+            - { name: cilium-run, mountPath: /var/run/cilium }
+            - { name: tetragon-run, mountPath: /var/run/tetragon }
+            - { name: host-proc, mountPath: /procRoot, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "tetragon.agentName" . }}
+        - name: bpf-maps
+          hostPath: { path: /sys/fs/bpf, type: DirectoryOrCreate }
+        - name: cilium-run
+          hostPath: { path: /var/run/cilium, type: DirectoryOrCreate }
+        - name: tetragon-run
+          emptyDir: {}
+        - name: host-proc
+          hostPath: { path: /proc, type: Directory }
+        - name: tmp
+          emptyDir: {}
