@@ -1,0 +1,55 @@
+# Quenchworks Apache Artemis on the QuenchWorks activemq-artemis image (nonroot, 0-CVE,
+# cosign-signed, pinned by digest). One broker with its journal on a PVC.
+image:
+  repository: ghcr.io/quenchworks/images/activemq-artemis
+  digest: "sha256:b99a9efbda5c3b8276346af443095c97667f30cf6956da305e008daba8b9964d"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+auth:
+  # The image requires login and ships no users. The chart writes one admin user
+  # (role amq, which the web console also needs). Empty password generates one, kept
+  # across upgrades.
+  username: admin
+  password: ""
+  # An existing Secret with keys artemis-users.properties (user = password lines) and
+  # artemis-roles.properties (role = user,user lines).
+  existingSecret: ""
+
+# The artemis acceptor on 61616 speaks every protocol and is always on. The image also
+# listens on the protocol ports below; these add them to the Service.
+connectors:
+  amqp: false     # 5672
+  stomp: false    # 61613
+  mqtt: false     # 1883
+
+persistence:
+  enabled: true
+  size: 8Gi
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+
+# Heap: the image defaults to -Xms64m -XX:MaxRAMPercentage=75 of the memory limit, and
+# Artemis caps in-memory messages at half the heap before paging to /data.
+extraEnv: []
+
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "1", memory: 1Gi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}
