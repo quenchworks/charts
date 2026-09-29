@@ -1,0 +1,46 @@
+{{- $sel := dict "ctx" . "component" "streaming" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}-streaming
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: streaming
+spec:
+  replicas: {{ .Values.streaming.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "mastodon.selectorLabels" $sel | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "mastodon.selectorLabels" $sel | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "mastodon.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: streaming
+          image: "{{ .Values.streaming.image.repository }}@{{ .Values.streaming.image.digest }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "mastodon.connEnv" . | nindent 12 }}
+          ports:
+            - { name: streaming, containerPort: 4000, protocol: TCP }
+          livenessProbe:
+            httpGet: { path: /api/v1/streaming/health, port: streaming }
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /api/v1/streaming/health, port: streaming }
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.streaming.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}

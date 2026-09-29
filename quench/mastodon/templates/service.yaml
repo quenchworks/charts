@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}-web
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - { name: http, port: {{ .Values.service.port }}, targetPort: http, protocol: TCP }
+  selector:
+    {{- include "mastodon.selectorLabels" (dict "ctx" . "component" "web") | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}-streaming
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: streaming
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - { name: streaming, port: {{ .Values.service.streamingPort }}, targetPort: streaming, protocol: TCP }
+  selector:
+    {{- include "mastodon.selectorLabels" (dict "ctx" . "component" "streaming") | nindent 4 }}

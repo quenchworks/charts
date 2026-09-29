@@ -1,0 +1,83 @@
+{{- $sel := dict "ctx" . "component" "sidekiq" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}-sidekiq
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sidekiq
+spec:
+  replicas: {{ .Values.sidekiq.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "mastodon.selectorLabels" $sel | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "mastodon.selectorLabels" $sel | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "mastodon.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        - name: wait-for-database
+          image: "{{ .Values.waitForDatabase.image.repository }}@{{ .Values.waitForDatabase.image.digest }}"
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/bin/sh", "-c", "until pg_isready -h \"$DB_HOST\" -p \"$DB_PORT\" -t 3; do echo waiting for $DB_HOST:$DB_PORT; sleep 3; done"]
+          env:
+            - { name: DB_HOST, value: {{ include "mastodon.db.host" . | quote }} }
+            - { name: DB_PORT, value: {{ include "mastodon.db.port" . | quote }} }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+        # web prepares the schema; sidekiq starts once the accounts table exists.
+        - name: wait-for-schema
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args: ["rails", "runner", "until (ActiveRecord::Base.connection.table_exists?(:accounts) rescue false); puts 'waiting for the schema'; ActiveRecord::Base.connection_pool.disconnect!; sleep 5; end"]
+          env:
+            {{- include "mastodon.railsEnv" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.sidekiq.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      containers:
+        - name: sidekiq
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - sidekiq
+            {{- with .Values.sidekiq.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            {{- include "mastodon.railsEnv" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.sidekiq.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: media, mountPath: /opt/mastodon/public/system }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: media
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ default (include "quench-common.fullname" .) .Values.persistence.existingClaim }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

@@ -1,0 +1,33 @@
+{{- if .Values.ingress.enabled }}
+{{- $name := include "quench-common.fullname" . -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ default .Values.localDomain .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /api/v1/streaming
+            pathType: Prefix
+            backend:
+              service: { name: {{ $name }}-streaming, port: { name: streaming } }
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: {{ $name }}-web, port: { name: http } }
+{{- end }}

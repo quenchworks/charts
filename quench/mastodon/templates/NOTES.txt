@@ -1,0 +1,11 @@
+Mastodon {{ .Chart.AppVersion }} for {{ .Values.localDomain }}.
+
+  web:       {{ include "quench-common.fullname" . }}-web:{{ .Values.service.port }}
+  streaming: {{ include "quench-common.fullname" . }}-streaming:{{ .Values.service.streamingPort }}  (route /api/v1/streaming here)
+
+Mastodon expects HTTPS on {{ .Values.localDomain }}. Create the first admin with:
+
+  kubectl -n {{ .Release.Namespace }} exec deploy/{{ include "quench-common.fullname" . }}-web -- \
+    ruby launch.rb tootctl accounts create admin --email admin@{{ .Values.localDomain }} --confirmed --role Owner
+
+Back up the Secret {{ include "mastodon.secretName" . }}: losing it breaks sessions, two-factor codes and encrypted columns.
