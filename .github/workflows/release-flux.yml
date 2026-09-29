@@ -44,7 +44,7 @@ jobs:
           set -o pipefail
           kubectl create namespace flux-system
           helm install rtest "${CHART_DIR}" -n flux-system -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
-          for n in source kustomize helm notification; do
+          for n in source kustomize helm notification image-reflector image-automation source-watcher; do
             kubectl -n flux-system rollout status deployment/rtest-flux-$n --timeout=300s
           done
           kubectl wait crd --all --for=condition=Established --timeout=120s
@@ -113,7 +113,46 @@ jobs:
           # notification objects no longer carry a Ready condition in v1beta3; the
           # controller must at least have accepted them without errors
           ! kubectl -n flux-system logs deployment/rtest-flux-notification | grep -iE '"level":"error".*(podinfo|sink)'
-          echo "install gate OK: Git + Kustomization, OCI Helm + HelmRelease, notification objects accepted"
+          # 4. image-reflector-controller: scan a public image's tags and pick one by policy
+          cat <<Y | kubectl apply -f -
+          apiVersion: image.toolkit.fluxcd.io/v1
+          kind: ImageRepository
+          metadata: { name: podinfo, namespace: flux-system }
+          spec: { image: ghcr.io/stefanprodan/podinfo, interval: 10m }
+          ---
+          apiVersion: image.toolkit.fluxcd.io/v1
+          kind: ImagePolicy
+          metadata: { name: podinfo, namespace: flux-system }
+          spec:
+            imageRepositoryRef: { name: podinfo }
+            policy: { semver: { range: ">=6.0.0 <7.0.0" } }
+          Y
+          kubectl -n flux-system wait imagerepository/podinfo --for=condition=Ready --timeout=300s
+          kubectl -n flux-system wait imagepolicy/podinfo --for=condition=Ready --timeout=300s
+          tag="$(kubectl -n flux-system get imagepolicy/podinfo -o jsonpath='{.status.latestRef.tag}')"
+          test -n "$tag"
+          echo "  ImageRepository + ImagePolicy: podinfo resolves to ${tag}"
+          # 5. source-watcher: build a new artifact from the podinfo GitRepository
+          cat <<Y | kubectl apply -f -
+          apiVersion: source.extensions.fluxcd.io/v1beta1
+          kind: ArtifactGenerator
+          metadata: { name: podinfo-kustomize, namespace: flux-system }
+          spec:
+            sources:
+              - { alias: repo, kind: GitRepository, name: podinfo }
+            artifacts:
+              - name: kustomize
+                copy:
+                  - { from: "@repo/kustomize/**", to: "@artifact/" }
+          Y
+          kubectl -n flux-system wait artifactgenerator/podinfo-kustomize --for=condition=Ready --timeout=300s
+          kubectl -n flux-system get externalartifact -o name | grep -q .
+          echo "  ArtifactGenerator: a new artifact was built from the GitRepository"
+          # 6. image-automation-controller: it accepts an ImageUpdateAutomation and does not crash
+          # (updating a repository needs push credentials, which a gate has no place for)
+          kubectl -n flux-system rollout status deployment/rtest-flux-image-automation --timeout=60s
+          ! kubectl -n flux-system logs deployment/rtest-flux-image-automation | grep -E '"level":"error"|panic'
+          echo "install gate OK: Git + Kustomization, OCI Helm + HelmRelease, notification objects, image scan + policy, generated artifact"
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

@@ -1,6 +1,9 @@
 {{- $full := include "quench-common.fullname" . -}}
 {{- range $name, $c := .Values.controllers }}
 {{- if $c.enabled }}
+{{- /* controllers that keep an artifact or database directory, and that serve HTTP */}}
+{{- $store := has $name (list "source" "image-reflector" "source-watcher") }}
+{{- $http := has $name (list "source" "notification" "source-watcher") }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -44,9 +47,14 @@ spec:
             - --log-level={{ $.Values.logLevel }}
             - --log-encoding=json
             - --enable-leader-election
-            {{- if eq $name "source" }}
+            {{- if $store }}
             - --storage-path=/data
+            {{- end }}
+            {{- if eq $name "source" }}
             - --storage-adv-addr={{ include "flux.sourceAddr" $ }}
+            {{- end }}
+            {{- if eq $name "source-watcher" }}
+            - --storage-adv-addr={{ include "flux.sourceWatcherAddr" $ }}
             {{- end }}
             {{- range $c.extraArgs }}
             - {{ . | quote }}
@@ -66,7 +74,7 @@ spec:
               value: /tmp/.sigstore
             {{- end }}
           ports:
-            {{- if or (eq $name "source") (eq $name "notification") }}
+            {{- if $http }}
             - name: http
               containerPort: 9090
             {{- end }}
@@ -93,7 +101,7 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-            {{- if eq $name "source" }}
+            {{- if $store }}
             - name: data
               mountPath: /data
             {{- end }}
@@ -108,8 +116,10 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
-        {{- if eq $name "source" }}
-        # source-controller's artifact store; a cache it rebuilds from the sources
+        {{- if $store }}
+        # the artifact store (source, source-watcher) or image metadata database
+        # (image-reflector): a cache each controller rebuilds from its sources
+        # ponytail: emptyDir, so tags are rescanned after a restart; add a PVC if a registry rate limit bites
         - name: data
           emptyDir: {}
         {{- end }}

@@ -5,3 +5,6 @@ http://{{ include "quench-common.fullname" . }}-notification.{{ .Release.Namespa
 {{- define "flux.sourceAddr" -}}
 {{ include "quench-common.fullname" . }}-source.{{ .Release.Namespace }}.svc.cluster.local.
 {{- end -}}
+{{- define "flux.sourceWatcherAddr" -}}
+{{ include "quench-common.fullname" . }}-source-watcher.{{ .Release.Namespace }}.svc.cluster.local.
+{{- end -}}

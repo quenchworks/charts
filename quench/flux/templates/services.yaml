@@ -18,6 +18,26 @@ spec:
     {{- include "quench-common.selectorLabels" . | nindent 4 }}
     app.kubernetes.io/component: source-controller
 {{- end }}
+{{- if (index .Values.controllers "source-watcher").enabled }}
+---
+# serves the artifacts source-watcher generates (--storage-adv-addr)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $full }}-source-watcher
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: source-watcher-controller
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: source-watcher-controller
+{{- end }}
 {{- if .Values.controllers.notification.enabled }}
 ---
 # receives events from the other controllers (--events-addr)

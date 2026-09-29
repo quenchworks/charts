@@ -1,7 +1,7 @@
 # Flux
 
 [Flux](https://fluxcd.io) keeps a cluster in step with Git, OCI and Helm repositories.
-This chart installs its four core controllers and their CRDs on QuenchWorks images,
+This chart installs its four core controllers, and three optional ones, with their CRDs on QuenchWorks images,
 each built from source: nonroot, read-only root filesystem, 0 fixable CVEs,
 cosign-signed and pinned by digest.
 
@@ -11,9 +11,15 @@ cosign-signed and pinned by digest.
 | kustomize-controller | 1.9.5 | Kustomization (with SOPS decryption) |
 | helm-controller | 1.6.4 | HelmRelease |
 | notification-controller | 1.9.4 | Provider, Alert, Receiver |
+| image-reflector-controller (optional) | 1.2.5 | ImageRepository, ImagePolicy |
+| image-automation-controller (optional) | 1.2.5 | ImageUpdateAutomation |
+| source-watcher (optional) | 2.2.4 | ArtifactGenerator |
 
-These are the versions Flux 2.9.5 ships. The image automation controllers and
-source-watcher are not part of this chart.
+These are the versions Flux 2.9.5 ships. The three optional controllers are off by
+default; turn one on with `--set controllers.image-reflector.enabled=true` (likewise
+`image-automation` and `source-watcher`). Their CRDs are always installed. The
+image-reflector keeps its tag database, and source-watcher its generated artifacts, in
+an emptyDir, so both rebuild from their sources after a restart.
 
 ## Install
 
