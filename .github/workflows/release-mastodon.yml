@@ -58,7 +58,9 @@ jobs:
           grep -q '"domain":"mastodon.example.com"' /tmp/inst.json
           want="$(sed -n 's/^appVersion: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "${CHART_DIR}/Chart.yaml")"
           grep -q "\"version\":\"${want}\"" /tmp/inst.json
-          curl -fsS -m 30 "${H[@]}" http://127.0.0.1:3000/about | grep -q '/packs/'
+          # here-strings, not pipes: grep -q exiting early makes the producer fail under pipefail
+          about="$(curl -fsS -m 30 "${H[@]}" http://127.0.0.1:3000/about)"
+          grep -q '/packs/' <<<"$about"
           echo "  web serves ${want} with its compiled packs"
 
           # streaming: health, and an unauthenticated stream is refused
@@ -71,8 +73,8 @@ jobs:
           kubectl exec deployment/mtest-mastodon-web -c web -- ruby launch.rb tootctl accounts create gateadmin \
             --email quench-gate@gmail.com --confirmed --role Owner | tee /tmp/acct.txt
           grep -q 'New password' /tmp/acct.txt
-          for i in $(seq 1 30); do kubectl logs deployment/mtest-mastodon-sidekiq | grep -q 'MailDeliveryJob' && break; sleep 2; done
-          kubectl logs deployment/mtest-mastodon-sidekiq | grep -q 'MailDeliveryJob'
+          for i in $(seq 1 30); do grep -q 'MailDeliveryJob' <<<"$(kubectl logs deployment/mtest-mastodon-sidekiq)" && break; sleep 2; done
+          grep -q 'MailDeliveryJob' <<<"$(kubectl logs deployment/mtest-mastodon-sidekiq)"
           echo "  owner account created; sidekiq picked up its mail job"
 
           # the generated Rails secrets survive an upgrade, and a restarted web pod re-runs the
