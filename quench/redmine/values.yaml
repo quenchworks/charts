@@ -1,0 +1,140 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/redmine
+  digest: "sha256:e403444d42b4ab639bff6e81cbeb8cd6fd71ee5c5ce247e1d6f3fabd9e7bad40"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# One replica: the attachments are a ReadWriteOnce PVC, and the init container migrates
+# the schema before the server starts.
+replicaCount: 1
+
+# The "admin" user's login password. Empty: generated once and kept across upgrades in
+# the Secret <fullname> (admin-password). The init container sets it on first install
+# (Redmine's own default is admin/admin, which forces a change at first login).
+adminPassword:
+  value: ""
+  existingSecret: ""
+  existingSecretKey: admin-password
+
+# Signs sessions and cookies. Empty: generated once and kept across upgrades in the
+# Secret <fullname> (secret-key-base). Changing it logs everyone out.
+secretKeyBase:
+  value: ""
+  existingSecret: ""
+  existingSecretKey: secret-key-base
+
+# Language of the default data (trackers, statuses, roles) loaded into an empty database.
+defaultDataLang: en
+
+# Turn the REST API on (Administration, Settings, API). Off by default, as upstream.
+restApi: false
+
+# Contents of config/configuration.yml, where Redmine takes its email delivery, attachment
+# and SCM settings. Empty leaves upstream's defaults, which send no mail.
+configurationYml: ""
+
+# Extra command-line flags for puma, for example ["-w", "2"].
+extraArgs: []
+
+# --- DATABASE, mode 1 (default): the bundled PostgreSQL subchart. ---
+postgresql:
+  enabled: true
+  auth:
+    # username and database MUST differ: the bundled PostgreSQL only creates the
+    # application database when its name differs from the superuser's. Redmine has no
+    # such rule, but keep them apart anyway.
+    username: redminedb
+    password: ""              # generated if empty; in the Secret <release>-postgresql
+    database: redmine
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- DATABASE, mode 2: external PostgreSQL (postgresql.enabled=false). ---
+externalDatabase:
+  host: ""
+  port: 5432
+  database: redmine
+  username: redmine
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+# Waits for the database before the init container runs. Uses our postgresql image
+# for pg_isready (a parent chart cannot read a subchart's pin).
+waitForDatabase:
+  image:
+    repository: ghcr.io/quenchworks/images/postgresql
+    digest: "sha256:086dc72597074662dfb828f7f58a0093f98123405cf4bc109a1bd859bc576f21"
+
+# Attachments, under /data/files.
+persistence:
+  enabled: true
+  size: 8Gi
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  existingClaim: ""
+
+resources:
+  requests: { cpu: 250m, memory: 512Mi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  port: 3000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy:
+  type: Recreate
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-init
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # Runs in the Redmine image, which has no shell. Migrates the schema, then loads the
+  # default data and sets the admin password only into an empty database; an initialised
+  # database keeps its data and its admin password.
+  init.rb: |
+    require 'open3'
+    launch = ['/usr/bin/ruby', '/opt/redmine/launch.rb']
+    run = lambda do |*cmd, env: {}|
+      system(env, *cmd) or abort("init: #{cmd.join(' ')} failed")
+    end
+    run.call(*launch, 'rake', 'db:migrate')
+    out, status = Open3.capture2(*launch, 'runner', 'puts(Redmine::DefaultData::Loader.no_data? ? "fresh" : "loaded")')
+    abort('init: could not read the database state') unless status.success?
+    if out.lines.last.to_s.strip == 'fresh'
+      run.call(*launch, 'rake', 'redmine:load_default_data', env: { 'REDMINE_LANG' => ENV.fetch('REDMINE_LANG', 'en') })
+      run.call(*launch, 'runner', '/init/admin.rb')
+      puts 'default data loaded, admin password set'
+    else
+      puts 'database already initialised'
+    end
+    run.call(*launch, 'runner', '/init/settings.rb')
+  admin.rb: |
+    u = User.find_by_login('admin')
+    u.password = u.password_confirmation = ENV.fetch('REDMINE_ADMIN_PASSWORD')
+    u.must_change_passwd = false
+    u.save!
+  settings.rb: |
+    # only ever turns the API on; an admin who enabled it in the UI keeps it
+    Setting.rest_api_enabled = '1' if ENV['REDMINE_REST_API'] == '1'
+  {{- with .Values.configurationYml }}
+  configuration.yml: |
+    {{- . | nindent 4 }}
+  {{- end }}
