@@ -30,25 +30,33 @@ the password is injected from a Secret.
 {{- if .Values.mysql.enabled -}}{{ required "mysql.auth.username is required" .Values.mysql.auth.username }}{{- else -}}{{ .Values.externalDatabase.user }}{{- end -}}
 {{- end -}}
 
-{{/* Name of the Secret holding the Drupal DB password. */}}
+{{/* The Secret and key holding the DB password. With the bundled MySQL it is the
+     subchart's own Secret: copying the password into this chart's Secret cannot work on
+     a first install, where lookup finds nothing and each chart generates its own. */}}
 {{- define "drupal.secretName" -}}
-{{- if and (not .Values.mysql.enabled) .Values.externalDatabase.existingSecret -}}
+{{- if .Values.mysql.enabled -}}
+{{- .Values.mysql.auth.existingSecret | default (printf "%s-mysql" .Release.Name) -}}
+{{- else if .Values.externalDatabase.existingSecret -}}
 {{- .Values.externalDatabase.existingSecret -}}
 {{- else -}}
 {{- include "quench-common.fullname" . -}}
 {{- end -}}
 {{- end -}}
 
-{{/* Key in the Secret that holds the DB password. */}}
 {{- define "drupal.secretPasswordKey" -}}
-{{- if and (not .Values.mysql.enabled) .Values.externalDatabase.existingSecret -}}
+{{- if and .Values.mysql.enabled .Values.mysql.auth.existingSecret -}}
+{{- .Values.mysql.auth.existingSecretPasswordKey | default "mysql-password" -}}
+{{- else if .Values.mysql.enabled -}}
+mysql-password
+{{- else if .Values.externalDatabase.existingSecret -}}
 {{- .Values.externalDatabase.existingSecretPasswordKey -}}
 {{- else -}}
 db-password
 {{- end -}}
 {{- end -}}
 
-{{/* Whether the managed Secret carries the DB password (it always carries the hash salt). */}}
+{{/* Whether the managed Secret carries the DB password (it always carries the hash salt):
+     only for an external database without an existingSecret. */}}
 {{- define "drupal.manageDbPassword" -}}
-{{- if or .Values.mysql.enabled (not .Values.externalDatabase.existingSecret) -}}true{{- end -}}
+{{- if and (not .Values.mysql.enabled) (not .Values.externalDatabase.existingSecret) -}}true{{- end -}}
 {{- end -}}
