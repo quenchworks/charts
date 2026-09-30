@@ -76,7 +76,9 @@ jobs:
           health="$(curl -fsS http://127.0.0.1:8080/health)"; echo "health: $health"
           grep -q '"UP"' <<<"$health"
           ver="$(curl -fsS http://127.0.0.1:8080/api/version)"; echo "${ver:0:400}"
-          users="$(kubectl exec -n ml rtest-postgresql-0 -- env PGPASSWORD=ci-test-password psql -h 127.0.0.1 -U labelstudio -d label_studio -tAc 'select email from htx_user')"
+          # The password is the one the PostgreSQL chart generated: ci values set none.
+          pgpw="$(kubectl get secret -n ml rtest-postgresql -o jsonpath='{.data.postgres-password}' | base64 -d)"
+          users="$(kubectl exec -n ml rtest-postgresql-0 -- env PGPASSWORD="$pgpw" psql -h 127.0.0.1 -U labelstudio -d label_studio -tAc 'select email from htx_user')"
           echo "users in PostgreSQL: $users"
           grep -qx 'admin@example.com' <<<"$users"
           # --- the login page renders (static frontend served) ---
