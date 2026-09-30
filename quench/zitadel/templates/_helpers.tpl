@@ -71,3 +71,16 @@ db-user-password
 db-admin-password
 {{- end -}}
 {{- end -}}
+
+{{/* True when the pod must read the DB password from the bundled PostgreSQL chart's Secret:
+     the subchart generated it (or reads an existingSecret), so this chart cannot know it
+     at render time. lookup finds nothing on a first install, and a copy generated here
+     would never match. The bundled superuser serves both the runtime and admin roles. */}}
+{{- define "zitadel.db.fromSubchart" -}}
+{{- if and .Values.postgresql.enabled (not .Values.postgresql.auth.password) -}}true{{- end -}}
+{{- end -}}
+
+{{- define "zitadel.db.subchartSecretRef" -}}
+name: {{ .Values.postgresql.auth.existingSecret | default (printf "%s-postgresql" .Release.Name) }}
+key: {{ ternary (.Values.postgresql.auth.existingSecretPasswordKey | default "postgres-password") "postgres-password" (not (empty .Values.postgresql.auth.existingSecret)) }}
+{{- end -}}
