@@ -1,0 +1,160 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/joomla
+  digest: "sha256:6acc639a1298c54ea7e45ec42ca37e36609fefdf2440dd79b829372c305e1096"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Joomla is served by PHP-FPM + nginx (supervisord) on port 8080. The image ships no
+# configuration.php and a read-only docroot; Joomla reads configuration.php from
+# JOOMLA_CONFIG_DIR, a small PVC here.
+#
+# First start: an init container waits for the database, then runs Joomla's CLI
+# installer (installation/joomla.php install), which creates the schema and the super
+# user and writes configuration.php to the config PVC. Once that file exists the init
+# container does nothing, so restarts and upgrades never reinstall.
+#
+# Single replica: the config and media PVCs are ReadWriteOnce.
+replicaCount: 1
+
+joomla:
+  siteName: "Quench Joomla"
+  admin:
+    # The super user the installer creates. The password is used only by the installer;
+    # changing it later does not change the account.
+    name: "Joomla Admin"
+    username: admin
+    email: admin@example.com
+    # Empty generates one into the managed Secret, kept across upgrades. Joomla requires
+    # at least 12 characters.
+    password: ""
+    existingSecret: ""
+    existingSecretPasswordKey: admin-password
+
+database:
+  # mysqli (MySQL/MariaDB, the bundled default), mysql (PDO) or pgsql (PostgreSQL).
+  type: mysqli
+  # Joomla requires a table prefix; it lets several sites share one database.
+  prefix: "jos_"
+
+# --- Bundled MariaDB (the default) ---
+# The Joomla pod reads the password from the MariaDB subchart's own Secret, so the two
+# can never disagree.
+mariadb:
+  enabled: true
+  auth:
+    # Both are generated into MariaDB's Secret if left empty.
+    rootPassword: ""
+    password: ""
+    database: joomla
+    username: joomla
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- External database (mariadb.enabled=false) ---
+# The database and user must exist; the installer creates the tables. With
+# existingSecret, that Secret supplies the password under existingSecretPasswordKey.
+externalDatabase:
+  host: ""
+  port: 3306
+  database: joomla
+  user: joomla
+  password: ""          # generated into the managed Secret if empty and no existingSecret
+  existingSecret: ""
+  existingSecretPasswordKey: db-password
+
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+# The installer parses the whole codebase and builds the schema: the heaviest step.
+init:
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "2", memory: 1Gi }
+  # How long the init container waits for the database before failing (the pod
+  # then restarts it).
+  dbWaitSeconds: 300
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# --- Media volume (images/, the upload directory) ---
+persistence:
+  enabled: true
+  size: 10Gi
+  # storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  existingClaim: ""
+
+# --- Config volume (configuration.php, written by the installer) ---
+# configuration.php holds the site secret and the DB password: keep it on a PVC.
+configPersistence:
+  size: 128Mi
+  # storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  existingClaim: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Merged over the hardened quench-common defaults (nonroot uid 1001, fsGroup 1001 so
+# the PVCs are writable, read-only rootfs).
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Ingress to Joomla is limited to the release namespace unless allowExternal.
+# Egress: DNS, the database port, and general egress (update checks, mail).
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []

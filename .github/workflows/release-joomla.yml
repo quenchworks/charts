@@ -1,0 +1,171 @@
+name: release-joomla
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/joomla/**"
+      - ".github/workflows/release-joomla.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/joomla
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      # pin actions to SHAs before going public (renovate)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          # pulls quench-common + the bundled mariadb subchart into charts/
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Warm joomla image on the kind node
+        run: |
+          set -o pipefail
+          # Pull the exact pinned digest onto the kind node HERE (outside the helm --wait
+          # window) so the pod starts immediately and the readiness gate isn't eaten by
+          # image extraction.
+          IMG="$(helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" | grep -oE 'ghcr.io/quenchworks/images/joomla@sha256:[a-f0-9]{64}' | head -1)"
+          echo "warming image: $IMG"
+          NODE="$(docker ps --filter name=control-plane --format '{{.Names}}' | head -1)"
+          echo "kind node: $NODE"
+          time docker exec "$NODE" crictl pull "$IMG"
+          docker exec "$NODE" crictl images | grep -i joomla || true
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          # --wait blocks until MariaDB and Joomla are Ready. Joomla's readiness probe asks
+          # for the front page, which renders only after the init container has run the
+          # CLI installer against MariaDB, so this is the integration test.
+          helm install rtest "${CHART_DIR}" -n site --create-namespace -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          kubectl rollout status deployment/rtest-joomla -n site --timeout=540s
+          uid="$(kubectl get pod -n site -l app.kubernetes.io/name=joomla -o jsonpath='{.items[0].spec.securityContext.runAsUser}')"
+          echo "runAsUser: $uid"
+          test "$uid" = "1001"
+          logs="$(kubectl logs -n site deploy/rtest-joomla -c install)"
+          grep -q 'Joomla has been installed' <<<"$logs" || { echo "$logs"; echo "the installer did not run"; exit 1; }
+          kubectl port-forward -n site svc/rtest-joomla 8080:8080 >/tmp/pf8080.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          # The front page is rendered from the database the installer populated.
+          home="$(curl -fsS http://127.0.0.1:8080/)"
+          grep -q '<title>Home' <<<"$home" || { echo "${home:0:500}"; echo "front page did not render"; exit 1; }
+          code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/administrator/)"
+          test "$code" = "200" || { echo "/administrator/ answered $code"; exit 1; }
+          code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/installation/joomla.php)"
+          test "$code" = "403" || { echo "/installation/ answered $code, want 403"; exit 1; }
+          # A restart must find configuration.php on the config PVC and not reinstall.
+          # Delete waits for the old pod to be gone, so the only pod left is the new one.
+          kubectl delete pod -n site -l app.kubernetes.io/name=joomla --timeout=120s
+          kubectl wait pod -n site -l app.kubernetes.io/name=joomla --for=condition=Ready --timeout=300s
+          logs="$(kubectl logs -n site deploy/rtest-joomla -c install)"
+          grep -q 'configuration.php exists' <<<"$logs" || { echo "$logs"; echo "restart reinstalled"; exit 1; }
+          echo "joomla installed, serving, and idempotent across restarts"
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          echo "=== pods ==="; kubectl get pods -n site -o wide || true
+          echo "=== joomla describe ==="; kubectl describe pod -n site -l app.kubernetes.io/name=joomla || true
+          echo "=== joomla logs ==="; kubectl logs -n site -l app.kubernetes.io/name=joomla --tail=80 || true
+          echo "=== joomla previous logs ==="; kubectl logs -n site -l app.kubernetes.io/name=joomla --previous --tail=80 || true
+          echo "=== mariadb describe ==="; kubectl describe pod -n site -l app.kubernetes.io/name=mariadb || true
+          echo "=== mariadb logs ==="; kubectl logs -n site -l app.kubernetes.io/name=mariadb --tail=40 || true
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/joomla-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"   # fail loudly rather than handing cosign an empty ref
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/joomla@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -q REPLACE "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push. Register the ArtifactHub repo and set the ID."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/joomla:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

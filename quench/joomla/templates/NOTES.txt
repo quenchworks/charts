@@ -1,0 +1,11 @@
+Joomla {{ .Chart.AppVersion }} is installing. The init container runs the CLI installer on
+the first start only; the site answers once it has finished.
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  open http://127.0.0.1:8080/administrator/
+
+Super user: {{ .Values.joomla.admin.username }}
+{{- if not .Values.joomla.admin.existingSecret }}
+Password:
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "quench-common.fullname" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+{{- end }}
