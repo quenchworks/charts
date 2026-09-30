@@ -80,7 +80,7 @@ gh attestation verify oci://ghcr.io/quenchworks/images/wordpress \
 | `mysql.auth.rootPassword`                    | `""`                                   | Generated into MySQL's own Secret if empty.                                               |
 | `mysql.auth.database`                        | `wordpress`                            | App database, created on first init.                                                      |
 | `mysql.auth.username`                        | `wordpress`                            | DB user.                                                                                  |
-| `mysql.auth.password`                        | `""`                                   | Generated into this chart's managed Secret if empty.                                      |
+| `mysql.auth.password`                        | `""`                                   | Generated into the MySQL subchart's Secret if empty; WordPress reads it from there.      |
 | `externalDatabase.host`                      | `""`                                   | External DB host (when `mysql.enabled=false`).                                            |
 | `externalDatabase.port`                      | `3306`                                 | External DB port.                                                                         |
 | `externalDatabase.database`                  | `wordpress`                            | External database name.                                                                   |

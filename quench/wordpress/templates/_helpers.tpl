@@ -30,27 +30,35 @@ WORDPRESS_DB_* env keys; the password is injected from a Secret.
 {{- if .Values.mysql.enabled -}}{{ required "mysql.auth.username is required" .Values.mysql.auth.username }}{{- else -}}{{ .Values.externalDatabase.user }}{{- end -}}
 {{- end -}}
 
-{{/* Name of the Secret holding the WordPress DB password. */}}
+{{/* The Secret and key holding the DB password. With the bundled MySQL it is the
+     subchart's own Secret: copying the password into this chart's Secret cannot work on
+     a first install, where lookup finds nothing and each chart generates its own. */}}
 {{- define "wordpress.secretName" -}}
-{{- if and (not .Values.mysql.enabled) .Values.externalDatabase.existingSecret -}}
+{{- if .Values.mysql.enabled -}}
+{{- .Values.mysql.auth.existingSecret | default (printf "%s-mysql" .Release.Name) -}}
+{{- else if .Values.externalDatabase.existingSecret -}}
 {{- .Values.externalDatabase.existingSecret -}}
 {{- else -}}
 {{- include "quench-common.fullname" . -}}
 {{- end -}}
 {{- end -}}
 
-{{/* Key in the Secret that holds the DB password. */}}
 {{- define "wordpress.secretPasswordKey" -}}
-{{- if and (not .Values.mysql.enabled) .Values.externalDatabase.existingSecret -}}
+{{- if and .Values.mysql.enabled .Values.mysql.auth.existingSecret -}}
+{{- .Values.mysql.auth.existingSecretPasswordKey | default "mysql-password" -}}
+{{- else if .Values.mysql.enabled -}}
+mysql-password
+{{- else if .Values.externalDatabase.existingSecret -}}
 {{- .Values.externalDatabase.existingSecretPasswordKey -}}
 {{- else -}}
 db-password
 {{- end -}}
 {{- end -}}
 
-{{/* Whether the managed Secret carries the DB password (it always carries the auth salts). */}}
+{{/* Whether the managed Secret carries the DB password (it always carries the auth salts):
+     only for an external database without an existingSecret. */}}
 {{- define "wordpress.manageDbPassword" -}}
-{{- if or .Values.mysql.enabled (not .Values.externalDatabase.existingSecret) -}}true{{- end -}}
+{{- if and (not .Values.mysql.enabled) (not .Values.externalDatabase.existingSecret) -}}true{{- end -}}
 {{- end -}}
 
 {{/* WordPress auth key/salt names. Rendered once into the managed Secret and read back as
