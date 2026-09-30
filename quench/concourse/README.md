@@ -58,14 +58,14 @@ resource_types:
 
 ## Node requirement: unprivileged user namespaces
 
-Tasks and resource checks run in unprivileged containers inside a user namespace. Nodes
-that restrict unprivileged user namespaces, such as Ubuntu 24.04 with its default
-`kernel.apparmor_restrict_unprivileged_userns=1`, make runc fail with `error mounting
-"sysfs" to rootfs at "/sys": operation not permitted`. On those worker nodes set:
+Tasks and resource checks run in unprivileged containers inside a user namespace. Worker
+nodes must allow unprivileged user namespaces; on Ubuntu 24.04 that means
+`kernel.apparmor_restrict_unprivileged_userns=0`.
 
-```bash
-sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-```
+Known issue: on GitHub's Ubuntu 24.04 runners under kind, task containers fail with
+`error mounting "sysfs" to rootfs at "/sys": operation not permitted` even with that
+setting, while the same install runs tasks under kind on Docker Desktop. The cause is not
+found yet; this chart's release is held until it is.
 
 ## Security notes
 

@@ -60,16 +60,10 @@ jobs:
       # runner, and many nodes) restricts unprivileged user namespaces through AppArmor,
       # and runc then fails mounting /sys in them. Worker nodes need the same setting; see
       # the chart README.
-      - name: Make the kind host behave like a worker node
+      - name: Allow unprivileged user namespaces on the kind host
         run: |
           sysctl kernel.apparmor_restrict_unprivileged_userns || true
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          # kind fakes the node's DMI product_name and product_uuid by bind-mounting files
-          # over /sys, and pods inherit those file overmounts. The kernel then refuses a
-          # fresh sysfs mount inside a user namespace, which is exactly what an
-          # unprivileged Concourse container does. Real nodes have no such overmounts.
-          NODE="$(docker ps --filter name=control-plane --format '{{.Names}}' | head -1)"
-          docker exec "$NODE" sh -c 'grep -oE " /sys/[^ ]*dmi/id/product_(name|uuid) " /proc/1/mountinfo | sort -u | while read m; do umount "$m" && echo "unmounted $m"; done' || true
 
       - name: Install gate (kind)
         run: |
