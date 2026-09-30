@@ -41,6 +41,17 @@ spec:
           {{- include "quench-common.command" . | nindent 10 }}
           {{- include "quench-common.args" . | nindent 10 }}
           env:
+            {{- if include "hasura.db.fromSubchart" . }}
+            - name: HASURA_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.auth.existingSecret | default (printf "%s-postgresql" .Release.Name) }}
+                  key: {{ ternary (.Values.postgresql.auth.existingSecretPasswordKey | default "postgres-password") "postgres-password" (not (empty .Values.postgresql.auth.existingSecret)) }}
+            # The kubelet expands $(HASURA_DB_PASSWORD). The subchart generates an
+            # alphanumeric password; set postgresql.auth.password for one that needs URL escaping.
+            - name: HASURA_GRAPHQL_DATABASE_URL
+              value: {{ printf "postgres://%s:$(HASURA_DB_PASSWORD)@%s:%s/%s?sslmode=%s" (include "hasura.db.user" .) (include "hasura.db.host" .) (include "hasura.db.port" .) (include "hasura.db.name" .) (include "hasura.db.sslMode" .) | quote }}
+            {{- else }}
             - name: HASURA_GRAPHQL_DATABASE_URL
               valueFrom:
                 secretKeyRef:
@@ -51,6 +62,7 @@ spec:
                   name: {{ include "quench-common.fullname" . }}
                   key: database-url
                   {{- end }}
+            {{- end }}
             - name: HASURA_GRAPHQL_ADMIN_SECRET
               valueFrom:
                 secretKeyRef:

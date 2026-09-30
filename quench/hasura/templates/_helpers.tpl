@@ -22,3 +22,11 @@ database only when it differs from that user, so keep them distinct.
 {{- define "hasura.db.sslMode" -}}
 {{- if .Values.postgresql.enabled -}}disable{{- else -}}{{ .Values.externalDatabase.sslMode }}{{- end -}}
 {{- end -}}
+
+{{/* True when the pod must read the DB password from the bundled PostgreSQL chart's Secret:
+     the subchart generated it (or reads an existingSecret), so this chart cannot know it
+     at render time. lookup finds nothing on a first install, and a copy generated here
+     would never match. */}}
+{{- define "hasura.db.fromSubchart" -}}
+{{- if and .Values.postgresql.enabled (not .Values.postgresql.auth.password) -}}true{{- end -}}
+{{- end -}}
