@@ -30,3 +30,18 @@ jobs:
         run: |
           pip install --quiet pyyaml
           python3 scripts/check-pins.py --lock images/catalog.lock.yaml
+
+  # A chart that copies a bundled database's password gets two different random values on
+  # a first install (lookup finds nothing yet), and every ci values file sets explicit
+  # passwords, so no release gate installs that path. This renders each DB-bundling chart
+  # with default values and fails when its own Secret holds a credential the subchart
+  # does not use.
+  default-passwords:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - name: Default installs log in with the subchart's own password
+        run: |
+          pip install --quiet pyyaml
+          python3 scripts/check-default-passwords.py
