@@ -47,7 +47,15 @@ the connection details come from externalDatabase.*.
 
 {{/* Whether this chart renders its own managed Secret (holding the assembled DSN). */}}
 {{- define "mlflow.manageSecret" -}}
-{{- if or .Values.postgresql.enabled (not .Values.externalDatabase.existingSecret) -}}true{{- end -}}
+{{- if and (not (include "mlflow.db.fromSubchart" .)) (or .Values.postgresql.enabled (not .Values.externalDatabase.existingSecret)) -}}true{{- end -}}
+{{- end -}}
+
+{{/* True when the pod must read the DB password from the bundled PostgreSQL chart's Secret:
+     the subchart generated it (or reads an existingSecret), so this chart cannot know it
+     at render time. lookup finds nothing on a first install, and a copy generated here
+     would never match. This chart then renders no Secret (it holds only DB values). */}}
+{{- define "mlflow.db.fromSubchart" -}}
+{{- if and .Values.postgresql.enabled (not .Values.postgresql.auth.password) -}}true{{- end -}}
 {{- end -}}
 
 {{/* Artifact destination URI passed via --artifacts-destination. */}}

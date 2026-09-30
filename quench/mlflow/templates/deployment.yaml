@@ -58,13 +58,26 @@ spec:
             - "--artifacts-destination"
             - {{ include "mlflow.artifactRoot" . | quote }}
           env:
+            {{- if include "mlflow.db.fromSubchart" . }}
+            # The password is the one the PostgreSQL chart generated; the kubelet expands
+            # $(MLFLOW_DB_PASSWORD) into the DSN. The subchart's password is alphanumeric;
+            # set postgresql.auth.password for one that needs URL escaping.
+            - name: MLFLOW_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.auth.existingSecret | default (printf "%s-postgresql" .Release.Name) }}
+                  key: {{ ternary (.Values.postgresql.auth.existingSecretPasswordKey | default "postgres-password") "postgres-password" (not (empty .Values.postgresql.auth.existingSecret)) }}
+            - name: MLFLOW_BACKEND_STORE_URI
+              value: {{ printf "postgresql://%s:$(MLFLOW_DB_PASSWORD)@%s:%s/%s?sslmode=%s" (include "mlflow.db.user" .) (include "mlflow.db.host" .) (include "mlflow.db.port" .) (include "mlflow.db.name" .) (include "mlflow.db.sslMode" .) | quote }}
+            {{- else }}
             # Full DSN (incl. password) is assembled in the managed Secret and read from
-            # this env var by MLflow — keeps the password out of the process arguments.
+            # this env var by MLflow, which keeps the password out of the process arguments.
             - name: MLFLOW_BACKEND_STORE_URI
               valueFrom:
                 secretKeyRef:
                   name: {{ include "mlflow.secretName" . }}
                   key: backend-store-uri
+            {{- end }}
             # Writable scratch on the read-only rootfs.
             - name: HOME
               value: /tmp
