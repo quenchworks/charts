@@ -69,7 +69,7 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/ghost --owner quenc
 | `mariadb.auth.rootPassword`                       | `""`                               | Generated into MariaDB's own Secret if empty.                                             |
 | `mariadb.auth.database`                           | `ghost`                            | App database, created on first init.                                                      |
 | `mariadb.auth.username`                           | `ghost`                            | DB user.                                                                                  |
-| `mariadb.auth.password`                           | `""`                               | Generated into this chart's managed Secret if empty.                                      |
+| `mariadb.auth.password`                           | `""`                               | Generated into the MariaDB subchart's Secret if empty; Ghost reads it from there.        |
 | `mariadb.primary.persistence.size`                | `8Gi`                              | MariaDB data volume size.                                                                 |
 | `externalDatabase.host`                           | `""`                               | External DB host (used when `mariadb.enabled=false`).                                     |
 | `externalDatabase.port`                           | `3306`                             | External DB port.                                                                         |
