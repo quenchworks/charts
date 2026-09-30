@@ -30,27 +30,34 @@ these to `occ maintenance:install`; the password is injected from a Secret.
 {{- if .Values.mariadb.enabled -}}{{ required "mariadb.auth.username is required" .Values.mariadb.auth.username }}{{- else -}}{{ .Values.externalDatabase.user }}{{- end -}}
 {{- end -}}
 
-{{/* Name of the Secret holding the DB password. */}}
+{{/* The Secret and key holding the DB password. With the bundled MariaDB it is the
+     subchart's own Secret: copying the password into this chart's Secret cannot work on
+     a first install, where lookup finds nothing and each chart generates its own. */}}
 {{- define "nextcloud.secretName" -}}
-{{- if and (not .Values.mariadb.enabled) .Values.externalDatabase.existingSecret -}}
+{{- if .Values.mariadb.enabled -}}
+{{- .Values.mariadb.auth.existingSecret | default (printf "%s-mariadb" .Release.Name) -}}
+{{- else if .Values.externalDatabase.existingSecret -}}
 {{- .Values.externalDatabase.existingSecret -}}
 {{- else -}}
 {{- include "quench-common.fullname" . -}}
 {{- end -}}
 {{- end -}}
 
-{{/* Key in the Secret that holds the DB password. */}}
 {{- define "nextcloud.secretPasswordKey" -}}
-{{- if and (not .Values.mariadb.enabled) .Values.externalDatabase.existingSecret -}}
+{{- if and .Values.mariadb.enabled .Values.mariadb.auth.existingSecret -}}
+{{- .Values.mariadb.auth.existingSecretPasswordKey | default "mariadb-password" -}}
+{{- else if .Values.mariadb.enabled -}}
+mariadb-password
+{{- else if .Values.externalDatabase.existingSecret -}}
 {{- .Values.externalDatabase.existingSecretPasswordKey -}}
 {{- else -}}
 db-password
 {{- end -}}
 {{- end -}}
 
-{{/* Whether this chart renders the DB password into its managed Secret. False only when an
-     external DB supplies the password through its own existingSecret. The managed Secret
-     is ALWAYS rendered regardless (it also carries the Nextcloud admin-password). */}}
+{{/* Whether this chart renders the DB password into its managed Secret: only for an
+     external database without an existingSecret. The managed Secret is ALWAYS rendered
+     regardless (it also carries the Nextcloud admin-password). */}}
 {{- define "nextcloud.manageDbSecret" -}}
-{{- if or .Values.mariadb.enabled (not .Values.externalDatabase.existingSecret) -}}true{{- end -}}
+{{- if and (not .Values.mariadb.enabled) (not .Values.externalDatabase.existingSecret) -}}true{{- end -}}
 {{- end -}}
