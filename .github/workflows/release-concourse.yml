@@ -56,6 +56,15 @@ jobs:
           time docker exec "$NODE" crictl pull "$IMG"
           docker exec "$NODE" crictl images | grep -i concourse || true
 
+      # Concourse runs unprivileged task containers in a user namespace. Ubuntu 24.04 (this
+      # runner, and many nodes) restricts unprivileged user namespaces through AppArmor,
+      # and runc then fails mounting /sys in them. Worker nodes need the same setting; see
+      # the chart README.
+      - name: Allow unprivileged user namespaces on the kind host
+        run: |
+          sysctl kernel.apparmor_restrict_unprivileged_userns || true
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
       - name: Install gate (kind)
         run: |
           set -o pipefail

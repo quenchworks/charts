@@ -56,6 +56,17 @@ resource_types:
 | `worker.dnsProxy` | `true` | Task containers resolve through the worker's resolver (cluster DNS) |
 | `postgresql.enabled` | `true` | Bundled PostgreSQL; false uses `externalDatabase.*` |
 
+## Node requirement: unprivileged user namespaces
+
+Tasks and resource checks run in unprivileged containers inside a user namespace. Nodes
+that restrict unprivileged user namespaces, such as Ubuntu 24.04 with its default
+`kernel.apparmor_restrict_unprivileged_userns=1`, make runc fail with `error mounting
+"sysfs" to rootfs at "/sys": operation not permitted`. On those worker nodes set:
+
+```bash
+sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+```
+
 ## Security notes
 
 The worker pod is privileged and runs as root: containerd creates containers, cgroups and
