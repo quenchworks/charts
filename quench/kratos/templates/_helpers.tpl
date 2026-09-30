@@ -51,7 +51,7 @@ dsn
 
 {{/* Whether this chart renders its own managed Secret. */}}
 {{- define "kratos.manageSecret" -}}
-{{- if or .Values.postgresql.enabled (not .Values.externalDatabase.existingSecret) -}}true{{- end -}}
+{{- if and (not (include "kratos.db.fromSubchart" .)) (or .Values.postgresql.enabled (not .Values.externalDatabase.existingSecret)) -}}true{{- end -}}
 {{- end -}}
 
 {{/* Name of the ConfigMap holding kratos.yaml + the identity schema. */}}
@@ -140,4 +140,33 @@ log:
     }
   }
 }
+{{- end -}}
+
+{{/* True when the pod must read the DB password from the bundled PostgreSQL chart's Secret:
+     the subchart generated it (or reads an existingSecret), so this chart cannot know it
+     at render time. lookup finds nothing on a first install, and a copy generated here
+     would never match. This chart then renders no Secret (it holds only the DSN). */}}
+{{- define "kratos.db.fromSubchart" -}}
+{{- if and .Values.postgresql.enabled (not .Values.postgresql.auth.password) -}}true{{- end -}}
+{{- end -}}
+
+{{/* The DSN env entry. With the password from the subchart, the kubelet expands
+     $(DB_PASSWORD) into the DSN; the subchart generates an alphanumeric password, and an
+     explicit postgresql.auth.password takes the Secret path below instead. */}}
+{{- define "kratos.dsnEnv" -}}
+{{- if include "kratos.db.fromSubchart" . }}
+- name: DB_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.postgresql.auth.existingSecret | default (printf "%s-postgresql" .Release.Name) }}
+      key: {{ ternary (.Values.postgresql.auth.existingSecretPasswordKey | default "postgres-password") "postgres-password" (not (empty .Values.postgresql.auth.existingSecret)) }}
+- name: DSN
+  value: {{ printf "postgres://%s:$(DB_PASSWORD)@%s:%s/%s?sslmode=%s&max_conn_lifetime=10m" (include "kratos.db.user" .) (include "kratos.db.host" .) (include "kratos.db.port" .) (include "kratos.db.name" .) (include "kratos.db.sslMode" .) | quote }}
+{{- else }}
+- name: DSN
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "kratos.secretName" . }}
+      key: {{ include "kratos.db.secretDsnKey" . }}
+{{- end }}
 {{- end -}}
