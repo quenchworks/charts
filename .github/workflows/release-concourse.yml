@@ -89,6 +89,10 @@ jobs:
           echo "$w" | jq -c '.[] | {name, state, types: [.resource_types[].type]}'
           [ "$(jq -r '.[0].state' <<<"$w")" = running ]
           jq -e '.[0].resource_types | map(.type) | index("registry-image") and index("time")' <<<"$w" >/dev/null
+          # How the worker is confined: its task containers need to mount sysfs in a user
+          # namespace, which AppArmor or seccomp on the worker can refuse.
+          echo "host: $(uname -r), apparmor enabled: $(cat /sys/module/apparmor/parameters/enabled 2>/dev/null)"
+          kubectl -n ci exec rtest-concourse-worker-0 -- sh -c 'echo "apparmor: $(cat /proc/1/attr/current 2>&1)"; grep -E "^(Seccomp|CapEff)" /proc/1/status; grep -E " /sys( |/)" /proc/1/mountinfo | head -5' || true
           # A real check: the worker imports the time type's rootfs.tgz and runs
           # /opt/resource/check in a container.
           pipeline='resources: [{name: tick, type: time, source: {interval: 1m}}]
