@@ -1,0 +1,113 @@
+{{- $probe := dict "httpGet" (dict "path" "/api/v1/info" "port" "http") "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $liveness := merge (dict "initialDelaySeconds" 30) $probe -}}
+{{- $readiness := merge (dict "initialDelaySeconds" 5) (deepCopy $probe) -}}
+{{- $fullname := include "quench-common.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-web
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  replicas: {{ .Values.web.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "concourse.selectorLabels" (dict "ctx" . "component" "web") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "concourse.selectorLabels" (dict "ctx" . "component" "web") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "concourse.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: web
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["web"]
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: CONCOURSE_EXTERNAL_URL
+              value: {{ .Values.web.externalUrl | quote }}
+            - name: CONCOURSE_POSTGRES_HOST
+              value: {{ include "concourse.db.host" . | quote }}
+            - name: CONCOURSE_POSTGRES_PORT
+              value: {{ ternary "5432" (toString .Values.externalDatabase.port) .Values.postgresql.enabled | quote }}
+            - name: CONCOURSE_POSTGRES_USER
+              value: {{ ternary .Values.postgresql.auth.username .Values.externalDatabase.user .Values.postgresql.enabled | quote }}
+            - name: CONCOURSE_POSTGRES_DATABASE
+              value: {{ ternary .Values.postgresql.auth.database .Values.externalDatabase.database .Values.postgresql.enabled | quote }}
+            - name: CONCOURSE_POSTGRES_SSLMODE
+              value: {{ ternary "disable" .Values.externalDatabase.sslmode .Values.postgresql.enabled | quote }}
+            - name: CONCOURSE_POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "concourse.db.secretName" . }}
+                  key: {{ include "concourse.db.secretKey" . }}
+            - name: CONCOURSE_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.web.admin.existingSecret | default $fullname }}
+                  key: {{ ternary .Values.web.admin.existingSecretPasswordKey "admin-password" (not (empty .Values.web.admin.existingSecret)) }}
+            # The kubelet expands $(CONCOURSE_ADMIN_PASSWORD).
+            - name: CONCOURSE_ADD_LOCAL_USER
+              value: {{ printf "%s:$(CONCOURSE_ADMIN_PASSWORD)" .Values.web.admin.username | quote }}
+            - name: CONCOURSE_MAIN_TEAM_LOCAL_USER
+              value: {{ .Values.web.admin.username | quote }}
+            - name: CONCOURSE_SESSION_SIGNING_KEY
+              value: /keys/session_signing_key
+            - name: CONCOURSE_TSA_HOST_KEY
+              value: /keys/tsa_host_key
+            - name: CONCOURSE_TSA_AUTHORIZED_KEYS
+              value: /keys/worker_key.pub
+            {{- with .Values.web.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: tsa
+              containerPort: 2222
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}
+          volumeMounts:
+            - name: keys
+              mountPath: /keys
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: keys
+          secret:
+            secretName: {{ include "concourse.keysSecret" . }}
+            items:
+              - { key: session_signing_key, path: session_signing_key }
+              - { key: tsa_host_key, path: tsa_host_key }
+              - { key: worker_key.pub, path: worker_key.pub }
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

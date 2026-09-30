@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    # The API and web UI.
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      name: http
+      protocol: TCP
+    # The TSA: workers register here over SSH, and the web node reaches them back through it.
+    - port: {{ .Values.service.tsaPort }}
+      targetPort: tsa
+      name: tsa
+      protocol: TCP
+  selector:
+    {{- include "concourse.selectorLabels" (dict "ctx" . "component" "web") | nindent 4 }}

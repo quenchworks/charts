@@ -1,0 +1,119 @@
+{{/* A worker creates containers with containerd, so it runs as root in a privileged pod;
+     quench-common's nonroot defaults do not apply here. Its name is the pod name, stable
+     across restarts, so a restarted worker takes its own registration back. */}}
+{{- $fullname := include "quench-common.fullname" . -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullname }}-worker
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  serviceName: {{ $fullname }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "concourse.selectorLabels" (dict "ctx" . "component" "worker") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "concourse.selectorLabels" (dict "ctx" . "component" "worker") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "concourse.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.worker.terminationGracePeriodSeconds }}
+      securityContext:
+        runAsUser: 0
+        runAsGroup: 0
+        runAsNonRoot: false
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: worker
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["worker"]
+          securityContext:
+            privileged: true
+            allowPrivilegeEscalation: true
+            readOnlyRootFilesystem: false
+          env:
+            - name: CONCOURSE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: CONCOURSE_TSA_HOST
+              value: {{ printf "%s:%v" $fullname .Values.service.tsaPort | quote }}
+            - name: CONCOURSE_TSA_PUBLIC_KEY
+              value: /keys/tsa_host_key.pub
+            - name: CONCOURSE_TSA_WORKER_PRIVATE_KEY
+              value: /keys/worker_key
+            - name: CONCOURSE_RUNTIME
+              value: containerd
+            - name: CONCOURSE_WORK_DIR
+              value: /concourse-work-dir
+            {{- if .Values.worker.dnsProxy }}
+            - name: CONCOURSE_CONTAINERD_DNS_PROXY_ENABLE
+              value: "true"
+            {{- end }}
+            {{- with .Values.worker.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: health
+              containerPort: 8888
+              protocol: TCP
+          # The worker's health check answers once its container runtime and volume
+          # server are up.
+          readinessProbe:
+            httpGet: { path: /, port: health }
+            periodSeconds: 10
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+            - name: keys
+              mountPath: /keys
+              readOnly: true
+            - name: work
+              mountPath: /concourse-work-dir
+      volumes:
+        - name: keys
+          secret:
+            secretName: {{ include "concourse.keysSecret" . }}
+            items:
+              - { key: tsa_host_key.pub, path: tsa_host_key.pub }
+              - { key: worker_key, path: worker_key }
+        {{- if not .Values.worker.workDir.persistence }}
+        - name: work
+          emptyDir:
+            sizeLimit: {{ .Values.worker.workDir.size }}
+        {{- end }}
+  {{- if .Values.worker.workDir.persistence }}
+  volumeClaimTemplates:
+    - metadata:
+        name: work
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.worker.workDir.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.worker.workDir.size }}
+  {{- end }}

@@ -1,0 +1,11 @@
+Concourse {{ .Chart.AppVersion }}: web node {{ include "quench-common.fullname" . }}-web, {{ .Values.worker.replicaCount }} worker(s).
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  fly -t main login -c http://127.0.0.1:8080 -u {{ .Values.web.admin.username }}
+{{- if not .Values.web.admin.existingSecret }}
+Password:
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "quench-common.fullname" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+{{- end }}
+
+Bundled resource types: registry-image, time. For git, declare
+ghcr.io/quenchworks/images/concourse-git-resource under resource_types.

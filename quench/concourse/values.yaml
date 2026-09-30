@@ -1,0 +1,135 @@
+# The digests below are the contract with the image factory. CI rewrites them from the
+# image-published dispatch after every green image build. They are never tags.
+image:
+  repository: ghcr.io/quenchworks/images/concourse
+  digest: "sha256:3ccc486400e1a91094a70ae55fefd414ebde67515f9eb272cef1b6d2cc205a44"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Concourse is one binary in two roles. The web node (ATC API and UI on 8080, TSA on 2222)
+# runs nonroot on a read-only rootfs. Workers dial the TSA over SSH and register; the web
+# node reaches them back through that tunnel, so workers need no Service. A worker creates
+# containers with containerd, so it runs as root in a privileged pod.
+#
+# Keys: a pre-install hook Job runs `concourse generate-key` for the session signing key,
+# the TSA host key and the worker key and stores them in the Secret <release>-concourse-keys.
+# It creates the Secret once and leaves an existing one alone, so upgrades keep the keys.
+
+web:
+  replicaCount: 1
+  # The URL users reach the web node at; OAuth redirects and fly use it.
+  externalUrl: "http://localhost:8080"
+  # A local user that is also the main team's owner. Empty password generates one into
+  # the Secret <release>-concourse.
+  admin:
+    username: admin
+    password: ""
+    existingSecret: ""
+    existingSecretPasswordKey: admin-password
+  # Extra CONCOURSE_* settings (auth providers, retention, and so on).
+  env: []
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "2", memory: 1Gi }
+
+worker:
+  replicaCount: 1
+  # Where the worker keeps volumes and container state. emptyDir is fine for most use:
+  # a restarted worker re-registers empty and Concourse re-fetches what it needs.
+  workDir:
+    size: 20Gi
+    persistence: false
+    # storageClass: ""
+  # Resolve names in task containers through the worker's own resolver (cluster DNS).
+  dnsProxy: true
+  env: []
+  resources:
+    requests: { cpu: 500m, memory: 512Mi }
+    limits: { cpu: "4", memory: 4Gi }
+  terminationGracePeriodSeconds: 60
+
+keygen:
+  image:
+    repository: ghcr.io/quenchworks/images/kubectl
+    digest: "sha256:4033ac5e5f359739cf017a256188a8da7592edae86e452c6327dc4865a66a580"
+    pullPolicy: IfNotPresent
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+
+# --- Bundled PostgreSQL (the default) ---
+# Concourse reads the password from the PostgreSQL chart's own Secret, so the two cannot
+# disagree. auth.username is the role initdb creates. The database name must differ from
+# it: the PostgreSQL image skips creating POSTGRES_DB when it equals POSTGRES_USER.
+postgresql:
+  enabled: true
+  auth:
+    username: concourse
+    password: ""            # generated into the PostgreSQL Secret if empty; Concourse reads it from there
+    database: atc
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- External PostgreSQL (postgresql.enabled=false) ---
+externalDatabase:
+  host: ""
+  port: 5432
+  database: atc
+  user: concourse
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: db-password
+  sslmode: disable
+
+service:
+  type: ClusterIP
+  port: 8080
+  tsaPort: 2222
+
+# Web node pod settings through quench-common (the worker's are fixed: root, privileged).
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
