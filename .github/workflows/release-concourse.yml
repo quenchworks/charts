@@ -92,7 +92,15 @@ jobs:
           # How the worker is confined: its task containers need to mount sysfs in a user
           # namespace, which AppArmor or seccomp on the worker can refuse.
           echo "host: $(uname -r), apparmor enabled: $(cat /sys/module/apparmor/parameters/enabled 2>/dev/null)"
-          kubectl -n ci exec rtest-concourse-worker-0 -- sh -c 'echo "apparmor: $(cat /proc/1/attr/current 2>&1)"; grep -E "^(Seccomp|CapEff)" /proc/1/status; grep -E " /sys( |/)" /proc/1/mountinfo | head -5' || true
+          # The worker image has no shell, so read its process from the kind node.
+          NODE="$(docker ps --filter name=control-plane --format '{{.Names}}' | head -1)"
+          docker exec "$NODE" sh -c '
+            cid="$(crictl ps --name worker -q | head -1)"
+            pid="$(crictl inspect --output go-template --template "{{.info.pid}}" "$cid")"
+            echo "worker pid $pid apparmor: $(cat /proc/$pid/attr/current 2>&1)"
+            grep -E "^(Seccomp|NoNewPrivs|CapEff)" /proc/$pid/status
+            echo "--- worker mounts under /sys"; grep -E " /sys( |/)" /proc/$pid/mountinfo
+            echo "--- node mounts under /sys"; grep -E " /sys( |/)" /proc/1/mountinfo' || true
           # A real check: the worker imports the time type's rootfs.tgz and runs
           # /opt/resource/check in a container.
           pipeline='resources: [{name: tick, type: time, source: {interval: 1m}}]
