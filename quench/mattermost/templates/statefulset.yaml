@@ -49,6 +49,18 @@ spec:
             # --- Database (PostgreSQL, required) ---
             - name: MM_SQLSETTINGS_DRIVERNAME
               value: "postgres"
+            {{- if include "mattermost.db.fromSubchart" . }}
+            # The password is the one the PostgreSQL chart generated; the kubelet expands
+            # $(MM_DB_PASSWORD) into the DSN. The subchart's password is alphanumeric;
+            # set postgresql.auth.password for one that needs URL escaping.
+            - name: MM_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresql.auth.existingSecret | default (printf "%s-postgresql" .Release.Name) }}
+                  key: {{ ternary (.Values.postgresql.auth.existingSecretPasswordKey | default "postgres-password") "postgres-password" (not (empty .Values.postgresql.auth.existingSecret)) }}
+            - name: MM_SQLSETTINGS_DATASOURCE
+              value: {{ printf "postgres://%s:$(MM_DB_PASSWORD)@%s:%s/%s?sslmode=disable&connect_timeout=10" (include "mattermost.db.user" .) (include "mattermost.db.host" .) (include "mattermost.db.port" .) (include "mattermost.db.name" .) | quote }}
+            {{- else }}
             # Full DSN (incl. password) is assembled in the managed Secret to avoid a
             # plaintext password in the pod spec.
             - name: MM_SQLSETTINGS_DATASOURCE
@@ -56,6 +68,7 @@ spec:
                 secretKeyRef:
                   name: {{ include "mattermost.db.secretName" . }}
                   key: datasource
+            {{- end }}
             # --- HTTP listener + public URL ---
             - name: MM_SERVICESETTINGS_LISTENADDRESS
               value: ":{{ .Values.service.port }}"
