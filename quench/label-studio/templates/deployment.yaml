@@ -73,7 +73,10 @@ spec:
             - name: POSTGRE_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  {{- if and (not .Values.postgresql.enabled) .Values.externalDatabase.existingSecret }}
+                  {{- if include "label-studio.db.fromSubchart" . }}
+                  name: {{ .Values.postgresql.auth.existingSecret | default (printf "%s-postgresql" .Release.Name) }}
+                  key: {{ ternary (.Values.postgresql.auth.existingSecretPasswordKey | default "postgres-password") "postgres-password" (not (empty .Values.postgresql.auth.existingSecret)) }}
+                  {{- else if and (not .Values.postgresql.enabled) .Values.externalDatabase.existingSecret }}
                   name: {{ .Values.externalDatabase.existingSecret }}
                   key: {{ .Values.externalDatabase.existingSecretPasswordKey }}
                   {{- else }}
