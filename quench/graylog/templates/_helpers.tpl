@@ -26,7 +26,15 @@ verbatim. Consumed as GRAYLOG_ELASTICSEARCH_HOSTS.
      MongoDB and for an external MongoDB given by uri; false only when an external
      existingSecret already supplies the URI. */}}
 {{- define "graylog.manageMongoUri" -}}
-{{- if or .Values.mongodb.enabled (not .Values.externalMongodb.existingSecret) -}}true{{- end -}}
+{{- if and (not (include "graylog.mongo.fromSubchart" .)) (or .Values.mongodb.enabled (not .Values.externalMongodb.existingSecret)) -}}true{{- end -}}
+{{- end -}}
+
+{{/* True when the pod must read the MongoDB root password from the bundled MongoDB chart's
+     Secret: the subchart generated it (or reads an existingSecret), so this chart cannot
+     know it at render time. lookup finds nothing on a first install, and a copy generated
+     here would never match. */}}
+{{- define "graylog.mongo.fromSubchart" -}}
+{{- if and .Values.mongodb.enabled (not .Values.mongodb.auth.rootPassword) -}}true{{- end -}}
 {{- end -}}
 
 {{/* Secret name/key that GRAYLOG_MONGODB_URI is read from. */}}

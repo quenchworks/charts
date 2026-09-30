@@ -80,11 +80,23 @@ spec:
                 secretKeyRef:
                   name: {{ include "graylog.secretName" . }}
                   key: root-password-sha2
+            {{- if include "graylog.mongo.fromSubchart" . }}
+            # The kubelet expands $(MONGODB_ROOT_PASSWORD). The MongoDB chart generates an
+            # alphanumeric password; set mongodb.auth.rootPassword for one that needs URL escaping.
+            - name: MONGODB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.mongodb.auth.existingSecret | default (printf "%s-mongodb" .Release.Name) }}
+                  key: {{ ternary (.Values.mongodb.auth.existingSecretPasswordKey | default "mongodb-root-password") "mongodb-root-password" (not (empty .Values.mongodb.auth.existingSecret)) }}
+            - name: GRAYLOG_MONGODB_URI
+              value: {{ printf "mongodb://%s:$(MONGODB_ROOT_PASSWORD)@%s-mongodb:27017/%s?authSource=admin" .Values.mongodb.auth.rootUsername .Release.Name .Values.graylog.mongodbDatabase | quote }}
+            {{- else }}
             - name: GRAYLOG_MONGODB_URI
               valueFrom:
                 secretKeyRef:
                   name: {{ include "graylog.mongo.secretName" . }}
                   key: {{ include "graylog.mongo.uriKey" . }}
+            {{- end }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
