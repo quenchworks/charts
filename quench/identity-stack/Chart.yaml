@@ -2,7 +2,7 @@ apiVersion: v2
 name: identity-stack
 description: "Hardened, operator-free self-hosted SSO/identity stack: Keycloak (OIDC/SAML identity provider) + PostgreSQL (Keycloak's database) + oauth2-proxy (an auth proxy you place in front of any upstream app to authenticate users against Keycloak), wired together so you get single sign-on in front of your apps out of the box. No operator, no CRDs. All components are QuenchWorks-hardened, nonroot, 0-CVE images pinned by digest and cosign-signed."
 type: application
-version: 0.0.18
+version: 0.0.19
 appVersion: "1.0.0"
 keywords:
   - identity
@@ -28,12 +28,14 @@ sources:
   - https://github.com/postgres/postgres
 annotations:
   artifacthub.io/changes: |
+    - kind: security
+      description: "keycloak 26.7.4 image rebuilt: jackson-databind fixed (2026-10-01 advisories)"
     - kind: changed
-      description: "keycloak image rebuilt with jackson-databind fixed (CVE-2026-68497, CVE-2026-19032, CVE-2026-83557)"
+      description: "bundles keycloak 0.0.32 (rebuilt image)"
   artifacthub.io/category: security
   artifacthub.io/images: |
     - name: keycloak
-      image: ghcr.io/quenchworks/images/keycloak@sha256:f49e93842fdde73eec6540bbf136e98680893131e8425a3b48b116af47ad661f
+      image: ghcr.io/quenchworks/images/keycloak@sha256:1f6e1b24847d9191bb5a9683e14cbfc0eb0b4dc34da34e8f22bb6c1a8ffbed95
     - name: postgresql
       image: ghcr.io/quenchworks/images/postgresql@sha256:086dc72597074662dfb828f7f58a0093f98123405cf4bc109a1bd859bc576f21
     - name: oauth2-proxy
@@ -59,7 +61,7 @@ dependencies:
   # ships in this stack (inside keycloak), so it stays in artifacthub.io/images
   # and the keywords above.
   - name: keycloak
-    version: 0.0.31
+    version: 0.0.32
     repository: oci://ghcr.io/quenchworks/charts
     condition: keycloak.enabled
   - name: oauth2-proxy
