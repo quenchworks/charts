@@ -1,0 +1,90 @@
+{{- if .Values.rbac.create }}
+{{- $kind := include "reloader.roleKind" . }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ $kind }}
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  {{- if eq $kind "Role" }}
+  namespace: {{ .Release.Namespace }}
+  {{- end }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  # Watch the inputs that trigger a reload.
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  # Roll the workloads that reference them.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "daemonsets", "statefulsets"]
+    verbs: ["get", "list", "update", "patch"]
+  # A CronJob reload starts a Job from its template.
+  - apiGroups: ["batch"]
+    resources: ["cronjobs"]
+    verbs: ["get", "list"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  {{- if and .Values.watchGlobally .Values.namespaceSelector }}
+  # --namespace-selector watches namespaces for their labels.
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ $kind }}Binding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  {{- if eq $kind "Role" }}
+  namespace: {{ .Release.Namespace }}
+  {{- end }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: {{ $kind }}
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "reloader.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Release namespace only: the reloader-meta-info ConfigMap Reloader publishes on
+# start, and the leader-election lease when HA is on.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "quench-common.fullname" . }}-self
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "update"]
+  {{- if .Values.leaderElection.enabled }}
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update"]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}-self
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "quench-common.fullname" . }}-self
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "reloader.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

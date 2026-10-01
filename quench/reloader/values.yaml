@@ -1,0 +1,90 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/reloader
+  digest: "sha256:43fa40fab76a850f6f42b5d42d4f3447ac61cee4dddbef3c89a4fb4d248f23ea"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# One replica watches and reloads. For HA set replicaCount > 1 AND
+# leaderElection.enabled=true (Reloader's --enable-ha): every replica watches, only
+# the lease holder reloads, and a replica that loses the lease fails /live and restarts.
+replicaCount: 1
+leaderElection:
+  enabled: false
+
+# true: watch every namespace (ClusterRole). false: watch only the release
+# namespace (KUBERNETES_NAMESPACE, with a namespaced Role instead).
+watchGlobally: true
+# Global mode only: skip these namespaces, or only watch namespaces carrying these
+# labels, as key:value pairs (e.g. ["reloader:enabled"]); a selector adds namespaces
+# read access to the ClusterRole.
+namespacesToIgnore: []
+namespaceSelector: []
+
+# Reload every workload that mounts a changed ConfigMap or Secret, without the
+# reloader.stakater.com/auto annotation. Off: workloads opt in by annotation.
+autoReloadAll: false
+# Resource kinds to ignore entirely: configmaps or secrets.
+resourcesToIgnore: []
+
+logFormat: ""        # "" (text) or json
+logLevel: info
+# Appended verbatim to the reloader command (see `reloader --help`).
+extraArgs: []
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+# ClusterIP Service for scraping /metrics on 9090.
+service:
+  enabled: true
+  type: ClusterIP
+  port: 9090
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+# Reloader only talks to the API server; ingress is limited to /metrics from the
+# release namespace by default.
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

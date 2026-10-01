@@ -1,0 +1,21 @@
+Reloader {{ .Chart.AppVersion }} is running as {{ include "quench-common.fullname" . }}
+({{ if .Values.watchGlobally }}watching every namespace{{ else }}watching {{ .Release.Namespace }} only{{ end }}).
+
+Opt a workload in with an annotation on the Deployment, StatefulSet or DaemonSet:
+
+  reloader.stakater.com/auto: "true"                    # any ConfigMap or Secret it uses
+  configmap.reloader.stakater.com/reload: "my-config"   # only these ConfigMaps
+  secret.reloader.stakater.com/reload: "my-secret"      # only these Secrets
+{{- if .Values.autoReloadAll }}
+
+autoReloadAll is on: every workload is reloaded when a ConfigMap or Secret it uses changes.
+{{- end }}
+
+Metrics: kubectl port-forward svc/{{ include "quench-common.fullname" . }} 9090:{{ .Values.service.port }}
+  curl -fsS http://127.0.0.1:9090/metrics | grep reloader_reload_executed_total
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/reloader \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
