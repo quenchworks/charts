@@ -62,7 +62,9 @@ jobs:
             c="$(basename "$(dirname "$vy")")"
             grep -q "ghcr.io/quenchworks/images/${APP}\b" "$vy" || continue
             n="$(grep -cE 'digest: *"?sha256:' "$vy" || true)"
-            first="$(grep -B4 -m1 -E 'digest: *"?sha256:' "$vy" | grep -oE 'images/[a-z0-9.-]+' | tail -1 | cut -d/ -f2)"
+            # A chart that pins the image inline (image: ...@sha256:) has no digest: key, so
+            # grep finds nothing; under pipefail that ended the whole step (secrets-stack).
+            first="$(grep -B4 -m1 -E 'digest: *"?sha256:' "$vy" | grep -oE 'images/[a-z0-9.-]+' | tail -1 | cut -d/ -f2 || true)"
             if [ "$n" -eq 1 ] || [ "$first" = "$APP" ]; then simple="$simple $c"; else complex="$complex $c"; fi
           done
           echo "simple=${simple# }"  >> "$GITHUB_OUTPUT"
