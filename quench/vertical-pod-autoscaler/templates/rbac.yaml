@@ -1,0 +1,200 @@
+{{/* Generated from the 1.8.0 tag's deploy/vpa-rbac.yaml: the rules of every ClusterRole
+     upstream binds to each component, merged into one ClusterRole per component. */}}
+{{- if .Values.updater.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" . }}-updater
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ['']
+    resources: [pods/resize, pods]
+    verbs: [patch]
+  - apiGroups: ['']
+    resources: [pods, nodes, limitranges]
+    verbs: [get, list, watch]
+  - apiGroups: ['', events.k8s.io]
+    resources: [events]
+    verbs: [create, get, list, watch, patch, update]
+  - apiGroups: [poc.autoscaling.k8s.io]
+    resources: [verticalpodautoscalers]
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling.k8s.io]
+    resources: [verticalpodautoscalers]
+    verbs: [get, list, watch]
+  - apiGroups: ['*']
+    resources: ['*/scale']
+    verbs: [get, watch]
+  - apiGroups: ['']
+    resources: [replicationcontrollers]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [daemonsets, deployments, replicasets, statefulsets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch]
+  - apiGroups: [apps, extensions]
+    resources: [replicasets]
+    verbs: [get]
+  - apiGroups: ['']
+    resources: [pods/eviction]
+    verbs: [create]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}-updater
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quench-common.fullname" . }}-updater
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.fullname" . }}-updater
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "quench-common.fullname" . }}-updater
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+automountServiceAccountToken: true
+{{- end }}
+{{- if .Values.recommender.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" . }}-recommender
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [metrics.k8s.io]
+    resources: [pods]
+    verbs: [get, list]
+  - apiGroups: ['']
+    resources: [pods, nodes, limitranges]
+    verbs: [get, list, watch]
+  - apiGroups: ['', events.k8s.io]
+    resources: [events]
+    verbs: [create, get, list, watch, patch, update]
+  - apiGroups: [poc.autoscaling.k8s.io]
+    resources: [verticalpodautoscalers]
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling.k8s.io]
+    resources: [verticalpodautoscalers]
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling.k8s.io]
+    resources: [verticalpodautoscalers/status]
+    verbs: [get, patch]
+  - apiGroups: [poc.autoscaling.k8s.io]
+    resources: [verticalpodautoscalercheckpoints]
+    verbs: [get, list, watch, create, patch, delete]
+  - apiGroups: [autoscaling.k8s.io]
+    resources: [verticalpodautoscalercheckpoints]
+    verbs: [get, list, watch, create, patch, delete]
+  - apiGroups: ['*']
+    resources: ['*/scale']
+    verbs: [get, watch]
+  - apiGroups: ['']
+    resources: [replicationcontrollers]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [daemonsets, deployments, replicasets, statefulsets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}-recommender
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quench-common.fullname" . }}-recommender
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.fullname" . }}-recommender
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "quench-common.fullname" . }}-recommender
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+automountServiceAccountToken: true
+{{- end }}
+{{- if .Values.admissionController.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" . }}-admission-controller
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ['*']
+    resources: ['*/scale']
+    verbs: [get, watch]
+  - apiGroups: ['']
+    resources: [replicationcontrollers]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [daemonsets, deployments, replicasets, statefulsets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch]
+  - apiGroups: ['']
+    resources: [pods, configmaps, nodes, limitranges]
+    verbs: [get, list, watch]
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [mutatingwebhookconfigurations]
+    verbs: [create, delete, get, list, patch]
+  - apiGroups: [poc.autoscaling.k8s.io]
+    resources: [verticalpodautoscalers]
+    verbs: [get, list, watch]
+  - apiGroups: [autoscaling.k8s.io]
+    resources: [verticalpodautoscalers]
+    verbs: [get, list, watch]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create, update, get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}-admission-controller
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quench-common.fullname" . }}-admission-controller
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.fullname" . }}-admission-controller
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "quench-common.fullname" . }}-admission-controller
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+automountServiceAccountToken: true
+{{- end }}

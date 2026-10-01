@@ -1,0 +1,44 @@
+# The digest below is the contract with the image factory. It is never a tag.
+# One image carries all three components (/usr/bin/vpa-<component>).
+image:
+  repository: ghcr.io/quenchworks/images/vertical-pod-autoscaler
+  digest: "sha256:d06eb81c5ed8c045922f45a1d0456f0e3851e76a62083cd162bb9d4febde1762"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Computes recommended CPU and memory requests from observed usage. Needs
+# metrics-server (the metrics.k8s.io API) in the cluster.
+recommender:
+  enabled: true
+  extraArgs: []
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+# Evicts (or resizes in place) pods whose requests drift from the recommendation,
+# for VPAs with updatePolicy.updateMode Recreate, InPlaceOrRecreate or Auto.
+updater:
+  enabled: true
+  extraArgs: []
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+# Mutating webhook that writes the recommended requests into new pods. It registers its
+# own MutatingWebhookConfiguration at startup, trusting the chart-generated CA.
+admissionController:
+  enabled: true
+  extraArgs: []
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+# --- Common knobs, wired through quench-common (all optional) ---
+podLabels: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+priorityClassName: ""
+podSecurityContext: {}
+containerSecurityContext: {}

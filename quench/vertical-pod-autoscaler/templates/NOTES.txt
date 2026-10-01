@@ -1,0 +1,14 @@
+Vertical Pod Autoscaler {{ .Chart.AppVersion }} is running in {{ .Release.Namespace }}:
+{{- if .Values.recommender.enabled }} recommender{{ end }}{{ if .Values.updater.enabled }}, updater{{ end }}{{ if .Values.admissionController.enabled }}, admission controller{{ end }}.
+
+The recommender reads the metrics.k8s.io API: install metrics-server if the cluster
+has none. Then create a VPA for a workload:
+
+  apiVersion: autoscaling.k8s.io/v1
+  kind: VerticalPodAutoscaler
+  metadata: { name: my-app }
+  spec:
+    targetRef: { apiVersion: apps/v1, kind: Deployment, name: my-app }
+    updatePolicy: { updateMode: "Off" }    # Off, Initial, Recreate, InPlaceOrRecreate
+
+  kubectl get vpa my-app -o jsonpath='{.status.recommendation}'
