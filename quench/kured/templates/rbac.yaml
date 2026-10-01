@@ -1,0 +1,68 @@
+{{- if .Values.rbac.create }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  # cordon and uncordon its node
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "patch"]
+  # drain: list and evict (or delete) the node's pods
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/eviction"]
+    verbs: ["create"]
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kured.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# The node lock is an annotation on kured's own DaemonSet.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    resourceNames: [{{ include "quench-common.fullname" . | quote }}]
+    verbs: ["update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "kured.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

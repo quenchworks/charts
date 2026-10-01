@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  # kured holds its node lock as an annotation on THIS object (--ds-name/--ds-namespace).
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "kured.serviceAccountName" . }}
+      # The reboot command runs in the host's mount namespace via nsenter into PID 1.
+      hostPID: true
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      containers:
+        - name: kured
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # A node agent that reboots its host: root, privileged, read-only rootfs.
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            privileged: true
+            readOnlyRootFilesystem: true
+          args:
+            - --ds-name={{ include "quench-common.fullname" . }}
+            - --ds-namespace={{ .Release.Namespace }}
+            - --reboot-sentinel=/sentinel/{{ .Values.sentinelFile }}
+            - --reboot-command={{ .Values.rebootCommand }}
+            - --period={{ .Values.period }}
+            - --reboot-days={{ join "," .Values.rebootDays }}
+            - --start-time={{ .Values.startTime }}
+            - --end-time={{ .Values.endTime }}
+            - --time-zone={{ .Values.timeZone }}
+            - --concurrency={{ .Values.concurrency }}
+            - --lock-ttl={{ .Values.lockTtl }}
+            - --drain-timeout={{ .Values.drainTimeout }}
+            - --drain-grace-period={{ .Values.drainGracePeriod }}
+            - --log-format={{ .Values.logFormat }}
+            {{- range .Values.blockingPodSelectors }}
+            - --blocking-pod-selector={{ . }}
+            {{- end }}
+            {{- with .Values.notifyUrl }}
+            - --notify-url={{ . }}
+            {{- end }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            # kured exits without its node name.
+            - name: KURED_NODE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            {{- with .Values.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: 8080
+              protocol: TCP
+          livenessProbe:
+            httpGet: { path: /metrics, port: metrics }
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: sentinel
+              mountPath: /sentinel
+              readOnly: true
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      volumes:
+        - name: sentinel
+          hostPath:
+            path: {{ .Values.sentinelHostPath }}
+            type: Directory
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}

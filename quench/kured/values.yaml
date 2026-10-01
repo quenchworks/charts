@@ -1,0 +1,72 @@
+# The digest below is the contract with the image factory. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/kured
+  digest: "sha256:9365cb13d78a91b5b01e2ed2345841af36cbe332c101c4948541b63fecab7670"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# How kured reboots a node. It runs the command in the host's mount namespace
+# (nsenter into PID 1), which is why the pod is privileged with hostPID and uid 0.
+rebootCommand: "/bin/systemctl reboot"
+# The host file whose presence means a reboot is needed (Debian/Ubuntu's
+# unattended-upgrades writes /var/run/reboot-required). The host's /var/run is
+# mounted read-only at /sentinel.
+sentinelHostPath: /var/run
+sentinelFile: reboot-required
+
+# How often each node checks the sentinel and tries the lock.
+period: 1h
+# Reboot only inside this window (kured's --reboot-days/--start-time/--end-time).
+rebootDays: [su, mo, tu, we, th, fr, sa]
+startTime: "0:00"
+endTime: "23:59:59"
+timeZone: UTC
+# How many nodes may reboot at once, and how long a lock may be held before another
+# node can take it (0 = until released).
+concurrency: 1
+lockTtl: "0"
+# Drain behaviour before the reboot.
+drainTimeout: "0"
+drainGracePeriod: -1
+# Do not reboot while any pod matches these selectors (e.g. "app=critical").
+blockingPodSelectors: []
+# Slack/Teams/etc. notification URL (shoutrrr format); empty sends nothing.
+notifyUrl: ""
+
+logFormat: text
+extraArgs: []
+
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { memory: 128Mi }
+
+# Run on control-plane nodes too, so they get rebooted like the workers.
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    effect: NoSchedule
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 8080
+
+# --- Common knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+priorityClassName: ""
+updateStrategy:
+  type: RollingUpdate
+extraEnvVars: []
+extraVolumes: []
+extraVolumeMounts: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
