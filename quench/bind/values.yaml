@@ -1,0 +1,79 @@
+# The digest below is the contract with the image factory. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/bind
+  digest: "sha256:c402b376cbb921e4688ec59a44cd934b7b5a8f30ecf89ca51e302aea3fc33674"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+replicaCount: 2
+
+# named.conf, mounted at /etc/named/named.conf. named listens on 5353 (the pod runs
+# nonroot); the Service publishes 53. Zone files from `zones` are under /etc/named/zones.
+# The default is a caching recursive resolver for private networks.
+config: |
+  options {
+      directory "/tmp";
+      pid-file none;
+      listen-on port 5353 { any; };
+      listen-on-v6 port 5353 { any; };
+      recursion yes;
+      allow-recursion { localhost; 10.0.0.0/8; 172.16.0.0/12; 192.168.0.0/16; };
+      allow-query { any; };
+      dnssec-validation auto;
+  };
+  logging {
+      channel stdout { stderr; severity info; print-time yes; };
+      category default { stdout; };
+  };
+
+# Zone files by file name, e.g.
+#   example.com.zone: |
+#     $TTL 300
+#     @ IN SOA ns.example.com. admin.example.com. 1 3600 600 86400 300
+#     ...
+# and in config: zone "example.com" { type primary; file "/etc/named/zones/example.com.zone"; };
+zones: {}
+
+resources:
+  requests: { cpu: 20m, memory: 64Mi }
+  limits: { memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 53
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
