@@ -1,0 +1,86 @@
+# The digest below is the contract with the image factory. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/kafka-exporter
+  digest: "sha256:5fa047ece8af35d15edc0494dea27bbea10bf82c8d938a77858d7186a59846a3"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+replicaCount: 1
+
+# Bootstrap brokers (host:port). One is enough; the exporter discovers the rest.
+kafkaServers:
+  - kafka:9092
+
+# SASL: mechanism plain, scram-sha256 or scram-sha512. The password comes from a Secret.
+sasl:
+  enabled: false
+  mechanism: plain
+  username: ""
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+# TLS to the brokers. existingSecret holds ca.crt, and tls.crt + tls.key for mTLS.
+tls:
+  enabled: false
+  insecureSkipVerify: false
+  existingSecret: ""
+
+# Only these topics / consumer groups (regex); empty means all.
+topicFilter: ""
+groupFilter: ""
+
+# Log verbosity (0 is quiet).
+verbosity: 0
+# Broker protocol version the client speaks; empty keeps kafka_exporter's default.
+kafkaVersion: ""
+# Appended to the kafka_exporter command (see `kafka_exporter --help`).
+extraArgs: []
+
+resources:
+  requests: { cpu: 20m, memory: 32Mi }
+  limits: { memory: 128Mi }
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 9308
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: false
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
