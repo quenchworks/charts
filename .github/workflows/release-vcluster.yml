@@ -1,0 +1,140 @@
+name: release-vcluster
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/vcluster/**"
+      - ".github/workflows/release-vcluster.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/vcluster
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          # The image package is public, so the chart-created vc-<release> ServiceAccount
+          # pulls it directly (the syncer finds that account by name).
+          kubectl create namespace vc
+          helm install vtest "${CHART_DIR}" -n vc -f "${CHART_DIR}/ci/default-values.yaml" \
+            --wait --timeout 10m
+          # Use the virtual cluster: read its kubeconfig, reach its API server through
+          # the Service, and require a pod created inside it to run on the host.
+          kubectl -n vc get secret vc-vtest -o jsonpath='{.data.config}' | base64 -d > /tmp/vc.kubeconfig
+          kubectl -n vc port-forward svc/vtest 18443:443 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          sed -i 's|server: .*|server: https://127.0.0.1:18443|' /tmp/vc.kubeconfig
+          V="kubectl --kubeconfig /tmp/vc.kubeconfig"
+          grep -q 'Server Version: v1.36.4' <<<"$($V version)"
+          $V get ns default
+          $V run probe --image=registry.k8s.io/pause:3.10 --restart=Never
+          for i in $(seq 1 60); do
+            [ "$($V get pod probe -o jsonpath='{.status.phase}')" = Running ] && break
+            sleep 3
+          done
+          [ "$($V get pod probe -o jsonpath='{.status.phase}')" = Running ] \
+            || { echo "::error::pod in the virtual cluster never ran"; exit 1; }
+          kubectl -n vc get pod probe-x-default-x-vtest
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -A -o wide || true
+          kubectl -n vc describe pods || true
+          kubectl -n vc get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl -n vc get pods -o name); do
+            for c in $(kubectl -n vc get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl -n vc logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl -n vc logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/vcluster-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/vcluster@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/vcluster:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

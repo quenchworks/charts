@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    {{- include "vcluster.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  serviceName: {{ .Release.Name }}-headless
+  podManagementPolicy: Parallel
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+  selector:
+    matchLabels:
+      {{- include "vcluster.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # roll the pod when the vCluster config changes
+        checksum/config: {{ .Values.vcluster | toYaml | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "vcluster.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: vc-{{ .Release.Name }}
+      terminationGracePeriodSeconds: 15
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: syncer
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: VCLUSTER_NAME
+              value: {{ .Release.Name }}
+            - name: LOFT_LOG_ENCODING
+              value: console
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: POD_IP
+              valueFrom: { fieldRef: { fieldPath: status.podIP } }
+            - name: NODE_NAME
+              valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+            - name: NODE_IP
+              valueFrom: { fieldRef: { fieldPath: status.hostIP } }
+          ports:
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+          # The virtual control plane takes about a minute to come up; the startup
+          # probe allows 30 minutes before liveness starts counting.
+          startupProbe:
+            httpGet: { path: /readyz, port: 8443, scheme: HTTPS }
+            periodSeconds: 6
+            timeoutSeconds: 3
+            failureThreshold: 300
+          livenessProbe:
+            httpGet: { path: /healthz, port: 8443, scheme: HTTPS }
+            periodSeconds: 2
+            timeoutSeconds: 3
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /readyz, port: 8443, scheme: HTTPS }
+            periodSeconds: 2
+            timeoutSeconds: 3
+            failureThreshold: 60
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          # /binaries is baked into the image: do not mount over it.
+          volumeMounts:
+            - { name: data, mountPath: /data }
+            - { name: certs, mountPath: /pki }
+            - { name: tmp, mountPath: /tmp }
+            - { name: helm-cache, mountPath: /.cache/helm }
+            - { name: vcluster-config, mountPath: /var/lib/vcluster, readOnly: true }
+      volumes:
+        - { name: certs, emptyDir: {} }
+        - { name: tmp, emptyDir: {} }
+        - { name: helm-cache, emptyDir: {} }
+        - name: vcluster-config
+          secret:
+            secretName: vc-config-{{ .Release.Name }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size }}

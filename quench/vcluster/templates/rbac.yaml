@@ -1,0 +1,80 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vc-{{ .Release.Name }}
+  labels:
+    {{- include "vcluster.labels" . | nindent 4 }}
+rules:
+  # The objects the syncer copies between the virtual cluster and this namespace.
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets", "services", "pods", "pods/attach", "pods/portforward", "pods/exec", "persistentvolumeclaims"]
+    verbs: ["create", "delete", "patch", "update", "get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/status", "pods/ephemeralcontainers", "pods/resize"]
+    verbs: ["patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets", "replicasets", "deployments"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["endpoints", "pods/log"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["create", "delete", "patch", "update"]
+  - apiGroups: ["", "events.k8s.io"]
+    resources: ["events"]
+    verbs: ["create", "get", "list", "watch"]
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["create", "list", "get", "delete", "patch", "update", "watch"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshots"]
+    verbs: ["create", "delete", "patch", "update", "get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vc-{{ .Release.Name }}
+  labels:
+    {{- include "vcluster.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: vc-{{ .Release.Name }}
+subjects:
+  - kind: ServiceAccount
+    name: vc-{{ .Release.Name }}
+    namespace: {{ .Release.Namespace }}
+---
+# Cluster-scoped reads the syncer needs for persistent volumes and snapshots.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: vc-{{ .Release.Name }}-v-{{ .Release.Namespace }}
+  labels:
+    {{- include "vcluster.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["get", "list"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshotclasses"]
+    verbs: ["get", "list"]
+  - apiGroups: ["snapshot.storage.k8s.io"]
+    resources: ["volumesnapshotcontents"]
+    verbs: ["create", "delete", "patch", "update", "get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: vc-{{ .Release.Name }}-v-{{ .Release.Namespace }}
+  labels:
+    {{- include "vcluster.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: vc-{{ .Release.Name }}-v-{{ .Release.Namespace }}
+subjects:
+  - kind: ServiceAccount
+    name: vc-{{ .Release.Name }}
+    namespace: {{ .Release.Namespace }}
