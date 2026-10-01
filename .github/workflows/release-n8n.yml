@@ -48,9 +48,11 @@ jobs:
           kubectl port-forward statefulset/rtest-n8n 5678:5678 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # /healthz returns 200 once n8n has migrated and is serving
-          curl -fsS http://127.0.0.1:5678/healthz | grep -q '"status":"ok"'
+          # here-strings, not pipes: grep -q exits on its first match, and under pipefail
+          # the SIGPIPE it sends curl (curl: (23) once a body passes 64K) fails a match
+          grep -q '"status":"ok"' <<<"$(curl -fsS http://127.0.0.1:5678/healthz)"
           # the login/setup page renders: proves the editor server is up end to end
-          curl -fsS http://127.0.0.1:5678/ | grep -qi 'n8n'
+          grep -qi 'n8n' <<<"$(curl -fsS http://127.0.0.1:5678/)"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
