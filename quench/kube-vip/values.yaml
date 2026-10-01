@@ -1,0 +1,52 @@
+# The digest below is the contract with the image factory. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/kube-vip
+  digest: "sha256:99a94be57c7dd02249b2ee25b6aed0733c1ee89422ed95533838dff16394a7c9"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# How kube-vip announces addresses: arp (layer 2, one node answers per address) or bgp
+# (peers are set with extraArgs, e.g. --peerAS/--bgpRouterID/--bgppeers).
+mode: arp
+# Interface that carries the addresses; empty lets kube-vip use the default route's.
+interface: ""
+
+# Load balancer for Services of type LoadBalancer. Give a Service its address with
+# spec.loadBalancerIP or the kube-vip.io/loadbalancerIPs annotation (or run the
+# kube-vip cloud provider for IP pools).
+services:
+  enabled: true
+
+# A virtual IP in front of the API servers (run the DaemonSet on control-plane nodes).
+controlPlane:
+  enabled: false
+  address: ""
+  port: 6443
+
+metricsPort: 2112
+extraArgs: []
+extraEnvVars: []
+
+resources:
+  requests: { cpu: 20m, memory: 32Mi }
+  limits: { memory: 128Mi }
+
+tolerations:
+  - key: node-role.kubernetes.io/control-plane
+    effect: NoSchedule
+
+nodeSelector: {}
+affinity: {}
+priorityClassName: ""
+podLabels: {}
+updateStrategy:
+  type: RollingUpdate
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true

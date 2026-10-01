@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "kube-vip.serviceAccountName" . }}
+      # The virtual IPs live on the node's own interface.
+      hostNetwork: true
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      containers:
+        - name: kube-vip
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Adding addresses and answering ARP needs NET_ADMIN and NET_RAW; Linux drops
+          # added capabilities for a non-root process, so this one container runs as uid 0
+          # with only those two.
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_ADMIN", "NET_RAW"]
+          args:
+            - manager
+            - --prometheusHTTPServer=:{{ .Values.metricsPort }}
+            {{- if .Values.services.enabled }}
+            - --services
+            {{- end }}
+            {{- if .Values.controlPlane.enabled }}
+            - --controlplane
+            - --address={{ required "controlPlane.address is required" .Values.controlPlane.address }}
+            - --port={{ .Values.controlPlane.port }}
+            {{- end }}
+            {{- if eq .Values.mode "arp" }}
+            - --arp
+            {{- else if eq .Values.mode "bgp" }}
+            - --bgp
+            {{- end }}
+            {{- with .Values.interface }}
+            - --interface={{ . }}
+            {{- end }}
+            - --leaderElection
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            # the node this pod speaks for (the lease namespace comes from the service account)
+            - name: vip_nodename
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            {{- with .Values.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: metrics
+              containerPort: {{ .Values.metricsPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet: { path: /metrics, port: metrics }
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
