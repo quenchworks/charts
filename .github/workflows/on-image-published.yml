@@ -60,7 +60,9 @@ jobs:
           simple=""; complex=""
           for vy in quench/*/values.yaml; do
             c="$(basename "$(dirname "$vy")")"
-            grep -q "ghcr.io/quenchworks/images/${APP}\b" "$vy" || continue
+            # The name must end here: \b also matches before "-", which sent activemq's
+            # digest to the activemq-artemis chart (repin.py's registry check refused it).
+            grep -qE "ghcr.io/quenchworks/images/${APP}([^a-z0-9.-]|\$)" "$vy" || continue
             n="$(grep -cE 'digest: *"?sha256:' "$vy" || true)"
             # A chart that pins the image inline (image: ...@sha256:) has no digest: key, so
             # grep finds nothing; under pipefail that ended the whole step (secrets-stack).
