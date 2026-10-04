@@ -1,0 +1,78 @@
+# zabbix: the Zabbix server, the web frontend and PostgreSQL.
+#
+# Names of the database pieces are FIXED (zabbix-postgresql, the zabbix-db Secret)
+# because the postgresql subchart takes them as plain values. One install per namespace.
+# No SNMP checks: the server image is built without net-snmp (Wolfi's has no MD5).
+
+# The digests below are the contract with the image factory. They are never tags.
+image:
+  repository: ghcr.io/quenchworks/images/zabbix-server
+  digest: "sha256:8c0d5dc5760ca43d8c251871503330b56254769783f5761cd7c8dcc588dd6084"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The Admin password. Upstream's data creates Admin/zabbix; the schema init replaces
+# that password on first install. Empty generates one, kept across upgrades in the
+# zabbix-db Secret (key admin-password).
+admin:
+  password: ""
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+server:
+  # Extra zabbix_server.conf settings, one key per line (e.g. StartPollers: 10,
+  # CacheSize: 64M). The database settings come from the zabbix-db Secret.
+  config: {}
+  service:
+    type: ClusterIP
+
+web:
+  image:
+    repository: ghcr.io/quenchworks/images/zabbix-web
+    digest: "sha256:7b5d7649415a641b50b18dc481b15d0c222218d28e8d97758e07838e855bb88c"
+  replicaCount: 1
+  # Shown in the frontend's title bar and tab.
+  serverName: ""
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 512Mi }
+  service:
+    type: ClusterIP
+    port: 8080
+
+# ---------------------------------------------------------------------------
+# PostgreSQL (subchart). The schema init loads Zabbix's tables on first install;
+# later upgrades leave existing tables alone (the server upgrades them itself).
+# ---------------------------------------------------------------------------
+postgresql:
+  fullnameOverride: zabbix-postgresql
+  auth:
+    username: zabbix
+    database: zabbix_db
+    existingSecret: zabbix-db
+    existingSecretPasswordKey: postgres-password
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+podSecurityContext: {}
+containerSecurityContext: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}

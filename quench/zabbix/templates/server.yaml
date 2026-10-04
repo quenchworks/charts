@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}-server
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: server
+spec:
+  # One server per database; Zabbix HA mode needs per-node names, which this chart
+  # does not configure.
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels:
+      {{- include "zabbix.componentLabels" (dict "ctx" . "component" "server") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}{{ toYaml . | nindent 8 }}{{ end }}
+      labels:
+        {{- include "zabbix.componentLabels" (dict "ctx" . "component" "server") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "zabbix.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        # The server image is shell-free, so the web image (php + pgsql) loads the schema
+        # of the same release: once, when the users table is absent. On that first load it
+        # replaces upstream's Admin/zabbix password with the one in the zabbix-db Secret.
+        - name: db-init
+          image: {{ include "zabbix.webImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "zabbix.dbEnv" . | nindent 12 }}
+            - name: ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: zabbix-db, key: admin-password } }
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              out="$(php /usr/share/zabbix-init/init-db.php)"; echo "$out"
+              case "$out" in *"loaded data.sql"*)
+                php -r '$db = pg_connect(sprintf("host=%s port=%s dbname=%s user=%s password=%s",
+                  getenv("ZBX_DB_HOST"), getenv("ZBX_DB_PORT"), getenv("ZBX_DB_NAME"),
+                  getenv("ZBX_DB_USER"), getenv("ZBX_DB_PASSWORD"))) or exit(1);
+                  $r = pg_query_params($db, "UPDATE users SET passwd = $1 WHERE username = $2",
+                    [password_hash(getenv("ADMIN_PASSWORD"), PASSWORD_BCRYPT), "Admin"]);
+                  exit($r && pg_affected_rows($r) === 1 ? 0 : 1);'
+                echo "Admin password set" ;;
+              esac
+      containers:
+        - name: server
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - name: trapper
+              containerPort: 10051
+              protocol: TCP
+          livenessProbe:
+            tcpSocket: { port: trapper }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          readinessProbe:
+            tcpSocket: { port: trapper }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: include
+              mountPath: /etc/zabbix/zabbix_server.d
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # db.conf from the Secret, extra settings from the ConfigMap, both read through
+        # the image's Include=/etc/zabbix/zabbix_server.d/*.conf.
+        - name: include
+          projected:
+            sources:
+              - secret: { name: zabbix-db, items: [{ key: db.conf, path: db.conf }] }
+              - configMap: { name: {{ include "quench-common.fullname" . }}-server, items: [{ key: server.conf, path: server.conf }] }
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}-server
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.server.service.type }}
+  ports:
+    - name: trapper
+      port: 10051
+      targetPort: trapper
+      protocol: TCP
+  selector:
+    {{- include "zabbix.componentLabels" (dict "ctx" . "component" "server") | nindent 4 }}
