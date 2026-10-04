@@ -10,10 +10,13 @@ are not built.
 
 ## Install
 
-Install Cilium with its own operator off, then this chart in the same namespace:
+Install Cilium with its own operator off, then this chart in the same namespace. The agent
+can be the QuenchWorks image too (`ghcr.io/quenchworks/images/cilium`, built from source on
+the same lines; it runs as root like upstream's):
 
 ```sh
-helm install cilium cilium/cilium -n kube-system --set operator.enabled=false
+helm install cilium cilium/cilium -n kube-system --set operator.enabled=false \
+  --set image.override=ghcr.io/quenchworks/images/cilium:1.20.2
 helm install cilium-operator oci://ghcr.io/quenchworks/charts/cilium-operator -n kube-system
 kubectl get ciliumnodes
 ```
@@ -44,7 +47,8 @@ Pods run with a read-only root filesystem and all capabilities dropped. The Clus
 covers the features Cilium enables by default; features that need more (TLS
 interception, ztunnel) are not covered.
 
-The release gate starts a two-node kind cluster, installs upstream Cilium 1.20.2 agents
+The release gate starts a two-node kind cluster, installs Cilium 1.20.2 agents from the
+QuenchWorks agent image
 with their operator off, installs this chart, and requires the CRDs to be registered,
 every CiliumNode to get a pod CIDR, every node to turn Ready, CoreDNS to resolve from a
 pod, and one replica to hold the leader lease.
