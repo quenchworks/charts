@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    # The API server calls the webhook here; the container serves HTTPS on 6443.
+    - name: webhook
+      port: {{ .Values.service.port }}
+      targetPort: webhook
+      protocol: TCP
+    - name: metrics
+      port: 9402
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

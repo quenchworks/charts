@@ -1,0 +1,123 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/trust-manager
+  digest: "sha256:e3aa996abf0a17d90dadaeccb650e59d277c92de2c59bc546044872214ffb467"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# More than one replica turns on leader election (one active controller; every replica
+# serves the webhook).
+replicaCount: 1
+
+# The Bundle CRD ships in templates/ and is kept on uninstall.
+crds:
+  enabled: true
+  keep: true
+
+# Also allow Bundles to target Secrets (spec.target.secret). Off: ConfigMaps only. The
+# ClusterRole then gets write access to Secrets in every namespace; leave it off unless
+# you need it.
+secretTargets:
+  enabled: false
+
+# Drop expired certificates from bundles.
+filterExpiredCertificates: true
+
+logFormat: text
+logLevel: 1
+extraArgs: []
+
+webhook:
+  timeoutSeconds: 5
+
+resources:
+  requests: { cpu: 25m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 443
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # trust-manager talks to the API server, so it needs a projected token; quench-common
+  # defaults this off.
+  automountServiceAccountToken: true
+
+# Cluster-wide: read Bundles and namespaces, write the target ConfigMaps in every
+# namespace. Release namespace (the trust namespace): read source Secrets, leader leases.
+rbac:
+  create: true
+  clusterScoped: true
+  rules:
+    - apiGroups: [""]
+      resources: [secrets]
+      verbs: [get, list, watch]
+    - apiGroups: [coordination.k8s.io]
+      resources: [leases]
+      verbs: [get, create, update, watch, list]
+  clusterRules:
+    - apiGroups: [trust.cert-manager.io]
+      resources: [bundles]
+      verbs: [get, list, watch]
+    - apiGroups: [trust.cert-manager.io]
+      resources: [bundles/finalizers]
+      verbs: [update]
+    - apiGroups: [trust.cert-manager.io]
+      resources: [bundles/status]
+      verbs: [patch]
+    - apiGroups: [""]
+      resources: [namespaces]
+      verbs: [get, list, watch]
+    - apiGroups: [""]
+      resources: [configmaps]
+      verbs: [get, list, create, patch, watch, delete]
+    - apiGroups: ["", events.k8s.io]
+      resources: [events]
+      verbs: [create, patch]
+  # Added to clusterRules when secretTargets.enabled.
+  secretTargetRules:
+    - apiGroups: [""]
+      resources: [secrets]
+      verbs: [get, list, create, patch, watch, delete]
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+# One replica cannot satisfy minAvailable: 1 and still be evictable (it would block node
+# drains), so the PDB is off by default. Turn it on with replicaCount >= 2.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

@@ -1,0 +1,20 @@
+trust-manager {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }}.
+
+Bundle sources (ConfigMaps and Secrets) are read from the trust namespace,
+{{ .Release.Namespace }}. A Bundle that gathers a CA from there into every namespace:
+
+  apiVersion: trust.cert-manager.io/v1alpha1
+  kind: Bundle
+  metadata:
+    name: my-ca
+  spec:
+    sources:
+      - configMap: {name: my-ca-source, key: ca.crt}
+    target:
+      configMap: {key: ca-bundle.crt}
+
+  kubectl get bundle my-ca      # Synced=True once the ConfigMaps are written
+{{- if .Values.crds.keep }}
+
+The Bundle CRD is kept on uninstall, so removing the release never deletes your Bundles.
+{{- end }}

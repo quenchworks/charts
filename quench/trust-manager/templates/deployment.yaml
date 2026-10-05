@@ -1,0 +1,95 @@
+{{- $liveness := dict "httpGet" (dict "path" "/readyz" "port" "readiness") "initialDelaySeconds" 10 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/readyz" "port" "readiness") "initialDelaySeconds" 3 "periodSeconds" 7 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "trust-manager.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: trust-manager
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - --log-format={{ .Values.logFormat }}
+            - --log-level={{ .Values.logLevel }}
+            - --metrics-port=9402
+            - --readiness-probe-port=6060
+            - --readiness-probe-path=/readyz
+            - --leader-elect={{ gt (int .Values.replicaCount) 1 }}
+            # Bundle sources (ConfigMaps, Secrets) are read from this namespace only.
+            - --trust-namespace={{ .Release.Namespace }}
+            - --webhook-host=0.0.0.0
+            - --webhook-port=6443
+            - --webhook-certificate-dir=/tls
+            {{- if .Values.secretTargets.enabled }}
+            - --secret-targets-enabled=true
+            {{- end }}
+            {{- if .Values.filterExpiredCertificates }}
+            - --filter-expired-certificates=true
+            {{- end }}
+            {{- with .Values.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: webhook
+              containerPort: 6443
+              protocol: TCP
+            - name: metrics
+              containerPort: 9402
+              protocol: TCP
+            - name: readiness
+              containerPort: 6060
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tls
+          secret:
+            secretName: {{ include "trust-manager.tlsSecret" . }}
+            items:
+              - {key: tls.crt, path: tls.crt}
+              - {key: tls.key, path: tls.key}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
