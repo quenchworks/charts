@@ -1,0 +1,22 @@
+step-issuer {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }}.
+
+Point a StepClusterIssuer at your step-ca and one of its JWK provisioners:
+
+  apiVersion: certmanager.step.sm/v1beta1
+  kind: StepClusterIssuer
+  metadata:
+    name: step-ca
+  spec:
+    url: https://step-ca.pki.svc
+    caBundle: <base64 of the step-ca root certificate PEM>
+    provisioner:
+      name: <provisioner name>
+      kid: <provisioner key id, from `step ca provisioner list`>
+      passwordRef: {name: <secret>, namespace: <ns>, key: <key>}
+
+Then reference it from a Certificate: issuerRef {group: certmanager.step.sm,
+kind: StepClusterIssuer, name: step-ca}.
+{{- if .Values.approver.enabled }}
+
+cert-manager's controller ({{ .Values.approver.certManagerServiceAccount.namespace | default .Release.Namespace }}/{{ .Values.approver.certManagerServiceAccount.name }}) may approve requests for Step issuers.
+{{- end }}

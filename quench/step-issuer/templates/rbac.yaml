@@ -1,0 +1,35 @@
+{{- include "quench-common.rbac" . }}
+{{- if .Values.approver.enabled }}
+---
+# cert-manager approves a CertificateRequest only for signers its controller may approve.
+# This lets it approve requests for Step issuers (or set approver.enabled=false and run
+# your own approver, e.g. approver-policy).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ printf "%s-approver" (include "quench-common.fullname" .) }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [cert-manager.io]
+    resources: [signers]
+    verbs: [approve]
+    resourceNames:
+      - stepissuers.certmanager.step.sm/*
+      - stepclusterissuers.certmanager.step.sm/*
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ printf "%s-approver-%s" (include "quench-common.fullname" .) .Release.Namespace | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ printf "%s-approver" (include "quench-common.fullname" .) }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Values.approver.certManagerServiceAccount.name }}
+    namespace: {{ .Values.approver.certManagerServiceAccount.namespace | default .Release.Namespace }}
+{{- end }}

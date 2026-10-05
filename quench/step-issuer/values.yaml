@@ -1,0 +1,97 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/step-issuer
+  digest: "sha256:6cdf55c663381cc6ade7b4b63ca92c02b5abf3cff922956b881139566c067e49"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# More than one replica turns on leader election (one active controller).
+replicaCount: 1
+
+# StepIssuer and StepClusterIssuer CRDs ship in templates/ and are kept on uninstall.
+crds:
+  enabled: true
+  keep: true
+
+# Let cert-manager's controller approve CertificateRequests for Step issuers. Point it at
+# your cert-manager controller's ServiceAccount (<release>-cert-manager-controller in the
+# QuenchWorks cert-manager chart). Empty namespace means the release namespace.
+approver:
+  enabled: true
+  certManagerServiceAccount:
+    name: cert-manager-controller
+    namespace: cert-manager
+
+extraArgs: []
+
+resources:
+  requests: { cpu: 25m, memory: 48Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # step-issuer talks to the API server, so it needs a projected token; quench-common
+  # defaults this off.
+  automountServiceAccountToken: true
+
+# Cluster-wide, as upstream's role: issuers and CertificateRequests anywhere, and Secrets
+# (the provisioner password a StepIssuer names lives in its own namespace).
+rbac:
+  create: true
+  clusterScoped: true
+  rules: []
+  clusterRules:
+    - apiGroups: [""]
+      resources: [events]
+      verbs: [create, patch]
+    - apiGroups: [""]
+      resources: [secrets]
+      verbs: [get, list, watch]
+    - apiGroups: [cert-manager.io]
+      resources: [certificaterequests]
+      verbs: [get, list, update, watch]
+    - apiGroups: [cert-manager.io]
+      resources: [certificaterequests/status]
+      verbs: [get, patch, update]
+    - apiGroups: [certmanager.step.sm]
+      resources: [stepclusterissuers, stepissuers]
+      verbs: [create, delete, get, list, patch, update, watch]
+    - apiGroups: [certmanager.step.sm]
+      resources: [stepclusterissuers/status, stepissuers/status]
+      verbs: [get, patch, update]
+    - apiGroups: [coordination.k8s.io]
+      resources: [leases]
+      verbs: [create, get, update]
+
+networkPolicy:
+  enabled: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
