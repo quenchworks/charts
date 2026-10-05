@@ -1,0 +1,22 @@
+{{- if .Values.grafana.enabled }}
+# Owned by the umbrella so it can name the release's Pyroscope Service. Fixed name, so
+# the static grafana.extraVolumes value can mount it.
+# ponytail: fixed ConfigMap name => one profiling-stack per namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: profiling-stack-datasources
+  labels:
+    {{- include "profiling-stack.labels" . | nindent 4 }}
+data:
+  stack.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Pyroscope
+        type: grafana-pyroscope-datasource
+        uid: pyroscope
+        access: proxy
+        url: http://{{ .Release.Name }}-pyroscope:{{ .Values.pyroscope.service.port | default 4040 }}
+        isDefault: true
+        editable: false
+{{- end }}

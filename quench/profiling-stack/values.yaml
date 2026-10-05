@@ -1,0 +1,50 @@
+# profiling-stack: an umbrella over the QuenchWorks pyroscope and grafana charts, plus a
+# Grafana datasource for this release's Pyroscope.
+#
+#     your app --(Pyroscope SDK push, or Grafana Alloy)--> <release>-pyroscope:4040
+#     Grafana --(Pyroscope datasource)--> Explore -> Pyroscope (flame graphs)
+#
+# The datasource ConfigMap has a FIXED name (it is referenced from the static
+# grafana.extraVolumes below), so run one profiling-stack per namespace.
+# Clean stack: no host access, nothing cluster-scoped, both pods nonroot (uid 1001) with
+# read-only root filesystems.
+
+# Pyroscope (subchart), monolithic with its blocks on a PVC. Values pass straight
+# through to the pyroscope chart.
+pyroscope:
+  enabled: true
+  persistence:
+    enabled: true
+    size: 8Gi
+
+# Grafana (subchart). Keep datasources: [] here: the Pyroscope datasource comes from
+# this umbrella's ConfigMap so it can name the release's Pyroscope Service. Stateless:
+# persistence off, so a reinstall never keeps an old admin password on a PVC.
+grafana:
+  enabled: true
+  datasources: []
+  auth:
+    adminPassword: ""
+  extraVolumes:
+    - name: stack-datasources
+      configMap:
+        name: profiling-stack-datasources
+  extraVolumeMounts:
+    - name: stack-datasources
+      mountPath: /etc/grafana/provisioning/datasources/stack.yaml
+      subPath: stack.yaml
+      readOnly: true
+  persistence:
+    enabled: false
+
+# Optional Ingress, fronting Grafana by default (a stack has no Service of its own).
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # Backend Service. Unset -> "<release>-grafana".
+  serviceName: ""
+  # Backend port. Unset -> grafana.service.port.
+  servicePort: null
+  hosts: []
+  tls: []

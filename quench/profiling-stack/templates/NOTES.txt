@@ -1,0 +1,13 @@
+profiling-stack is installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+{{- if .Values.pyroscope.enabled }}
+
+Pyroscope: http://{{ .Release.Name }}-pyroscope.{{ .Release.Namespace }}.svc:{{ .Values.pyroscope.service.port | default 4040 }}
+  Point a Pyroscope SDK (serverAddress) or Grafana Alloy (pyroscope.write) at it.
+{{- end }}
+{{- if .Values.grafana.enabled }}
+
+Grafana, with the Pyroscope datasource as the default (Explore -> Pyroscope):
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-grafana 3000:{{ .Values.grafana.service.port | default 3000 }}
+  kubectl -n {{ .Release.Namespace }} get secret {{ .Release.Name }}-grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo
+{{- end }}
