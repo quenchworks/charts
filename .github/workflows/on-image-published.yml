@@ -63,11 +63,13 @@ jobs:
             # The name must end here: \b also matches before "-", which sent activemq's
             # digest to the activemq-artemis chart (repin.py's registry check refused it).
             grep -qE "ghcr.io/quenchworks/images/${APP}([^a-z0-9.-]|\$)" "$vy" || continue
-            n="$(grep -cE 'digest: *"?sha256:' "$vy" || true)"
             # A chart that pins the image inline (image: ...@sha256:) has no digest: key, so
             # grep finds nothing; under pipefail that ended the whole step (secrets-stack).
             first="$(grep -B4 -m1 -E 'digest: *"?sha256:' "$vy" | grep -oE 'images/[a-z0-9.-]+' | tail -1 | cut -d/ -f2 || true)"
-            if [ "$n" -eq 1 ] || [ "$first" = "$APP" ]; then simple="$simple $c"; else complex="$complex $c"; fi
+            # Simple only when the first digest is THIS app's. A single digest is not enough:
+            # argo-events has one digest key (its own) and pins nats inline, and the old
+            # `n -eq 1` shortcut sent nats's digest to argo-events (2026-10-05, run 37263400267).
+            if [ "$first" = "$APP" ]; then simple="$simple $c"; else complex="$complex $c"; fi
           done
           echo "simple=${simple# }"  >> "$GITHUB_OUTPUT"
           echo "complex=${complex# }" >> "$GITHUB_OUTPUT"
