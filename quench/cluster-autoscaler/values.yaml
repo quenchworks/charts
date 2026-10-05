@@ -1,0 +1,132 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/cluster-autoscaler
+  digest: "sha256:e3f5a024bd8e57ef17fbff2d4e5586365f341e16dc08b70ed7e9edd1f78588c0"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# One active autoscaler per cluster: replicas beyond 1 only stand by (leader election).
+replicaCount: 1
+
+# Required. The provider whose node groups this autoscaler resizes: aws, azure, gce,
+# clusterapi, hetzner, kwok, ... (every provider is compiled into the image). Provider
+# settings (credentials, --nodes or --node-group-auto-discovery, a cloud config) go in
+# extraArgs, extraEnvVars, extraVolumes and rbac.clusterRules.
+cloudProvider: ""
+# Appended to the command, e.g. ["--node-group-auto-discovery=asg:tag=...", "--scale-down-unneeded-time=5m"]
+extraArgs: []
+
+# Metrics and /health-check port (--address).
+containerPort: 8085
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # /metrics for Prometheus on the --address port.
+  port: 8085
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # The autoscaler IS an API-server client (it watches pods and nodes and writes node
+  # objects), so it needs a projected token; quench-common defaults this off.
+  automountServiceAccountToken: true
+
+# What the core autoscaler reads and writes, provider-independent. A provider that
+# keeps node groups in CRDs (clusterapi machinedeployments, ...) needs its rules added
+# to clusterRules. rules is the release-namespace Role: the status ConfigMap and the
+# leader-election lease, both named cluster-autoscaler*.
+rbac:
+  create: true
+  rules:
+    - apiGroups: [""]
+      resources: [configmaps]
+      verbs: [create, list, watch]
+    - apiGroups: [""]
+      resources: [configmaps]
+      resourceNames: [cluster-autoscaler-status, cluster-autoscaler-priority-expander, cluster-autoscaler]
+      verbs: [get, update, delete, watch]
+    - apiGroups: [coordination.k8s.io]
+      resources: [leases]
+      verbs: [create]
+    - apiGroups: [coordination.k8s.io]
+      resources: [leases]
+      resourceNames: [cluster-autoscaler]
+      verbs: [get, update]
+  clusterScoped: true
+  clusterRules:
+    - apiGroups: [""]
+      resources: [events, endpoints]
+      verbs: [create, patch]
+    - apiGroups: [""]
+      resources: [pods/eviction]
+      verbs: [create]
+    - apiGroups: [""]
+      resources: [pods/status]
+      verbs: [update]
+    - apiGroups: [""]
+      resources: [nodes]
+      verbs: [get, list, watch, update, create, delete]
+    - apiGroups: [""]
+      resources: [namespaces, pods, services, replicationcontrollers, persistentvolumeclaims, persistentvolumes, podtemplates, configmaps]
+      verbs: [get, list, watch]
+    - apiGroups: [apps]
+      resources: [daemonsets, replicasets, statefulsets]
+      verbs: [get, list, watch]
+    - apiGroups: [batch]
+      resources: [jobs, cronjobs]
+      verbs: [get, list, watch]
+    - apiGroups: [policy]
+      resources: [poddisruptionbudgets]
+      verbs: [list, watch]
+    - apiGroups: [storage.k8s.io]
+      resources: [storageclasses, csinodes, csidrivers, csistoragecapacities, volumeattachments]
+      verbs: [get, list, watch]
+    - apiGroups: [resource.k8s.io]
+      resources: [resourceslices, deviceclasses, resourceclaims]
+      verbs: [get, list, watch]
+    - apiGroups: [autoscaling.x-k8s.io]
+      resources: [provisioningrequests, provisioningrequests/status]
+      verbs: [get, list, watch, update, patch]
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+# A single replica cannot satisfy minAvailable: 1 and stay evictable, so off by default.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

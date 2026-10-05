@@ -1,0 +1,16 @@
+Quenchworks Cluster Autoscaler is installed as {{ include "quench-common.fullname" . }}
+(cloud provider: {{ .Values.cloudProvider }}).
+
+Watch it decide:
+
+  kubectl logs deploy/{{ include "quench-common.fullname" . }} -f
+  kubectl get configmap cluster-autoscaler-status -o jsonpath='{.data.status}'
+
+The status ConfigMap and the leader-election lease live in {{ .Release.Namespace }}.
+Metrics: http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}/metrics
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
