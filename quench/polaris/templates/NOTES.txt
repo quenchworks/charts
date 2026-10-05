@@ -1,0 +1,22 @@
+Quenchworks Polaris is installed as {{ include "quench-common.fullname" . }}.
+
+The dashboard audits the cluster's workloads on each request and serves the report
+on port {{ .Values.service.port }}:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  # http://127.0.0.1:8080/              the dashboard
+  # http://127.0.0.1:8080/results.json  the same audit as JSON
+
+It reads the cluster with a read-only ClusterRole (get/list on the kinds the checks
+target, including ConfigMaps and RBAC objects). Grant more kinds with
+rbac.clusterRules when a workload is owned by a custom resource.
+{{- if include "polaris.hasConfig" . }}
+
+Checks come from the mounted config at /config/config.yaml.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

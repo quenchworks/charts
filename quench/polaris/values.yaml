@@ -1,0 +1,122 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/polaris
+  digest: "sha256:ef8df1b24d5060da5ef79d07d8ee1a96bfe4b8403e627ec22b8d780df333e7d9"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The dashboard holds no state (each page load re-runs the audit), so more replicas
+# only add availability.
+replicaCount: 1
+
+# Polaris configuration (checks, severities, exemptions). Set config.yaml to a full
+# Polaris config; it is written to a ConfigMap, mounted at /config/config.yaml and
+# passed with --config. Empty uses the built-in defaults. config.existingConfigMap
+# mounts a ConfigMap you manage (key config.yaml). extraArgs are appended to
+# `polaris dashboard`.
+config:
+  yaml: ""
+  existingConfigMap: ""
+extraArgs: []
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # The dashboard listens on 8080; the Service maps the same port.
+  port: 8080
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # Polaris IS an API-server client (it lists the workloads it audits), so it needs a
+  # projected token; quench-common defaults this off for workloads that never call it.
+  automountServiceAccountToken: true
+
+# Read-only, cluster wide: get/list on every kind the built-in checks target or read
+# as an additional schema, plus the controller kinds Polaris walks pod owners through.
+# A kind it cannot list fails the whole audit, so add rules here for custom resources
+# that own pods in your cluster.
+rbac:
+  create: true
+  clusterScoped: true
+  clusterRules:
+    - apiGroups: [""]
+      resources: [pods, nodes, namespaces, configmaps, serviceaccounts, replicationcontrollers]
+      verbs: [get, list]
+    - apiGroups: [apps]
+      resources: [deployments, statefulsets, daemonsets, replicasets]
+      verbs: [get, list]
+    - apiGroups: [batch]
+      resources: [jobs, cronjobs]
+      verbs: [get, list]
+    - apiGroups: [networking.k8s.io]
+      resources: [ingresses, networkpolicies]
+      verbs: [get, list]
+    - apiGroups: [policy]
+      resources: [poddisruptionbudgets]
+      verbs: [get, list]
+    - apiGroups: [autoscaling]
+      resources: [horizontalpodautoscalers]
+      verbs: [get, list]
+    - apiGroups: [rbac.authorization.k8s.io]
+      resources: [roles, rolebindings, clusterroles, clusterrolebindings]
+      verbs: [get, list]
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+# One replica cannot satisfy minAvailable: 1 and still be evictable (it would block
+# node drains), so the PDB is off by default. Turn it on with replicaCount >= 2.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# Optional Ingress (HTTP only). Disabled by default, so enabling it is an explicit
+# operator decision and this chart's behaviour is unchanged until then.
+ingress:
+  enabled: false
+  # IngressClass to claim this Ingress. Empty -> the cluster default applies.
+  className: ""
+  annotations: {}
+  # Service port to route to. Unset -> resolved from service.port, then
+  # service.ports.http / .https.
+  servicePort: null
+  # e.g. [{host: app.example.com, paths: [{path: /, pathType: Prefix}]}]
+  # `paths` may be omitted for the common "/" Prefix case.
+  hosts: []
+  # Standard Ingress TLS list, e.g. [{hosts: [app.example.com], secretName: app-tls}]
+  tls: []
