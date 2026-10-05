@@ -1,0 +1,69 @@
+{{/*
+The webhook serving certificate, signed by a CA Helm generates, so the chart needs no
+cert-manager. Kept across upgrades: the live Secret is reused, and the caBundle below is
+read from it, so the API server keeps trusting the running pods.
+*/}}
+{{- $svc := include "quench-common.fullname" . -}}
+{{- $secret := include "connaisseur.tlsSecret" . -}}
+{{- $existing := lookup "v1" "Secret" .Release.Namespace $secret -}}
+{{- $ca := "" -}}{{- $crt := "" -}}{{- $key := "" -}}
+{{- if $existing -}}
+{{- $ca = index $existing.data "ca.crt" -}}{{- $crt = index $existing.data "tls.crt" -}}{{- $key = index $existing.data "tls.key" -}}
+{{- else -}}
+{{- $cn := printf "%s.%s.svc" $svc .Release.Namespace -}}
+{{- $caObj := genCA (printf "%s-ca" $svc) 3650 -}}
+{{- $cert := genSignedCert $cn nil (list $cn (printf "%s.%s" $svc .Release.Namespace) $svc) 3650 $caObj -}}
+{{- $ca = $caObj.Cert | b64enc -}}{{- $crt = $cert.Cert | b64enc -}}{{- $key = $cert.Key | b64enc -}}
+{{- end -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secret }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  ca.crt: {{ $ca }}
+  tls.crt: {{ $crt }}
+  tls.key: {{ $key }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ printf "%s-%s" $svc .Release.Namespace | trunc 63 | trimSuffix "-" }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+webhooks:
+  - name: connaisseur.{{ .Release.Namespace }}.svc
+    admissionReviewVersions: ["v1"]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    timeoutSeconds: {{ .Values.webhook.timeoutSeconds }}
+    clientConfig:
+      caBundle: {{ $ca }}
+      service:
+        name: {{ $svc }}
+        namespace: {{ .Release.Namespace }}
+        path: /mutate
+        port: {{ .Values.service.port }}
+    # Never gate the release's own namespace (the webhook's pods would wait on themselves)
+    # or the namespaces listed in webhook.excludeNamespaces.
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            {{- toYaml (prepend .Values.webhook.excludeNamespaces .Release.Namespace | uniq) | nindent 12 }}
+    rules:
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: [pods, replicationcontrollers]
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        resources: [deployments, replicasets, daemonsets, statefulsets]
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: ["batch"]
+        apiVersions: ["v1"]
+        resources: [jobs, cronjobs]

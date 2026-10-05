@@ -1,0 +1,92 @@
+{{/* /health answers 200 once the HTTPS server listens; it needs no upstream call. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/health" "port" "https" "scheme" "HTTPS") "initialDelaySeconds" 5 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/ready" "port" "https" "scheme" "HTTPS") "initialDelaySeconds" 2 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # the policy is read at startup, so a changed config rolls the pods
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "connaisseur.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: connaisseur
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            # 0 turns the signature cache off; above 0 it needs a Redis (not in this chart)
+            - name: CACHE_EXPIRY_SECONDS
+              value: {{ .Values.cacheExpirySeconds | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: https
+              containerPort: 5000
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: certs
+              mountPath: /app/certs
+              readOnly: true
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            - name: alerts
+              mountPath: /app/alerts
+              readOnly: true
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: certs
+          secret:
+            secretName: {{ include "connaisseur.tlsSecret" . }}
+            items:
+              - {key: tls.crt, path: tls.crt}
+              - {key: tls.key, path: tls.key}
+        - name: config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}
+            items:
+              - {key: config.yaml, path: config.yaml}
+        - name: alerts
+          configMap:
+            name: {{ include "quench-common.fullname" . }}
+            items:
+              - {key: alerts.yaml, path: config.yaml}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

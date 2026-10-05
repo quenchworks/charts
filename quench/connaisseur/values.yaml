@@ -1,0 +1,134 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/connaisseur
+  digest: "sha256:8111fa613c5c91c2185180a0cf5479ca378fbd6f8482d1232e7ec1ca3159f9cb"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Stateless; extra replicas share the webhook load.
+replicaCount: 1
+
+# Connaisseur's config, written to /app/config/config.yaml: validators (trust roots:
+# static, cosign, notaryv1, notaryv2) and the policy mapping image patterns to them. The
+# default admits every image, so installing the chart blocks nothing until you add a
+# signature validator and point the policy at it, e.g.
+#   validators:
+#     - {name: allow, type: static, approve: true}
+#     - name: mine
+#       type: cosign
+#       trustRoots: [{name: default, key: "-----BEGIN PUBLIC KEY-----..."}]
+#   policy:
+#     - {pattern: "*:*", validator: mine}
+#     - {pattern: "registry.k8s.io/*:*", validator: allow}
+validators:
+  - name: allow
+    type: static
+    approve: true
+  - name: deny
+    type: static
+    approve: false
+policy:
+  - pattern: "*:*"
+    validator: allow
+
+# /app/alerts/config.yaml (Slack, Opsgenie, ... notifications). Empty: none.
+alerting: {}
+
+# Signature cache lifetime; 0 disables it (a cache above 0 needs a Redis).
+cacheExpirySeconds: 0
+logLevel: info
+
+webhook:
+  # Fail rejects workloads while Connaisseur is unreachable; Ignore admits them unchecked.
+  failurePolicy: Fail
+  timeoutSeconds: 30
+  # Never checked, besides the release namespace (always excluded).
+  excludeNamespaces: [kube-system]
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # The API server calls the webhook on 443; the container serves HTTPS on 5000.
+  port: 443
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # Connaisseur reads a pod's owning workloads through the API (automatic child
+  # approval), so it needs a projected token; quench-common defaults this off.
+  automountServiceAccountToken: true
+
+# Read-only: automatic child approval admits a ReplicaSet or Pod whose owner Connaisseur
+# already checked, which needs get on the owner kinds.
+rbac:
+  create: true
+  clusterScoped: true
+  clusterRules:
+    - apiGroups: [apps]
+      resources: [deployments, replicasets, daemonsets, statefulsets]
+      verbs: [get, list]
+    - apiGroups: [batch]
+      resources: [jobs, cronjobs]
+      verbs: [get, list]
+    - apiGroups: [""]
+      resources: [pods, replicationcontrollers]
+      verbs: [get, list]
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+# One replica cannot satisfy minAvailable: 1 and still be evictable (it would block
+# node drains), so the PDB is off by default. Turn it on with replicaCount >= 2.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# Optional Ingress (HTTP only). Disabled by default, so enabling it is an explicit
+# operator decision and this chart's behaviour is unchanged until then.
+ingress:
+  enabled: false
+  # IngressClass to claim this Ingress. Empty -> the cluster default applies.
+  className: ""
+  annotations: {}
+  # Service port to route to. Unset -> resolved from service.port, then
+  # service.ports.http / .https.
+  servicePort: null
+  # e.g. [{host: app.example.com, paths: [{path: /, pathType: Prefix}]}]
+  # `paths` may be omitted for the common "/" Prefix case.
+  hosts: []
+  # Standard Ingress TLS list, e.g. [{hosts: [app.example.com], secretName: app-tls}]
+  tls: []
