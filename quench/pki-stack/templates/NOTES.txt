@@ -1,0 +1,20 @@
+pki-stack is installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Issue a certificate from your own CA:
+
+  apiVersion: cert-manager.io/v1
+  kind: Certificate
+  metadata: {name: web, namespace: my-app}
+  spec:
+    secretName: web-tls
+    dnsNames: [web.my-app.svc]
+    issuerRef: {group: certmanager.step.sm, kind: StepClusterIssuer, name: {{ .Release.Name }}-step-ca}
+
+Clients trust it through the root that trust-manager writes into every namespace:
+ConfigMap {{ .Release.Name }}-root-ca, key {{ .Values.wiring.bundleKey }}.
+
+  kubectl wait --for=condition=Ready stepclusterissuer/{{ .Release.Name }}-step-ca
+  kubectl get bundle {{ .Release.Name }}-root-ca
+
+The CA passwords are in Secret {{ index .Values "step-ca" "auth" "existingSecret" }}; the CA keys on the step-ca
+PVC are encrypted with them, so back both up together.

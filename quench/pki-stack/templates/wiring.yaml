@@ -1,0 +1,183 @@
+{{- $rel := .Release.Name -}}
+{{- $ns := .Release.Namespace -}}
+{{- $ca := printf "%s-step-ca" $rel -}}
+# cert-manager approves CertificateRequests only for signers its controller may approve.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $rel }}-step-issuer-approver
+  labels:
+    {{- include "pki-stack.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [cert-manager.io]
+    resources: [signers]
+    verbs: [approve]
+    resourceNames:
+      - stepissuers.certmanager.step.sm/*
+      - stepclusterissuers.certmanager.step.sm/*
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $rel }}-step-issuer-approver
+  labels:
+    {{- include "pki-stack.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $rel }}-step-issuer-approver
+subjects:
+  - kind: ServiceAccount
+    name: {{ $rel }}-cert-manager-controller
+    namespace: {{ $ns }}
+{{- if .Values.wiring.enabled }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $rel }}-pki-wiring
+  labels:
+    {{- include "pki-stack.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $rel }}-pki-wiring
+  labels:
+    {{- include "pki-stack.labels" . | nindent 4 }}
+rules:
+  # step-ca's public endpoints, read through the API server's service proxy
+  - apiGroups: [""]
+    resources: [services/proxy]
+    resourceNames: ["https:{{ $ca }}:443"]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $rel }}-pki-wiring
+  labels:
+    {{- include "pki-stack.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $rel }}-pki-wiring}
+subjects:
+  - {kind: ServiceAccount, name: {{ $rel }}-pki-wiring, namespace: {{ $ns }}}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $rel }}-pki-wiring
+  labels:
+    {{- include "pki-stack.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [certmanager.step.sm]
+    resources: [stepclusterissuers]
+    verbs: [get, list, watch, create, patch]
+  - apiGroups: [trust.cert-manager.io]
+    resources: [bundles]
+    verbs: [get, list, watch, create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $rel }}-pki-wiring
+  labels:
+    {{- include "pki-stack.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ $rel }}-pki-wiring}
+subjects:
+  - {kind: ServiceAccount, name: {{ $rel }}-pki-wiring, namespace: {{ $ns }}}
+---
+# The issuer and the Bundle cannot be plain release objects: they need values only the
+# running CA knows (root, key id), and the step-issuer and trust-manager webhooks are not
+# serving yet when Helm applies the release.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $rel }}-pki-wiring
+  labels:
+    {{- include "pki-stack.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pki-wiring
+        app.kubernetes.io/instance: {{ $rel }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ $rel }}-pki-wiring
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile: { type: RuntimeDefault }
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: wire
+          image: "{{ .Values.wiring.image.repository }}@{{ .Values.wiring.image.digest }}"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              proxy=/api/v1/namespaces/{{ $ns }}/services/https:{{ $ca }}:443/proxy
+              until kubectl get --raw "$proxy/health" 2>/dev/null | grep -q ok; do sleep 5; done
+              kubectl get --raw "$proxy/roots.pem" > /tmp/root.pem
+              grep -q 'BEGIN CERTIFICATE' /tmp/root.pem
+              kid="$(kubectl get --raw "$proxy/provisioners" | jq -r '[.provisioners[]|select(.type=="JWK")][0].key.kid')"
+              name="$(kubectl get --raw "$proxy/provisioners" | jq -r '[.provisioners[]|select(.type=="JWK")][0].name')"
+              [ -n "$kid" ] && [ "$kid" != null ]
+              kubectl create configmap {{ $ca }}-root --from-file=ca.crt=/tmp/root.pem \
+                --dry-run=client -o yaml | kubectl apply -f -
+              cat > /tmp/wiring.yaml <<YAML
+              apiVersion: certmanager.step.sm/v1beta1
+              kind: StepClusterIssuer
+              metadata:
+                name: {{ $ca }}
+              spec:
+                url: https://{{ $ca }}.{{ $ns }}.svc
+                caBundle: $(base64 -w0 /tmp/root.pem)
+                provisioner:
+                  name: $name
+                  kid: $kid
+                  passwordRef: {name: {{ index .Values "step-ca" "auth" "existingSecret" }}, namespace: {{ $ns }}, key: provisioner-password}
+              ---
+              apiVersion: trust.cert-manager.io/v1alpha1
+              kind: Bundle
+              metadata:
+                name: {{ $rel }}-root-ca
+              spec:
+                sources:
+                  - configMap: {name: {{ $ca }}-root, key: ca.crt}
+                target:
+                  configMap: {key: {{ .Values.wiring.bundleKey }}}
+                  {{- with .Values.wiring.namespaceSelector }}
+                  namespaceSelector:
+                    {{- toYaml . | nindent 20 }}
+                  {{- end }}
+              YAML
+              # the webhooks reject everything until they serve
+              until kubectl apply -f /tmp/wiring.yaml; do sleep 5; done
+              kubectl wait --for=condition=Ready stepclusterissuer/{{ $ca }} --timeout=300s
+              kubectl wait --for=condition=Synced bundle/{{ $rel }}-root-ca --timeout=300s
+          env:
+            - { name: HOME, value: /tmp }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

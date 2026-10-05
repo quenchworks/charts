@@ -1,0 +1,48 @@
+# pki-stack: step-ca + cert-manager + step-issuer + trust-manager, wired together.
+#
+#   Certificate (issuerRef <release>-step-ca) --> cert-manager --> step-issuer
+#        --(JWK provisioner)--> step-ca signs it
+#   step-ca root --> ConfigMap <release>-step-ca-root (this namespace, the trust namespace)
+#        --> trust-manager Bundle --> ConfigMap <release>-root-ca in every namespace
+#
+# A post-install/post-upgrade Job does the wiring once step-ca and the webhooks answer:
+# it reads the root (GET /roots.pem) and the first JWK provisioner's key id
+# (GET /provisioners) through the API server's service proxy, then applies the
+# StepClusterIssuer, the root ConfigMap and the Bundle. Install one pki-stack per cluster:
+# cert-manager, the CRDs and the cluster issuer are cluster-wide.
+
+# The CA. The stack generates both CA passwords into the Secret named below (a
+# pre-install hook, so it exists before step-ca's bootstrap Job; never deleted, so the CA
+# can still decrypt its keys after an upgrade). Point existingSecret at your own Secret
+# (keys password, provisioner-password) to supply them instead.
+step-ca:
+  auth:
+    existingSecret: pki-stack-ca-auth
+  ca:
+    name: "QuenchWorks pki-stack CA"
+  persistence:
+    enabled: true
+    size: 1Gi
+
+cert-manager: {}
+
+# The stack binds the approver itself (it needs the release-prefixed cert-manager
+# ServiceAccount), so the subchart's own binding is off.
+step-issuer:
+  approver:
+    enabled: false
+
+# trust-manager reads Bundle sources from the release namespace (its trust namespace).
+trust-manager: {}
+
+wiring:
+  enabled: true
+  # Target ConfigMap key holding the root in every namespace.
+  bundleKey: ca.crt
+  # Only namespaces matching this selector get the root. Empty: all of them.
+  namespaceSelector: {}
+  image:
+    repository: ghcr.io/quenchworks/images/kubectl
+    digest: "sha256:4033ac5e5f359739cf017a256188a8da7592edae86e452c6327dc4865a66a580"
+
+imagePullSecrets: []
