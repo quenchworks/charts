@@ -1,0 +1,109 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/mongo-express
+  digest: "sha256:ab8e2e98cf6e07ad4dba7e6d80ee2d628f98e802df14c86aaa5e3f185c475a1f"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Mongo Express is a stateless Node UI on port 8081; it keeps nothing on disk, so pods
+# scale out. It manages an existing MongoDB or MongoDB-compatible server (FerretDB);
+# the chart bundles no database.
+replicaCount: 1
+
+# --- The server to manage (required: url or existingSecret) ---
+# The URL carries the credentials, so it is stored in a Secret either way, e.g.
+# mongodb://user:pass@mongodb:27017/?authSource=admin
+mongodb:
+  url: ""
+  existingSecret: ""
+  existingSecretUrlKey: mongodb-url
+
+# Show every database the user can list (needs listDatabases); false shows only the
+# database named in the URL.
+listAllDatabases: true
+# Disable every write (insert, update, delete, drop) in the UI.
+readOnly: false
+# Serve under a path prefix, e.g. /mongo/ behind a shared ingress host.
+baseUrl: /
+
+# HTTP basic auth in front of the UI. On by default: Mongo Express is full read-write
+# access to the database.
+basicAuth:
+  enabled: true
+  username: admin
+  # Empty generates one into the managed Secret, kept across upgrades.
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+# Sign the session and cookies. Empty generates them, kept across upgrades. Set both
+# when you run several replicas without sticky sessions.
+sessionSecret: ""
+cookieSecret: ""
+
+resources:
+  requests: { cpu: 50m, memory: 96Mi }
+  limits: { cpu: "1", memory: 384Mi }
+
+service:
+  type: ClusterIP
+  port: 8081
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Merged over the hardened quench-common defaults (nonroot uid 1001, read-only rootfs).
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Ingress is limited to the release namespace unless allowExternal (or an Ingress
+# fronts the Service). Egress is DNS plus mongodbPort on any host.
+networkPolicy:
+  enabled: true
+  allowExternal: false
+  mongodbPort: 27017
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []

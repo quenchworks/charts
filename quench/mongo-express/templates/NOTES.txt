@@ -1,0 +1,23 @@
+Mongo Express {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }}, managing the
+server in {{ if .Values.mongodb.existingSecret }}Secret {{ .Values.mongodb.existingSecret }}{{ else }}mongodb.url{{ end }}.
+{{- if .Values.basicAuth.enabled }}
+
+Login ({{ .Values.basicAuth.username }}):
+
+  kubectl get secret {{ include "mongo-express.auth.secretName" . }} -o jsonpath='{.data.{{ include "mongo-express.auth.secretKey" . }}}' | base64 -d; echo
+{{- else }}
+
+basicAuth.enabled=false: anyone who reaches the Service has full access to the database.
+{{- end }}
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8081:{{ .Values.service.port }}
+  # http://127.0.0.1:8081{{ .Values.baseUrl }}
+
+Readiness checks only that the UI serves {{ .Values.baseUrl }}status; a wrong URL or
+password shows up as an error page in the UI and in the pod log.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
