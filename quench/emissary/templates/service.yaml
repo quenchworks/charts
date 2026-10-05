@@ -1,0 +1,38 @@
+{{/* The gateway: Listener resources pick the container ports (8080 and 8443 by convention). */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.httpPort }}
+      targetPort: http
+    - name: https
+      port: {{ .Values.service.httpsPort }}
+      targetPort: https
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+---
+{{/* Admin and diagnostics (check_alive, check_ready, /metrics), cluster-internal only */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}-admin
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: admin
+      port: 8877
+      targetPort: admin
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

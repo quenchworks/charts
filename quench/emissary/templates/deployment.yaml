@@ -1,0 +1,93 @@
+{{/* The admin port answers check_alive once the entrypoint runs and check_ready once Envoy
+     holds a configuration, so readiness means the gateway can route. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/ambassador/v0/check_alive" "port" "admin") "initialDelaySeconds" 30 "periodSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/ambassador/v0/check_ready" "port" "admin") "initialDelaySeconds" 10 "periodSeconds" 5 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "emissary.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: emissary
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: HOST_IP
+              valueFrom:
+                fieldRef: {fieldPath: status.hostIP}
+            - name: AMBASSADOR_NAMESPACE
+              valueFrom:
+                fieldRef: {fieldPath: metadata.namespace}
+            {{- if .Values.singleNamespace }}
+            - name: AMBASSADOR_SINGLE_NAMESPACE
+              value: "YES"
+            {{- end }}
+            {{- with .Values.ambassadorId }}
+            - name: AMBASSADOR_ID
+              value: {{ . | quote }}
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: https
+              containerPort: 8443
+            - name: admin
+              containerPort: 8877
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # snapshots, the generated Envoy config and the sidecars dir
+            - name: ambassador
+              mountPath: /ambassador
+            # HOME is /tmp/ambassador; Python and Envoy also write under /tmp
+            - name: tmp
+              mountPath: /tmp
+            - name: pod-info
+              mountPath: /tmp/ambassador-pod-info
+              readOnly: true
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: ambassador
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: pod-info
+          downwardAPI:
+            items:
+              - path: labels
+                fieldRef: {fieldPath: metadata.labels}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

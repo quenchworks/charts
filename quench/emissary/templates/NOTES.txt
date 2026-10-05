@@ -1,0 +1,26 @@
+Quenchworks Emissary-ingress is installed as {{ include "quench-common.fullname" . }}{{ if .Values.crds.enabled }}, with the
+getambassador.io v3alpha1 CRDs{{ end }}.
+
+Nothing listens until you add Listeners. A minimal HTTP setup:
+
+  kubectl apply -f - <<YAML
+  apiVersion: getambassador.io/v3alpha1
+  kind: Listener
+  metadata: {name: http, namespace: {{ .Release.Namespace }}}
+  spec: {port: 8080, protocol: HTTP, securityModel: XFP, hostBinding: {namespace: {from: ALL}}}
+  ---
+  apiVersion: getambassador.io/v3alpha1
+  kind: Mapping
+  metadata: {name: my-app}
+  spec: {hostname: "*", prefix: /my-app/, service: my-app.default:80}
+  YAML
+
+Gateway Service: {{ include "quench-common.fullname" . }} ({{ .Values.service.type }}, ports {{ .Values.service.httpPort }} and {{ .Values.service.httpsPort }}).
+Diagnostics: kubectl port-forward svc/{{ include "quench-common.fullname" . }}-admin 8877
+  then http://127.0.0.1:8877/ambassador/v0/diag/
+
+The images are pinned by digest and signed. Verify them:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
