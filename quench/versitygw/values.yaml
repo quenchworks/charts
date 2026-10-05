@@ -1,0 +1,115 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/versitygw
+  digest: "sha256:783ea36fcc7afd7ae3572f021e6306bc1ac113ad366c0099b3d471adfdaa87fd"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The posix backend keeps buckets as directories under one data dir, so a single
+# replica owns it; keep this at 1 (run several gateways over shared storage yourself).
+replicaCount: 1
+
+# The gateway listens on 7070 (versitygw's default --port). This drives the container
+# port, the --port flag, the Service targetPort and the probes.
+containerPort: 7070
+
+# Root account. versitygw refuses to start without both keys. Empty values: the chart
+# generates them on first install and keeps them on upgrade (read them from the
+# Secret, see NOTES). existingSecret uses a Secret you manage instead.
+auth:
+  accessKey: ""
+  secretKey: ""
+  existingSecret: ""
+  existingSecretAccessKeyKey: access-key
+  existingSecretSecretKeyKey: secret-key
+
+# Flags placed before the backend subcommand (e.g. ["--region", "eu-west-1"]).
+# --port and --health are always set by the chart.
+globalArgs: []
+# The backend subcommand and its arguments. The default serves the posix backend
+# from the PVC at /data; any other backend (s3, azure, ...) replaces this list.
+backendArgs: ["posix", "/data"]
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 7070
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # S3 clients usually live outside the namespace (apps, backup tools, other clusters).
+  # Set true to allow ingress from any source; default restricts client traffic
+  # to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Optional Ingress (HTTP only). Disabled by default, so enabling it is an explicit
+# operator decision and this chart's behaviour is unchanged until then.
+ingress:
+  enabled: false
+  # IngressClass to claim this Ingress. Empty -> the cluster default applies.
+  className: ""
+  annotations: {}
+  # Service port to route to. Unset -> resolved from service.port, then
+  # service.ports.http / .https.
+  servicePort: null
+  # e.g. [{host: app.example.com, paths: [{path: /, pathType: Prefix}]}]
+  # `paths` may be omitted for the common "/" Prefix case.
+  hosts: []
+  # Standard Ingress TLS list, e.g. [{hosts: [app.example.com], secretName: app-tls}]
+  tls: []

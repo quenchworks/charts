@@ -1,0 +1,26 @@
+Quenchworks versitygw is installed as {{ include "quench-common.fullname" . }}.
+
+S3 endpoint inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Root credentials (Secret {{ include "versitygw.secretName" . }}):
+
+  kubectl get secret {{ include "versitygw.secretName" . }} -o jsonpath='{.data.{{ .Values.auth.existingSecretAccessKeyKey }}}' | base64 -d; echo
+  kubectl get secret {{ include "versitygw.secretName" . }} -o jsonpath='{.data.{{ .Values.auth.existingSecretSecretKeyKey }}}' | base64 -d; echo
+
+Try it from your laptop:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 7070:{{ .Values.service.port }}
+  aws --endpoint-url http://127.0.0.1:7070 s3 mb s3://demo
+
+{{- if has "/data" .Values.backendArgs }}
+
+Buckets are directories under /data on the PVC.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
