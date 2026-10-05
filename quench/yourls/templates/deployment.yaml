@@ -1,0 +1,127 @@
+{{/* Readiness asks for the admin login page, which renders only once the tables exist
+     and the database answers, so --wait on readiness is an integration test. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/admin/" "port" "http") "initialDelaySeconds" 20 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/admin/" "port" "http") "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $fullname := include "quench-common.fullname" . -}}
+{{- define "yourls.env" -}}
+- name: YOURLS_DB_HOST
+  value: {{ printf "%s:%v" (include "yourls.db.host" .) (include "yourls.db.port" .) | quote }}
+- name: YOURLS_DB_NAME
+  value: {{ include "yourls.db.name" . | quote }}
+- name: YOURLS_DB_USER
+  value: {{ include "yourls.db.user" . | quote }}
+- name: YOURLS_DB_PASS
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "yourls.db.secretName" . }}
+      key: {{ include "yourls.db.secretKey" . }}
+- name: YOURLS_DB_PREFIX
+  value: {{ .Values.yourls.dbPrefix | quote }}
+- name: YOURLS_SITE
+  value: {{ required "yourls.site is required: the public URL short links are built on" .Values.yourls.site | quote }}
+- name: YOURLS_PRIVATE
+  value: {{ .Values.yourls.private | quote }}
+- name: YOURLS_UNIQUE_URLS
+  value: {{ .Values.yourls.uniqueUrls | quote }}
+- name: YOURLS_RESERVED
+  value: {{ join "," .Values.yourls.reservedKeywords | quote }}
+- name: YOURLS_USER
+  value: {{ .Values.yourls.admin.username | quote }}
+- name: YOURLS_PASS
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "yourls.admin.secretName" . }}
+      key: {{ include "yourls.admin.secretKey" . }}
+- name: YOURLS_COOKIEKEY
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "quench-common.fullname" . }}
+      key: cookie-key
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # the cookie key and admin password come from this Secret; a change rolls the pods
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "yourls.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        # Waits for the database, then creates the tables once; later starts find YOURLS
+        # installed and exit without touching anything.
+        - name: install
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/local/bin/yourls-install"]
+          env:
+            {{- include "yourls.env" . | nindent 12 }}
+            - name: YOURLS_DB_WAIT
+              value: {{ .Values.init.dbWaitSeconds | quote }}
+          resources:
+            {{- toYaml .Values.init.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: yourls
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- include "quench-common.args" . | nindent 10 }}
+          env:
+            {{- include "yourls.env" . | nindent 12 }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # supervisord, nginx and PHP sessions write here on the read-only rootfs
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

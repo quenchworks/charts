@@ -1,0 +1,135 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/yourls
+  digest: "sha256:f2832d3b386f52e41aa2f15f2e8c45e76fc8417350d7cd2d224bceb8db204f2d"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# YOURLS is served by PHP-FPM + nginx (supervisord) on port 8080 and keeps everything
+# (links, clicks, options) in the database, so pods are stateless and scale out. On every
+# start an init container runs yourls-install: it waits for the database and creates the
+# tables the first time; later starts find them and do nothing.
+replicaCount: 1
+
+yourls:
+  # Required: the public base URL short links are built on, e.g. https://sho.rt
+  site: ""
+  # Private: only the admin can shorten (the API needs credentials). false opens a
+  # public shortening form and API.
+  private: true
+  # One short link per long URL (false allows several keywords for the same URL).
+  uniqueUrls: true
+  # Keywords that may never become short links.
+  reservedKeywords: []
+  # Table prefix, so several installs can share one database.
+  dbPrefix: "yourls_"
+  admin:
+    username: admin
+    # Empty generates one into the managed Secret, kept across upgrades.
+    password: ""
+    existingSecret: ""
+    existingSecretPasswordKey: admin-password
+  # Signs the login cookie. Empty generates one, kept across upgrades.
+  cookieKey: ""
+
+# --- Bundled MariaDB (the default) ---
+# The YOURLS pod reads the password from the MariaDB subchart's own Secret, so the two
+# can never disagree.
+mariadb:
+  enabled: true
+  auth:
+    # Both are generated into MariaDB's Secret if left empty.
+    rootPassword: ""
+    password: ""
+    database: yourls
+    username: yourls
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- External database (mariadb.enabled=false) ---
+# The database and user must exist; yourls-install creates the tables. With
+# existingSecret, that Secret supplies the password under existingSecretPasswordKey.
+externalDatabase:
+  host: ""
+  port: 3306
+  database: yourls
+  user: yourls
+  password: ""          # generated into the managed Secret if empty and no existingSecret
+  existingSecret: ""
+  existingSecretPasswordKey: db-password
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+init:
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+  # How long yourls-install waits for the database before failing (the pod then
+  # restarts it).
+  dbWaitSeconds: 300
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Merged over the hardened quench-common defaults (nonroot uid 1001, read-only rootfs).
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Short links are public by design; ingress is still limited to the release namespace
+# unless allowExternal (or an Ingress fronts the Service).
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []

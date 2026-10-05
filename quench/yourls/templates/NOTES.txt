@@ -1,0 +1,22 @@
+YOURLS {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }}. The init
+container creates the tables on first start; the pod is Ready once /admin/ renders.
+
+Short links are built on {{ .Values.yourls.site }}. Point that host at the Service
+(port {{ .Values.service.port }}) through an Ingress or a proxy.
+
+Admin login ({{ .Values.yourls.admin.username }}):
+
+  kubectl get secret {{ include "yourls.admin.secretName" . }} -o jsonpath='{.data.{{ include "yourls.admin.secretKey" . }}}' | base64 -d; echo
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  # http://127.0.0.1:8080/admin/
+
+Shorten through the API:
+
+  curl {{ .Values.yourls.site }}/yourls-api.php -d action=shorturl -d format=json \
+    -d username={{ .Values.yourls.admin.username }} -d password=... --data-urlencode url=https://example.com
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
