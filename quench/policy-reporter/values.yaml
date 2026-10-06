@@ -1,0 +1,108 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/policy-reporter
+  digest: "sha256:0de9d06f2e2027c56c9b6bc563b0c7b4364890292505b3bc6d34839d1d001590"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The result cache is per pod and rebuilt from the cluster's reports on start.
+replicaCount: 1
+
+# REST API (/v1/...) for UIs and scripts, and Prometheus metrics (policy_report_result).
+rest:
+  enabled: true
+metrics:
+  enabled: true
+
+# Policy Reporter's config file, as-is (see upstream's docs for targets, filters, report
+# sources). TargetConfig CRDs are off: targets are configured here.
+config:
+  crd:
+    targetConfig: false
+
+extraArgs: []
+
+resources:
+  requests: { cpu: 25m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # Policy Reporter watches the API server, so it needs a projected token; quench-common
+  # defaults this off.
+  automountServiceAccountToken: true
+
+# Read-only cluster-wide: the reports, namespaces, and the owners it resolves for a
+# result's resource. Release namespace: leader leases and target Secrets.
+rbac:
+  create: true
+  clusterScoped: true
+  rules:
+    - apiGroups: [coordination.k8s.io]
+      resources: [leases]
+      verbs: [create, delete, get, patch, update]
+    - apiGroups: [""]
+      resources: [secrets]
+      verbs: [get, list, watch]
+  clusterRules:
+    - apiGroups: [wgpolicyk8s.io]
+      resources: [policyreports, policyreports/status, clusterpolicyreports, clusterpolicyreports/status]
+      verbs: [get, list, watch]
+    - apiGroups: [openreports.io]
+      resources: [reports, reports/status, clusterreports, clusterreports/status]
+      verbs: [get, list, watch]
+    - apiGroups: [""]
+      resources: [namespaces]
+      verbs: [list]
+    - apiGroups: [""]
+      resources: [pods]
+      verbs: [get]
+    - apiGroups: [batch]
+      resources: [jobs]
+      verbs: [get]
+    - apiGroups: [apps]
+      resources: [replicasets]
+      verbs: [get]
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
