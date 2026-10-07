@@ -1,0 +1,121 @@
+{{- $rel := .Release.Name -}}
+{{- $ns := .Release.Namespace -}}
+{{- $db := printf "%s-db" $rel -}}
+{{- if .Values.galera.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $rel }}-mariadb-wiring
+  labels:
+    {{- include "mysql-ha-stack.labels" . | nindent 4 }}
+data:
+  database.yaml: |
+    {{- $g := .Values.galera }}
+    {{- $spec := dict
+        "replicas" $g.replicas
+        "galera" (dict "enabled" true)
+        "metrics" (dict "enabled" $g.metrics)
+        "rootPasswordSecretKeyRef" (dict "name" (printf "%s-root" $db) "key" "password" "generate" true)
+        "database" $g.database
+        "username" $g.username
+        "passwordSecretKeyRef" (dict "name" (printf "%s-user" $db) "key" "password" "generate" true)
+        "storage" (dict "size" $g.storage.size) }}
+    {{- with $g.storage.storageClass }}{{ $_ := set $spec.storage "storageClassName" . }}{{ end }}
+    {{- with $g.resources }}{{ $_ := set $spec "resources" . }}{{ end }}
+    {{- with .Values.imagePullSecrets }}{{ $_ := set $spec "imagePullSecrets" . }}{{ end }}
+    apiVersion: k8s.mariadb.com/v1alpha1
+    kind: MariaDB
+    metadata:
+      name: {{ $db }}
+      namespace: {{ $ns }}
+    spec:
+      {{- toYaml (mergeOverwrite $spec (deepCopy $g.extraSpec)) | nindent 6 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $rel }}-mariadb-wiring
+  labels:
+    {{- include "mysql-ha-stack.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $rel }}-mariadb-wiring
+  labels:
+    {{- include "mysql-ha-stack.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [k8s.mariadb.com]
+    resources: [mariadbs]
+    verbs: [get, list, watch, create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $rel }}-mariadb-wiring
+  labels:
+    {{- include "mysql-ha-stack.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $rel }}-mariadb-wiring}
+subjects:
+  - {kind: ServiceAccount, name: {{ $rel }}-mariadb-wiring, namespace: {{ $ns }}}
+---
+# The MariaDB cannot be a release object: the operator's admission webhook is not serving
+# yet when Helm applies the release, so the apply retries here instead.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $rel }}-mariadb-wiring
+  labels:
+    {{- include "mysql-ha-stack.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 1800
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mariadb-wiring
+        app.kubernetes.io/instance: {{ $rel }}
+      annotations:
+        checksum/database: {{ .Values | toJson | sha256sum }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ $rel }}-mariadb-wiring
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile: { type: RuntimeDefault }
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: wire
+          image: "{{ .Values.wiring.image.repository }}@{{ .Values.wiring.image.digest }}"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              # the webhook rejects everything until the operator serves it
+              until kubectl apply --server-side --force-conflicts -f /wiring/database.yaml; do sleep 5; done
+              kubectl wait mariadb/{{ $db }} --for=condition=Ready --timeout=1500s
+          env:
+            - { name: HOME, value: /tmp }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: wiring, mountPath: /wiring }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: wiring
+          configMap:
+            name: {{ $rel }}-mariadb-wiring
+{{- end }}

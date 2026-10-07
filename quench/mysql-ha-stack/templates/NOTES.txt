@@ -1,0 +1,11 @@
+mysql-ha-stack is installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+{{- if .Values.galera.enabled }}
+
+  kubectl -n {{ .Release.Namespace }} get mariadb {{ .Release.Name }}-db
+  kubectl -n {{ .Release.Namespace }} get secret {{ .Release.Name }}-db-user -o jsonpath='{.data.password}' | base64 -d; echo
+
+Apps connect to {{ .Release.Name }}-db:3306 (any node) or {{ .Release.Name }}-db-primary:3306,
+as user {{ .Values.galera.username }}, database {{ .Values.galera.database }}.
+{{- end }}
+
+The MariaDB resource is not a release object: `helm uninstall` keeps the database.

@@ -1,0 +1,40 @@
+# mysql-ha-stack: MariaDB Operator + one Galera cluster.
+#
+#   apps --> <release>-db:3306 (any node; Galera replicates synchronously, multi-primary)
+#            <release>-db-primary:3306 (one write node)
+#
+# The MariaDB resource is applied by a post-install/upgrade hook Job, because the
+# operator's admission webhook is not serving yet when Helm applies the release. It is not
+# a release object: `helm uninstall` keeps the database (and its PVCs); delete it with
+# `kubectl delete mariadb <release>-db`.
+
+# The operator (subchart). Values pass straight through; its config.mariadbImage and
+# config.exporterImage are the images the cluster runs.
+mariadb-operator: {}
+
+galera:
+  enabled: true
+  # 3 is the smallest cluster that keeps quorum through one lost node.
+  replicas: 3
+  storage:
+    size: 8Gi
+    storageClass: ""
+  # Created at bootstrap; credentials in Secrets <release>-db-root (password) and
+  # <release>-db-user (password) for user `app`.
+  database: app
+  username: app
+  # mysqld_exporter beside each node. MariaDB Operator only creates it when the Prometheus
+  # Operator's ServiceMonitor CRD is installed (it reconciles a ServiceMonitor too);
+  # without that CRD every reconcile logs "ServiceMonitor CRD not installed".
+  metrics: false
+  resources: {}
+  # Merged into the MariaDB spec as-is, e.g. myCnf, affinity, galera.sst.
+  extraSpec: {}
+
+# The hook Job that applies the MariaDB resource.
+wiring:
+  image:
+    repository: ghcr.io/quenchworks/images/kubectl
+    digest: "sha256:4033ac5e5f359739cf017a256188a8da7592edae86e452c6327dc4865a66a580"
+
+imagePullSecrets: []
