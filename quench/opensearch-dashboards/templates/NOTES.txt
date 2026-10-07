@@ -1,0 +1,15 @@
+OpenSearch Dashboards {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }}, serving
+{{ join ", " .Values.opensearch.hosts }}.
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 5601:{{ .Values.service.port }}
+  # http://127.0.0.1:5601
+
+The image has no security plugin, so there is no login: anyone who reaches the Service
+can read and change what the cluster serves. Keep networkPolicy on, or put an
+authenticating proxy in front.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

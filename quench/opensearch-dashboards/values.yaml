@@ -1,0 +1,88 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/opensearch-dashboards
+  digest: "sha256:fe8e7e8565296ddd38037ff9c31590fe5901b70cf3b257d5a14ea9552a4edd38"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# OpenSearch Dashboards is a stateless Node UI on port 5601: its saved objects live in
+# the cluster's .kibana index, so pods scale out. The image ships without the security
+# plugin, like the catalog opensearch image.
+replicaCount: 1
+
+opensearch:
+  # The cluster to serve. Use the same minor as Dashboards (appVersion).
+  hosts:
+    - http://opensearch:9200
+
+# Merged into opensearch_dashboards.yml, e.g. server.basePath, opensearch.requestTimeout,
+# or opensearch.username with opensearch.password: "${OSD_PASSWORD}" plus that
+# variable from extraEnvVarsSecret.
+extraConfig: {}
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { cpu: "1", memory: 1536Mi }
+
+service:
+  type: ClusterIP
+  port: 5601
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Merged over the hardened quench-common defaults (nonroot uid 1001, read-only rootfs).
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Ingress is limited to the release namespace unless allowExternal (or an Ingress
+# fronts the Service). Egress is DNS plus opensearchPort on any host.
+networkPolicy:
+  enabled: true
+  allowExternal: false
+  opensearchPort: 9200
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
