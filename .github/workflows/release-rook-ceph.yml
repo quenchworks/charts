@@ -66,6 +66,7 @@ jobs:
             --wait --timeout 12m
           kubectl config set-context --current --namespace=rook-ceph
           ceph_image="$(helm get notes r -n rook-ceph | sed -n 's/^ *image: //p' | head -1)"
+          node="$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')"
           echo "ceph image: $ceph_image"
           # One mon, one mgr, one OSD on the loop device; pools of size 1 so health can settle.
           kubectl apply -f - <<EOF
@@ -81,10 +82,13 @@ jobs:
             crashCollector: {disable: true}
             cephConfig:
               global: {osd_pool_default_size: "1", mon_warn_on_pool_no_redundancy: "false"}
+            # Rook takes a loop device only when it is named in devices, not by deviceFilter.
             storage:
-              useAllNodes: true
+              useAllNodes: false
               useAllDevices: false
-              deviceFilter: "^${LOOP}$"
+              nodes:
+                - name: "$node"
+                  devices: [{name: "/dev/${LOOP}"}]
           EOF
           ok=""
           for _ in $(seq 1 90); do
@@ -94,6 +98,8 @@ jobs:
             sleep 10
           done
           test -n "$ok"
+          # The OSD Deployment appears after the prepare Job; kubectl wait errors on no match.
+          for _ in $(seq 1 60); do kubectl get pod -l app=rook-ceph-osd -o name | grep -q . && break; sleep 10; done
           kubectl wait pod -l app=rook-ceph-osd --for=condition=Ready --timeout=600s
           echo "CephCluster Ready with an OSD on /dev/${LOOP}"
           # Object storage: an RGW store and a user, then an S3 put and get through the gateway.
