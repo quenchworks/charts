@@ -1,0 +1,46 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/rook
+  digest: "sha256:f2d7ae6dbeba9ad11ed3bf3399e4f9ea770fe10d02579ff309da59f41c974060"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The Ceph image to put in your CephCluster's spec.cephVersion.image (the operator does
+# not pick one itself). Printed by NOTES.txt.
+cephImage:
+  repository: ghcr.io/quenchworks/images/ceph
+  tag: "20.2.4"
+  digest: "sha256:50675f9ff6b4dc8bb3923407597dc270c0ff05b26dfe3b81ede6037083e79282"
+
+# Watch CephClusters in every namespace (false) or only the release namespace (true).
+currentNamespaceOnly: false
+
+# rook-ceph-operator-config, the settings the operator reads at start and on change.
+# Merged over these defaults. CSI is off in this chart release: block and filesystem
+# PVCs need the ceph-csi-operator, which is not packaged yet; object storage (RGW),
+# CephBlockPool/CephFilesystem management and the cluster itself work without it.
+config:
+  ROOK_LOG_LEVEL: "INFO"
+  ROOK_OPERATOR_METRICS_BIND_ADDRESS: "0"
+  ROOK_CEPH_ALLOW_LOOP_DEVICES: "false"
+  ROOK_ENABLE_DISCOVERY_DAEMON: "false"
+  ROOK_CREATE_CSI_OPERATOR_RESOURCES: "false"
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 10
+podSecurityContext: {}
+containerSecurityContext: {}
