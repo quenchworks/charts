@@ -1,0 +1,71 @@
+# Pinned by digest; the catalog lock moves it after every green image build. Never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/storm
+  digest: "sha256:04489dd03d33b8ecf6c71a53639cab73a9c85196c0d97b00c89f7049f2eae131"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# One image, three workloads. Nimbus keeps uploaded topology jars in storm.local.dir,
+# so it runs as a StatefulSet with a PVC; supervisors and the UI are stateless.
+nimbus:
+  persistence:
+    enabled: true
+    size: 8Gi
+    storageClass: ""
+    accessModes: ["ReadWriteOnce"]
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+supervisor:
+  replicaCount: 1
+  # worker slots: one port per worker JVM the supervisor may launch
+  slotPorts: [6700, 6701, 6702, 6703]
+  resources:
+    requests: { cpu: 100m, memory: 768Mi }
+    limits: { cpu: "2", memory: 4Gi }
+
+ui:
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 8080
+  resources:
+    requests: { cpu: 50m, memory: 384Mi }
+    limits: { cpu: "1", memory: 768Mi }
+
+# Extra storm.yaml keys, merged over the chart's (ZooKeeper, Nimbus seeds, ports, dirs).
+extraConfig: {}
+
+# The bundled ZooKeeper. Set enabled: false and externalZookeeper.servers to use your own.
+zookeeper:
+  enabled: true
+externalZookeeper:
+  servers: []
+  port: 2181
+
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}

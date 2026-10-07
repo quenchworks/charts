@@ -1,0 +1,20 @@
+{{- $base := dict
+  "storm.zookeeper.servers" (include "storm.zookeeperServers" . | fromJsonArray)
+  "storm.zookeeper.port" (ternary 2181 .Values.externalZookeeper.port .Values.zookeeper.enabled)
+  "storm.zookeeper.root" (printf "/storm/%s" .Release.Name)
+  "nimbus.seeds" (list (include "storm.nimbusHost" .))
+  "nimbus.thrift.port" 6627
+  "ui.port" 8080
+  "storm.local.dir" "/data"
+  "storm.log.dir" "/tmp/storm/logs"
+  "supervisor.slots.ports" .Values.supervisor.slotPorts
+-}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  storm.yaml: |
+    {{- mergeOverwrite $base .Values.extraConfig | toYaml | nindent 4 }}

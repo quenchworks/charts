@@ -1,0 +1,61 @@
+{{- $sel := dict "ctx" . "component" "nimbus" -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "storm.nimbusHost" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  # supervisors and the UI must reach Nimbus before it reports ready
+  publishNotReadyAddresses: true
+  ports:
+    - name: thrift
+      port: 6627
+      targetPort: thrift
+  selector:
+    {{- include "storm.selector" $sel | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "storm.nimbusHost" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nimbus
+spec:
+  replicas: 1
+  serviceName: {{ include "storm.nimbusHost" . }}
+  selector:
+    matchLabels:
+      {{- include "storm.selector" $sel | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "storm.selector" $sel | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      {{- include "storm.podSpec" (dict "ctx" . "component" "nimbus"
+            "args" (list "nimbus" "-c" (printf "storm.local.hostname=%s" (include "storm.nimbusHost" .)))
+            "ports" (list (dict "name" "thrift" "containerPort" 6627))
+            "probe" (dict "tcpSocket" (dict "port" "thrift") "periodSeconds" 10 "failureThreshold" 30)
+            "resources" .Values.nimbus.resources
+            "persistentData" .Values.nimbus.persistence.enabled) | nindent 6 }}
+  {{- if .Values.nimbus.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: {{ .Values.nimbus.persistence.accessModes | toJson }}
+        {{- with .Values.nimbus.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.nimbus.persistence.size }}
+  {{- end }}

@@ -1,0 +1,44 @@
+{{- $sel := dict "ctx" . "component" "ui" -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}-ui
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.ui.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.ui.service.port }}
+      targetPort: http
+  selector:
+    {{- include "storm.selector" $sel | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}-ui
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ui
+spec:
+  replicas: {{ .Values.ui.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "storm.selector" $sel | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "storm.selector" $sel | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      {{- include "storm.podSpec" (dict "ctx" . "component" "ui"
+            "args" (list "ui")
+            "ports" (list (dict "name" "http" "containerPort" 8080))
+            "probe" (dict "httpGet" (dict "path" "/api/v1/cluster/configuration" "port" "http") "periodSeconds" 10 "failureThreshold" 30)
+            "resources" .Values.ui.resources) | nindent 6 }}

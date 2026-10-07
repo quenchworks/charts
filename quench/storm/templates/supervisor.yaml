@@ -1,0 +1,30 @@
+{{- $sel := dict "ctx" . "component" "supervisor" -}}
+{{- $ports := list -}}
+{{- range $i, $p := .Values.supervisor.slotPorts }}{{ $ports = append $ports (dict "name" (printf "slot-%d" $i) "containerPort" $p) }}{{ end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}-supervisor
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: supervisor
+spec:
+  replicas: {{ .Values.supervisor.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "storm.selector" $sel | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "storm.selector" $sel | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      {{- include "storm.podSpec" (dict "ctx" . "component" "supervisor"
+            "args" (list "supervisor" "-c" "storm.local.hostname=$(POD_IP)")
+            "ports" $ports
+            "resources" .Values.supervisor.resources) | nindent 6 }}
