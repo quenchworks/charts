@@ -28,6 +28,8 @@ jobs:
       # /run/udev are shared into the node.
       - name: Loop device and kind config
         run: |
+          # the RBD node plugin maps images with the host kernel's rbd module
+          sudo modprobe rbd
           sudo truncate -s 10G /mnt/osd.img
           loop="$(sudo losetup -f --show /mnt/osd.img)"
           echo "LOOP=${loop#/dev/}" >> "$GITHUB_ENV"
@@ -130,6 +132,66 @@ jobs:
           aws --endpoint-url http://127.0.0.1:8080 s3 cp /tmp/obj.txt s3://gate/obj.txt
           [ "$(aws --endpoint-url http://127.0.0.1:8080 s3 cp s3://gate/obj.txt -)" = quench-rook-gate ]
           echo "S3 put/get through RGW: ok"
+          kill $pf || true
+          # Block storage through Ceph CSI: a pool, a StorageClass, a PVC written by one pod and
+          # read back by a second pod.
+          kubectl wait deploy -l app.kubernetes.io/name=ceph-csi-operator --for=condition=Available --timeout=300s 2>/dev/null \
+            || kubectl wait deploy/ceph-csi-controller-manager --for=condition=Available --timeout=300s
+          kubectl apply -f - <<'EOF'
+          apiVersion: ceph.rook.io/v1
+          kind: CephBlockPool
+          metadata: {name: replicapool}
+          spec: {replicated: {size: 1, requireSafeReplicaSize: false}}
+          ---
+          apiVersion: storage.k8s.io/v1
+          kind: StorageClass
+          metadata: {name: rook-ceph-block}
+          provisioner: rook-ceph.rbd.csi.ceph.com
+          parameters:
+            clusterID: rook-ceph
+            pool: replicapool
+            imageFormat: "2"
+            imageFeatures: layering
+            csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+            csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+            csi.storage.k8s.io/controller-expand-secret-name: rook-csi-rbd-provisioner
+            csi.storage.k8s.io/controller-expand-secret-namespace: rook-ceph
+            csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+            csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+            csi.storage.k8s.io/fstype: ext4
+          reclaimPolicy: Delete
+          ---
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata: {name: rbd-gate, namespace: default}
+          spec:
+            accessModes: [ReadWriteOnce]
+            storageClassName: rook-ceph-block
+            resources: {requests: {storage: 1Gi}}
+          EOF
+          kubectl wait cephblockpool/replicapool --for=jsonpath='{.status.phase}'=Ready --timeout=300s
+          kubectl -n default wait pvc/rbd-gate --for=jsonpath='{.status.phase}'=Bound --timeout=600s
+          pod() { kubectl -n default apply -f - <<EOF
+          apiVersion: v1
+          kind: Pod
+          metadata: {name: $1}
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: c
+                image: ghcr.io/quenchworks/images/busybox:1.38.0
+                command: ["/bin/sh", "-c", "$2"]
+                volumeMounts: [{name: d, mountPath: /data}]
+            volumes: [{name: d, persistentVolumeClaim: {claimName: rbd-gate}}]
+          EOF
+          }
+          pod rbd-write 'echo quench-rbd-gate > /data/f && sync && cat /data/f'
+          kubectl -n default wait pod/rbd-write --for=jsonpath='{.status.phase}'=Succeeded --timeout=600s
+          kubectl -n default delete pod rbd-write --wait
+          pod rbd-read 'cat /data/f'
+          kubectl -n default wait pod/rbd-read --for=jsonpath='{.status.phase}'=Succeeded --timeout=300s
+          [ "$(kubectl -n default logs rbd-read)" = quench-rbd-gate ]
+          echo "RBD PVC bound through Ceph CSI, written and read back by a second pod: ok"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

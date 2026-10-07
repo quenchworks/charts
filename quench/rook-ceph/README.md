@@ -6,10 +6,9 @@ ObjectBucketClaims and more). The operator image is built from source; the Ceph 
 Ceph 20 (Tentacle) from Wolfi packages. Both are minimal, 0-CVE, cosign-signed and pinned
 by digest.
 
-**CSI is not included in this release.** Rook 1.21 provisions RBD and CephFS
-PersistentVolumes through the separate ceph-csi-operator, which QuenchWorks has not
-packaged yet. The cluster itself, object storage (CephObjectStore, S3 users, bucket
-claims) and pool and filesystem management work.
+Ceph CSI is included: the chart runs the ceph-csi-operator, Rook creates its driver
+resources, and the operator runs the cephcsi driver with the CSI sidecars, all QuenchWorks
+images. Set `csi.enabled: false` for object storage only.
 
 ## Install
 
@@ -41,6 +40,8 @@ spec:
 |---|---|---|
 | `config` | see values.yaml | `rook-ceph-operator-config` settings (ROOK_LOG_LEVEL, ROOK_CEPH_ALLOW_LOOP_DEVICES, ...) |
 | `currentNamespaceOnly` | `false` | Watch CephClusters only in the release namespace |
+| `csi.enabled` | `true` | Run the ceph-csi-operator, cephcsi and the CSI sidecars |
+| `csi.images` | QuenchWorks images by digest | Driver and sidecar images Rook hands the CSI operator |
 | `cephImage` | ceph 20.2.4 by digest | The image to use in CephClusters (shown in the notes) |
 | `resources` | 100m / 128Mi | Operator resources |
 
@@ -53,4 +54,5 @@ object names are fixed because the operator looks them up by name.
 The release gate attaches a loop device on the runner, shares `/dev` and `/run/udev` into
 a kind node (ceph-volume needs udev data for the device), and requires a one-mon,
 one-OSD CephCluster to reach Ready with the OSD up, then an S3 bucket, put and get through
-a CephObjectStore gateway.
+a CephObjectStore gateway, then an RBD PersistentVolumeClaim through Ceph CSI that one pod
+writes and a second pod reads back.

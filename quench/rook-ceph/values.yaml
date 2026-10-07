@@ -18,15 +18,30 @@ cephImage:
 currentNamespaceOnly: false
 
 # rook-ceph-operator-config, the settings the operator reads at start and on change.
-# Merged over these defaults. CSI is off in this chart release: block and filesystem
-# PVCs need the ceph-csi-operator, which is not packaged yet; object storage (RGW),
-# CephBlockPool/CephFilesystem management and the cluster itself work without it.
+# ROOK_CREATE_CSI_OPERATOR_RESOURCES follows csi.enabled.
 config:
   ROOK_LOG_LEVEL: "INFO"
   ROOK_OPERATOR_METRICS_BIND_ADDRESS: "0"
   ROOK_CEPH_ALLOW_LOOP_DEVICES: "false"
   ROOK_ENABLE_DISCOVERY_DAEMON: "false"
-  ROOK_CREATE_CSI_OPERATOR_RESOURCES: "false"
+
+# Ceph CSI: RBD and CephFS PersistentVolumes. The chart runs the ceph-csi-operator; Rook
+# creates its OperatorConfig and Driver resources, and the operator runs the plugin and
+# sidecars below (rook-csi-operator-image-set-configmap). All QuenchWorks images.
+csi:
+  enabled: true
+  operatorImage:
+    repository: ghcr.io/quenchworks/images/ceph-csi-operator
+    digest: "sha256:3924621c5a1e707aceaad8a88c27781150e86532cd71db2160752f174b8d8fc2"
+  images:
+    plugin: "ghcr.io/quenchworks/images/cephcsi@sha256:ae2ee763fd858b9cbe05edbc5d5a045af4e722a5dda02dfcfef102916322739d"
+    provisioner: "ghcr.io/quenchworks/images/csi-provisioner@sha256:ffb81c18d8d2b7cec0ecd81036e58ec8b2f068e26bb0943bbd334d1e017c89de"
+    attacher: "ghcr.io/quenchworks/images/csi-attacher@sha256:bf14937a85f247b933558b50c9ccf52b323066401a97a765f02035f9c9b3e633"
+    resizer: "ghcr.io/quenchworks/images/csi-resizer@sha256:62a5a52174790c92c6fdbd1878479b790499253ed5548b08eec02869e855a4a6"
+    snapshotter: "ghcr.io/quenchworks/images/csi-snapshotter@sha256:ac11531dc4b5de882e4b55f196e0396248f3db557ac53ce73983d648eac7dca7"
+    registrar: "ghcr.io/quenchworks/images/csi-node-driver-registrar@sha256:8e5b9942dd60eb3b520fda8559993a28f44a755a04167315d586c8d5b9169e54"
+    # csi-addons is off (OperatorConfig deployCsiAddons: false); empty means unused.
+    addons: ""
 
 resources:
   requests: { cpu: 100m, memory: 128Mi }
