@@ -1,0 +1,57 @@
+{{- /* Rook creates the CephConnection and ClientProfile but not these: upstream declares the
+OperatorConfig and the two Drivers statically (deploy/examples/operator.yaml). The driver
+names carry the operator namespace, which StorageClasses use as their provisioner. */ -}}
+{{- if .Values.csi.enabled }}
+apiVersion: csi.ceph.io/v1
+kind: OperatorConfig
+metadata:
+  name: ceph-csi-operator-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  driverSpecDefaults:
+    log:
+      verbosity: 0
+    imageSet:
+      name: rook-csi-operator-image-set-configmap
+    enableMetadata: true
+    generateOMapInfo: false
+    fsGroupPolicy: File
+    deployCsiAddons: false
+    cephFsClientType: kernel
+    nodePlugin:
+      priorityClassName: system-node-critical
+      kubeletDirPath: /var/lib/kubelet
+      enableSeLinuxHostMount: false
+    controllerPlugin:
+      priorityClassName: system-cluster-critical
+      deploymentStrategy:
+        type: Recreate
+---
+apiVersion: csi.ceph.io/v1
+kind: Driver
+metadata:
+  name: {{ .Release.Namespace }}.rbd.csi.ceph.com
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  fsGroupPolicy: File
+  nodePlugin:
+    updateStrategy:
+      type: RollingUpdate
+  controllerPlugin: {}
+---
+apiVersion: csi.ceph.io/v1
+kind: Driver
+metadata:
+  name: {{ .Release.Namespace }}.cephfs.csi.ceph.com
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  fsGroupPolicy: File
+  cephFsClientType: kernel
+  nodePlugin:
+    updateStrategy:
+      type: RollingUpdate
+  controllerPlugin: {}
+{{- end }}
