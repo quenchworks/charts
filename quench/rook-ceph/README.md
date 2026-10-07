@@ -10,6 +10,11 @@ Ceph CSI is included: the chart runs the ceph-csi-operator, Rook creates its dri
 resources, and the operator runs the cephcsi driver with the CSI sidecars, all QuenchWorks
 images. Set `csi.enabled: false` for object storage only.
 
+Ceph 20.2.4 creates new CephX keys as `aes256k`. Kernel RBD and CephFS clients accept that key
+type only from Linux 7.0, so on older nodes a PVC provisions but never mounts (`rbd: failed to
+add secret ... to kernel`). Set `spec.security.cephx.csi.keyType: aes` on your CephCluster
+unless every node runs kernel 7.0 or newer.
+
 ## Install
 
 One operator per cluster (its CRDs and ClusterRoles are cluster-wide):
