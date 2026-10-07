@@ -6,5 +6,7 @@ metadata:
     {{- include "quench-common.labels" . | nindent 4 }}
 data:
   opensearch_dashboards.yml: |
-    {{- $cfg := dict "server.host" "0.0.0.0" "opensearch.hosts" .Values.opensearch.hosts }}
+    {{- /* hosts go through tpl so an umbrella can name its own release's Service */}}
+    {{- $hosts := tpl (toYaml .Values.opensearch.hosts) . | fromYamlArray }}
+    {{- $cfg := dict "server.host" "0.0.0.0" "opensearch.hosts" $hosts }}
     {{- toYaml (merge (deepCopy .Values.extraConfig) $cfg) | nindent 4 }}
