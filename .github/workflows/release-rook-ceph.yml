@@ -187,6 +187,8 @@ jobs:
           metadata: {name: $1}
           spec:
             restartPolicy: Never
+            # busybox runs as 1001; a fresh ext4 volume root is root 0755, so hand it over
+            securityContext: {runAsUser: 1001, fsGroup: 1001}
             containers:
               - name: c
                 image: ghcr.io/quenchworks/images/busybox:1.38.0
@@ -215,6 +217,9 @@ jobs:
           kubectl get pods -o wide || true
           kubectl describe pods || true
           kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          # the RBD gate pods run in default
+          kubectl -n default describe pods || true
+          for p in $(kubectl -n default get pods -o name); do kubectl -n default logs "$p" || true; done
           for p in $(kubectl get pods -o name); do
             # init containers too: Rook's OSD pods fail in activate, before any container runs
             for c in $(kubectl get "$p" -o jsonpath='{.spec.initContainers[*].name} {.spec.containers[*].name}'); do
