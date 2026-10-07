@@ -1,0 +1,46 @@
+# cnpg-stack: CloudNativePG operator + one Cluster + a PgBouncer Pooler.
+#
+#   apps --> <release>-pg-pooler-rw:5432 (PgBouncer) --> <release>-pg-rw (primary)
+#            <release>-pg-ro / -r for read replicas; metrics on :9187 of every instance
+#
+# The Cluster and Pooler are applied by a post-install/upgrade hook Job, because the
+# operator's admission webhook is not serving yet when Helm applies the release. They are
+# not release objects: `helm uninstall` keeps the database (and its PVCs); delete it with
+# `kubectl delete cluster <release>-pg` (and pooler <release>-pg-pooler-rw).
+
+# The operator (subchart). Values pass straight through; its postgresImage is the
+# PostgreSQL image the Cluster runs.
+cloudnative-pg: {}
+
+cluster:
+  enabled: true
+  # 3 = a primary and two streaming replicas; failover promotes the most advanced one.
+  instances: 3
+  storage:
+    size: 8Gi
+    storageClass: ""
+  # The database and owner created at bootstrap; the password lands in Secret
+  # <release>-pg-app (keys username, password, uri).
+  database: app
+  owner: app
+  resources: {}
+  # Merged into the Cluster spec as-is, e.g. postgresql.parameters, backup, affinity.
+  extraSpec: {}
+
+pooler:
+  enabled: true
+  instances: 2
+  poolMode: session
+  # Merged into spec.pgbouncer.parameters, e.g. max_client_conn: "500".
+  parameters: {}
+  image:
+    repository: ghcr.io/quenchworks/images/pgbouncer
+    digest: "sha256:dffe29e1c7b9ef21225c2888190a47f3849d418a5b38bc986e1d137dfc2167af"
+
+# The hook Job that applies the Cluster and Pooler.
+wiring:
+  image:
+    repository: ghcr.io/quenchworks/images/kubectl
+    digest: "sha256:4033ac5e5f359739cf017a256188a8da7592edae86e452c6327dc4865a66a580"
+
+imagePullSecrets: []

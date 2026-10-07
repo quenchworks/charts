@@ -1,0 +1,153 @@
+{{- $rel := .Release.Name -}}
+{{- $ns := .Release.Namespace -}}
+{{- $pg := printf "%s-pg" $rel -}}
+{{- if or .Values.cluster.enabled .Values.pooler.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $rel }}-cnpg-wiring
+  labels:
+    {{- include "cnpg-stack.labels" . | nindent 4 }}
+data:
+  database.yaml: |
+    {{- if .Values.cluster.enabled }}
+    {{- $spec := dict
+        "instances" .Values.cluster.instances
+        "postgresUID" 1001
+        "postgresGID" 1001
+        "storage" (dict "size" .Values.cluster.storage.size)
+        "bootstrap" (dict "initdb" (dict "database" .Values.cluster.database "owner" .Values.cluster.owner)) }}
+    {{- with .Values.cluster.storage.storageClass }}{{ $_ := set $spec.storage "storageClass" . }}{{ end }}
+    {{- with .Values.cluster.resources }}{{ $_ := set $spec "resources" . }}{{ end }}
+    {{- with .Values.imagePullSecrets }}{{ $_ := set $spec "imagePullSecrets" . }}{{ end }}
+    apiVersion: postgresql.cnpg.io/v1
+    kind: Cluster
+    metadata:
+      name: {{ $pg }}
+      namespace: {{ $ns }}
+      labels:
+        {{- include "cnpg-stack.labels" . | nindent 8 }}
+    spec:
+      {{- toYaml (mergeOverwrite $spec (deepCopy .Values.cluster.extraSpec)) | nindent 6 }}
+    {{- end }}
+    {{- if .Values.pooler.enabled }}
+    ---
+    apiVersion: postgresql.cnpg.io/v1
+    kind: Pooler
+    metadata:
+      name: {{ $pg }}-pooler-rw
+      namespace: {{ $ns }}
+      labels:
+        {{- include "cnpg-stack.labels" . | nindent 8 }}
+    spec:
+      cluster: {name: {{ $pg }}}
+      instances: {{ .Values.pooler.instances }}
+      type: rw
+      pgbouncer:
+        poolMode: {{ .Values.pooler.poolMode }}
+        {{- with .Values.pooler.parameters }}
+        parameters:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      template:
+        spec:
+          {{- with .Values.imagePullSecrets }}
+          imagePullSecrets:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          containers:
+            # the operator injects its instance manager; this image supplies pgbouncer
+            - name: pgbouncer
+              image: "{{ .Values.pooler.image.repository }}@{{ .Values.pooler.image.digest }}"
+    {{- end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $rel }}-cnpg-wiring
+  labels:
+    {{- include "cnpg-stack.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $rel }}-cnpg-wiring
+  labels:
+    {{- include "cnpg-stack.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [clusters, poolers]
+    verbs: [get, list, watch, create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $rel }}-cnpg-wiring
+  labels:
+    {{- include "cnpg-stack.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $rel }}-cnpg-wiring}
+subjects:
+  - {kind: ServiceAccount, name: {{ $rel }}-cnpg-wiring, namespace: {{ $ns }}}
+---
+# The Cluster and Pooler cannot be release objects: the operator's admission webhook is
+# not serving yet when Helm applies the release, so the apply retries here instead.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $rel }}-cnpg-wiring
+  labels:
+    {{- include "cnpg-stack.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 1200
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cnpg-wiring
+        app.kubernetes.io/instance: {{ $rel }}
+      annotations:
+        checksum/database: {{ .Values | toJson | sha256sum }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ $rel }}-cnpg-wiring
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile: { type: RuntimeDefault }
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: wire
+          image: "{{ .Values.wiring.image.repository }}@{{ .Values.wiring.image.digest }}"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              # the webhook rejects everything until the operator serves it
+              until kubectl apply --server-side --force-conflicts -f /wiring/database.yaml; do sleep 5; done
+              {{- if .Values.cluster.enabled }}
+              kubectl wait cluster/{{ $pg }} --for=condition=Ready --timeout=900s
+              {{- end }}
+          env:
+            - { name: HOME, value: /tmp }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 250m, memory: 128Mi }
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: wiring, mountPath: /wiring }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: wiring
+          configMap:
+            name: {{ $rel }}-cnpg-wiring
+{{- end }}
