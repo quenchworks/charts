@@ -1,0 +1,31 @@
+# search-stack: OpenSearch + OpenSearch Dashboards.
+#
+#   OpenSearch <release>-opensearch:9200 <--(opensearch.hosts)-- Dashboards <release>-opensearch-dashboards:5601
+#
+# Neither image ships the security plugin, so there is no login: the NetworkPolicies
+# (on by default in both subcharts) limit both to the release namespace. Front the UI
+# with an authenticating proxy before exposing it.
+
+# OpenSearch (subchart). Values pass straight through; the default is the HA cluster
+# (3 cluster-manager + 2 data nodes). mode: single for one node.
+opensearch: {}
+
+# OpenSearch Dashboards (subchart), pointed at this release's OpenSearch. hosts is
+# rendered with tpl, so the release name resolves.
+opensearch-dashboards:
+  enabled: true
+  opensearch:
+    hosts:
+      - "http://{{ .Release.Name }}-opensearch:9200"
+
+# Optional Ingress, fronting Dashboards by default (a stack has no Service of its own).
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # Backend Service. Unset -> "<release>-opensearch-dashboards".
+  serviceName: ""
+  # Backend port. Unset -> 5601.
+  servicePort: null
+  hosts: []
+  tls: []
