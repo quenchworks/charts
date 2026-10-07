@@ -1,0 +1,19 @@
+policy-stack is installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+Kyverno enforces or audits ClusterPolicies; audit results land in PolicyReports:
+
+  kubectl get policyreports -A
+{{- if index .Values "policy-reporter" "enabled" }}
+
+Policy Reporter serves those results:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-policy-reporter 8081:8080
+  curl 'http://127.0.0.1:8081/v1/namespaced-resources/results'
+  curl http://127.0.0.1:8081/metrics | grep policy_report_result
+{{- end }}
+{{- if .Values.polaris.enabled }}
+
+Polaris dashboard (configuration best practices for every workload):
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-polaris 8080:8080
+{{- end }}

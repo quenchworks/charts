@@ -1,0 +1,33 @@
+# policy-stack: Kyverno + Policy Reporter + Polaris.
+#
+#   Kyverno policies --(admission + background scans)--> PolicyReports
+#   PolicyReports --> Policy Reporter --(REST /v1, /metrics, Slack/Loki/... targets)
+#   Polaris dashboard --(audits workloads against best practices)--> <release>-polaris:8080
+#
+# Kyverno ships its CRDs (PolicyReport included) from its chart's crds/ directory, which
+# Helm installs before the rest of the stack. Install one policy-stack per cluster:
+# Kyverno's webhooks, CRDs and every component's ClusterRole are cluster-wide.
+
+# Kyverno (subchart). Values pass straight through to the kyverno chart.
+kyverno: {}
+
+# Policy Reporter (subchart). Notification targets go under policy-reporter.config.
+policy-reporter:
+  enabled: true
+
+# Polaris dashboard (subchart).
+polaris:
+  enabled: true
+
+# Optional Ingress, fronting the Polaris dashboard by default (a stack has no Service of
+# its own).
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # Backend Service. Unset -> "<release>-polaris".
+  serviceName: ""
+  # Backend port. Unset -> polaris.service.port.
+  servicePort: null
+  hosts: []
+  tls: []
