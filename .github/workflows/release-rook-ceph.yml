@@ -46,6 +46,13 @@ jobs:
       - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
         with:
           config: /tmp/kind-rook.yaml
+      # krbd maps through /sys/bus/rbd/add_single_major. A real node's /sys is writable; the
+      # kind node's is read-only (0.0.4 gate: "rbd: map failed: (30) Read-only file system").
+      - name: Writable /sys on the kind node
+        run: |
+          for n in $(kind get nodes --name chart-testing); do
+            docker exec "$n" sh -c 'grep " /sys " /proc/mounts; mount -o remount,rw /sys; grep " /sys " /proc/mounts; test -w /sys/bus/rbd/add_single_major'
+          done
       - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
 
       - name: Log in to GHCR (for cosign)
