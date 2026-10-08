@@ -1,0 +1,59 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [secrets-store.csi.x-k8s.io]
+    resources: [secretproviderclasses]
+    verbs: [get, list, watch]
+  - apiGroups: [secrets-store.csi.x-k8s.io]
+    resources: [secretproviderclasspodstatuses]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [secrets-store.csi.x-k8s.io]
+    resources: [secretproviderclasspodstatuses/status]
+    verbs: [get, patch, update]
+  - apiGroups: [storage.k8s.io]
+    resources: [csidrivers]
+    resourceNames: [secrets-store.csi.k8s.io]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ include "quench-common.fullname" . }}}
+subjects:
+  - {kind: ServiceAccount, name: {{ include "quench-common.fullname" . }}, namespace: {{ .Release.Namespace }}}
+{{- if .Values.syncSecret.enabled }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" . }}-syncing
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [create, delete, get, list, patch, update, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}-syncing
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ include "quench-common.fullname" . }}-syncing}
+subjects:
+  - {kind: ServiceAccount, name: {{ include "quench-common.fullname" . }}, namespace: {{ .Release.Namespace }}}
+{{- end }}

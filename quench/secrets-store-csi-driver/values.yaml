@@ -1,0 +1,52 @@
+# Secrets Store CSI Driver node plugin, pinned by digest. It runs on every node as a
+# privileged DaemonSet: it mounts tmpfs volumes into pod directories under the kubelet.
+image:
+  repository: ghcr.io/quenchworks/images/secrets-store-csi-driver
+  digest: "sha256:b4b32b288ebd5be4391d03abba2998b295d1ce98a53f89e660484f42030c50b6"
+  pullPolicy: IfNotPresent
+
+# Registers the driver's socket with the kubelet.
+registrar:
+  repository: ghcr.io/quenchworks/images/csi-node-driver-registrar
+  digest: "sha256:8e5b9942dd60eb3b520fda8559993a28f44a755a04167315d586c8d5b9169e54"
+
+# Serves /healthz for the driver container's liveness probe.
+livenessProbe:
+  repository: ghcr.io/quenchworks/images/csi-livenessprobe
+  digest: "sha256:0292b714e8383107a184446070b7f3636c032503550eb23e6aa83a5c68422285"
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# The kubelet's root directory; change it for distributions that move it (k0s, microk8s).
+kubeletDir: /var/lib/kubelet
+
+# Mirror mounted objects into Kubernetes Secrets (SecretProviderClass spec.secretObjects).
+# Off by default: it grants the driver create/update/delete on Secrets cluster-wide.
+syncSecret:
+  enabled: false
+
+# Re-fetch mounted secrets from the provider on an interval.
+enableSecretRotation: false
+rotationPollInterval: 2m
+
+# Extra arguments for the driver.
+extraArgs: []
+
+resources:
+  requests: { cpu: 50m, memory: 100Mi }
+  limits: { cpu: 200m, memory: 200Mi }
+sidecarResources:
+  requests: { cpu: 10m, memory: 20Mi }
+  limits: { cpu: 100m, memory: 100Mi }
+
+podAnnotations: {}
+podLabels: {}
+nodeSelector:
+  kubernetes.io/os: linux
+# A node plugin belongs on every node, tainted or not.
+tolerations:
+  - operator: Exists
+affinity: {}
+priorityClassName: ""

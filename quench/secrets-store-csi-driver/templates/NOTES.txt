@@ -1,0 +1,16 @@
+The Secrets Store CSI Driver runs as DaemonSet {{ include "quench-common.fullname" . }} in {{ .Release.Namespace }}.
+It needs a provider (Vault, AWS, Azure or GCP) installed separately; providers place their
+socket in /var/run/secrets-store-csi-providers on each node.
+
+Mount secrets with a SecretProviderClass and a volume:
+
+  volumes:
+    - name: secrets
+      csi:
+        driver: secrets-store.csi.k8s.io
+        readOnly: true
+        volumeAttributes: { secretProviderClass: <name> }
+{{- if not .Values.syncSecret.enabled }}
+
+Syncing to Kubernetes Secrets (spec.secretObjects) is off; set syncSecret.enabled=true.
+{{- end }}
