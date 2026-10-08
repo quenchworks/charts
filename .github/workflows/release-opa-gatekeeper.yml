@@ -48,6 +48,13 @@ jobs:
           test -n "$(kubectl -n gatekeeper-system get secret gatekeeper-webhook-server-cert -o jsonpath='{.data.tls\.crt}')"
           for i in $(seq 1 60); do [ -n "$(kubectl get validatingwebhookconfiguration rtest-opa-gatekeeper-validating -o jsonpath='{.webhooks[0].clientConfig.caBundle}')" ] && break; sleep 2; done
           test -n "$(kubectl get validatingwebhookconfiguration rtest-opa-gatekeeper-validating -o jsonpath='{.webhooks[0].clientConfig.caBundle}')"
+          # The namespace-label webhook fails closed: the first create raced its Service while
+          # it had no ready endpoint ("connection refused", 2026-10-08). Wait for one first.
+          for i in $(seq 1 60); do
+            [ -n "$(kubectl -n gatekeeper-system get endpointslices -l kubernetes.io/service-name=rtest-opa-gatekeeper-webhook -o jsonpath='{.items[*].endpoints[?(@.conditions.ready==true)].addresses[0]}')" ] && break
+            sleep 2
+          done
+          test -n "$(kubectl -n gatekeeper-system get endpointslices -l kubernetes.io/service-name=rtest-opa-gatekeeper-webhook -o jsonpath='{.items[*].endpoints[?(@.conditions.ready==true)].addresses[0]}')"
           kubectl create namespace gate
           # a violation that exists before the policy, for audit to find
           kubectl -n gate run before --image=ghcr.io/quenchworks/images/nginx:1.28.3 --restart=Never
