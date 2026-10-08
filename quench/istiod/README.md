@@ -40,6 +40,19 @@ be worse than not shipping it.
 **No sidecar-injection webhook.** With no data-plane image to inject, the
 webhook would exist only to fail. It lands with the data plane.
 
+## Ambient mode
+
+With the QuenchWorks `istio-cni` and `ztunnel` charts this istiod runs an ambient (sidecar-less)
+L4 mesh. Install it as `istiod` in `istio-system`, with ambient on and ztunnel trusted to request
+certificates for the pods on its node:
+
+```sh
+helm install istiod oci://ghcr.io/quenchworks/charts/istiod -n istio-system --create-namespace \
+  --set fullnameOverride=istiod \
+  --set 'extraEnvVars[0].name=PILOT_ENABLE_AMBIENT' --set-string 'extraEnvVars[0].value=true' \
+  --set 'extraEnvVars[1].name=CA_TRUSTED_NODE_ACCOUNTS' --set 'extraEnvVars[1].value=istio-system/ztunnel'
+```
+
 ## Configuration
 
 | Key | Default | Description |
