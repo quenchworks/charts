@@ -1,0 +1,189 @@
+{{- $tls := include "viz.tls" (dict "ctx" . "name" "tap") | fromYaml -}}
+{{- include "viz.tlsSecret" (dict "ctx" . "name" "tap" "tls" $tls) }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tap
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap") | nindent 4 }}
+---
+# tap serves the tap.linkerd.io API (behind the APIService below) and streams requests from the
+# proxies of pods the tap injector marked; it dials them as mesh identity tap.<ns>.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tap
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap") | nindent 4 }}
+spec:
+  replicas: {{ .Values.tap.replicas }}
+  selector:
+    matchLabels:
+      {{- include "viz.selector" "tap" | nindent 6 }}
+  template:
+    metadata:
+      {{- include "viz.podMeta" (dict "component" "tap" "checksum" ($tls.crt | sha256sum)) | nindent 6 }}
+    spec:
+      serviceAccountName: tap
+      {{- include "viz.podSpec" . | nindent 6 }}
+      containers:
+        - name: tap
+          image: {{ include "viz.image" .Values.tap.image }}
+          imagePullPolicy: {{ .Values.tap.image.pullPolicy }}
+          args:
+            - api
+            - -api-namespace={{ .Values.linkerdNamespace }}
+            - -log-level={{ .Values.logLevel }}
+            - -log-format=plain
+            - -identity-trust-domain={{ .Values.identityTrustDomain }}
+            - -enable-pprof=false
+          ports:
+            - { name: grpc, containerPort: 8088 }
+            - { name: apiserver, containerPort: 8089 }
+            - { name: admin, containerPort: 9998 }
+          livenessProbe:
+            httpGet: { path: /ping, port: 9998 }
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet: { path: /ready, port: 9998 }
+            failureThreshold: 7
+          {{- with .Values.tap.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "viz.securityContext" . | nindent 10 }}
+          volumeMounts:
+            - { name: tls, mountPath: /var/run/linkerd/tls, readOnly: true }
+      volumes:
+        - name: tls
+          secret: { secretName: tap-k8s-tls }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tap
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap") | nindent 4 }}
+spec:
+  selector:
+    {{- include "viz.selector" "tap" | nindent 4 }}
+  ports:
+    - { name: grpc, port: 8088, targetPort: grpc }
+    - { name: apiserver, port: 443, targetPort: apiserver }
+---
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1alpha1.tap.linkerd.io
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap") | nindent 4 }}
+spec:
+  group: tap.linkerd.io
+  version: v1alpha1
+  groupPriorityMinimum: 1000
+  versionPriority: 100
+  service: { name: tap, namespace: {{ .Release.Namespace }} }
+  caBundle: {{ $tls.ca }}
+---
+# The API server reaches tap unmeshed; skip protocol detection on that port.
+apiVersion: policy.linkerd.io/v1beta3
+kind: Server
+metadata:
+  name: tap-api
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "viz.selector" "tap" | nindent 6 }}
+  port: apiserver
+  proxyProtocol: TLS
+---
+apiVersion: policy.linkerd.io/v1alpha1
+kind: AuthorizationPolicy
+metadata:
+  name: tap
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap") | nindent 4 }}
+spec:
+  targetRef: { group: policy.linkerd.io, kind: Server, name: tap-api }
+  requiredAuthenticationRefs:
+    - { group: policy.linkerd.io, kind: NetworkAuthentication, name: kube-api-server }
+---
+# The API server's address is not discoverable; tap and the tap injector authenticate it
+# themselves (request-header client certificates, webhook TLS).
+apiVersion: policy.linkerd.io/v1alpha1
+kind: NetworkAuthentication
+metadata:
+  name: kube-api-server
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap") | nindent 4 }}
+spec:
+  networks:
+    - cidr: 0.0.0.0/0
+    - cidr: ::/0
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: linkerd-{{ .Release.Namespace }}-tap
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods, services, replicationcontrollers, namespaces, nodes]
+    verbs: [list, get, watch]
+  - apiGroups: [apps]
+    resources: [daemonsets, deployments, replicasets, statefulsets]
+    verbs: [list, get, watch]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [list, get, watch]
+---
+# Bind this to users who may run linkerd viz tap.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: linkerd-{{ .Release.Namespace }}-tap-admin
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [list]
+  - apiGroups: [tap.linkerd.io]
+    resources: ["*"]
+    verbs: [watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: linkerd-{{ .Release.Namespace }}-tap
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap") | nindent 4 }}
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: linkerd-{{ .Release.Namespace }}-tap }
+subjects:
+  - { kind: ServiceAccount, name: tap, namespace: {{ .Release.Namespace }} }
+---
+# tap checks the caller's rights with SubjectAccessReviews, as an aggregated API server does.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: linkerd-{{ .Release.Namespace }}-tap-auth-delegator
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap") | nindent 4 }}
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: "system:auth-delegator" }
+subjects:
+  - { kind: ServiceAccount, name: tap, namespace: {{ .Release.Namespace }} }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: linkerd-{{ .Release.Namespace }}-tap-auth-reader
+  namespace: kube-system
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap") | nindent 4 }}
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: extension-apiserver-authentication-reader }
+subjects:
+  - { kind: ServiceAccount, name: tap, namespace: {{ .Release.Namespace }} }

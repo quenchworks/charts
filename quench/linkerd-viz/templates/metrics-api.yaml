@@ -1,0 +1,131 @@
+{{- $prom := required "prometheusUrl is required: viz bundles no Prometheus; point it at yours (README: Prometheus)" .Values.prometheusUrl -}}
+{{- with lookup "apps/v1" "Deployment" .Release.Namespace "metrics-api" -}}
+{{- $owner := index (.metadata.annotations | default dict) "meta.helm.sh/release-name" -}}
+{{- if and $owner (ne $owner $.Release.Name) -}}
+{{- fail (printf "release %s already runs linkerd-viz in namespace %s; the object names are fixed, so only one release per namespace" $owner $.Release.Namespace) -}}
+{{- end -}}
+{{- end -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: metrics-api
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "metrics-api") | nindent 4 }}
+---
+# metrics-api answers linkerd viz stat, top, routes and edges from Prometheus.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metrics-api
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "metrics-api") | nindent 4 }}
+spec:
+  replicas: {{ .Values.metricsAPI.replicas }}
+  selector:
+    matchLabels:
+      {{- include "viz.selector" "metrics-api" | nindent 6 }}
+  template:
+    metadata:
+      {{- include "viz.podMeta" (dict "component" "metrics-api") | nindent 6 }}
+    spec:
+      serviceAccountName: metrics-api
+      {{- include "viz.podSpec" . | nindent 6 }}
+      containers:
+        - name: metrics-api
+          image: {{ include "viz.image" .Values.metricsAPI.image }}
+          imagePullPolicy: {{ .Values.metricsAPI.image.pullPolicy }}
+          args:
+            - -controller-namespace={{ .Values.linkerdNamespace }}
+            - -log-level={{ .Values.logLevel }}
+            - -log-format=plain
+            - -cluster-domain={{ .Values.clusterDomain }}
+            - -prometheus-url={{ $prom }}
+            {{- if .Values.prometheusCredsSecret }}
+            - -prometheus-user-file=/var/prometheus/user
+            - -prometheus-password-file=/var/prometheus/password
+            {{- end }}
+            - -enable-pprof=false
+          ports:
+            - { name: http, containerPort: 8085 }
+            - { name: admin, containerPort: 9995 }
+          livenessProbe:
+            httpGet: { path: /ping, port: 9995 }
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet: { path: /ready, port: 9995 }
+            failureThreshold: 7
+          {{- with .Values.metricsAPI.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "viz.securityContext" . | nindent 10 }}
+          {{- if .Values.prometheusCredsSecret }}
+          volumeMounts:
+            - { name: prom-creds, mountPath: /var/prometheus, readOnly: true }
+          {{- end }}
+      {{- with .Values.prometheusCredsSecret }}
+      volumes:
+        - name: prom-creds
+          secret: { secretName: {{ . }} }
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: metrics-api
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "metrics-api") | nindent 4 }}
+spec:
+  selector:
+    {{- include "viz.selector" "metrics-api" | nindent 4 }}
+  ports:
+    - { name: http, port: 8085, targetPort: http }
+---
+# Without the dashboard nothing in the mesh calls metrics-api: the CLI reaches it by port-forward,
+# which the proxy does not police. A Server with no AuthorizationPolicy denies every in-cluster
+# client.
+apiVersion: policy.linkerd.io/v1beta3
+kind: Server
+metadata:
+  name: metrics-api
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "metrics-api") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "viz.selector" "metrics-api" | nindent 6 }}
+  port: http
+  proxyProtocol: HTTP/1
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: linkerd-{{ .Release.Namespace }}-metrics-api
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "metrics-api") | nindent 4 }}
+rules:
+  - apiGroups: [apps]
+    resources: [daemonsets, deployments, replicasets, statefulsets]
+    verbs: [list, get, watch]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [list, get, watch]
+  - apiGroups: [""]
+    resources: [pods, endpoints, services, replicationcontrollers, namespaces]
+    verbs: [list, get, watch]
+  - apiGroups: [linkerd.io]
+    resources: [serviceprofiles]
+    verbs: [list, get, watch]
+  - apiGroups: [policy.linkerd.io]
+    resources: [servers, serverauthorizations, authorizationpolicies, httproutes]
+    verbs: [list, get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: linkerd-{{ .Release.Namespace }}-metrics-api
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "metrics-api") | nindent 4 }}
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: linkerd-{{ .Release.Namespace }}-metrics-api }
+subjects:
+  - { kind: ServiceAccount, name: metrics-api, namespace: {{ .Release.Namespace }} }

@@ -1,0 +1,107 @@
+{{- /* Labels this namespace linkerd.io/extension=viz (and pod-security) so the linkerd CLI finds
+       viz; extension-init reads linkerd-config in the linkerd namespace to pick the label. */ -}}
+{{- $hook := dict "helm.sh/hook" "post-install,post-upgrade" "helm.sh/hook-weight" "0" "helm.sh/hook-delete-policy" "before-hook-creation,hook-succeeded" -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: namespace-metadata
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "namespace-metadata") | nindent 4 }}
+  annotations:
+    {{- toYaml $hook | nindent 4 }}
+---
+# The API server checks get/patch on a Namespace against Roles in that namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: namespace-metadata
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "namespace-metadata") | nindent 4 }}
+  annotations:
+    {{- toYaml $hook | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, patch]
+    resourceNames: [{{ .Release.Namespace }}]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: namespace-metadata
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "namespace-metadata") | nindent 4 }}
+  annotations:
+    {{- toYaml $hook | nindent 4 }}
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: namespace-metadata }
+subjects:
+  - { kind: ServiceAccount, name: namespace-metadata, namespace: {{ .Release.Namespace }} }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: viz-namespace-metadata-linkerd-config
+  namespace: {{ .Values.linkerdNamespace }}
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "namespace-metadata") | nindent 4 }}
+  annotations:
+    {{- toYaml $hook | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get]
+    resourceNames: [linkerd-config]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: viz-namespace-metadata-linkerd-config
+  namespace: {{ .Values.linkerdNamespace }}
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "namespace-metadata") | nindent 4 }}
+  annotations:
+    {{- toYaml $hook | nindent 4 }}
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: viz-namespace-metadata-linkerd-config }
+subjects:
+  - { kind: ServiceAccount, name: namespace-metadata, namespace: {{ .Release.Namespace }} }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: namespace-metadata
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "namespace-metadata") | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "1"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 4
+  template:
+    metadata:
+      labels:
+        {{- include "viz.selector" "namespace-metadata" | nindent 8 }}
+      annotations:
+        linkerd.io/inject: disabled
+    spec:
+      restartPolicy: Never
+      serviceAccountName: namespace-metadata
+      {{- include "viz.podSpec" . | nindent 6 }}
+      containers:
+        - name: namespace-metadata
+          image: {{ include "viz.image" .Values.namespaceMetadata.image }}
+          imagePullPolicy: {{ .Values.namespaceMetadata.image.pullPolicy }}
+          args:
+            - --log-format
+            - plain
+            - --log-level
+            - {{ .Values.logLevel }}
+            - --extension
+            - viz
+            - --namespace
+            - {{ .Release.Namespace }}
+            - --linkerd-namespace
+            - {{ .Values.linkerdNamespace }}
+            - --prometheus-url
+            - {{ .Values.prometheusUrl }}
+          {{- include "viz.securityContext" . | nindent 10 }}

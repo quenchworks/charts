@@ -1,0 +1,54 @@
+# QuenchWorks linkerd-viz: Linkerd Viz (edge-26.8.4) WITHOUT the web dashboard, on QuenchWorks
+# images built from source, cosign-signed and pinned by digest.
+#
+# Needs the QuenchWorks linkerd chart (and so linkerd-crds and linkerd-cni) running first. Install
+# into its own namespace, normally linkerd-viz, one release per cluster: object names are
+# upstream's fixed names (metrics-api, tap, tap-injector) because the linkerd CLI finds them by name.
+
+# REQUIRED. Your Prometheus, scraping every meshed pod's proxy admin port (4191, /metrics) with
+# the namespace, pod and deployment labels the README's scrape job sets. No Prometheus is bundled.
+prometheusUrl: ""
+# Optional Secret in this namespace with keys `user` and `password` for Prometheus basic auth.
+prometheusCredsSecret: ""
+
+# Namespace of the linkerd chart's release.
+linkerdNamespace: linkerd
+# Must match the linkerd chart's identity.trustDomain.
+identityTrustDomain: cluster.local
+clusterDomain: cluster.local
+logLevel: info
+
+metricsAPI:
+  image:
+    repository: ghcr.io/quenchworks/images/linkerd-viz-metrics-api
+    digest: "sha256:c182f7adff0551abebdc022a7af2a308c70a3291e1b534cb08402697678522f3"
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources: {}
+
+# tap and the tap injector run from the same image.
+tap:
+  image:
+    repository: ghcr.io/quenchworks/images/linkerd-viz-tap
+    digest: "sha256:30b516fb7d8e368f7639a8cb2d54adda35420975bd1bf57dba3538f615e851a1"
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources: {}
+
+tapInjector:
+  replicas: 1
+  resources: {}
+  # Ignore: a pod created while the injector is down starts without tap instead of failing.
+  failurePolicy: Ignore
+
+# The post-install Job that labels this namespace (linkerd.io/extension=viz) so the CLI finds it.
+namespaceMetadata:
+  image:
+    repository: ghcr.io/quenchworks/images/linkerd-extension-init
+    digest: "sha256:da57f27f607f6fac9ef253c33852d30bd979d8e8163b7184d491bb4778915ccb"
+    pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations: []

@@ -1,0 +1,142 @@
+{{- $tls := include "viz.tls" (dict "ctx" . "name" "tap-injector") | fromYaml -}}
+{{- include "viz.tlsSecret" (dict "ctx" . "name" "tap-injector" "tls" $tls) }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tap-injector
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap-injector") | nindent 4 }}
+---
+# Adds LINKERD2_PROXY_TAP_SVC_NAME to every injected proxy, which turns on the proxy's tap server
+# for tap's identity. Pods created before it runs have no tap until restarted.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tap-injector
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap-injector") | nindent 4 }}
+spec:
+  replicas: {{ .Values.tapInjector.replicas }}
+  selector:
+    matchLabels:
+      {{- include "viz.selector" "tap-injector" | nindent 6 }}
+  template:
+    metadata:
+      {{- include "viz.podMeta" (dict "component" "tap-injector" "checksum" ($tls.crt | sha256sum)) | nindent 6 }}
+    spec:
+      serviceAccountName: tap-injector
+      {{- include "viz.podSpec" . | nindent 6 }}
+      containers:
+        - name: tap-injector
+          image: {{ include "viz.image" .Values.tap.image }}
+          imagePullPolicy: {{ .Values.tap.image.pullPolicy }}
+          args:
+            - injector
+            - -tap-service-name=tap.{{ .Release.Namespace }}.serviceaccount.identity.{{ .Values.linkerdNamespace }}.{{ .Values.identityTrustDomain }}
+            - -log-level={{ .Values.logLevel }}
+            - -log-format=plain
+            - -enable-pprof=false
+          ports:
+            - { name: tap-injector, containerPort: 8443 }
+            - { name: admin, containerPort: 9995 }
+          livenessProbe:
+            httpGet: { path: /ping, port: 9995 }
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet: { path: /ready, port: 9995 }
+            failureThreshold: 7
+          {{- with .Values.tapInjector.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "viz.securityContext" . | nindent 10 }}
+          volumeMounts:
+            - { name: tls, mountPath: /var/run/linkerd/tls, readOnly: true }
+      volumes:
+        - name: tls
+          secret: { secretName: tap-injector-k8s-tls }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tap-injector
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap-injector") | nindent 4 }}
+spec:
+  selector:
+    {{- include "viz.selector" "tap-injector" | nindent 4 }}
+  ports:
+    - { name: tap-injector, port: 443, targetPort: tap-injector }
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: linkerd-tap-injector-webhook-config
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap-injector") | nindent 4 }}
+webhooks:
+  - name: tap-injector.linkerd.io
+    admissionReviewVersions: [v1, v1beta1]
+    sideEffects: None
+    failurePolicy: {{ .Values.tapInjector.failurePolicy }}
+    # after the proxy injector has added the proxy
+    reinvocationPolicy: IfNeeded
+    timeoutSeconds: 10
+    clientConfig:
+      service: { name: tap-injector, namespace: {{ .Release.Namespace }}, path: / }
+      caBundle: {{ $tls.ca }}
+    namespaceSelector:
+      matchExpressions:
+        - { key: kubernetes.io/metadata.name, operator: NotIn, values: [kube-system] }
+    rules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE]
+        resources: [pods]
+        scope: Namespaced
+---
+apiVersion: policy.linkerd.io/v1beta3
+kind: Server
+metadata:
+  name: tap-injector-webhook
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap-injector") | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "viz.selector" "tap-injector" | nindent 6 }}
+  port: tap-injector
+  proxyProtocol: TLS
+---
+apiVersion: policy.linkerd.io/v1alpha1
+kind: AuthorizationPolicy
+metadata:
+  name: tap-injector
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap-injector") | nindent 4 }}
+spec:
+  targetRef: { group: policy.linkerd.io, kind: Server, name: tap-injector-webhook }
+  requiredAuthenticationRefs:
+    - { group: policy.linkerd.io, kind: NetworkAuthentication, name: kube-api-server }
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: linkerd-tap-injector
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap-injector") | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: linkerd-tap-injector
+  labels:
+    {{- include "viz.labels" (dict "ctx" . "component" "tap-injector") | nindent 4 }}
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: linkerd-tap-injector }
+subjects:
+  - { kind: ServiceAccount, name: tap-injector, namespace: {{ .Release.Namespace }} }
