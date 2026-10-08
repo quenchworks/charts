@@ -46,8 +46,20 @@ jobs:
           kubectl rollout status statefulset/rtest-kvrocks --timeout=300s
           test "$(kubectl get pvc data-rtest-kvrocks-0 -o jsonpath='{.status.phase}')" = Bound
           PW="$(kubectl get secret rtest-kvrocks -o jsonpath='{.data.password}' | base64 -d)"
-          cli() { kubectl run "kvcli-$RANDOM" --rm -i --restart=Never --quiet --image=ghcr.io/quenchworks/images/valkey:9.1.2 \
-            --command -- valkey-cli -h rtest-kvrocks -p 6666 "$@"; }
+          # run, wait, then read: an attached `run --rm -i` loses the output of a pod that
+          # exits this fast (2026-10-08, "couldn't attach ... falling back to streaming logs")
+          cli() {
+            local p="kvcli-$RANDOM" ph=""
+            kubectl run "$p" --restart=Never --quiet --image=ghcr.io/quenchworks/images/valkey:9.1.2 \
+              --command -- valkey-cli -h rtest-kvrocks -p 6666 "$@" >/dev/null
+            for _ in $(seq 1 60); do
+              ph="$(kubectl get pod "$p" -o jsonpath='{.status.phase}')"
+              [ "$ph" = Succeeded ] || [ "$ph" = Failed ] && break
+              sleep 2
+            done
+            kubectl logs "$p"
+            kubectl delete pod "$p" --wait=false >/dev/null
+          }
           test "$(cli -a "$PW" --no-auth-warning PING | tr -d '\r')" = PONG
           test "$(cli -a "$PW" --no-auth-warning SET gate quench | tr -d '\r')" = OK
           cli -a "$PW" --no-auth-warning INFO server | tr -d '\r' | grep '^kvrocks_version:'
