@@ -1,0 +1,23 @@
+# mesh-stack: Istio ambient, istiod + istio-cni + ztunnel at one version (1.30.5).
+#
+# Install into istio-system (ztunnel and istiod address each other there), then
+#   kubectl label namespace <ns> istio.io/dataplane-mode=ambient
+# and every pod in <ns> gets a SPIFFE identity and talks mutual TLS (HBONE) through
+# its node's ztunnel. No sidecars, no restarts of the workloads.
+#
+#   istiod   istiod.istio-system.svc:15012 (xDS + CA)
+#   ztunnel  DaemonSet ztunnel, access log: kubectl -n istio-system logs ds/ztunnel
+
+istiod:
+  # ztunnel's default address is istiod.istio-system.svc
+  fullnameOverride: istiod
+  extraEnvVars:
+    - name: PILOT_ENABLE_AMBIENT
+      value: "true"
+    # ztunnel requests certificates for the pods on its node under this account
+    - name: CA_TRUSTED_NODE_ACCOUNTS
+      value: istio-system/ztunnel
+
+istio-cni: {}
+
+ztunnel: {}

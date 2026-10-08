@@ -1,0 +1,14 @@
+{{- if ne .Release.Namespace "istio-system" }}
+{{- fail "mesh-stack installs into istio-system: ztunnel finds istiod at istiod.istio-system.svc and istiod trusts istio-system/ztunnel" }}
+{{- end -}}
+Istio {{ .Chart.AppVersion }} ambient is installed in {{ .Release.Namespace }}: istiod, istio-cni-node, ztunnel.
+
+Mesh a namespace (its pods get mutual TLS with no restart):
+
+  kubectl label namespace <ns> istio.io/dataplane-mode=ambient
+
+See the encrypted connections:
+
+  kubectl -n {{ .Release.Namespace }} logs ds/ztunnel | grep 'connection complete'
+
+Each line names src.identity and dst.identity (spiffe://cluster.local/ns/<ns>/sa/<account>).

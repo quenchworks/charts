@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Istio ambient install gate, shared by the istio-cni and ztunnel release workflows.
 # Installs istiod (ambient on), istio-cni and ztunnel from this checkout into the current kind
-# cluster, meshes a namespace, and passes only when a client's request to a server succeeds AND
+# cluster (separately, or as quench/mesh-stack with `stack` as the first argument), meshes a namespace, and passes only when a client's request to a server succeeds AND
 # ztunnel logs that connection over HBONE with SPIFFE identities on both ends (mutual TLS).
 set -euo pipefail
 ctx="$(kubectl config current-context)"
@@ -15,14 +15,21 @@ for c in istio-cni ztunnel; do
   [ "$(ver "$c")" = "$v" ] || { echo "$c is $(ver "$c"), istiod is $v: the three charts must match"; exit 1; }
 done
 echo "Istio $v"
-for c in istiod istio-cni ztunnel; do helm dependency build "quench/$c" >/dev/null; done
 
-helm install istiod quench/istiod -n "$ns" --create-namespace --set fullnameOverride=istiod \
-  --set 'extraEnvVars[0].name=PILOT_ENABLE_AMBIENT' --set-string 'extraEnvVars[0].value=true' \
-  --set 'extraEnvVars[1].name=CA_TRUSTED_NODE_ACCOUNTS' --set "extraEnvVars[1].value=$ns/ztunnel" \
-  --wait --timeout 5m
-helm install istio-cni quench/istio-cni -n "$ns" -f quench/istio-cni/ci/default-values.yaml --wait --timeout 5m
-helm install ztunnel quench/ztunnel -n "$ns" -f quench/ztunnel/ci/default-values.yaml --wait --timeout 5m
+if [ "${1:-}" = stack ]; then
+  # mesh-stack: one install, the ambient wiring comes from the stack's own values
+  [ "$(ver mesh-stack)" = "$v" ] || { echo "mesh-stack is $(ver mesh-stack), istiod is $v"; exit 1; }
+  helm dependency build quench/mesh-stack >/dev/null
+  helm install mesh quench/mesh-stack -n "$ns" --create-namespace -f quench/mesh-stack/ci/default-values.yaml --wait --timeout 8m
+else
+  for c in istiod istio-cni ztunnel; do helm dependency build "quench/$c" >/dev/null; done
+  helm install istiod quench/istiod -n "$ns" --create-namespace --set fullnameOverride=istiod \
+    --set 'extraEnvVars[0].name=PILOT_ENABLE_AMBIENT' --set-string 'extraEnvVars[0].value=true' \
+    --set 'extraEnvVars[1].name=CA_TRUSTED_NODE_ACCOUNTS' --set "extraEnvVars[1].value=$ns/ztunnel" \
+    --wait --timeout 5m
+  helm install istio-cni quench/istio-cni -n "$ns" -f quench/istio-cni/ci/default-values.yaml --wait --timeout 5m
+  helm install ztunnel quench/ztunnel -n "$ns" -f quench/ztunnel/ci/default-values.yaml --wait --timeout 5m
+fi
 
 imgs="$(kubectl -n "$ns" get pods -o jsonpath='{range .items[*]}{range .spec.containers[*]}{.image}{"\n"}{end}{end}' | sort -u)"
 echo "$imgs"
