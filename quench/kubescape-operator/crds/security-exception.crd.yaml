@@ -1,0 +1,159 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: securityexceptions.kubescape.io
+spec:
+  group: kubescape.io
+  names:
+    plural: securityexceptions
+    singular: securityexception
+    kind: SecurityException
+    shortNames:
+      - se
+  scope: Namespaced
+  versions:
+    - name: v1beta1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: ["spec"]
+          properties:
+            spec:
+              type: object
+              x-kubernetes-validations:
+                # expiresAt is not validated as future-dated: CRD CEL has no now(); expiry is enforced at scan time.
+                - rule: "(has(self.vulnerabilities) && size(self.vulnerabilities) > 0) || (has(self.posture) && size(self.posture) > 0)"
+                  message: "at least one of spec.vulnerabilities or spec.posture must be set"
+              properties:
+                author:
+                  type: string
+                reason:
+                  type: string
+                expiresAt:
+                  type: string
+                  format: date-time
+                match:
+                  type: object
+                  properties:
+                    objectSelector:
+                      type: object
+                      x-kubernetes-preserve-unknown-fields: true
+                    resources:
+                      type: array
+                      items:
+                        type: object
+                        required:
+                          - kind
+                        properties:
+                          apiGroup:
+                            type: string
+                          kind:
+                            type: string
+                          name:
+                            type: string
+                    images:
+                      type: array
+                      items:
+                        type: string
+                vulnerabilities:
+                  type: array
+                  items:
+                    type: object
+                    x-kubernetes-validations:
+                      - rule: "self.status != 'not_affected' || has(self.justification)"
+                        message: "justification is required when status is not_affected"
+                      - rule: "self.status != 'affected' || has(self.actionStatement)"
+                        message: "actionStatement is required when status is affected"
+                    required:
+                      - vulnerability
+                      - status
+                    properties:
+                      vulnerability:
+                        type: object
+                        required:
+                          - id
+                        properties:
+                          id:
+                            type: string
+                          aliases:
+                            type: array
+                            items:
+                              type: string
+                      status:
+                        type: string
+                        enum:
+                          - not_affected
+                          - affected
+                          - fixed
+                          - under_investigation
+                      justification:
+                        type: string
+                        enum:
+                          - component_not_present
+                          - vulnerable_code_not_present
+                          - vulnerable_code_not_in_execute_path
+                          - vulnerable_code_cannot_be_controlled_by_adversary
+                          - inline_mitigations_already_exist
+                      impactStatement:
+                        type: string
+                      expiredOnFix:
+                        type: boolean
+                      # Overrides the document-level spec.expiresAt for this entry only.
+                      expiresAt:
+                        type: string
+                        format: date-time
+                      # Counterpart to impactStatement on the affected path; OpenVEX
+                      # requires an action statement for every affected statement.
+                      # The pattern rejects blank text: the rule above only checks the
+                      # field is present, and a CEL trim() here blows the rule cost budget.
+                      actionStatement:
+                        type: string
+                        pattern: '\S'
+                      response:
+                        type: array
+                        items:
+                          type: string
+                          enum:
+                            - can_not_fix
+                            - will_not_fix
+                            - update
+                            - rollback
+                            - workaround_available
+                      # Scopes the exception to packages within the matched product, as PURLs.
+                      subcomponents:
+                        type: array
+                        items:
+                          type: string
+                posture:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - controlID
+                      - action
+                    properties:
+                      controlID:
+                        type: string
+                      frameworkName:
+                        type: string
+                      action:
+                        type: string
+                        enum:
+                          - ignore
+                          - alert_only
+            status:
+              type: object
+      additionalPrinterColumns:
+        - name: Reason
+          type: string
+          jsonPath: .spec.reason
+        - name: Expires
+          type: string
+          jsonPath: .spec.expiresAt
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}

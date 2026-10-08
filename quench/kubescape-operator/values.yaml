@@ -38,6 +38,18 @@ storage:
     storageClass: ""
   cleanupInterval: 6h
 
+# Scans are triggered through the operator's REST API (POST v1/triggerAction), the way upstream's
+# scheduler does it: a post-install Job runs the first configuration and vulnerability scan, and a
+# CronJob repeats them. Both use the kubectl image and reach the operator through the API server's
+# service proxy, so they need no network policy exception and no extra image.
+scheduler:
+  enabled: true
+  schedule: "17 3 * * *"
+  scanOnInstall: true
+  image:
+    repository: ghcr.io/quenchworks/images/kubectl
+    digest: "sha256:4033ac5e5f359739cf017a256188a8da7592edae86e452c6327dc4865a66a580"
+
 imagePullPolicy: IfNotPresent
 imagePullSecrets: []
 

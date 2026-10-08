@@ -1,0 +1,136 @@
+{{- if or .Values.scheduler.enabled .Values.scheduler.scanOnInstall }}
+{{- $ns := .Release.Namespace }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kubescape-scheduler
+  namespace: {{ $ns }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scheduler
+data:
+  # The command bodies upstream's scheduler posts: a configuration scan and a vulnerability scan
+  # of every running image.
+  kubescape.json: '{"commands":[{"CommandName":"kubescapeScan","args":{"scanV1":{}}}]}'
+  kubevuln.json: '{"commands":[{"commandName":"scan","designators":[{"designatorType":"Attributes","attributes":{}}]}]}'
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubescape-scheduler
+  namespace: {{ $ns }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scheduler
+---
+# Only the operator Service, only through the API server's service proxy.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubescape-scheduler
+  namespace: {{ $ns }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scheduler
+rules:
+  - apiGroups: [""]
+    resources: [services/proxy]
+    resourceNames: [operator, "operator:4002"]
+    verbs: [create, get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubescape-scheduler
+  namespace: {{ $ns }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scheduler
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: kubescape-scheduler}
+subjects:
+  - {kind: ServiceAccount, name: kubescape-scheduler, namespace: {{ $ns }}}
+{{- end }}
+{{- define "ks.triggerPod" -}}
+serviceAccountName: kubescape-scheduler
+restartPolicy: OnFailure
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  seccompProfile: { type: RuntimeDefault }
+{{- with .Values.imagePullSecrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+containers:
+  - name: trigger
+    image: "{{ .Values.scheduler.image.repository }}@{{ .Values.scheduler.image.digest }}"
+    imagePullPolicy: {{ .Values.imagePullPolicy }}
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true
+      capabilities: { drop: [ALL] }
+    command: [/bin/sh, -c]
+    args:
+      - |
+        set -e
+        p="/api/v1/namespaces/{{ .Release.Namespace }}/services/operator:4002/proxy/v1/triggerAction"
+        # The operator accepts commands once it is ready; retry for up to 10 minutes.
+        for body in kubescape kubevuln; do
+          for i in $(seq 1 60); do
+            if kubectl create --raw "$p" -f "/body/$body.json"; then echo "triggered $body scan"; break; fi
+            [ "$i" -lt 60 ] || exit 1
+            sleep 10
+          done
+        done
+    env:
+      - { name: HOME, value: /tmp }
+    volumeMounts:
+      - { name: body, mountPath: /body, readOnly: true }
+      - { name: tmp, mountPath: /tmp }
+volumes:
+  - name: body
+    configMap: { name: kubescape-scheduler }
+  - { name: tmp, emptyDir: {} }
+{{- end }}
+{{- if .Values.scheduler.enabled }}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: kubescape-scheduler
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scheduler
+spec:
+  schedule: {{ .Values.scheduler.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          {{- include "ks.triggerPod" . | nindent 10 }}
+{{- end }}
+{{- if .Values.scheduler.scanOnInstall }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: kubescape-first-scan
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: scheduler
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      {{- include "ks.triggerPod" . | nindent 6 }}
+{{- end }}
