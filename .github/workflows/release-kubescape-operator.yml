@@ -74,7 +74,9 @@ jobs:
           kubectl -n kubescape describe pods || true
           for d in operator kubescape kubevuln storage; do
             echo "=== $d"; kubectl -n kubescape logs deployment/$d --all-containers --tail=300 || true
-            echo "=== $d (previous container)"; kubectl -n kubescape logs deployment/$d --all-containers --previous --tail=200 || true
+            echo "=== $d (previous container)"
+            kubectl -n kubescape logs deployment/$d --all-containers --previous > /tmp/prev.log 2>&1 || true
+            grep -n -m3 -B5 -A40 -E '^(panic|fatal error|runtime:)' /tmp/prev.log || tail -n 60 /tmp/prev.log
           done
           kubectl get events -A --sort-by=.lastTimestamp | tail -60 || true
 

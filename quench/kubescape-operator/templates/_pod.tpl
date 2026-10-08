@@ -49,3 +49,15 @@ securityContext:
 - name: ks-cloud-config
   configMap: { name: ks-cloud-config }
 {{- end -}}
+
+
+{{/* GOMEMLIMIT at 80% of a memory limit given in Mi or Gi, as upstream sets it, so a large
+     scan makes the Go GC work harder before the kernel kills the container. */}}
+{{- define "ks.gomemlimit" -}}
+{{- $m := toString . -}}
+{{- $mib := 0 -}}
+{{- if hasSuffix "Gi" $m }}{{ $mib = mul (trimSuffix "Gi" $m | int) 1024 }}
+{{- else if hasSuffix "Mi" $m }}{{ $mib = trimSuffix "Mi" $m | int }}
+{{- else }}{{ fail (printf "memory limit %q must be in Mi or Gi" $m) }}{{ end -}}
+{{ div (mul $mib 8) 10 }}MiB
+{{- end -}}
