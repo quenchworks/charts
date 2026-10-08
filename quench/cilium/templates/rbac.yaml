@@ -1,0 +1,103 @@
+{{- if .Values.rbac.create }}
+# What the Cilium 1.20 agent reads and writes with this chart's feature set: Kubernetes
+# networking objects to program the datapath, and its own CiliumNode, CiliumEndpoints and
+# identities. CRD registration and garbage collection belong to the operator.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list, watch]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+  - apiGroups: ['']
+    resources: [namespaces, services, pods, nodes]
+    verbs: [get, list, watch]
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get, list, watch]
+  - apiGroups: [cilium.io]
+    resources:
+      - ciliumbgpadvertisements
+      - ciliumbgpnodeconfigs
+      - ciliumbgppeerconfigs
+      - ciliumcidrgroups
+      - ciliumclusterwideenvoyconfigs
+      - ciliumclusterwidenetworkpolicies
+      - ciliumdatapathplugins
+      - ciliumegressgatewaypolicies
+      - ciliumendpoints
+      - ciliumendpointslices
+      - ciliumenvoyconfigs
+      - ciliumidentities
+      - ciliuml2announcementpolicies
+      - ciliumloadbalancerippools
+      - ciliumlocalredirectpolicies
+      - ciliumnetworkpolicies
+      - ciliumnodeconfigs
+      - ciliumnodes
+      - ciliumpodippools
+    verbs: [list, watch]
+  - apiGroups: [cilium.io]
+    resources: [ciliumidentities, ciliumendpoints, ciliumnodes]
+    verbs: [create]
+  - apiGroups: [cilium.io]
+    resources: [ciliumidentities]
+    verbs: [update]
+  - apiGroups: [cilium.io]
+    resources: [ciliumendpoints]
+    verbs: [get, delete]
+  - apiGroups: [cilium.io]
+    resources: [ciliumnodes, ciliumnodes/status]
+    verbs: [get, update]
+  - apiGroups: [cilium.io]
+    resources: [ciliumendpoints, ciliumendpoints/status, ciliuml2announcementpolicies/status, ciliumbgpnodeconfigs/status]
+    verbs: [patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# the agent watches cilium-config for its dynamic settings
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "quench-common.fullname" . }}-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ['']
+    resources: [configmaps]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "quench-common.fullname" . }}-config
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

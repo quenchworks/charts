@@ -1,0 +1,71 @@
+# QuenchWorks Cilium: the agent DaemonSet on the QuenchWorks cilium image (built from source,
+# 0-CVE, cosign-signed, pinned by digest) plus the QuenchWorks Cilium Operator subchart.
+# Cilium is the cluster's CNI: install it into kube-system on a cluster started without one
+# (kind: networking.disableDefaultCNI: true), once per cluster.
+image:
+  repository: ghcr.io/quenchworks/images/cilium
+  digest: "sha256:3aca8420ec1d477c429fe9af10eb27bfeb36c3cb4db55959dedbb44e02e9b213"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# Cilium's settings, rendered into the ConfigMap the agents and the operator both read. Its
+# name is fixed (cilium-config): the operator patches it by that name.
+config:
+  clusterName: default
+  clusterId: 0
+  # Pod addresses: the operator carves one /maskSize per node out of this range.
+  ipam:
+    clusterPoolIPv4CIDR: 10.0.0.0/8
+    clusterPoolIPv4MaskSize: 24
+  # tunnel (VXLAN or Geneve overlay, works anywhere) or native (needs routable pod CIDRs)
+  routingMode: tunnel
+  tunnelProtocol: vxlan
+  # "false" keeps kube-proxy in charge of Services; "true" replaces it (then set
+  # k8sServiceHost and k8sServicePort in extraConfig).
+  kubeProxyReplacement: "false"
+  # default, always or never
+  policyEnforcementMode: default
+  debug: false
+  # Any other cilium-config key, as strings, for example {enable-ipv6: "true"}.
+  # This image ships no Envoy, so L7 policy (enable-l7-proxy) stays off.
+  extraConfig: {}
+
+# The QuenchWorks Cilium Operator: cluster-pool IPAM, CRD registration, garbage collection
+# and node taint removal. Disable only to run your own operator against cilium-config.
+cilium-operator:
+  enabled: true
+
+extraArgs: []
+extraEnvVars: []
+
+# The agent's health API on the node (host network), used by the probes.
+healthPort: 9879
+
+priorityClassName: system-node-critical
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { memory: 1Gi }
+nodeSelector:
+  kubernetes.io/os: linux
+# Every node needs an agent, tainted or not.
+tolerations:
+  - operator: Exists
+
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 2
+
+rbac:
+  create: true
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # the agent watches the API server
+  automountServiceAccountToken: true

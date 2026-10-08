@@ -1,0 +1,203 @@
+{{- $priv := dict "seLinuxOptions" (dict "level" "s0" "type" "spc_t") -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        # the operator finds the agent pods by this label to lift each node's
+        # agent-not-ready taint
+        k8s-app: cilium
+      annotations:
+        kubectl.kubernetes.io/default-container: cilium-agent
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      automountServiceAccountToken: true
+      # The agent programs the node: host network, root (the image's user), node-critical.
+      hostNetwork: true
+      priorityClassName: {{ .Values.priorityClassName }}
+      terminationGracePeriodSeconds: 1
+      securityContext:
+        appArmorProfile: { type: Unconfined }
+        seccompProfile: { type: Unconfined }
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      initContainers:
+        # cgroup v2 mounted where the agent attaches its socket programs, in the host's
+        # cgroup and mount namespaces (the helper runs from the host's CNI bin dir)
+        - name: mount-cgroup
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - bash
+            - -ec
+            - |
+              cp /usr/bin/cilium-mount /hostbin/cilium-mount
+              nsenter --cgroup=/hostproc/1/ns/cgroup --mount=/hostproc/1/ns/mnt /opt/cni/bin/cilium-mount /run/cilium/cgroupv2
+              rm /hostbin/cilium-mount
+          securityContext:
+            {{- toYaml $priv | nindent 12 }}
+            capabilities: { drop: [ALL], add: [SYS_ADMIN, SYS_CHROOT, SYS_PTRACE] }
+          volumeMounts:
+            - { name: hostproc, mountPath: /hostproc }
+            - { name: cni-path, mountPath: /hostbin }
+        # host sysctls the datapath needs (rp_filter off for the cilium interfaces)
+        - name: apply-sysctl-overwrites
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - bash
+            - -ec
+            - |
+              cp /usr/bin/cilium-sysctlfix /hostbin/cilium-sysctlfix
+              nsenter --mount=/hostproc/1/ns/mnt /opt/cni/bin/cilium-sysctlfix
+              rm /hostbin/cilium-sysctlfix
+          securityContext:
+            {{- toYaml $priv | nindent 12 }}
+            capabilities: { drop: [ALL], add: [SYS_ADMIN, SYS_CHROOT, SYS_PTRACE] }
+          volumeMounts:
+            - { name: hostproc, mountPath: /hostproc }
+            - { name: cni-path, mountPath: /hostbin }
+        # BPF maps outlive agent restarts only on a bpffs mounted on the host
+        - name: mount-bpf-fs
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [bash, -c, 'grep -q " /sys/fs/bpf bpf " /proc/mounts || mount -t bpf bpf /sys/fs/bpf']
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - { name: bpf-maps, mountPath: /sys/fs/bpf, mountPropagation: Bidirectional }
+        - name: clean-cilium-state
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [/init-container.sh]
+          env:
+            - name: CILIUM_ALL_STATE
+              valueFrom: { configMapKeyRef: { name: cilium-config, key: clean-cilium-state, optional: true } }
+            - name: CILIUM_BPF_STATE
+              valueFrom: { configMapKeyRef: { name: cilium-config, key: clean-cilium-bpf-state, optional: true } }
+            - name: WRITE_CNI_CONF_WHEN_READY
+              valueFrom: { configMapKeyRef: { name: cilium-config, key: write-cni-conf-when-ready, optional: true } }
+          securityContext:
+            {{- toYaml $priv | nindent 12 }}
+            capabilities: { drop: [ALL], add: [NET_ADMIN, SYS_MODULE, SYS_ADMIN, SYS_RESOURCE] }
+          volumeMounts:
+            - { name: bpf-maps, mountPath: /sys/fs/bpf }
+            - { name: cilium-cgroup, mountPath: /run/cilium/cgroupv2, mountPropagation: HostToContainer }
+            - { name: cilium-run, mountPath: /var/run/cilium }
+        # the cilium CNI plugin onto the host's CNI bin dir
+        - name: install-cni-binaries
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [/install-plugin.sh]
+          securityContext:
+            {{- toYaml $priv | nindent 12 }}
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: cni-path, mountPath: /host/opt/cni/bin }
+      containers:
+        - name: cilium-agent
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [cilium-agent]
+          args:
+            - --config-dir=/tmp/cilium/config-map
+            {{- with .Values.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          env:
+            - name: K8S_NODE_NAME
+              valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+            - name: CILIUM_K8S_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - name: GOMEMLIMIT
+              valueFrom: { resourceFieldRef: { resource: limits.memory, divisor: "1" } }
+            {{- with .Values.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - { name: health, containerPort: {{ .Values.healthPort }}, hostPort: {{ .Values.healthPort }}, protocol: TCP }
+          startupProbe:
+            httpGet: &health
+              host: 127.0.0.1
+              path: /healthz
+              port: health
+              httpHeaders: [{ name: brief, value: "true" }]
+            initialDelaySeconds: 5
+            periodSeconds: 2
+            failureThreshold: 300
+          readinessProbe:
+            httpGet: *health
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              host: 127.0.0.1
+              path: /healthz
+              port: health
+              httpHeaders:
+                - { name: brief, value: "true" }
+                - { name: require-k8s-connectivity, value: "false" }
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 10
+          lifecycle:
+            # take the CNI config off the node on the way out
+            preStop:
+              exec:
+                command: [/cni-uninstall.sh]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml $priv | nindent 12 }}
+            capabilities:
+              drop: [ALL]
+              add: [CHOWN, KILL, NET_ADMIN, NET_RAW, IPC_LOCK, SYS_MODULE, SYS_ADMIN, SYS_RESOURCE, DAC_OVERRIDE, FOWNER, SETGID, SETUID, SYSLOG]
+          terminationMessagePolicy: FallbackToLogsOnError
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: cilium-config, mountPath: /tmp/cilium/config-map, readOnly: true }
+            - { name: host-proc-sys-net, mountPath: /host/proc/sys/net }
+            - { name: host-proc-sys-kernel, mountPath: /host/proc/sys/kernel }
+            - { name: bpf-maps, mountPath: /sys/fs/bpf, mountPropagation: HostToContainer }
+            - { name: cilium-run, mountPath: /var/run/cilium }
+            - { name: cilium-netns, mountPath: /var/run/cilium/netns, mountPropagation: HostToContainer }
+            - { name: etc-cni-netd, mountPath: /host/etc/cni/net.d }
+            - { name: lib-modules, mountPath: /lib/modules, readOnly: true }
+            - { name: xtables-lock, mountPath: /run/xtables.lock }
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - name: cilium-config
+          configMap: { name: cilium-config }
+        - { name: cilium-run, hostPath: { path: /var/run/cilium, type: DirectoryOrCreate } }
+        - { name: cilium-netns, hostPath: { path: /var/run/netns, type: DirectoryOrCreate } }
+        - { name: bpf-maps, hostPath: { path: /sys/fs/bpf, type: DirectoryOrCreate } }
+        - { name: hostproc, hostPath: { path: /proc, type: Directory } }
+        - { name: cilium-cgroup, hostPath: { path: /run/cilium/cgroupv2, type: DirectoryOrCreate } }
+        - { name: cni-path, hostPath: { path: /opt/cni/bin, type: DirectoryOrCreate } }
+        - { name: etc-cni-netd, hostPath: { path: /etc/cni/net.d, type: DirectoryOrCreate } }
+        - { name: lib-modules, hostPath: { path: /lib/modules } }
+        - { name: xtables-lock, hostPath: { path: /run/xtables.lock, type: FileOrCreate } }
+        - { name: host-proc-sys-net, hostPath: { path: /proc/sys/net, type: Directory } }
+        - { name: host-proc-sys-kernel, hostPath: { path: /proc/sys/kernel, type: Directory } }

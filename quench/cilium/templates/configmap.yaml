@@ -1,0 +1,50 @@
+{{- $c := .Values.config -}}
+{{- $data := dict
+  "debug" $c.debug
+  "cluster-name" $c.clusterName
+  "cluster-id" $c.clusterId
+  "identity-allocation-mode" "crd"
+  "enable-ipv4" true
+  "enable-ipv6" false
+  "ipam" "cluster-pool"
+  "cluster-pool-ipv4-cidr" $c.ipam.clusterPoolIPv4CIDR
+  "cluster-pool-ipv4-mask-size" $c.ipam.clusterPoolIPv4MaskSize
+  "routing-mode" $c.routingMode
+  "tunnel-protocol" $c.tunnelProtocol
+  "enable-ipv4-masquerade" true
+  "kube-proxy-replacement" $c.kubeProxyReplacement
+  "enable-policy" $c.policyEnforcementMode
+  "enable-k8s-networkpolicy" true
+  "enable-l7-proxy" false
+  "external-envoy-proxy" false
+  "enable-hubble" false
+  "enable-policy-secrets-sync" false
+  "write-cni-conf-when-ready" "/host/etc/cni/net.d/05-cilium.conflist"
+  "cni-exclusive" true
+  "cni-log-file" "/var/run/cilium/cilium-cni.log"
+  "bpf-root" "/sys/fs/bpf"
+  "cgroup-root" "/run/cilium/cgroupv2"
+  "procfs" "/host/proc"
+  "enable-health-checking" true
+  "enable-endpoint-health-checking" true
+  "synchronize-k8s-nodes" true
+  "agent-not-ready-taint-key" "node.cilium.io/agent-not-ready"
+  "remove-cilium-node-taints" true
+  "set-cilium-node-taints" true
+  "set-cilium-is-up-condition" true
+  "operator-api-serve-addr" "127.0.0.1:9234"
+-}}
+{{- $data = mergeOverwrite $data ($c.extraConfig | default dict) -}}
+# Read by the agents (mounted as their config dir) and by the operator subchart, which
+# also patches it under this fixed name. No Envoy ships in the image, so L7 proxying is
+# off; the CNI config is written only once the agent can serve pods.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cilium-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  {{- range $k := keys $data | sortAlpha }}
+  {{ $k }}: {{ get $data $k | toString | quote }}
+  {{- end }}
