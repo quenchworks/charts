@@ -1,0 +1,35 @@
+# QuenchWorks linkerd-cni: Linkerd's CNI plugin installer on the QuenchWorks linkerd-cni image
+# (built from source, 0-CVE, cosign-signed, pinned by digest). Install it before the linkerd
+# chart; the plugin then sets up each meshed pod's traffic redirection when the pod starts.
+image:
+  repository: ghcr.io/quenchworks/images/linkerd-cni
+  digest: "sha256:7d785f41e199a19e19ecfd61255296cc205ea5ef4d1c8a2f58b4d7e3dc62dbf1"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# Must match the proxy the linkerd chart injects (upstream defaults).
+proxy:
+  inboundPort: 4143
+  outboundPort: 4140
+  uid: 2102
+  # proxy admin and control ports are never redirected
+  ignoreInboundPorts: ["4191", "4190"]
+  ignoreOutboundPorts: []
+# nft or legacy: match the node's iptables backend
+iptablesMode: nft
+disableIPv6: true
+logLevel: info
+
+# Where the node keeps its CNI plugins and configuration (k3s and some distros differ).
+cniBinDir: /opt/cni/bin
+cniConfDir: /etc/cni/net.d
+
+priorityClassName: system-node-critical
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { memory: 128Mi }
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations:
+  - operator: Exists

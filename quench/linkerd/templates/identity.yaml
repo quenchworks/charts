@@ -1,0 +1,88 @@
+{{- $ns := .Release.Namespace -}}
+# The mesh certificate authority: signs a short-lived certificate for each proxy's
+# ServiceAccount, with the issuer from identity.existingSecret (crt.pem, key.pem).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: linkerd-identity
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    linkerd.io/control-plane-component: identity
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      linkerd.io/control-plane-component: identity
+      linkerd.io/control-plane-ns: {{ $ns }}
+  template:
+    metadata:
+      labels:
+        {{- include "linkerd.podLabels" (dict "ctx" . "component" "identity") | nindent 8 }}
+      annotations:
+        config.linkerd.io/default-inbound-policy: {{ .Values.proxy.defaultInboundPolicy }}
+        # the API server is reached directly, as upstream's proxy-init does for the control plane:
+        # the proxies cannot route anything before identity and destination are up
+        config.linkerd.io/skip-outbound-ports: {{ .Values.kubeAPIServerPorts | quote }}
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: linkerd-identity
+      {{- include "linkerd.podSpec" . | nindent 6 }}
+      initContainers:
+        {{- include "linkerd.networkValidator" (dict "ctx" .) | nindent 8 }}
+      containers:
+        {{- /* its own proxy asks the identity container next to it for its certificate, so it
+               is an ordinary container that starts alongside identity */}}
+        {{- include "linkerd.proxy" (dict "ctx" . "inboundPorts" "8080,9990" "requireTLS" "8080" "dst" (printf "linkerd-dst-headless.%s.svc.%s.:8086" $ns .Values.clusterDomain) "policy" (printf "linkerd-policy.%s.svc.%s.:8090" $ns .Values.clusterDomain) "identity" "localhost.:8080") | nindent 8 }}
+        - name: identity
+          image: {{ include "linkerd.controllerImage" . }}
+          imagePullPolicy: {{ .Values.controllerImage.pullPolicy }}
+          args:
+            - identity
+            - -log-level={{ .Values.controllerLogLevel }}
+            - -log-format=plain
+            - -controller-namespace={{ $ns }}
+            - -identity-trust-domain={{ .Values.identity.trustDomain }}
+            - -identity-issuance-lifetime={{ .Values.identity.issuanceLifetime }}
+            - -identity-clock-skew-allowance={{ .Values.identity.clockSkewAllowance }}
+            - -identity-scheme=linkerd.io/tls
+            - -enable-pprof=false
+          ports:
+            - { name: ident-grpc, containerPort: 8080 }
+            - { name: ident-admin, containerPort: 9990 }
+          livenessProbe:
+            httpGet: { path: /ping, port: 9990 }
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet: { path: /ready, port: 9990 }
+            failureThreshold: 7
+          {{- with .Values.identity.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "linkerd.controllerSecurity" . | nindent 10 }}
+          volumeMounts:
+            - { name: identity-issuer, mountPath: /var/run/linkerd/identity/issuer, readOnly: true }
+            - { name: trust-roots, mountPath: /var/run/linkerd/identity/trust-roots/, readOnly: true }
+      volumes:
+        - name: identity-issuer
+          secret: { secretName: {{ .Values.identity.existingSecret }} }
+        - name: trust-roots
+          configMap: { name: linkerd-identity-trust-roots }
+        {{- include "linkerd.proxyVolumes" . | nindent 8 }}
+{{- range $n := list "linkerd-identity" "linkerd-identity-headless" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $n }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+    linkerd.io/control-plane-component: identity
+spec:
+  {{- if eq $n "linkerd-identity-headless" }}
+  clusterIP: None
+  {{- end }}
+  selector: { linkerd.io/control-plane-component: identity, linkerd.io/control-plane-ns: {{ $ns }} }
+  ports:
+    - { name: grpc, port: 8080, targetPort: 8080 }
+{{- end }}

@@ -1,13 +1,13 @@
-name: release-linkerd
+name: release-linkerd-cni
 
 on:
   push:
     branches: [main]
     paths:
-      - "quench/linkerd/**"
-      - ".github/workflows/release-linkerd.yml"
-      - "scripts/gate-linkerd-mesh.sh"
       - "quench/linkerd-cni/**"
+      - ".github/workflows/release-linkerd-cni.yml"
+      - "scripts/gate-linkerd-mesh.sh"
+      - "quench/linkerd/**"
   workflow_dispatch:
 
 permissions:
@@ -16,7 +16,7 @@ permissions:
   id-token: write
 
 env:
-  CHART_DIR: quench/linkerd
+  CHART_DIR: quench/linkerd-cni
   OCI_REPO: oci://ghcr.io/quenchworks/charts
 
 jobs:
@@ -35,31 +35,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Skip while the image digest is a placeholder
-        id: gate
-        run: |
-          # The chart ships a 64-zero placeholder digest until its image has had
-          # a first green publish. Running the install gate against that digest
-          # is a guaranteed ImagePullBackOff, so gate the whole release on it --
-          # same idea as the REPLACE_WITH guard on artifacthub-repo.yml below.
-          if grep -q "sha256:0000000000000000000000000000000000000000000000000000000000000000" "${CHART_DIR}/values.yaml"; then
-            echo "::warning::values.yaml still has a placeholder image digest; skipping release."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Lint and template
-        if: steps.gate.outputs.ready == 'true'
         run: |
           helm dependency build "${CHART_DIR}"
-          helm lint "${CHART_DIR}" -n linkerd -f "${CHART_DIR}/ci/default-values.yaml"
-          helm template "${CHART_DIR}" -n linkerd -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
 
-      # The whole mesh, as users install it: linkerd-crds, linkerd-cni, then this chart with
+      # The whole mesh, as users install it: linkerd-crds, linkerd-cni, then the linkerd chart with
       # generated certificates; an injected pod must reach another over mutual TLS.
       - name: Install gate (kind)
-        if: steps.gate.outputs.ready == 'true'
         run: bash scripts/gate-linkerd-mesh.sh
 
       - name: Why the install gate failed
@@ -91,30 +75,30 @@ jobs:
           fi
 
       - name: Package and push (OCI)
-        if: (steps.gate.outputs.ready == 'true') && steps.published.outputs.skip != 'true'
+        if: steps.published.outputs.skip != 'true'
         id: push
         run: |
           set -o pipefail
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
           helm package "${CHART_DIR}" -d ./dist
-          helm push ./dist/linkerd-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          helm push ./dist/linkerd-cni-[0-9]*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
           digest="$(awk '/Digest:/ {print $2}' push.txt)"
           test -n "$digest"
           echo "digest=${digest}" >> "$GITHUB_OUTPUT"
 
       - name: Sign chart (cosign keyless)
-        if: (steps.gate.outputs.ready == 'true') && steps.published.outputs.skip != 'true'
+        if: steps.published.outputs.skip != 'true'
         env:
           COSIGN_YES: "true"
         run: |
-          cosign sign "ghcr.io/quenchworks/charts/linkerd@${{ steps.push.outputs.digest }}"
+          cosign sign "ghcr.io/quenchworks/charts/linkerd-cni@${{ steps.push.outputs.digest }}"
 
       - name: Set up oras
         if: steps.published.outputs.skip != 'true'
         uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
 
       - name: Publish ArtifactHub metadata (verified publisher)
-        if: (steps.gate.outputs.ready == 'true') && steps.published.outputs.skip != 'true'
+        if: steps.published.outputs.skip != 'true'
         run: |
           if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
             echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
@@ -122,6 +106,6 @@ jobs:
           fi
           echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
           cd "${CHART_DIR}"
-          oras push ghcr.io/quenchworks/charts/linkerd:artifacthub.io \
+          oras push ghcr.io/quenchworks/charts/linkerd-cni:artifacthub.io \
             --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
             "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

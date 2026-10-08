@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft-07/schema#",
   "title": "Quenchworks linkerd values",
   "type": "object",
-  "additionalProperties": true,
+  "additionalProperties": false,
   "properties": {
     "controllerImage": {
       "type": "object",
@@ -18,7 +18,7 @@
         },
         "digest": {
           "type": "string",
-          "pattern": "^sha256:[a-f0-9]{64}$"
+          "pattern": "^sha256:[0-9a-f]{64}$"
         },
         "pullPolicy": {
           "type": "string",
@@ -30,10 +30,143 @@
         }
       }
     },
-    "nameOverride": {
-      "type": "string"
+    "policyController": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "repository",
+            "digest"
+          ],
+          "properties": {
+            "repository": {
+              "type": "string",
+              "minLength": 1
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            },
+            "pullPolicy": {
+              "type": "string",
+              "enum": [
+                "Always",
+                "IfNotPresent",
+                "Never"
+              ]
+            }
+          }
+        },
+        "resources": {
+          "type": "object"
+        }
+      }
     },
-    "fullnameOverride": {
+    "proxy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "tag",
+            "digest"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tag": {
+              "type": "string",
+              "minLength": 1
+            },
+            "digest": {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          }
+        },
+        "logLevel": {
+          "type": "string",
+          "minLength": 1
+        },
+        "defaultInboundPolicy": {
+          "type": "string",
+          "enum": [
+            "all-unauthenticated",
+            "all-authenticated",
+            "cluster-authenticated",
+            "cluster-unauthenticated",
+            "deny",
+            "audit"
+          ]
+        },
+        "resources": {
+          "type": "object"
+        }
+      }
+    },
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trustDomain": {
+          "type": "string",
+          "minLength": 1
+        },
+        "trustAnchorsPEM": {
+          "type": "string"
+        },
+        "existingSecret": {
+          "type": "string"
+        },
+        "issuanceLifetime": {
+          "type": "string"
+        },
+        "clockSkewAllowance": {
+          "type": "string"
+        },
+        "resources": {
+          "type": "object"
+        }
+      }
+    },
+    "destination": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resources": {
+          "type": "object"
+        }
+      }
+    },
+    "proxyInjector": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "resources": {
+          "type": "object"
+        },
+        "failurePolicy": {
+          "type": "string",
+          "enum": [
+            "Ignore",
+            "Fail"
+          ]
+        }
+      }
+    },
+    "clusterNetworks": {
+      "type": "string",
+      "minLength": 1
+    },
+    "defaultOpaquePorts": {
       "type": "string"
     },
     "clusterDomain": {
@@ -52,237 +185,7 @@
         "trace"
       ]
     },
-    "destination": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "replicaCount": {
-          "type": "integer",
-          "minimum": 1
-        }
-      }
-    },
-    "identity": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "replicaCount": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "trustDomain": {
-          "type": "string"
-        },
-        "trustAnchorsPEM": {
-          "type": "string"
-        },
-        "existingSecret": {
-          "type": "string"
-        },
-        "issuanceLifetime": {
-          "type": "string"
-        },
-        "clockSkewAllowance": {
-          "type": "string"
-        }
-      }
-    },
-    "policyController": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "replicaCount": {
-          "type": "integer",
-          "minimum": 1
-        },
-        "image": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "repository",
-            "digest"
-          ],
-          "properties": {
-            "repository": {
-              "type": "string",
-              "minLength": 1
-            },
-            "digest": {
-              "type": "string",
-              "pattern": "^sha256:[a-f0-9]{64}$"
-            },
-            "pullPolicy": {
-              "type": "string",
-              "enum": [
-                "Always",
-                "IfNotPresent",
-                "Never"
-              ]
-            }
-          }
-        },
-        "existingSecret": {
-          "type": "string"
-        },
-        "clusterNetworks": {
-          "type": "string"
-        },
-        "defaultOpaquePorts": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Ports the proxy treats as opaque, skipping protocol detection. Required by the binary: --default-opaque-ports has no default, so an empty value aborts the container at startup."
-        }
-      }
-    },
-    "heartbeat": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "prometheusUrl": {
-          "type": "string"
-        }
-      }
-    },
-    "service": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "type": {
-          "type": "string",
-          "enum": [
-            "ClusterIP",
-            "NodePort",
-            "LoadBalancer",
-            "ExternalName"
-          ]
-        },
-        "destinationPort": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65535
-        },
-        "destinationAdminPort": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65535
-        },
-        "identityPort": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65535
-        },
-        "identityAdminPort": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65535
-        },
-        "policyPort": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65535
-        },
-        "policyAdminPort": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 65535
-        }
-      }
-    },
-    "serviceAccount": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "create": {
-          "type": "boolean"
-        },
-        "name": {
-          "type": "string"
-        },
-        "automountServiceAccountToken": {
-          "type": "boolean",
-          "description": "Mount the ServiceAccount token. Must stay true: linkerd-destination watches Services/EndpointSlices and needs API access."
-        }
-      }
-    },
-    "rbac": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "create": {
-          "type": "boolean"
-        }
-      }
-    },
-    "networkPolicy": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        },
-        "allowExternal": {
-          "type": "boolean"
-        }
-      }
-    },
-    "podDisruptionBudget": {
-      "type": "object",
-      "additionalProperties": true,
-      "properties": {
-        "enabled": {
-          "type": "boolean"
-        }
-      }
-    },
-    "resources": {
-      "type": "object"
-    },
-    "podAnnotations": {
-      "type": "object"
-    },
-    "podLabels": {
-      "type": "object"
-    },
-    "customStartupProbe": {
-      "type": "object"
-    },
-    "customLivenessProbe": {
-      "type": "object"
-    },
-    "customReadinessProbe": {
-      "type": "object"
-    },
-    "updateStrategy": {
-      "type": "object"
-    },
-    "extraEnvVars": {
-      "type": "array"
-    },
-    "extraEnvVarsCM": {
-      "type": "string"
-    },
-    "extraEnvVarsSecret": {
-      "type": "string"
-    },
-    "extraVolumes": {
-      "type": "array"
-    },
-    "extraVolumeMounts": {
-      "type": "array"
-    },
-    "initContainers": {
-      "type": "array"
-    },
-    "sidecars": {
+    "imagePullSecrets": {
       "type": "array"
     },
     "nodeSelector": {
@@ -291,8 +194,15 @@
     "tolerations": {
       "type": "array"
     },
-    "affinity": {
+    "global": {
       "type": "object"
+    },
+    "quench-common": {
+      "type": "object"
+    },
+    "kubeAPIServerPorts": {
+      "type": "string",
+      "pattern": "^[0-9,]+$"
     }
   }
 }

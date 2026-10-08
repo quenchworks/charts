@@ -1,28 +1,11 @@
-QuenchWorks linkerd control plane is installed in {{ .Release.Namespace }} as {{ include "quench-common.fullname" . }}.
+Linkerd edge-{{ .Chart.AppVersion }} runs in {{ .Release.Namespace }}: destination (with the policy server), identity and
+the proxy injector, each with its own proxy.
 
-Installed components:
-  - destination{{ if .Values.identity.enabled }}
-  - identity (trust domain: {{ .Values.identity.trustDomain }}){{ end }}{{ if .Values.policyController.enabled }}
-  - policy-controller{{ end }}{{ if and .Values.heartbeat.enabled .Values.heartbeat.prometheusUrl }}
-  - heartbeat -> {{ .Values.heartbeat.prometheusUrl }}{{ end }}
+Mesh a namespace (new pods get the proxy; restart existing ones):
 
-Verify the destination controller:
+  kubectl annotate namespace <ns> linkerd.io/inject=enabled
+  kubectl -n <ns> rollout restart deploy
 
-  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "quench-common.fullname" . }}-destination {{ .Values.service.destinationAdminPort }}:{{ .Values.service.destinationAdminPort }}
-  curl http://127.0.0.1:{{ .Values.service.destinationAdminPort }}/ready
+Check a meshed pod's proxy (tls="true" on its outbound requests means mutual TLS):
 
-What this chart is, honestly:
-  - It ships the control plane only. Sidecar injection (proxy-injector,
-    sp-validator), the policy CRDs and the linkerd-proxy data plane land in a
-    later chart. Nothing here injects or runs a proxy yet.
-  - Upstream has not published a stable release since stable-2.14.10 (Feb 2024);
-    QuenchWorks tracks the EDGE lines, and this chart pins the matching proxy
-    pairing only once injection ships.
-{{- if .Values.identity.enabled }}
-Identity is ON. If it crashes on boot, check that {{ .Values.identity.existingSecret }} contains
-keys crt.pem and key.pem and that the trust anchors match that issuer.
-{{- else }}
-Identity is OFF. A mesh without workload identity mTLS does not exist -- enable
-identity (trustDomain + trustAnchorsPEM + issuer Secret) before relying on this
-install for anything security-relevant.
-{{- end }}
+  kubectl get --raw /api/v1/namespaces/<ns>/pods/<pod>:4191/proxy/metrics | grep 'tls="true"'

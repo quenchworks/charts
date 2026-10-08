@@ -1,0 +1,137 @@
+# The installer copies the plugin to the node, writes it into the CNI configuration chain with
+# a kubeconfig from this ServiceAccount, and keeps both current. The plugin reads pods, nodes,
+# namespaces and services to decide whether a starting pod is meshed. Fixed names: one install
+# per cluster.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: linkerd-cni
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    linkerd.io/cni-resource: "true"
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: linkerd-cni
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    linkerd.io/cni-resource: "true"
+rules:
+  - apiGroups: ['']
+    resources: [pods, nodes, namespaces, services]
+    verbs: [list, get, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: linkerd-cni
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    linkerd.io/cni-resource: "true"
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: linkerd-cni }
+subjects:
+  - { kind: ServiceAccount, name: linkerd-cni, namespace: {{ .Release.Namespace }} }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: linkerd-cni-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    linkerd.io/cni-resource: "true"
+data:
+  dest_cni_net_dir: {{ .Values.cniConfDir | quote }}
+  dest_cni_bin_dir: {{ .Values.cniBinDir | quote }}
+  # __KUBECONFIG_FILEPATH__ is filled in by the installer
+  cni_network_config: |-
+    {
+      "name": "linkerd-cni",
+      "type": "linkerd-cni",
+      "log_level": {{ .Values.logLevel | quote }},
+      "kubernetes": { "kubeconfig": "__KUBECONFIG_FILEPATH__" },
+      "linkerd": {
+        "incoming-proxy-port": {{ .Values.proxy.inboundPort }},
+        "outgoing-proxy-port": {{ .Values.proxy.outboundPort }},
+        "proxy-uid": {{ .Values.proxy.uid }},
+        "ports-to-redirect": [],
+        "inbound-ports-to-ignore": {{ .Values.proxy.ignoreInboundPorts | toJson }},
+        "outbound-ports-to-ignore": {{ .Values.proxy.ignoreOutboundPorts | toJson }},
+        "simulate": false,
+        "use-wait-flag": false,
+        "iptables-mode": {{ .Values.iptablesMode | quote }},
+        "ipv6": {{ not .Values.disableIPv6 }}
+      }
+    }
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: linkerd-cni
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    linkerd.io/cni-resource: "true"
+spec:
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 1 }
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        k8s-app: linkerd-cni
+        # the proxy injector skips CNI pods by this label
+        linkerd.io/cni-resource: "true"
+      annotations:
+        linkerd.io/inject: disabled
+        checksum/config: {{ .Values | toJson | sha256sum }}
+    spec:
+      serviceAccountName: linkerd-cni
+      priorityClassName: {{ .Values.priorityClassName }}
+      securityContext:
+        seccompProfile: { type: RuntimeDefault }
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      containers:
+        # Root (the image user), as upstream: it writes the node's CNI bin and config dirs.
+        - name: install-cni
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: DEST_CNI_NET_DIR
+              valueFrom: { configMapKeyRef: { name: linkerd-cni-config, key: dest_cni_net_dir } }
+            - name: DEST_CNI_BIN_DIR
+              valueFrom: { configMapKeyRef: { name: linkerd-cni-config, key: dest_cni_bin_dir } }
+            - name: CNI_NETWORK_CONFIG
+              valueFrom: { configMapKeyRef: { name: linkerd-cni-config, key: cni_network_config } }
+            - { name: SLEEP, value: "true" }
+          lifecycle:
+            # the installer removes the plugin from the chain on SIGTERM
+            preStop:
+              exec:
+                command: [/bin/sh, -c, "kill -15 1; sleep 15s"]
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            privileged: false
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+          volumeMounts:
+            - { name: cni-bin-dir, mountPath: /host/opt/cni/bin }
+            - { name: cni-net-dir, mountPath: /host/etc/cni/net.d }
+            - { name: tmp, mountPath: /tmp }
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - { name: cni-bin-dir, hostPath: { path: {{ .Values.cniBinDir }} } }
+        - { name: cni-net-dir, hostPath: { path: {{ .Values.cniConfDir }} } }
+        - { name: tmp, emptyDir: {} }

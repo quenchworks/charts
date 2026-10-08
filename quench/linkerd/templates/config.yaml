@@ -1,0 +1,320 @@
+# The trust anchor every proxy in this namespace verifies certificates against.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: linkerd-identity-trust-roots
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    linkerd.io/control-plane-ns: {{ .Release.Namespace }}
+data:
+  ca-bundle.crt: |
+{{ .Values.identity.trustAnchorsPEM | trim | indent 4 }}
+---
+# The proxy injector renders every injected proxy from `values`, in upstream's linkerd-config
+# schema (edge-26.8.4): our images pinned by digest, CNI mode (no linkerd-init), native sidecars.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: linkerd-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    linkerd.io/control-plane-component: controller
+    linkerd.io/control-plane-ns: {{ .Release.Namespace }}
+  annotations:
+    linkerd.io/created-by: {{ printf "quenchworks/helm %s" .Chart.Version | quote }}
+data:
+  values: |
+    clusterDomain: {{ .Values.clusterDomain }}
+    clusterNetworks: {{ .Values.clusterNetworks }}
+    cniEnabled: true
+    commonLabels: {}
+    controller:
+      podDisruptionBudget:
+        maxUnavailable: 1
+      tracing:
+        collector:
+          endpoint: ''
+        enabled: false
+    controllerGID: -1
+    controllerImage: {{ .Values.controllerImage.repository }}
+    controllerImageVersion: {{ printf "%s@%s" .Chart.AppVersion .Values.controllerImage.digest | quote }}
+    controllerLogFormat: plain
+    controllerLogLevel: {{ .Values.controllerLogLevel }}
+    controllerReplicas: 1
+    controllerUID: 2103
+    debugContainer:
+      image:
+        name: cr.l5d.io/linkerd/debug
+        pullPolicy: ''
+        version: ''
+    deploymentStrategy:
+      rollingUpdate:
+        maxSurge: 25%
+        maxUnavailable: 25%
+    destinationController:
+      livenessProbe:
+        timeoutSeconds: 1
+      meshedHttp2ClientProtobuf:
+        keep_alive:
+          interval:
+            seconds: 10
+          timeout:
+            seconds: 3
+          while_idle: true
+      podAnnotations: {}
+      readinessProbe:
+        timeoutSeconds: 1
+    disableHeartBeat: false
+    disableIPv6: true
+    egress:
+      globalEgressNetworkNamespace: linkerd-egress
+    enableEndpointSlices: true
+    enableH2Upgrade: true
+    enablePSP: false
+    enablePodAntiAffinity: false
+    enablePodDisruptionBudget: false
+    enablePprof: false
+    identity:
+      externalCA: false
+      issuer:
+        clockSkewAllowance: {{ .Values.identity.clockSkewAllowance }}
+        issuanceLifetime: {{ .Values.identity.issuanceLifetime }}
+        scheme: linkerd.io/tls
+        tls:
+          crtPEM: ''
+      kubeAPI:
+        clientBurst: 200
+        clientQPS: 100
+      livenessProbe:
+        timeoutSeconds: 1
+      podAnnotations: {}
+      readinessProbe:
+        timeoutSeconds: 1
+      serviceAccountTokenProjection: true
+    identityTrustAnchorsPEM: |
+{{ .Values.identity.trustAnchorsPEM | trim | indent 6 }}
+    identityTrustDomain: {{ .Values.identity.trustDomain }}
+    imagePullPolicy: IfNotPresent
+    imagePullSecrets: {{ .Values.imagePullSecrets | toJson }}
+    kubeAPI:
+      clientBurst: 200
+      clientQPS: 100
+    linkerdVersion: edge-{{ .Chart.AppVersion }}
+    networkValidator:
+      connectAddr: ''
+      listenAddr: ''
+      logFormat: plain
+      logLevel: debug
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+          - ALL
+        readOnlyRootFilesystem: true
+        runAsGroup: 65534
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      timeout: 10s
+    nodeSelector:
+      kubernetes.io/os: linux
+    podAnnotations: {}
+    podLabels: {}
+    podMonitor:
+      controller:
+        enabled: true
+        honorTimestamps: false
+        namespaceSelector: "matchNames:\n  - {{ .Release.Namespace }}\n  - linkerd-viz\n"
+      enabled: false
+      labels: {}
+      proxy:
+        enabled: true
+        honorTimestamps: false
+      scrapeInterval: 10s
+      scrapeTimeout: 10s
+      serviceMirror:
+        enabled: true
+        honorTimestamps: false
+    policyController:
+      livenessProbe:
+        timeoutSeconds: 1
+      logLevel: info
+      probeNetworks:
+      - 0.0.0.0/0
+      - ::/0
+      readinessProbe:
+        timeoutSeconds: 1
+      resources:
+        cpu:
+          limit: ''
+          request: ''
+        ephemeral-storage:
+          limit: ''
+          request: ''
+        memory:
+          limit: ''
+          request: ''
+    policyValidator:
+      caBundle: ''
+      crtPEM: ''
+      externalSecret: false
+      injectCaFrom: ''
+      injectCaFromSecret: ''
+      namespaceSelector:
+        matchExpressions:
+        - key: config.linkerd.io/admission-webhooks
+          operator: NotIn
+          values:
+          - disabled
+    priorityClassName: ''
+    profileValidator:
+      caBundle: ''
+      crtPEM: ''
+      externalSecret: false
+      injectCaFrom: ''
+      injectCaFromSecret: ''
+      namespaceSelector:
+        matchExpressions:
+        - key: config.linkerd.io/admission-webhooks
+          operator: NotIn
+          values:
+          - disabled
+    prometheusUrl: ''
+    proxy:
+      await: true
+      control:
+        streams:
+          idleTimeout: 5m
+          initialTimeout: 3s
+          lifetime: 1h
+      defaultInboundPolicy: {{ .Values.proxy.defaultInboundPolicy }}
+      disableInboundProtocolDetectTimeout: false
+      disableOutboundProtocolDetectTimeout: false
+      enableExternalProfiles: false
+      enableShutdownEndpoint: false
+      gid: -1
+      image:
+        name: {{ .Values.proxy.image.name }}
+        pullPolicy: IfNotPresent
+        version: {{ printf "%s@%s" .Values.proxy.image.tag .Values.proxy.image.digest | quote }}
+      inbound:
+        server:
+          http2:
+            keepAliveInterval: 10s
+            keepAliveTimeout: 3s
+      inboundConnectTimeout: 100ms
+      inboundDiscoveryCacheUnusedTimeout: 90s
+      livenessProbe:
+        initialDelaySeconds: 10
+        timeoutSeconds: 1
+      logFormat: plain
+      logHTTPHeaders: 'off'
+      logLevel: {{ .Values.proxy.logLevel }}
+      metrics:
+        hostnameLabels: false
+      nativeSidecar: true
+      opaquePorts: {{ .Values.defaultOpaquePorts | quote }}
+      outbound:
+        server:
+          http2:
+            keepAliveInterval: 10s
+            keepAliveTimeout: 3s
+      outboundConnectTimeout: 1000ms
+      outboundDiscoveryCacheUnusedTimeout: 5s
+      outboundTransportMode: transport-header
+      ports:
+        admin: 4191
+        control: 4190
+        inbound: 4143
+        outbound: 4140
+      readinessProbe:
+        initialDelaySeconds: 2
+        timeoutSeconds: 1
+      requireIdentityOnInboundPorts: ''
+      resources:
+        cpu:
+          limit: ''
+          request: ''
+        ephemeral-storage:
+          limit: ''
+          request: ''
+        memory:
+          limit: ''
+          request: ''
+      runtime:
+        workers:
+          minimum: 1
+      securityContext: {}
+      shutdownGracePeriod: ''
+      startupProbe:
+        failureThreshold: 120
+        initialDelaySeconds: 0
+        periodSeconds: 1
+      tracing:
+        collector:
+          endpoint: ''
+          meshIdentity:
+            namespace: ''
+            serviceAccountName: ''
+        enabled: false
+        labels:
+          k8s.container.name: $(_pod_containerName)
+          k8s.pod.ip: $(_pod_ip)
+          k8s.pod.uid: $(_pod_uid)
+        traceServiceName: linkerd-proxy
+      uid: 2102
+      waitBeforeExitSeconds: 0
+    proxyInit:
+      closeWaitTimeoutSecs: 0
+      ignoreInboundPorts: 4567,4568
+      ignoreOutboundPorts: 4567,4568
+      iptablesMode: nft
+      kubeAPIServerPorts: 443,6443
+      logFormat: ''
+      logLevel: ''
+      privileged: false
+      runAsGroup: 65534
+      runAsRoot: false
+      runAsUser: 65534
+      skipSubnets: ''
+      xtMountPath:
+        mountPath: /run
+        name: linkerd-proxy-init-xtables-lock
+    proxyInjector:
+      caBundle: ''
+      crtPEM: ''
+      externalSecret: false
+      injectCaFrom: ''
+      injectCaFromSecret: ''
+      livenessProbe:
+        timeoutSeconds: 1
+      namespaceSelector:
+        matchExpressions:
+        - key: config.linkerd.io/admission-webhooks
+          operator: NotIn
+          values:
+          - disabled
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+          - kube-system
+          - cert-manager
+      objectSelector:
+        matchExpressions:
+        - key: linkerd.io/control-plane-component
+          operator: DoesNotExist
+        - key: linkerd.io/cni-resource
+          operator: DoesNotExist
+      podAnnotations: {}
+      readinessProbe:
+        timeoutSeconds: 1
+      timeoutSeconds: 10
+    revisionHistoryLimit: 10
+    runtimeClassName: ''
+    spValidator:
+      livenessProbe:
+        timeoutSeconds: 1
+      readinessProbe:
+        timeoutSeconds: 1
+    webhookFailurePolicy: {{ .Values.proxyInjector.failurePolicy }}

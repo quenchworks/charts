@@ -1,8 +1,8 @@
 apiVersion: v2
 name: linkerd
-description: "Linkerd's control plane, from-source on QuenchWorks 0-CVE images pinned by digest: the destination service-profile/xDS controller and (optionally) the identity certificate authority and the Rust policy controller. Tracks Linkerd EDGE releases, since upstream has not cut a stable release since stable-2.14.10 (Feb 2024) and gates stable commercially. Sidecar injection (proxy-injector/sp-validator) and the linkerd-proxy data plane land in a later chart."
+description: "Linkerd service mesh, control plane and data plane (edge release line): destination with the policy server, identity (the mesh CA) and the proxy injector, each running its own proxy, so annotated workloads get mutual TLS. Uses the QuenchWorks linkerd-cni chart instead of linkerd-init. Hardened by QuenchWorks: built from source, 0-CVE, cosign-signed and pinned by digest."
 type: application
-version: 0.0.11
+version: 0.1.0
 appVersion: "26.8.4"
 keywords:
   - linkerd
@@ -21,14 +21,20 @@ sources:
   - https://github.com/linkerd/linkerd2
 annotations:
   artifacthub.io/changes: |
+    - kind: added
+      description: "Data plane: proxy injector and linkerd-proxy 2.366.0 (the proxy edge-26.8.4 pairs with), the control plane's own pods meshed, CNI mode with the linkerd-cni chart."
     - kind: changed
-      description: "rebuilt image: 2026-10-06 CVE fixes"
+      description: "BREAKING: upstream's fixed object names (linkerd-destination, linkerd-dst, linkerd-identity, linkerd-proxy-injector, ...), the policy server in the destination pod, identity required. 0.0.x cannot be upgraded in place: uninstall, then install."
+    - kind: removed
+      description: "heartbeat and the NetworkPolicy."
   artifacthub.io/category: networking
   artifacthub.io/images: |
     - name: linkerd-control-plane
       image: ghcr.io/quenchworks/images/linkerd-control-plane@sha256:51611639fb053c769a6cb04f3a3c92a95ab110a6f8287684cfc97baabe74b62c
     - name: linkerd-policy-controller
-      image: ghcr.io/quenchworks/images/linkerd-policy-controller@sha256:567128faa4e6f5977f979f2d6ac4fedffd2fe4075f4e83ab6dcf996290da6398
+      image: ghcr.io/quenchworks/images/linkerd-policy-controller@sha256:78a21206127303d398735dfcaac0a292cb294f9077a5f22d8e4ce15149e2ff5b
+    - name: linkerd-proxy
+      image: ghcr.io/quenchworks/images/linkerd-proxy@sha256:640deeb1fd4f89ba3310e0334f31b2d4608e4eaf03b6d531ebd8bec68aa56842
   artifacthub.io/operator: "false"
   artifacthub.io/prerelease: "true"
   artifacthub.io/license: Apache-2.0

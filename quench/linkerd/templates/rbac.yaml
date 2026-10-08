@@ -1,143 +1,131 @@
-{{- if .Values.rbac.create }}
-# destination: watches the mesh's addressing reality (pods, endpoints,
-# EndpointSlices, services, namespaces). identity: reads its issuer Secret in
-# the release namespace only. policy-controller: the mesh read set plus the
-# policy.linkerd.io CRD resources it reconciles -- harmless to grant before the
-# CRDs exist. One ServiceAccount serves all components; the secret read stays
-# namespace-scoped, everything else is read-only.
+# One ServiceAccount per component, named as upstream: each name IS that component's mesh
+# identity (linkerd-destination.<ns>.serviceaccount.identity.<ns>.<trust domain>), which every
+# injected proxy verifies when it dials the control plane.
+{{- range $c := list "destination" "identity" "proxy-injector" }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: linkerd-{{ $c }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+    linkerd.io/control-plane-component: {{ $c }}
+automountServiceAccountToken: false
+{{- end }}
+---
+# destination: endpoints, service profiles and external workloads for discovery; EndpointSlice
+# writes for external workloads; the policy server's leader lease.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "quench-common.fullname" . }}
+  name: {{ .Release.Namespace }}-linkerd-destination
   labels:
     {{- include "quench-common.labels" . | nindent 4 }}
 rules:
-  - apiGroups: [""]
-    resources: [pods, services, endpoints, namespaces, nodes]
-    verbs: [get, list, watch]
-  # The destination controller WRITES EndpointSlices, it does not only read them:
-  # it owns the slices backing ExternalWorkloads. Upstream's own destination
-  # ClusterRole grants the full set, and read-only here would fail later and
-  # quietly, after startup, rather than at boot.
-  - apiGroups: ["discovery.k8s.io"]
-    resources: [endpointslices]
-    verbs: [get, list, watch, create, update, patch, delete]
-  # The policy controller shares this ClusterRole and reconciles the WHOLE
-  # policy.linkerd.io set, not the three the destination controller reads.
-  # Upstream's linkerd-policy ClusterRole is the reference.
-  - apiGroups: ["policy.linkerd.io"]
-    resources:
-      - servers
-      - serverauthorizations
-      - authorizationpolicies
-      - meshtlsauthentications
-      - networkauthentications
-      - egressnetworks
-      - httplocalratelimitpolicies
-      - httproutes
-    verbs: [get, list, watch]
-  - apiGroups: ["policy.linkerd.io"]
-    resources: [httproutes/status, httplocalratelimitpolicies/status, egressnetworks/status]
-    verbs: [patch]
-  # Gateway API routes are reconciled when those CRDs are present. They are NOT
-  # installed by quench/linkerd-crds (quench/gateway-api-crds owns those names),
-  # so this grant is inert on a cluster without them. RBAC rules name strings, so
-  # granting a resource whose CRD is absent costs nothing and avoids a second
-  # round of this when someone installs both charts.
-  - apiGroups: ["gateway.networking.k8s.io"]
-    resources: [httproutes, grpcroutes, tlsroutes, tcproutes]
-    verbs: [get, list, watch]
-  - apiGroups: ["gateway.networking.k8s.io"]
-    resources: [httproutes/status, grpcroutes/status, tlsroutes/status, tcproutes/status]
-    verbs: [patch]
-  # The policy controller's leader-election lease is owned by its Deployment, so
-  # it GETs that Deployment before it can serve. Its image boot test showed this
-  # as "linkerd_policy_controller_runtime::lease: Failed to fetch deployment".
-  - apiGroups: ["apps"]
-    resources: [deployments]
-    verbs: [get]
-  # k8s.InitializeAPI is called with SP and ExtWorkload and FAILS CLOSED: without
-  # these two the controller exits with "not authorized to access
-  # serviceprofiles.linkerd.io" before the admin server can serve, which from
-  # outside is a Deployment stuck at Available: 0/1 (charts run 35234111702).
-  - apiGroups: ["linkerd.io"]
-    resources: [serviceprofiles]
-    verbs: [get, list, watch]
-  - apiGroups: ["workload.linkerd.io"]
-    resources: [externalworkloads]
-    verbs: [get, list, watch]
-  # InitializeMetadataAPI (main.go, right after InitializeAPI) adds Node, RS and
-  # Job. Nodes are already granted above.
-  - apiGroups: ["apps"]
-    resources: [replicasets]
-    verbs: [get, list, watch]
-  - apiGroups: ["batch"]
+  - apiGroups: [apps]
+    resources: [replicasets, deployments]
+    verbs: [list, get, watch]
+  - apiGroups: [batch]
     resources: [jobs]
-    verbs: [get, list, watch]
-  # Leader election. The policy controller needs this too, and its own boot test
-  # showed the lease is fetched before anything serves.
-  - apiGroups: ["coordination.k8s.io"]
+    verbs: [list, get, watch]
+  - apiGroups: ['']
+    resources: [pods, endpoints, services, nodes]
+    verbs: [list, get, watch]
+  - apiGroups: [linkerd.io]
+    resources: [serviceprofiles]
+    verbs: [list, get, watch]
+  - apiGroups: [workload.linkerd.io]
+    resources: [externalworkloads]
+    verbs: [list, get, watch]
+  - apiGroups: [coordination.k8s.io]
     resources: [leases]
     verbs: [create, get, update, patch]
-  # identity authenticates every proxy's projected token with a TokenReview, and
-  # creates one during startup. Without this it exits with "Failed to initialize
-  # identity service: Unable to create kubernetes token reviews:" and the message
-  # carries NO underlying error, so the RBAC denial it is reporting is invisible
-  # (charts run 35238488499). Upstream's identity ClusterRole grants exactly this.
-  - apiGroups: ["authentication.k8s.io"]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [list, get, watch, create, update, patch, delete]
+  # the policy server (same pod, same account)
+  - apiGroups: [policy.linkerd.io]
+    resources: [authorizationpolicies, httplocalratelimitpolicies, httproutes, meshtlsauthentications, networkauthentications, servers, serverauthorizations, egressnetworks]
+    verbs: [get, list, watch]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [httproutes, grpcroutes, tlsroutes, tcproutes]
+    verbs: [get, list, watch]
+  - apiGroups: [policy.linkerd.io]
+    resources: [httproutes/status, httplocalratelimitpolicies/status, egressnetworks/status]
+    verbs: [patch]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [httproutes/status, grpcroutes/status, tlsroutes/status, tcproutes/status]
+    verbs: [patch]
+---
+# identity: authenticates each proxy's ServiceAccount token before signing its certificate.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Namespace }}-linkerd-identity
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [authentication.k8s.io]
     resources: [tokenreviews]
     verbs: [create]
-  # identity records certificate issuance as Events.
-  - apiGroups: [""]
+  - apiGroups: ['']
     resources: [events]
     verbs: [create, patch]
+---
+# proxy-injector: reads a pod's owners and namespace for their inject annotations.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Namespace }}-linkerd-proxy-injector
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ['']
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: ['']
+    resources: [namespaces, replicationcontrollers]
+    verbs: [list, get, watch]
+  - apiGroups: ['']
+    resources: [pods]
+    verbs: [list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, daemonsets, statefulsets]
+    verbs: [list, get, watch]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [list, get, watch]
+{{- range $c := list "destination" "identity" "proxy-injector" }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "quench-common.fullname" . }}
+  name: {{ $.Release.Namespace }}-linkerd-{{ $c }}
   labels:
-    {{- include "quench-common.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: {{ include "quench-common.fullname" . }}
+    {{- include "quench-common.labels" $ | nindent 4 }}
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ $.Release.Namespace }}-linkerd-{{ $c }} }
 subjects:
-  - kind: ServiceAccount
-    name: {{ include "linkerd.serviceAccountName" . }}
-    namespace: {{ .Release.Namespace }}
+  - { kind: ServiceAccount, name: linkerd-{{ $c }}, namespace: {{ $.Release.Namespace }} }
+{{- end }}
 ---
-# Secrets in the release namespace. NOT gated on identity.enabled: the
-# destination controller watches Secrets unconditionally, and without this its
-# informer never syncs, so /ready stays non-200 and the Deployment sits at
-# Available: 0/1 while the pod logs only "Failed to watch ... secrets is
-# forbidden" on a retry loop (charts run 35235287652). identity additionally
-# reads its issuer CA (crt.pem/key.pem) from here.
+# destination reads multicluster link Secrets in its own namespace
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "quench-common.fullname" . }}-secrets
-  namespace: {{ .Release.Namespace }}
+  name: linkerd-destination-secrets
   labels:
     {{- include "quench-common.labels" . | nindent 4 }}
 rules:
-  - apiGroups: [""]
+  - apiGroups: ['']
     resources: [secrets]
     verbs: [get, list, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "quench-common.fullname" . }}-secrets
-  namespace: {{ .Release.Namespace }}
+  name: linkerd-destination-secrets
   labels:
     {{- include "quench-common.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: {{ include "quench-common.fullname" . }}-secrets
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: linkerd-destination-secrets }
 subjects:
-  - kind: ServiceAccount
-    name: {{ include "linkerd.serviceAccountName" . }}
-    namespace: {{ .Release.Namespace }}
-{{- end }}
+  - { kind: ServiceAccount, name: linkerd-destination, namespace: {{ .Release.Namespace }} }

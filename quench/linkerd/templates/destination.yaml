@@ -1,0 +1,168 @@
+{{- include "linkerd.guards" . }}
+{{- $ns := .Release.Namespace -}}
+{{- /* The policy server's admission endpoint needs a serving certificate; generated once and
+       kept on upgrade. No webhook points at it in this chart. */ -}}
+{{- $policyTLS := lookup "v1" "Secret" $ns "linkerd-policy-validator-k8s-tls" -}}
+{{- $crt := "" -}}{{- $key := "" -}}
+{{- if $policyTLS -}}
+{{- $crt = index $policyTLS.data "tls.crt" -}}{{- $key = index $policyTLS.data "tls.key" -}}
+{{- else -}}
+{{- $ca := genCA "linkerd-policy-validator-ca" 3650 -}}
+{{- $cn := printf "linkerd-policy-validator.%s.svc" $ns -}}
+{{- $cert := genSignedCert $cn nil (list $cn) 3650 $ca -}}
+{{- $crt = $cert.Cert | b64enc -}}{{- $key = $cert.Key | b64enc -}}
+{{- end }}
+apiVersion: v1
+kind: Secret
+type: kubernetes.io/tls
+metadata:
+  name: linkerd-policy-validator-k8s-tls
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  tls.crt: {{ $crt }}
+  tls.key: {{ $key }}
+---
+# destination and the policy server share a pod and the linkerd-destination identity, as
+# upstream: injected proxies verify both under that one name.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: linkerd-destination
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    linkerd.io/control-plane-component: destination
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      linkerd.io/control-plane-component: destination
+      linkerd.io/control-plane-ns: {{ $ns }}
+  template:
+    metadata:
+      labels:
+        {{- include "linkerd.podLabels" (dict "ctx" . "component" "destination") | nindent 8 }}
+      annotations:
+        config.linkerd.io/default-inbound-policy: {{ .Values.proxy.defaultInboundPolicy }}
+        # the API server is reached directly, as upstream's proxy-init does for the control plane:
+        # the proxies cannot route anything before identity and destination are up
+        config.linkerd.io/skip-outbound-ports: {{ .Values.kubeAPIServerPorts | quote }}
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: linkerd-destination
+      {{- include "linkerd.podSpec" . | nindent 6 }}
+      initContainers:
+        {{- include "linkerd.networkValidator" (dict "ctx" .) | nindent 8 }}
+        {{- include "linkerd.proxy" (dict "ctx" . "native" true "inboundPorts" "8086,8090,8443,9443,9990,9996,9997" "dst" "localhost.:8086" "policy" "localhost.:8090" "identity" (printf "linkerd-identity-headless.%s.svc.%s.:8080" $ns .Values.clusterDomain)) | nindent 8 }}
+      containers:
+        - name: destination
+          image: {{ include "linkerd.controllerImage" . }}
+          imagePullPolicy: {{ .Values.controllerImage.pullPolicy }}
+          args:
+            - destination
+            - -addr=:8086
+            - -controller-namespace={{ $ns }}
+            - -outbound-transport-mode=transport-header
+            - -enable-h2-upgrade=true
+            - -log-level={{ .Values.controllerLogLevel }}
+            - -log-format=plain
+            - -enable-endpoint-slices=true
+            - -cluster-domain={{ .Values.clusterDomain }}
+            - -identity-trust-domain={{ .Values.identity.trustDomain }}
+            - -default-opaque-ports={{ .Values.defaultOpaquePorts }}
+            - -enable-ipv6=false
+            - -enable-pprof=false
+          ports:
+            - { name: dest-grpc, containerPort: 8086 }
+            - { name: dest-admin, containerPort: 9996 }
+          livenessProbe:
+            httpGet: { path: /ping, port: 9996 }
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet: { path: /ready, port: 9996 }
+            failureThreshold: 7
+          {{- with .Values.destination.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "linkerd.controllerSecurity" . | nindent 10 }}
+        - name: policy
+          image: {{ printf "%s@%s" .Values.policyController.image.repository .Values.policyController.image.digest }}
+          imagePullPolicy: {{ .Values.policyController.image.pullPolicy }}
+          command: [/usr/bin/linkerd-policy-controller]
+          args:
+            - --admin-addr=0.0.0.0:9990
+            - --control-plane-namespace={{ $ns }}
+            - --grpc-addr=0.0.0.0:8090
+            - --server-addr=0.0.0.0:9443
+            - --server-tls-key=/var/run/linkerd/tls/tls.key
+            - --server-tls-certs=/var/run/linkerd/tls/tls.crt
+            - --cluster-networks={{ .Values.clusterNetworks }}
+            - --identity-domain={{ .Values.identity.trustDomain }}
+            - --cluster-domain={{ .Values.clusterDomain }}
+            - --default-policy={{ .Values.proxy.defaultInboundPolicy }}
+            - --log-level={{ .Values.controllerLogLevel }}
+            - --log-format=plain
+            - --default-opaque-ports={{ .Values.defaultOpaquePorts }}
+            - --global-egress-network-namespace=linkerd-egress
+            - --probe-networks=0.0.0.0/0,::/0
+          ports:
+            - { name: policy-grpc, containerPort: 8090 }
+            - { name: policy-admin, containerPort: 9990 }
+            - { name: policy-https, containerPort: 9443 }
+          livenessProbe:
+            httpGet: { path: /live, port: policy-admin }
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet: { path: /ready, port: policy-admin }
+            failureThreshold: 7
+          {{- with .Values.policyController.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "linkerd.controllerSecurity" . | nindent 10 }}
+          volumeMounts:
+            - { name: policy-tls, mountPath: /var/run/linkerd/tls, readOnly: true }
+      volumes:
+        - name: policy-tls
+          secret: { secretName: linkerd-policy-validator-k8s-tls }
+        {{- include "linkerd.proxyVolumes" . | nindent 8 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: linkerd-dst
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    linkerd.io/control-plane-component: destination
+spec:
+  selector: { linkerd.io/control-plane-component: destination, linkerd.io/control-plane-ns: {{ $ns }} }
+  ports:
+    - { name: grpc, port: 8086, targetPort: 8086 }
+---
+# proxies resolve every destination pod directly (client-side balancing)
+apiVersion: v1
+kind: Service
+metadata:
+  name: linkerd-dst-headless
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    linkerd.io/control-plane-component: destination
+spec:
+  clusterIP: None
+  selector: { linkerd.io/control-plane-component: destination, linkerd.io/control-plane-ns: {{ $ns }} }
+  ports:
+    - { name: grpc, port: 8086, targetPort: 8086 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: linkerd-policy
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    linkerd.io/control-plane-component: destination
+spec:
+  clusterIP: None
+  selector: { linkerd.io/control-plane-component: destination, linkerd.io/control-plane-ns: {{ $ns }} }
+  ports:
+    - { name: grpc, port: 8090, targetPort: 8090 }

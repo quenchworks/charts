@@ -1,0 +1,137 @@
+{{- $ns := .Release.Namespace -}}
+{{- /* The webhook's serving certificate and the CA the API server trusts it by, generated once
+       and kept on upgrade (both live in the one Secret). */ -}}
+{{- $sec := lookup "v1" "Secret" $ns "linkerd-proxy-injector-k8s-tls" -}}
+{{- $crt := "" -}}{{- $key := "" -}}{{- $caCrt := "" -}}
+{{- if and $sec (index $sec.data "ca.crt") -}}
+{{- $crt = index $sec.data "tls.crt" -}}{{- $key = index $sec.data "tls.key" -}}{{- $caCrt = index $sec.data "ca.crt" -}}
+{{- else -}}
+{{- $ca := genCA "linkerd-proxy-injector-ca" 3650 -}}
+{{- $cn := printf "linkerd-proxy-injector.%s.svc" $ns -}}
+{{- $cert := genSignedCert $cn nil (list $cn) 3650 $ca -}}
+{{- $crt = $cert.Cert | b64enc -}}{{- $key = $cert.Key | b64enc -}}{{- $caCrt = $ca.Cert | b64enc -}}
+{{- end }}
+apiVersion: v1
+kind: Secret
+type: kubernetes.io/tls
+metadata:
+  name: linkerd-proxy-injector-k8s-tls
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  tls.crt: {{ $crt }}
+  tls.key: {{ $key }}
+  ca.crt: {{ $caCrt }}
+---
+# Adds the linkerd-proxy sidecar (and, with CNI, the network validator) to pods whose namespace
+# or workload is annotated linkerd.io/inject: enabled, rendered from linkerd-config.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: linkerd-proxy-injector
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    linkerd.io/control-plane-component: proxy-injector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      linkerd.io/control-plane-component: proxy-injector
+      linkerd.io/control-plane-ns: {{ $ns }}
+  template:
+    metadata:
+      labels:
+        {{- include "linkerd.podLabels" (dict "ctx" . "component" "proxy-injector") | nindent 8 }}
+      annotations:
+        config.linkerd.io/default-inbound-policy: {{ .Values.proxy.defaultInboundPolicy }}
+        # the API server is reached directly, as upstream's proxy-init does for the control plane:
+        # the proxies cannot route anything before identity and destination are up
+        config.linkerd.io/skip-outbound-ports: {{ .Values.kubeAPIServerPorts | quote }}
+        checksum/config: {{ include (print $.Template.BasePath "/config.yaml") . | sha256sum }}
+        checksum/tls: {{ $crt | sha256sum }}
+    spec:
+      serviceAccountName: linkerd-proxy-injector
+      {{- include "linkerd.podSpec" . | nindent 6 }}
+      initContainers:
+        {{- include "linkerd.networkValidator" (dict "ctx" .) | nindent 8 }}
+        {{- include "linkerd.proxy" (dict "ctx" . "native" true "inboundPorts" "8443,9995" "dst" (printf "linkerd-dst-headless.%s.svc.%s.:8086" $ns .Values.clusterDomain) "policy" (printf "linkerd-policy.%s.svc.%s.:8090" $ns .Values.clusterDomain) "identity" (printf "linkerd-identity-headless.%s.svc.%s.:8080" $ns .Values.clusterDomain)) | nindent 8 }}
+      containers:
+        - name: proxy-injector
+          image: {{ include "linkerd.controllerImage" . }}
+          imagePullPolicy: {{ .Values.controllerImage.pullPolicy }}
+          args:
+            - proxy-injector
+            - -log-level={{ .Values.controllerLogLevel }}
+            - -log-format=plain
+            - -linkerd-namespace={{ $ns }}
+            - -enable-pprof=false
+          ports:
+            - { name: proxy-injector, containerPort: 8443 }
+            - { name: injector-admin, containerPort: 9995 }
+          livenessProbe:
+            httpGet: { path: /ping, port: 9995 }
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet: { path: /ready, port: 9995 }
+            failureThreshold: 7
+          {{- with .Values.proxyInjector.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "linkerd.controllerSecurity" . | nindent 10 }}
+          volumeMounts:
+            - { name: config, mountPath: /var/run/linkerd/config, readOnly: true }
+            - { name: trust-roots, mountPath: /var/run/linkerd/identity/trust-roots, readOnly: true }
+            - { name: tls, mountPath: /var/run/linkerd/tls, readOnly: true }
+      volumes:
+        - name: config
+          configMap: { name: linkerd-config }
+        - name: trust-roots
+          configMap: { name: linkerd-identity-trust-roots }
+        - name: tls
+          secret: { secretName: linkerd-proxy-injector-k8s-tls }
+        {{- include "linkerd.proxyVolumes" . | nindent 8 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: linkerd-proxy-injector
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    linkerd.io/control-plane-component: proxy-injector
+spec:
+  selector: { linkerd.io/control-plane-component: proxy-injector, linkerd.io/control-plane-ns: {{ $ns }} }
+  ports:
+    - { name: proxy-injector, port: 443, targetPort: proxy-injector }
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ $ns }}-linkerd-proxy-injector
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    linkerd.io/control-plane-component: proxy-injector
+webhooks:
+  - name: linkerd-proxy-injector.linkerd.io
+    admissionReviewVersions: [v1, v1beta1]
+    sideEffects: None
+    failurePolicy: {{ .Values.proxyInjector.failurePolicy }}
+    timeoutSeconds: 10
+    clientConfig:
+      service: { name: linkerd-proxy-injector, namespace: {{ $ns }}, path: / }
+      caBundle: {{ $caCrt }}
+    # never the control plane's own pods or the CNI's, never kube-system
+    namespaceSelector:
+      matchExpressions:
+        - { key: config.linkerd.io/admission-webhooks, operator: NotIn, values: [disabled] }
+        - { key: kubernetes.io/metadata.name, operator: NotIn, values: [kube-system, cert-manager] }
+    objectSelector:
+      matchExpressions:
+        - { key: linkerd.io/control-plane-component, operator: DoesNotExist }
+        - { key: linkerd.io/cni-resource, operator: DoesNotExist }
+    rules:
+      - apiGroups: ['']
+        apiVersions: [v1]
+        operations: [CREATE]
+        resources: [pods, services]
+        scope: Namespaced
