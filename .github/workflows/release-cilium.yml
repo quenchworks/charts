@@ -95,7 +95,25 @@ jobs:
           rc="$(kubectl -n kube-system get pods -l app.kubernetes.io/name=cilium -o jsonpath='{range .items[*]}{.status.containerStatuses[*].restartCount}{"\n"}{end}')"
           echo "agent restarts: $rc"
           if grep -qv '^0$' <<<"$rc"; then echo "an agent restarted"; exit 1; fi
-          echo "Cilium: nodes Ready, CIDRs assigned, overlay healthy, DNS from both nodes: ok"
+          # NetworkPolicy enforcement: a target on one node, a client on the other; ping
+          # works, then a deny-all ingress policy in the target's namespace must stop it.
+          # busybox runs nonroot; ping needs a raw socket, so the test pods run as root with NET_RAW.
+          mapfile -t nodes < <(kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}')
+          kubectl create namespace np
+          pod() { kubectl -n "$1" run "$2" --restart=Never --image=ghcr.io/quenchworks/images/busybox:1.38.0 \
+            --overrides="{\"spec\":{\"nodeName\":\"$3\",\"containers\":[{\"name\":\"$2\",\"image\":\"ghcr.io/quenchworks/images/busybox:1.38.0\",\"command\":[\"sleep\",\"3600\"],\"securityContext\":{\"runAsUser\":0,\"capabilities\":{\"add\":[\"NET_RAW\"]}}}]}}" \
+            --command -- sleep 3600; }
+          pod np target "${nodes[0]}"; pod default client "${nodes[1]}"
+          kubectl -n np wait --for=condition=Ready pod/target --timeout=180s
+          kubectl wait --for=condition=Ready pod/client --timeout=180s
+          ip="$(kubectl -n np get pod target -o jsonpath='{.status.podIP}')"
+          echo "target $ip on ${nodes[0]}, client on ${nodes[1]}"
+          kubectl exec client -- ping -c 3 -W 2 "$ip"
+          kubectl apply -f - <<<'{"apiVersion":"networking.k8s.io/v1","kind":"NetworkPolicy","metadata":{"name":"deny-all","namespace":"np"},"spec":{"podSelector":{},"policyTypes":["Ingress"]}}'
+          sleep 10
+          # (`! cmd` would not fail the step under bash -e)
+          if kubectl exec client -- ping -c 3 -W 2 "$ip"; then echo "deny-all NetworkPolicy not enforced"; exit 1; fi
+          echo "Cilium: nodes Ready, CIDRs assigned, overlay healthy, DNS from both nodes, NetworkPolicy deny enforced: ok"
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

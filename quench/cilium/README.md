@@ -58,7 +58,8 @@ of the node.
 The gate starts a two-node kind cluster with no CNI, installs this chart, and requires every
 CiliumNode to get a pod CIDR, every node to turn Ready, `cilium-dbg status` to report the
 agent OK with both nodes reachable over the overlay, CoreDNS to answer a pod on the other
-node, and no agent restarts.
+node, a deny-all ingress NetworkPolicy to stop cross-node pings that worked before it,
+and no agent restarts.
 
 The chart depends on the `quench-common` and `cilium-operator` charts from
 `oci://ghcr.io/quenchworks/charts`.
