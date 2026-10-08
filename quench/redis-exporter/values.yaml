@@ -1,0 +1,80 @@
+# The digest below is the contract with the image factory. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/redis-exporter
+  digest: "sha256:d5c20b4e8752537dec2aa5bd1178b69b461a61454003b6cb2352d7a605fd31a9"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+replicaCount: 1
+
+# The Redis / Valkey server to export.
+target:
+  # redis://host:6379, or rediss://host:6379 for TLS
+  address: ""
+  skipTLSVerification: false
+
+# Credentials. The password comes only from an existing Secret (optional: an auth-less server needs none).
+auth:
+  # ACL user (Redis 6+); empty uses the default user
+  username: ""
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+# Appended to the redis_exporter command (see `redis_exporter --help`).
+extraArgs: []
+
+resources:
+  requests: { cpu: 20m, memory: 32Mi }
+  limits: { memory: 128Mi }
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 9121
+
+# A ServiceMonitor for the Prometheus Operator, rendered only when its CRD is installed.
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: false
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

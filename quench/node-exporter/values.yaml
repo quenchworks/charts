@@ -1,0 +1,52 @@
+# The digest below is the contract with the image factory. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/node-exporter
+  digest: "sha256:33cb1038d69be70c546543261be6a93d515b7fc9c171c85c5aa18e6bafceeb6b"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# node_exporter reads the node through the host's network namespace and PID namespace, and the
+# host's /proc, /sys and / mounted read-only, as upstream documents for Kubernetes.
+hostNetwork: true
+hostPID: true
+# Mount points and filesystem types left out of the filesystem collector.
+filesystemMountPointsExclude: "^/(dev|proc|run/credentials/.+|sys|var/lib/docker/.+|var/lib/containers/storage/.+|var/lib/kubelet/.+)($|/)"
+filesystemFsTypesExclude: "^(autofs|binfmt_misc|bpf|cgroup2?|configfs|debugfs|devpts|devtmpfs|fusectl|hugetlbfs|iso9660|mqueue|nsfs|overlay|proc|procfs|pstore|rpc_pipefs|securityfs|selinuxfs|squashfs|sysfs|tracefs)$"
+# Appended to the node_exporter command, e.g. --collector.systemd (see `node_exporter --help`).
+extraArgs: []
+
+resources:
+  requests: { cpu: 20m, memory: 32Mi }
+  limits: { memory: 128Mi }
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 9100
+
+# A ServiceMonitor for the Prometheus Operator, rendered only when its CRD is installed.
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+
+priorityClassName: system-node-critical
+nodeSelector:
+  kubernetes.io/os: linux
+# every node, tainted or not
+tolerations:
+  - operator: Exists
+podLabels: {}
+podAnnotations: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate: { maxUnavailable: 1 }
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}

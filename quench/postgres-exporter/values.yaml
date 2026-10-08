@@ -1,0 +1,82 @@
+# The digest below is the contract with the image factory. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/postgres-exporter
+  digest: "sha256:e7dfea0c79bf106078d5d9985106dde12395e7db0bef70a0a4c08d71c9675d93"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+replicaCount: 1
+
+# The PostgreSQL server to export.
+target:
+  # host:port
+  address: ""
+  database: postgres
+  # disable, require, verify-ca, verify-full
+  sslmode: disable
+
+# Credentials. The password comes only from an existing Secret (required: the password is never a chart value).
+auth:
+  # login role (pg_monitor is enough)
+  username: "postgres"
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+# Appended to the postgres_exporter command (see `postgres_exporter --help`).
+extraArgs: []
+
+resources:
+  requests: { cpu: 20m, memory: 32Mi }
+  limits: { memory: 128Mi }
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 9187
+
+# A ServiceMonitor for the Prometheus Operator, rendered only when its CRD is installed.
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: false
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

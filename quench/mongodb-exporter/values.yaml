@@ -1,0 +1,84 @@
+# The digest below is the contract with the image factory. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/mongodb-exporter
+  digest: "sha256:9d31bec4e977d89a260af5eb925a87227a6b344d813aecdd7dc817b9ec622169"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+replicaCount: 1
+
+# The MongoDB server to export.
+target:
+  # host:port
+  address: ""
+  authDatabase: admin
+  # true for a single server or one replica-set member; false to discover the set
+  directConnect: true
+# every collector (dbstats, collstats, top, ...), not only the defaults
+collectAll: false
+
+# Credentials. The password comes only from an existing Secret (required: the password is never a chart value).
+auth:
+  # user with the clusterMonitor role (and read on local)
+  username: "exporter"
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+# Appended to the mongodb_exporter command (see `mongodb_exporter --help`).
+extraArgs: []
+
+resources:
+  requests: { cpu: 20m, memory: 32Mi }
+  limits: { memory: 128Mi }
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 9216
+
+# A ServiceMonitor for the Prometheus Operator, rendered only when its CRD is installed.
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: false
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

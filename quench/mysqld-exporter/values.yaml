@@ -1,0 +1,79 @@
+# The digest below is the contract with the image factory. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/mysqld-exporter
+  digest: "sha256:988a5eaeeed9ba05789eb80f682ffb6d80567c2b4e75abf622762177c2b8b827"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+replicaCount: 1
+
+# The MySQL / MariaDB server to export.
+target:
+  # host:port
+  address: ""
+
+# Credentials. The password comes only from an existing Secret (required: the password is never a chart value).
+auth:
+  # user with PROCESS, REPLICATION CLIENT and SELECT grants
+  username: "exporter"
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+# Appended to the mysqld_exporter command (see `mysqld_exporter --help`).
+extraArgs: []
+
+resources:
+  requests: { cpu: 20m, memory: 32Mi }
+  limits: { memory: 128Mi }
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 9104
+
+# A ServiceMonitor for the Prometheus Operator, rendered only when its CRD is installed.
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: false
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
