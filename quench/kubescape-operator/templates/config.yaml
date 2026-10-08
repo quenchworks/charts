@@ -21,7 +21,7 @@ data:
       "namespace": {{ $ns | quote }},
       "imageVulnerabilitiesScanningEnabled": true,
       "postureScanEnabled": true,
-      "nodeAgent": "false",
+      "nodeAgent": {{ .Values.nodeAgent.enabled | toString | quote }},
       "maxImageSize": {{ .Values.kubevuln.maxImageSize }},
       "maxSBOMSize": 20971520,
       "keepLocal": true,
@@ -45,14 +45,15 @@ metadata:
     {{ include "quench-common.labels" . | nindent 4 }}
     app.kubernetes.io/component: ks-capabilities
 data:
-  # This chart ships configuration and image vulnerability scanning; the node agent features
-  # (runtime detection, relevancy, network policies) are off because it does not deploy the agent.
+  # This chart ships configuration and image vulnerability scanning, and with nodeAgent.enabled the
+  # node agent's application profiles (runtimeObservability). Runtime detection, relevancy and
+  # network policies stay off.
   capabilities: |
     {
-      "capabilities": {"admissionController":"disable","agentRuntimePosture":"disable","autoUpgrading":"disable","configurationScan":"enable","continuousScan":"disable","httpDetection":"disable","kubescapeOffline":"disable","malwareDetection":"disable","manageWorkloads":"disable","networkEventsStreaming":"disable","networkPolicyService":"disable","nodeProfileService":"disable","nodeSbomGeneration":"disable","nodeScan":"disable","operator":"enable","prometheusExporter":"disable","relevancy":"disable","remediation":"disable","riskAcceptance":"disable","runtimeDetection":"disable","runtimeObservability":"disable","scanEmbeddedSBOMs":"disable","seccompProfileBackend":"crd","seccompProfileService":"disable","syncSBOM":"disable","vexGeneration":"disable","vulnerabilityScan":"enable"},
+      "capabilities": {"admissionController":"disable","agentRuntimePosture":"disable","autoUpgrading":"disable","configurationScan":"enable","continuousScan":"disable","httpDetection":"disable","kubescapeOffline":"disable","malwareDetection":"disable","manageWorkloads":"disable","networkEventsStreaming":"disable","networkPolicyService":"disable","nodeProfileService":"disable","nodeSbomGeneration":"disable","nodeScan":"disable","operator":"enable","prometheusExporter":"disable","relevancy":"disable","remediation":"disable","riskAcceptance":"disable","runtimeDetection":"disable","runtimeObservability":"{{ ternary "enable" "disable" .Values.nodeAgent.enabled }}","scanEmbeddedSBOMs":"disable","seccompProfileBackend":"crd","seccompProfileService":"disable","syncSBOM":"disable","vexGeneration":"disable","vulnerabilityScan":"enable"},
       "effectiveCapabilities": {"configurationScan":"enable","httpDetection":"disable","malwareDetection":"disable","networkEventsStreaming":"disable","nodeProfileService":"disable","nodeScan":"disable","vulnerabilityScan":"enable"},
       "capabilityWarnings": [],
-      "components": {"autoUpdater":{"enabled":false},"cloudSecret":{"create":true,"name":"cloud-secret"},"customCaCertificates":{"name":"custom-ca-certificates"},"kubescape":{"enabled":true},"kubescapeScheduler":{"enabled":false},"kubevuln":{"enabled":true},"kubevulnScheduler":{"enabled":false},"nodeAgent":{"enabled":false},"operator":{"enabled":true},"prometheusExporter":{"enabled":false},"sbomScanner":{"enabled":false},"serviceDiscovery":{"enabled":false},"storage":{"enabled":true},"synchronizer":{"enabled":false}},
+      "components": {"autoUpdater":{"enabled":false},"cloudSecret":{"create":true,"name":"cloud-secret"},"customCaCertificates":{"name":"custom-ca-certificates"},"kubescape":{"enabled":true},"kubescapeScheduler":{"enabled":false},"kubevuln":{"enabled":true},"kubevulnScheduler":{"enabled":false},"nodeAgent":{"enabled":{{ .Values.nodeAgent.enabled }}},"operator":{"enabled":true},"prometheusExporter":{"enabled":false},"sbomScanner":{"enabled":false},"serviceDiscovery":{"enabled":false},"storage":{"enabled":true},"synchronizer":{"enabled":false}},
       "configurations": {"persistence":{{ ternary "\"enable\"" "\"disable\"" .Values.storage.persistence.enabled }},"priorityClass":{"enabled":false},"prometheusAnnotations":"disable"},
       "serviceScanConfig": {"enabled":false,"interval":"1h"}
     }

@@ -67,3 +67,20 @@ nodeSelector:
   kubernetes.io/os: linux
 tolerations: []
 affinity: {}
+
+# The node agent (opt-in): a privileged eBPF DaemonSet that learns what each container runs,
+# opens and calls, and stores it as application profiles (kubectl get applicationprofiles -A).
+# Runtime threat detection, malware scanning and host sensing are not enabled.
+nodeAgent:
+  enabled: false
+  image:
+    repository: ghcr.io/quenchworks/images/kubescape-node-agent
+    digest: "sha256:a61a1db45153e2ce1726185ca9227296b6bf8a087c43847847d5c405f38172d4"
+  resources:
+    requests: { cpu: 100m, memory: 180Mi }
+    limits: { cpu: 500m, memory: 1400Mi }
+  # Wait this long after a container starts before recording, write the profile this often,
+  # and finish learning a container after maxLearningPeriod.
+  learningPeriod: 2m
+  updatePeriod: 10m
+  maxLearningPeriod: 24h

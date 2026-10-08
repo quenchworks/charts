@@ -51,6 +51,8 @@ jobs:
           # configuration scan summary. The operator scans at startup and on new pods.
           kubectl create deployment demo --image=ghcr.io/quenchworks/images/busybox:1.38.0 -- sleep 3600
           kubectl rollout status deployment/demo --timeout=180s
+          # something for the node agent to see while it learns the demo container (4m in CI)
+          ( for i in $(seq 1 20); do kubectl exec deployment/demo -- cat /etc/hostname >/dev/null 2>&1 || true; sleep 10; done ) &
           for kind in workloadconfigurationscansummaries vulnerabilitymanifests; do
             n=0
             for i in $(seq 1 90); do
@@ -63,7 +65,19 @@ jobs:
           done
           sed -n 1,20p <<<"$(kubectl get workloadconfigurationscansummaries -A)"
           sed -n 1,20p <<<"$(kubectl get vulnerabilitymanifestsummaries -A)"
-          echo "Kubescape: storage API available, configuration scan and vulnerability manifest produced: ok"
+          # the node agent watched the demo container through eBPF and stored what it ran
+          n=0
+          for i in $(seq 1 60); do
+            n="$(kubectl -n default get applicationprofiles --no-headers 2>/dev/null | wc -l)"
+            [ "$n" -gt 0 ] && break
+            sleep 10
+          done
+          echo "applicationprofiles in default: $n"
+          [ "$n" -gt 0 ] || { echo "no application profile for the demo workload after 10 minutes"; exit 1; }
+          prof="$(kubectl -n default get applicationprofiles -o yaml)"
+          grep -n -B3 -A3 '/etc/hostname' <<<"$prof" | sed -n 1,20p
+          grep -q '/etc/hostname' <<<"$prof" || { echo "the profile does not record the exec into the demo"; exit 1; }
+          echo "Kubescape: storage API available, configuration scan, vulnerability manifest and application profile produced: ok"
 
       # A failed install gate otherwise reports only a timeout; keep every component's side of it.
       - name: Why the install gate failed
@@ -72,10 +86,10 @@ jobs:
           kubectl get pods -A -o wide || true
           kubectl get apiservice v1beta1.spdx.softwarecomposition.kubescape.io -o yaml || true
           kubectl -n kubescape describe pods || true
-          for d in operator kubescape kubevuln storage; do
-            echo "=== $d"; kubectl -n kubescape logs deployment/$d --all-containers --tail=300 || true
+          for d in operator kubescape kubevuln storage node-agent; do
+            echo "=== $d"; kubectl -n kubescape logs "$(kubectl -n kubescape get deployment,daemonset -o name | grep "/$d$")" --all-containers --tail=300 || true
             echo "=== $d (previous container)"
-            kubectl -n kubescape logs deployment/$d --all-containers --previous > /tmp/prev.log 2>&1 || true
+            kubectl -n kubescape logs "$(kubectl -n kubescape get deployment,daemonset -o name | grep "/$d$")" --all-containers --previous > /tmp/prev.log 2>&1 || true
             grep -n -m3 -B5 -A40 -E '^(panic|fatal error|runtime:)' /tmp/prev.log || tail -n 60 /tmp/prev.log
           done
           kubectl get events -A --sort-by=.lastTimestamp | tail -60 || true
