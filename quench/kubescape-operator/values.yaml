@@ -1,0 +1,57 @@
+# Kubescape components, each pinned by digest. They find each other by fixed Service names
+# (operator, kubescape, kubevuln, storage) in the release namespace, so one release per cluster.
+operator:
+  image:
+    repository: ghcr.io/quenchworks/images/kubescape-operator
+    digest: "sha256:380f6aa0575b93167830728c29eb81f9ba671818cfc7f66aea41031e82dba13b"
+  resources:
+    requests: { cpu: 50m, memory: 100Mi }
+    limits: { cpu: 300m, memory: 300Mi }
+kubescape:
+  image:
+    repository: ghcr.io/quenchworks/images/kubescape
+    digest: "sha256:0a7e0daf9c5b84e6a0b0e5a4ac4edab135fc302ae2d7571cf42dc4167a861143"
+  resources:
+    requests: { cpu: 250m, memory: 400Mi }
+    limits: { cpu: 600m, memory: 1Gi }
+kubevuln:
+  image:
+    repository: ghcr.io/quenchworks/images/kubevuln
+    digest: "sha256:6024eff79fcc684aa11f889b7baf3ebc6c54ec6e963defb2f85220f70b66d1d0"
+  resources:
+    requests: { cpu: 300m, memory: 1000Mi }
+    limits: { cpu: 1500m, memory: 5000Mi }
+  # Images larger than this are skipped (bytes).
+  maxImageSize: 5368709120
+  scanTimeout: 5m
+storage:
+  image:
+    repository: ghcr.io/quenchworks/images/kubescape-storage
+    digest: "sha256:689d0bbddb12c2d30053beaa919fd95a2fdd035d71269d90b792ca6011a6bf2c"
+  resources:
+    requests: { cpu: 100m, memory: 400Mi }
+    limits: { cpu: 1500m, memory: 1500Mi }
+  # Scan results live in a SQLite file under /data. Off: an emptyDir (results go with the pod).
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: ""
+  cleanupInterval: 6h
+
+imagePullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# Shown on results and used as the kubescape context name.
+clusterName: cluster
+# Namespaces left out of scanning, comma separated.
+excludeNamespaces: "kube-system,kube-public,kube-node-lease"
+# Scan workloads in these namespaces as soon as they change (cs-matching-rules).
+continuousScanNamespaces: []
+
+logger:
+  level: info
+
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations: []
+affinity: {}

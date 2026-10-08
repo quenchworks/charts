@@ -1,0 +1,304 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: operator
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: operator
+    spec:
+      serviceAccountName: operator
+      {{- include "ks.podSpec" . | nindent 6 }}
+      containers:
+        - name: operator
+          image: "{{ .Values.operator.image.repository }}@{{ .Values.operator.image.digest }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          {{- include "ks.containerSecurity" . | nindent 10 }}
+          env:
+            {{- include "ks.env" . | nindent 12 }}
+            - name: NODE_NAME
+              valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+            - { name: HELM_RELEASE, value: "kubescape-operator-{{ .Chart.Version }}" }
+          ports:
+            - { name: trigger-port, containerPort: 4002 }
+            - { name: readiness-port, containerPort: 8000 }
+          livenessProbe:
+            httpGet: { path: /v1/liveness, port: readiness-port, scheme: HTTP }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet: { path: /v1/readiness, port: readiness-port, scheme: HTTP }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.operator.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "ks.clusterDataMount" . | nindent 12 }}
+            - { name: cloud-secret, mountPath: /etc/credentials, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+            - { name: ks-capabilities, mountPath: /etc/config/capabilities.json, subPath: capabilities, readOnly: true }
+            - { name: cs-matching-rules, mountPath: /etc/config/matchingRules.json, subPath: matchingRules.json, readOnly: true }
+            - { name: config, mountPath: /etc/config/config.json, subPath: config.json, readOnly: true }
+      volumes:
+        {{- include "ks.clusterDataVolume" . | nindent 8 }}
+        - { name: cloud-secret, secret: { secretName: cloud-secret } }
+        - { name: tmp, emptyDir: {} }
+        - { name: ks-capabilities, configMap: { name: ks-capabilities } }
+        - { name: cs-matching-rules, configMap: { name: cs-matching-rules } }
+        - { name: config, configMap: { name: operator } }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+spec:
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+  ports:
+    - { name: trigger, port: 4002, targetPort: trigger-port }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubescape
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kubescape
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: kubescape
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: kubescape
+    spec:
+      serviceAccountName: kubescape
+      {{- include "ks.podSpec" . | nindent 6 }}
+      containers:
+        - name: kubescape
+          image: "{{ .Values.kubescape.image.repository }}@{{ .Values.kubescape.image.digest }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: [/usr/bin/ksserver]
+          {{- include "ks.containerSecurity" . | nindent 10 }}
+          env:
+            {{- include "ks.env" . | nindent 12 }}
+            - { name: KS_DOWNLOAD_ARTIFACTS, value: "true" }
+            - { name: KS_DEFAULT_CONFIGMAP_NAME, value: kubescape-config }
+            - name: KS_DEFAULT_CONFIGMAP_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - { name: KS_CONTEXT, value: {{ .Values.clusterName | quote }} }
+            - { name: KS_DEFAULT_CLOUD_CONFIGMAP_NAME, value: ks-cloud-config }
+            - { name: KS_ENABLE_HOST_SCANNER, value: "false" }
+            - { name: KS_SKIP_UPDATE_CHECK, value: "true" }
+            - { name: KS_EXCLUDE_NAMESPACES, value: {{ printf "%s,%s" .Release.Namespace .Values.excludeNamespaces | quote }} }
+          ports:
+            - { name: http, containerPort: 8080 }
+          livenessProbe:
+            httpGet: { path: /livez, port: http, scheme: HTTP }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet: { path: /readyz, port: http, scheme: HTTP }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.kubescape.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "ks.clusterDataMount" . | nindent 12 }}
+            - { name: cloud-secret, mountPath: /etc/credentials, readOnly: true }
+            - { name: home, mountPath: /home/nonroot }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        {{- include "ks.clusterDataVolume" . | nindent 8 }}
+        - { name: cloud-secret, secret: { secretName: cloud-secret } }
+        - { name: home, emptyDir: {} }
+        - { name: tmp, emptyDir: {} }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubescape
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kubescape
+spec:
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: kubescape
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubevuln
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kubevuln
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: kubevuln
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: kubevuln
+    spec:
+      serviceAccountName: kubevuln
+      {{- include "ks.podSpec" . | nindent 6 }}
+      containers:
+        - name: kubevuln
+          image: "{{ .Values.kubevuln.image.repository }}@{{ .Values.kubevuln.image.digest }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          {{- include "ks.containerSecurity" . | nindent 10 }}
+          env:
+            {{- include "ks.env" . | nindent 12 }}
+            - { name: CA_MAX_VULN_SCAN_ROUTINES, value: "1" }
+          ports:
+            - { name: http, containerPort: 8080 }
+          livenessProbe:
+            httpGet: { path: /v1/liveness, port: http, scheme: HTTP }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet: { path: /v1/readiness, port: http, scheme: HTTP }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.kubevuln.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "ks.clusterDataMount" . | nindent 12 }}
+            - { name: cloud-secret, mountPath: /etc/credentials, readOnly: true }
+            - { name: home, mountPath: /home/nonroot }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        {{- include "ks.clusterDataVolume" . | nindent 8 }}
+        - { name: cloud-secret, secret: { secretName: cloud-secret } }
+        - { name: home, emptyDir: {} }
+        - { name: tmp, emptyDir: {} }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubevuln
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kubevuln
+spec:
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: kubevuln
+  ports:
+    - { name: http, port: 8080, targetPort: http }
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: storage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storage
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: storage
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: storage
+    spec:
+      serviceAccountName: storage
+      {{- include "ks.podSpec" . | nindent 6 }}
+      containers:
+        - name: storage
+          image: "{{ .Values.storage.image.repository }}@{{ .Values.storage.image.digest }}"
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          {{- include "ks.containerSecurity" . | nindent 10 }}
+          env:
+            {{- include "ks.env" . | nindent 12 }}
+          ports:
+            - { name: https, containerPort: 8443 }
+          livenessProbe:
+            httpGet: { path: /livez, port: https, scheme: HTTPS }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 6
+          readinessProbe:
+            httpGet: { path: /readyz, port: https, scheme: HTTPS }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.storage.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "ks.clusterDataMount" . | nindent 12 }}
+            - { name: data, mountPath: /data }
+            - { name: tmp, mountPath: /tmp }
+            - { name: config, mountPath: /etc/config/config.json, subPath: config.json, readOnly: true }
+            - { name: certs, mountPath: /etc/storage-ca-certificates, readOnly: true }
+      volumes:
+        {{- include "ks.clusterDataVolume" . | nindent 8 }}
+        - name: data
+          {{- if .Values.storage.persistence.enabled }}
+          persistentVolumeClaim: { claimName: kubescape-storage }
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - { name: tmp, emptyDir: {} }
+        - { name: config, configMap: { name: storage } }
+        - { name: certs, secret: { secretName: storage-tls } }
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: storage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storage
+spec:
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: storage
+  ports:
+    - { name: https, port: 443, targetPort: https }

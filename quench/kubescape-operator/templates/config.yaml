@@ -1,0 +1,132 @@
+{{- $ns := .Release.Namespace -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ks-cloud-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ks-cloud-config
+data:
+  # Read by every component; keys follow upstream's clusterData schema.
+  clusterData: |
+    {
+      "serviceDiscovery": false,
+      "vulnScanURL": "kubevuln:8080",
+      "kubevulnURL": "kubevuln:8080",
+      "kubescapeURL": "kubescape:8080",
+      "clusterName": {{ regexReplaceAll "\\W+" .Values.clusterName "-" | quote }},
+      "storage": true,
+      "relevantImageVulnerabilitiesEnabled": false,
+      "namespace": {{ $ns | quote }},
+      "imageVulnerabilitiesScanningEnabled": true,
+      "postureScanEnabled": true,
+      "nodeAgent": "false",
+      "maxImageSize": {{ .Values.kubevuln.maxImageSize }},
+      "maxSBOMSize": 20971520,
+      "keepLocal": true,
+      "scanTimeout": {{ .Values.kubevuln.scanTimeout | quote }},
+      "scanEmbeddedSBOMs": false,
+      "vexGeneration": false,
+      "cveMatchingMode": "adaptive",
+      "useDefaultMatchers": false,
+      "storeFilteredSbom": false,
+      "continuousPostureScan": false,
+      "relevantImageVulnerabilitiesConfiguration": "disable",
+      "riskAcceptance": false
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ks-capabilities
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ks-capabilities
+data:
+  # This chart ships configuration and image vulnerability scanning; the node agent features
+  # (runtime detection, relevancy, network policies) are off because it does not deploy the agent.
+  capabilities: |
+    {
+      "capabilities": {"admissionController":"disable","agentRuntimePosture":"disable","autoUpgrading":"disable","configurationScan":"enable","continuousScan":"disable","httpDetection":"disable","kubescapeOffline":"disable","malwareDetection":"disable","manageWorkloads":"disable","networkEventsStreaming":"disable","networkPolicyService":"disable","nodeProfileService":"disable","nodeSbomGeneration":"disable","nodeScan":"disable","operator":"enable","prometheusExporter":"disable","relevancy":"disable","remediation":"disable","riskAcceptance":"disable","runtimeDetection":"disable","runtimeObservability":"disable","scanEmbeddedSBOMs":"disable","seccompProfileBackend":"crd","seccompProfileService":"disable","syncSBOM":"disable","vexGeneration":"disable","vulnerabilityScan":"enable"},
+      "effectiveCapabilities": {"configurationScan":"enable","httpDetection":"disable","malwareDetection":"disable","networkEventsStreaming":"disable","nodeProfileService":"disable","nodeScan":"disable","vulnerabilityScan":"enable"},
+      "capabilityWarnings": [],
+      "components": {"autoUpdater":{"enabled":false},"cloudSecret":{"create":true,"name":"cloud-secret"},"customCaCertificates":{"name":"custom-ca-certificates"},"kubescape":{"enabled":true},"kubescapeScheduler":{"enabled":false},"kubevuln":{"enabled":true},"kubevulnScheduler":{"enabled":false},"nodeAgent":{"enabled":false},"operator":{"enabled":true},"prometheusExporter":{"enabled":false},"sbomScanner":{"enabled":false},"serviceDiscovery":{"enabled":false},"storage":{"enabled":true},"synchronizer":{"enabled":false}},
+      "configurations": {"persistence":{{ ternary "\"enable\"" "\"disable\"" .Values.storage.persistence.enabled }},"priorityClass":{"enabled":false},"prometheusAnnotations":"disable"},
+      "serviceScanConfig": {"enabled":false,"interval":"1h"}
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+data:
+  config.json: |
+    {
+      "excludeNamespaces": {{ printf "%s,%s" $ns .Values.excludeNamespaces | quote }},
+      "namespace": {{ $ns | quote }},
+      "triggersecurityframework": true,
+      "podScanGuardTime": "1h",
+      "excludeJsonPaths": null
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cs-matching-rules
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cs-matching-rules
+data:
+  matchingRules.json: |
+    {{- dict "match" (list (dict "apiGroups" (list "apps") "apiVersions" (list "v1") "resources" (list "deployments"))) "namespaces" .Values.continuousScanNamespaces | toJson | nindent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: storage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storage
+data:
+  config.json: |
+    {
+      "cleanupInterval": {{ .Values.storage.cleanupInterval | quote }},
+      "disableVirtualCRDs": false,
+      "disableSeccompProfileEndpoint": true,
+      "excludeJsonPaths": null,
+      "defaultQueueLength": 100,
+      "defaultWorkerCount": 2,
+      "defaultMaxObjectSize": 400000,
+      "maxContainerProfileSize": 40000,
+      "queueManagerEnabled": true,
+      "kindQueues": {"applicationprofiles":{"maxObjectSize":20000000,"queueLength":50,"workerCount":2},"containerprofiles":{"maxObjectSize":2500000,"queueLength":50,"workerCount":2},"networkneighborhoods":{"maxObjectSize":10000000,"queueLength":50,"workerCount":2},"openvulnerabilityexchangecontainers":{"maxObjectSize":500000,"queueLength":50,"workerCount":1},"sbomsyftfiltereds":{"maxObjectSize":50000000,"queueLength":50,"workerCount":1},"sbomsyfts":{"maxObjectSize":100000000,"queueLength":50,"workerCount":1},"vulnerabilitymanifests":{"maxObjectSize":50000000,"queueLength":50,"workerCount":1}},
+      "singleWriterEnabled": true,
+      "poolTimeout": "15s",
+      "sqliteBusyTimeout": "60s",
+      "tlsClientCaFile": "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
+      "tlsServerCertFile": "/etc/storage-ca-certificates/tls.crt",
+      "tlsServerKeyFile": "/etc/storage-ca-certificates/tls.key",
+      "serverBindPort": "8443"
+    }
+---
+# Components read their cloud credentials from here; empty means local-only (no backend).
+apiVersion: v1
+kind: Secret
+metadata:
+  name: cloud-secret
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cloud-secret
+type: Opaque
+stringData:
+  account: ""
+  accessKey: ""

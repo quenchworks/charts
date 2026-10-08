@@ -1,0 +1,60 @@
+{{- /* The storage API server serves spdx.softwarecomposition.kubescape.io/v1beta1. Its serving
+       certificate comes from a CA generated once and kept across upgrades (lookup), and the
+       APIService pins that CA so the kube-apiserver verifies the backend. */}}
+{{- $ns := .Release.Namespace -}}
+{{- $existing := lookup "v1" "Secret" $ns "storage-tls" -}}
+{{- $ca := "" }}{{- $crt := "" }}{{- $key := "" -}}
+{{- if and $existing (index $existing.data "ca.crt") -}}
+{{- $ca = index $existing.data "ca.crt" | b64dec }}{{- $crt = index $existing.data "tls.crt" | b64dec }}{{- $key = index $existing.data "tls.key" | b64dec -}}
+{{- else -}}
+{{- $gen := genCA "kubescape-storage-ca" 3650 -}}
+{{- $cert := genSignedCert "storage" nil (list "storage" (printf "storage.%s" $ns) (printf "storage.%s.svc" $ns) (printf "storage.%s.svc.cluster.local" $ns)) 3650 $gen -}}
+{{- $ca = $gen.Cert }}{{- $crt = $cert.Cert }}{{- $key = $cert.Key -}}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: storage-tls
+  namespace: {{ $ns }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storage
+type: kubernetes.io/tls
+data:
+  ca.crt: {{ $ca | b64enc }}
+  tls.crt: {{ $crt | b64enc }}
+  tls.key: {{ $key | b64enc }}
+---
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.spdx.softwarecomposition.kubescape.io
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storage
+spec:
+  group: spdx.softwarecomposition.kubescape.io
+  version: v1beta1
+  groupPriorityMinimum: 1000
+  versionPriority: 15
+  service: { name: storage, namespace: {{ $ns }}, port: 443 }
+  caBundle: {{ $ca | b64enc }}
+{{- if .Values.storage.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kubescape-storage
+  namespace: {{ $ns }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storage
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.storage.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.persistence.size }}
+{{- end }}

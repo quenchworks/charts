@@ -1,0 +1,331 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubescape
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kubescape
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubevuln
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kubevuln
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: storage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storage
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-kubescape
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: {{ .Release.Name }}-kubescape
+rules:
+  - apiGroups: ['']
+    resources: [pods, pods/proxy, namespaces, nodes, configmaps, services, serviceaccounts, endpoints, persistentvolumeclaims, persistentvolumes, limitranges, replicationcontrollers, podtemplates, resourcequotas,
+      events]
+    verbs: [get, watch, list]
+  - apiGroups: ['']
+    resources: [secrets]
+    verbs: [get, watch, list]
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [mutatingwebhookconfigurations, validatingwebhookconfigurations]
+    verbs: [get, watch, list]
+  - apiGroups: [apiregistration.k8s.io]
+    resources: [apiservices]
+    verbs: [get, watch, list]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets, replicasets, controllerrevisions]
+    verbs: [get, watch, list]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: [get, watch, list]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, watch, list]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, watch, list]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, watch, list]
+  - apiGroups: [events.k8s.io]
+    resources: [events]
+    verbs: [get, watch, list]
+  - apiGroups: [hostdata.kubescape.cloud]
+    resources: [APIServerInfo, ControlPlaneInfo]
+    verbs: [get, watch, list]
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies, Ingress]
+    verbs: [get, watch, list]
+  - apiGroups: [cilium.io]
+    resources: [ciliumnetworkpolicies, ciliumclusterwidenetworkpolicies]
+    verbs: [get, list, watch]
+  - apiGroups: [projectcalico.org]
+    resources: [networkpolicies]
+    verbs: [get, list, watch]
+  - apiGroups: [networking.istio.io]
+    resources: [gateways, virtualservices]
+    verbs: [get, list, watch]
+  - apiGroups: [security.istio.io]
+    resources: [authorizationpolicies]
+    verbs: [get, list, watch]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets, podsecuritypolicies, PodSecurityPolicy]
+    verbs: [get, watch, list]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles, clusterrolebindings, roles, rolebindings]
+    verbs: [get, watch, list]
+  - apiGroups: [storage.k8s.io]
+    resources: [csistoragecapacities, storageclasses]
+    verbs: [get, watch, list]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, watch, list]
+  - apiGroups: [extensions]
+    resources: [Ingress]
+    verbs: [get, watch, list]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [httproutes, gateways, gatewayclasses, tcproutes, tlsroutes, udproutes]
+    verbs: [get, watch, list]
+  - apiGroups: ['']
+    resources: [namespaces]
+    verbs: [update]
+  - apiGroups: [spdx.softwarecomposition.kubescape.io]
+    resources: [workloadconfigurationscans, workloadconfigurationscansummaries]
+    verbs: [create, get, update, patch]
+  - apiGroups: [kubescape.io]
+    resources: [servicesscanresults]
+    verbs: [get, watch, list]
+  - apiGroups: [hostdata.kubescape.cloud]
+    resources: [osreleasefiles, kernelversions, linuxsecurityhardeningstatuses, openportslists, linuxkernelvariables, kubeletinfos, kubeproxyinfos, controlplaneinfos, cloudproviderinfos, cniinfos]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-kubescape
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: {{ .Release.Name }}-kubescape
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: "{{ .Release.Name }}-kubescape"}
+subjects:
+  - {kind: ServiceAccount, name: kubescape, namespace: "{{ .Release.Namespace }}"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-kubevuln
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: {{ .Release.Name }}-kubevuln
+rules:
+  - apiGroups: [spdx.softwarecomposition.kubescape.io]
+    resources: [vulnerabilitymanifests, vulnerabilitymanifestsummaries, openvulnerabilityexchangecontainers, sbomsyfts, sbomsyftfiltereds]
+    verbs: [create, get, update, watch, list, patch]
+  - apiGroups: [spdx.softwarecomposition.kubescape.io]
+    resources: [sbomsyfts, sbomsyftfiltereds]
+    verbs: [delete]
+  - apiGroups: [spdx.softwarecomposition.kubescape.io]
+    resources: [containerprofiles]
+    verbs: [get, watch, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-kubevuln
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: {{ .Release.Name }}-kubevuln
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: "{{ .Release.Name }}-kubevuln"}
+subjects:
+  - {kind: ServiceAccount, name: kubevuln, namespace: "{{ .Release.Namespace }}"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-operator
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: {{ .Release.Name }}-operator
+rules:
+  - apiGroups: ['']
+    resources: [pods, nodes, namespaces, configmaps, services]
+    verbs: [get, watch, list]
+  - apiGroups: ['']
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: ['']
+    resources: [secrets]
+    verbs: [get, watch, list]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, watch, list, create, update, delete, patch]
+  - apiGroups: [apps]
+    resources: [deployments, daemonsets, statefulsets, replicasets]
+    verbs: [get, watch, list]
+  - apiGroups: [spdx.softwarecomposition.kubescape.io]
+    resources: [vulnerabilitymanifests, vulnerabilitymanifestsummaries, workloadconfigurationscans, workloadconfigurationscansummaries, openvulnerabilityexchangecontainers, containerprofiles, sbomsyfts]
+    verbs: [get, watch, list, delete]
+  - apiGroups: [kubescape.io]
+    resources: [runtimerulealertbindings, rules]
+    verbs: [list, watch, get]
+  - apiGroups: [kubescape.io]
+    resources: [servicesscanresults]
+    verbs: [get, watch, list, create, update, delete, patch]
+  - apiGroups: [kubescape.io]
+    resources: [operatorcommands]
+    verbs: [get, watch, list, create, update, patch]
+  - apiGroups: [kubescape.io]
+    resources: [operatorcommands/status]
+    verbs: [get, watch, list, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-operator
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: {{ .Release.Name }}-operator
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: "{{ .Release.Name }}-operator"}
+subjects:
+  - {kind: ServiceAccount, name: operator, namespace: "{{ .Release.Namespace }}"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-storage
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: {{ .Release.Name }}-storage
+rules:
+  - apiGroups: ['']
+    resources: [namespaces, pods, services]
+    verbs: [get, watch, list]
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [mutatingwebhookconfigurations, validatingwebhookconfigurations]
+    verbs: [get, watch, list]
+  - apiGroups: [apps]
+    resources: [daemonsets, deployments, replicasets, statefulsets]
+    verbs: [get, watch, list]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [get, watch, list]
+  - apiGroups: [flowcontrol.apiserver.k8s.io]
+    resources: [prioritylevelconfigurations, flowschemas]
+    verbs: [get, watch, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-storage
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: {{ .Release.Name }}-storage
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: "{{ .Release.Name }}-storage"}
+subjects:
+  - {kind: ServiceAccount, name: storage, namespace: "{{ .Release.Namespace }}"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubescape
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kubescape
+rules:
+  - apiGroups: [apps]
+    resources: [daemonsets]
+    verbs: [create, get, update, watch, list, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubescape
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kubescape
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: kubescape}
+subjects:
+  - {kind: ServiceAccount, name: kubescape, namespace: "{{ .Release.Namespace }}"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+rules:
+  - apiGroups: ['']
+    resources: [configmaps]
+    verbs: [create, get, update, watch, list, patch, delete]
+  - apiGroups: ['']
+    resources: [secrets]
+    verbs: [create, get, update, watch, list, patch, delete]
+  - apiGroups: [batch]
+    resources: [cronjobs]
+    verbs: [create, get, update, watch, list, patch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: operator}
+subjects:
+  - {kind: ServiceAccount, name: operator, namespace: "{{ .Release.Namespace }}"}
+---
+# storage is an aggregated API server: it delegates authn/authz to the kube-apiserver.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-storage-auth-delegator
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: {{ .Release.Name }}-storage-auth-delegator
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: "system:auth-delegator"}
+subjects:
+  - {kind: ServiceAccount, name: storage, namespace: "{{ .Release.Namespace }}"}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .Release.Name }}-storage-auth-reader
+  namespace: kube-system
+  labels:
+    {{ include "quench-common.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: extension-apiserver-authentication-reader}
+subjects:
+  - {kind: ServiceAccount, name: storage, namespace: "{{ .Release.Namespace }}"}
