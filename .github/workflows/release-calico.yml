@@ -65,7 +65,7 @@ jobs:
           kubectl wait --for=condition=Ready nodes --all --timeout=300s
           imgs="$(kubectl -n calico-system get pods -o jsonpath='{range .items[*]}{range .spec.containers[*]}{.image}{"\n"}{end}{end}' | sort -u)"
           echo "$imgs"
-          ! grep -v '^ghcr.io/quenchworks/images/calico-[a-z-]*@sha256:' <<<"$imgs"
+          ! grep -v '^ghcr.io/quenchworks/images/calico-[a-z-]*@sha256:' <<<"$imgs" || exit 1
           kubectl -n kube-system rollout status deployment/coredns --timeout=180s
           nodes=($(kubectl get nodes -o jsonpath='{.items[*].metadata.name}'))
           kubectl create namespace np
@@ -87,7 +87,7 @@ jobs:
           spec: {podSelector: {}, policyTypes: [Ingress]}
           EOF
           sleep 10
-          ! kubectl exec client -- ping -c 3 -W 2 "$ip"
+          ! kubectl exec client -- ping -c 3 -W 2 "$ip" || exit 1
           echo "Calico: nodes Ready, cross-node pod traffic, DNS, NetworkPolicy deny enforced: ok"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",

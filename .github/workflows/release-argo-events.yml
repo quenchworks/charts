@@ -105,7 +105,7 @@ jobs:
           imgs="$(kubectl get statefulset eventbus-default-js -o jsonpath='{range .spec.template.spec.containers[*]}{.image}{"\n"}{end}')"
           echo "$imgs"
           test "$(echo "$imgs" | grep -c .)" = 3
-          ! echo "$imgs" | grep -v '^ghcr.io/quenchworks/images/'
+          ! echo "$imgs" | grep -v '^ghcr.io/quenchworks/images/' || exit 1
           # and the reloader and exporter are running beside nats
           kubectl get pod eventbus-default-js-0 -o jsonpath='{.status.containerStatuses[*].ready}' | grep -qv false
           for d in gate-eventsource gate-sensor; do
@@ -122,7 +122,7 @@ jobs:
           # the event crossed the bus and the sensor's trigger created the ConfigMap
           for i in $(seq 1 60); do kubectl get configmap gate-fired >/dev/null 2>&1 && break; sleep 2; done
           test "$(kubectl get configmap gate-fired -o jsonpath='{.data.from}')" = argo-events
-          ! kubectl logs deployment/rtest-argo-events-controller | grep -E '"level":"fatal"|panic:'
+          ! kubectl logs deployment/rtest-argo-events-controller | grep -E '"level":"fatal"|panic:' || exit 1
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not
