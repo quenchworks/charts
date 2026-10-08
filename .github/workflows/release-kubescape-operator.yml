@@ -65,18 +65,23 @@ jobs:
           done
           sed -n 1,20p <<<"$(kubectl get workloadconfigurationscansummaries -A)"
           sed -n 1,20p <<<"$(kubectl get vulnerabilitymanifestsummaries -A)"
-          # the node agent watched the demo container through eBPF and stored what it ran
-          n=0
+          # the node agent watched the demo container through eBPF and stored what it ran;
+          # storage serves it as containerprofiles (node-agent 0.3.25x) or applicationprofiles
+          kubectl api-resources --api-group=spdx.softwarecomposition.kubescape.io --no-headers | awk '{print $1}' | tr '\n' ' '; echo
+          prof=""
           for i in $(seq 1 60); do
-            n="$(kubectl -n default get applicationprofiles --no-headers 2>/dev/null | wc -l)"
-            [ "$n" -gt 0 ] && break
+            for k in containerprofiles applicationprofiles; do
+              # one GET per object: storage may leave the spec out of list responses
+              for o in $(kubectl -n default get "$k" -o name 2>/dev/null || true); do
+                out="$(kubectl -n default get "$o" -o yaml 2>/dev/null || true)"
+                grep -q '/etc/hostname' <<<"$out" && { prof="$out"; echo "found in $o"; break 3; }
+              done
+            done
             sleep 10
           done
-          echo "applicationprofiles in default: $n"
-          [ "$n" -gt 0 ] || { echo "no application profile for the demo workload after 10 minutes"; exit 1; }
-          prof="$(kubectl -n default get applicationprofiles -o yaml)"
-          grep -n -B3 -A3 '/etc/hostname' <<<"$prof" | sed -n 1,20p
-          grep -q '/etc/hostname' <<<"$prof" || { echo "the profile does not record the exec into the demo"; exit 1; }
+          kubectl -n default get containerprofiles,applicationprofiles 2>&1 || true
+          [ -n "$prof" ] || { echo "no profile recording the exec into the demo workload after 10 minutes"; exit 1; }
+          sed -n 1,20p <<<"$(grep -n -B3 -A3 '/etc/hostname' <<<"$prof")"
           echo "Kubescape: storage API available, configuration scan, vulnerability manifest and application profile produced: ok"
 
       # A failed install gate otherwise reports only a timeout; keep every component's side of it.
