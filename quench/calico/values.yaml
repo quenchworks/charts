@@ -1,0 +1,51 @@
+# Tigera operator, pinned by digest. It installs and manages Calico from the
+# Installation below; it must run before the cluster has a CNI, so it uses hostNetwork.
+image:
+  repository: ghcr.io/quenchworks/images/tigera-operator
+  digest: "sha256:d9cd7adc797a86e648cd03eec6f751df69e630b01ca7524723aa2d89303bdefb"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The operator release the image is built from (its init-image version).
+operatorVersion: "1.42.2"
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+# The Calico images the operator deploys, pinned by digest through an ImageSet named
+# calico-v<appVersion>. Keys are the operator's image names.
+calicoImages:
+  calico/node: "sha256:9b7e156c31761b4938ed9d6cb808672b117ba75d36bc47778edb033a1023af7b"
+  calico/cni: "sha256:e0ac19c4b9aa105754f4fc6f0fa6fd92f14cc320ada07f2ad158b28e68a016b3"
+  calico/kube-controllers: "sha256:0b082bf58bc72e80e15d124d3258438576dc37ae5a9b513c11dd81155aff6a4d"
+  calico/typha: "sha256:db26c26c5707055dd14536025d89f3bab2ac9b4bd92e4e7c14fbb1958a9a65cc"
+
+# The Installation the operator reconciles. registry/imagePath/imagePrefix map the
+# operator's calico/<name> to ghcr.io/quenchworks/images/calico-<name>. Anything in
+# installation.spec is merged over these defaults.
+installation:
+  enabled: true
+  podCIDR: 192.168.0.0/16
+  encapsulation: VXLANCrossSubnet
+  spec: {}
+
+# The hook Job that applies the ImageSet and Installation once the operator has
+# installed its CRDs. It runs on the host network: there is no CNI yet.
+wiring:
+  image:
+    repository: ghcr.io/quenchworks/images/kubectl
+    digest: "sha256:4033ac5e5f359739cf017a256188a8da7592edae86e452c6327dc4865a66a580"
+
+imagePullSecrets: []
+podAnnotations: {}
+podLabels: {}
+nodeSelector:
+  kubernetes.io/os: linux
+affinity: {}
+# The operator must schedule on not-ready nodes: it is what makes them ready.
+tolerations:
+  - {effect: NoExecute, operator: Exists}
+  - {effect: NoSchedule, operator: Exists}
+priorityClassName: ""

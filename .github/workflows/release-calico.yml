@@ -1,0 +1,165 @@
+name: release-calico
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/calico/**"
+      - ".github/workflows/release-calico.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/calico
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      # Calico is the CNI, so kind starts without its default one
+      - name: Write kind config
+        run: |
+          cat > /tmp/kind-calico.yaml <<'EOF'
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          networking:
+            disableDefaultCNI: true
+            podSubnet: 192.168.0.0/16
+          nodes:
+            - role: control-plane
+            - role: worker
+          EOF
+      - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+        with:
+          config: /tmp/kind-calico.yaml
+          wait: 0s
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -n tigera-operator --create-namespace -f "${CHART_DIR}/ci/default-values.yaml" --wait --wait-for-jobs --timeout 10m
+          # the operator reconciles the Installation into calico-system from our ImageSet
+          for i in $(seq 1 90); do kubectl get tigerastatus calico >/dev/null 2>&1 && break; sleep 5; done
+          kubectl wait --for=condition=Available tigerastatus/calico --timeout=600s
+          kubectl wait --for=condition=Ready nodes --all --timeout=300s
+          imgs="$(kubectl -n calico-system get pods -o jsonpath='{range .items[*]}{range .spec.containers[*]}{.image}{"\n"}{end}{end}' | sort -u)"
+          echo "$imgs"
+          ! grep -v '^ghcr.io/quenchworks/images/calico-[a-z-]*@sha256:' <<<"$imgs"
+          kubectl -n kube-system rollout status deployment/coredns --timeout=180s
+          nodes=($(kubectl get nodes -o jsonpath='{.items[*].metadata.name}'))
+          kubectl create namespace np
+          pod() { kubectl -n "$1" run "$2" --restart=Never --image=ghcr.io/quenchworks/images/busybox:1.38.0 \
+            --overrides="{\"spec\":{\"nodeName\":\"$3\"}}" --command -- sleep 3600; }
+          pod np target "${nodes[0]}"; pod default client "${nodes[1]}"
+          kubectl -n np wait --for=condition=Ready pod/target --timeout=180s
+          kubectl wait --for=condition=Ready pod/client --timeout=180s
+          ip="$(kubectl -n np get pod target -o jsonpath='{.status.podIP}')"
+          echo "target $ip on ${nodes[0]}, client on ${nodes[1]}"
+          kubectl exec client -- ping -c 3 -W 2 "$ip"
+          kubectl exec client -- nslookup kubernetes.default.svc.cluster.local
+          kubectl apply -f - <<EOF
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata: {name: deny-all, namespace: np}
+          spec: {podSelector: {}, policyTypes: [Ingress]}
+          EOF
+          sleep 10
+          ! kubectl exec client -- ping -c 3 -W 2 "$ip"
+          echo "Calico: nodes Ready, cross-node pod traffic, DNS, NetworkPolicy deny enforced: ok"
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get nodes -o wide || true
+          kubectl get tigerastatus -o yaml || true
+          kubectl get installation default -o yaml || true
+          kubectl get pods -A -o wide || true
+          kubectl -n tigera-operator logs deployment/rtest-calico --tail=300 || true
+          kubectl -n tigera-operator logs job/rtest-calico-wiring || true
+          kubectl -n calico-system describe pods || true
+          for p in $(kubectl -n calico-system get pods -o name); do
+            for c in $(kubectl -n calico-system get "$p" -o jsonpath='{.spec.initContainers[*].name} {.spec.containers[*].name}'); do
+              echo "=== $p [$c]"; kubectl -n calico-system logs "$p" -c "$c" --tail=200 || true
+            done
+          done
+          kubectl get events -A --sort-by=.lastTimestamp | tail -60 || true
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/calico-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/calico@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/calico:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

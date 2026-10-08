@@ -1,0 +1,130 @@
+{{- $fn := include "quench-common.fullname" . -}}
+{{- $images := list -}}
+{{- range $name, $digest := .Values.calicoImages }}{{ $images = append $images (dict "image" $name "digest" $digest) }}{{ end -}}
+{{- $spec := dict
+    "registry" "ghcr.io/"
+    "imagePath" "quenchworks/images"
+    "imagePrefix" "calico-"
+    "kubeletVolumePluginPath" "None"
+    "flexVolumePath" "None"
+    "calicoNetwork" (dict "ipPools" (list (dict "name" "default-ipv4-ippool" "cidr" .Values.installation.podCIDR "encapsulation" .Values.installation.encapsulation "natOutgoing" "Enabled" "nodeSelector" "all()"))) -}}
+{{- with .Values.imagePullSecrets }}{{ $_ := set $spec "imagePullSecrets" . }}{{ end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fn }}-wiring
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  calico.yaml: |
+    apiVersion: operator.tigera.io/v1
+    kind: ImageSet
+    metadata:
+      name: calico-v{{ .Chart.AppVersion }}
+    spec:
+      images:
+        {{- toYaml $images | nindent 8 }}
+    {{- if .Values.installation.enabled }}
+    ---
+    apiVersion: operator.tigera.io/v1
+    kind: Installation
+    metadata:
+      name: default
+    spec:
+      {{- toYaml (mergeOverwrite $spec (deepCopy .Values.installation.spec)) | nindent 6 }}
+    {{- end }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fn }}-wiring
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fn }}-wiring
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [operator.tigera.io]
+    resources: [imagesets, installations]
+    verbs: [get, list, watch, create, patch]
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $fn }}-wiring
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ $fn }}-wiring}
+subjects:
+  - {kind: ServiceAccount, name: {{ $fn }}-wiring, namespace: {{ .Release.Namespace }}}
+---
+# ImageSet and Installation are cluster-scoped CRs whose CRDs the operator installs at
+# startup, so Helm cannot apply them as release objects. The Job waits for the CRDs and
+# applies them. It runs on the host network and tolerates not-ready nodes: until Calico
+# is up, there is no pod network.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fn }}-wiring
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: calico-wiring
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        checksum/wiring: {{ .Values | toJson | sha256sum }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ $fn }}-wiring
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: apply
+          image: "{{ .Values.wiring.image.repository }}@{{ .Values.wiring.image.digest }}"
+          command: [/bin/sh, -c]
+          args:
+            - |
+              set -e
+              for i in $(seq 1 120); do
+                kubectl get crd imagesets.operator.tigera.io installations.operator.tigera.io >/dev/null 2>&1 && break
+                echo "waiting for the operator's CRDs ($i)"; sleep 5
+              done
+              kubectl apply --server-side --field-manager=quench-calico -f /wiring/calico.yaml
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts:
+            - {name: wiring, mountPath: /wiring}
+      volumes:
+        - name: wiring
+          configMap: {name: {{ $fn }}-wiring}
