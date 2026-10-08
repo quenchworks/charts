@@ -69,8 +69,10 @@ jobs:
           kubectl -n kube-system rollout status deployment/coredns --timeout=180s
           nodes=($(kubectl get nodes -o jsonpath='{.items[*].metadata.name}'))
           kubectl create namespace np
+          # busybox runs nonroot; ping needs a raw socket, so the test pods run as root with NET_RAW.
           pod() { kubectl -n "$1" run "$2" --restart=Never --image=ghcr.io/quenchworks/images/busybox:1.38.0 \
-            --overrides="{\"spec\":{\"nodeName\":\"$3\"}}" --command -- sleep 3600; }
+            --overrides="{\"spec\":{\"nodeName\":\"$3\",\"containers\":[{\"name\":\"$2\",\"image\":\"ghcr.io/quenchworks/images/busybox:1.38.0\",\"command\":[\"sleep\",\"3600\"],\"securityContext\":{\"runAsUser\":0,\"capabilities\":{\"add\":[\"NET_RAW\"]}}}]}}" \
+            --command -- sleep 3600; }
           pod np target "${nodes[0]}"; pod default client "${nodes[1]}"
           kubectl -n np wait --for=condition=Ready pod/target --timeout=180s
           kubectl wait --for=condition=Ready pod/client --timeout=180s
