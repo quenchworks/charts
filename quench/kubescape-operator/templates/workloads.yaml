@@ -103,6 +103,9 @@ spec:
           image: "{{ .Values.kubescape.image.repository }}@{{ .Values.kubescape.image.digest }}"
           imagePullPolicy: {{ .Values.imagePullPolicy }}
           command: [/usr/bin/ksserver]
+          # ksserver writes results/ and failed/ relative to its working directory, as
+          # upstream's image (WORKDIR /home/nonroot) expects; that path is the writable home.
+          workingDir: /home/nonroot
           {{- include "ks.containerSecurity" . | nindent 10 }}
           env:
             {{- include "ks.env" . | nindent 12 }}
