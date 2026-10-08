@@ -3,7 +3,8 @@
 # A database exporter is pointed at this repository's matching database chart (release "db",
 # password from that chart's Secret) and passes only when /metrics reports its up metric as 1:
 # it reached the server and authenticated. node-exporter passes only when node_uname_info is
-# reported. An HTTP 200 alone proves nothing.
+# reported. prometheus-nats-exporter passes only on a varz series labelled with a server_id (it
+# read the nats chart's monitoring port). An HTTP 200 alone proves nothing.
 set -euo pipefail
 chart="${1:?usage: gate-exporter.sh <chart>}"
 ctx="$(kubectl config current-context)"
@@ -15,6 +16,7 @@ case "$chart" in
   mysqld-exporter)   db=mysql;      want='^mysql_up 1$' ;;
   mongodb-exporter)  db=mongodb;    want='^mongodb_up(\{[^}]*\})? 1$' ;;
   node-exporter)     db="";         want='^node_uname_info\{' ;;
+  prometheus-nats-exporter) db=nats; want='^(gnatsd|nats)_varz_[a-z_]+\{[^}]*server_id="[^"]+"' ;;
   *) echo "unknown exporter chart $chart"; exit 1 ;;
 esac
 
@@ -40,7 +42,7 @@ done
 line="$(grep -E "$want" <<<"$body" | head -1 || true)"
 if [ -z "$line" ]; then
   echo "no line matching $want on /metrics; what it reported:"
-  grep -E '_up |_up\{|node_uname_info|^# HELP' <<<"$body" | head -20 || true
+  grep -E '_up |_up\{|node_uname_info|_varz_|^# HELP' <<<"$body" | head -20 || true
   kubectl logs -l app.kubernetes.io/instance=rtest --tail=50 || true
   exit 1
 fi

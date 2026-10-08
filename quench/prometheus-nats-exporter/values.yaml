@@ -1,0 +1,77 @@
+# The digest below is the contract with the image factory. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/prometheus-nats-exporter
+  digest: "sha256:fa786a70abda58e681254d229dd322e9517b2e8339e0789c43363134b647b012"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+replicaCount: 1
+
+# The NATS server's HTTP monitoring endpoint (its monitor port, 8222 by default). One exporter
+# per server: the metrics carry this URL as server_id.
+target:
+  url: ""
+
+# Monitoring endpoints to export, each a flag of the exporter:
+# varz, connz, connz_detailed, routez, subz, gatewayz, leafz, accstatz, accountz, healthz.
+collectors: [varz, connz, routez, subz, healthz]
+# JetStream metrics (-jsz): "" for none, or all, streams, consumers, accounts.
+jetstream: ""
+
+# Appended to the exporter command (see `prometheus-nats-exporter --help`).
+extraArgs: []
+
+resources:
+  requests: { cpu: 20m, memory: 32Mi }
+  limits: { memory: 128Mi }
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 7777
+# A ServiceMonitor for the Prometheus Operator, rendered only when its CRD is installed.
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: false
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
