@@ -112,7 +112,7 @@ jobs:
           kubectl -n flux-system get provider/sink alert/podinfo
           # notification objects no longer carry a Ready condition in v1beta3; the
           # controller must at least have accepted them without errors
-          ! kubectl -n flux-system logs deployment/rtest-flux-notification | grep -iE '"level":"error".*(podinfo|sink)'
+          ! kubectl -n flux-system logs deployment/rtest-flux-notification | grep -iE '"level":"error".*(podinfo|sink)' || exit 1
           # 4. image-reflector-controller: scan a public image's tags and pick one by policy
           cat <<Y | kubectl apply -f -
           apiVersion: image.toolkit.fluxcd.io/v1
@@ -151,7 +151,7 @@ jobs:
           # 6. image-automation-controller: it accepts an ImageUpdateAutomation and does not crash
           # (updating a repository needs push credentials, which a gate has no place for)
           kubectl -n flux-system rollout status deployment/rtest-flux-image-automation --timeout=60s
-          ! kubectl -n flux-system logs deployment/rtest-flux-image-automation | grep -E '"level":"error"|panic'
+          ! kubectl -n flux-system logs deployment/rtest-flux-image-automation | grep -E '"level":"error"|panic' || exit 1
           echo "install gate OK: Git + Kustomization, OCI Helm + HelmRelease, notification objects, image scan + policy, generated artifact"
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
