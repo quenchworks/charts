@@ -1,0 +1,93 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  # fixed: the agent reads its own DaemonSet by this name
+  name: istio-cni-node
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate: { maxUnavailable: 1 }
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        k8s-app: istio-cni-node
+        # never meshed itself
+        istio.io/dataplane-mode: none
+        sidecar.istio.io/inject: "false"
+      annotations:
+        sidecar.istio.io/inject: "false"
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: istio-cni
+      priorityClassName: {{ .Values.priorityClassName }}
+      terminationGracePeriodSeconds: 30
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      containers:
+        # Root with the capabilities it needs to write the CNI plugin and configuration onto the
+        # host and to program iptables inside each ambient pod's network namespace, as upstream.
+        - name: install-cni
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [install-cni]
+          args: [--log_output_level={{ .Values.logLevel }}]
+          envFrom:
+            - configMapRef: { name: istio-cni-config }
+          env:
+            - name: REPAIR_NODE_NAME
+              valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+            - { name: REPAIR_RUN_AS_DAEMON, value: "true" }
+            - { name: REPAIR_SIDECAR_ANNOTATION, value: sidecar.istio.io/status }
+            - { name: ALLOW_SWITCH_TO_HOST_NS, value: "true" }
+            - { name: MOUNTED_CNI_NET_DIR, value: /host/etc/cni/net.d }
+            - name: NODE_NAME
+              valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
+            - name: POD_NAME
+              valueFrom: { fieldRef: { fieldPath: metadata.name } }
+            - name: POD_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            - name: GOMEMLIMIT
+              valueFrom: { resourceFieldRef: { resource: limits.memory, divisor: "1" } }
+          ports:
+            - { name: metrics, containerPort: 15014, protocol: TCP }
+          readinessProbe:
+            httpGet: { path: /readyz, port: 8000 }
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+            privileged: false
+            appArmorProfile: { type: Unconfined }
+            capabilities:
+              drop: [ALL]
+              add: [NET_ADMIN, NET_RAW, SYS_PTRACE, SYS_ADMIN, DAC_OVERRIDE]
+          volumeMounts:
+            - { name: cni-bin-dir, mountPath: /host/opt/cni/bin }
+            - { name: cni-net-dir, mountPath: /host/etc/cni/net.d }
+            - { name: host-proc, mountPath: /host/proc, readOnly: true }
+            - { name: cni-socket-dir, mountPath: /var/run/istio-cni }
+            - { name: netns-dir, mountPath: /host/var/run/netns, mountPropagation: HostToContainer }
+            # ztunnel's socket: the agent hands it each ambient pod's network namespace
+            - { name: ztunnel-sock-dir, mountPath: /var/run/ztunnel }
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - { name: cni-bin-dir, hostPath: { path: {{ .Values.cniBinDir }} } }
+        - { name: cni-net-dir, hostPath: { path: {{ .Values.cniConfDir }} } }
+        - { name: host-proc, hostPath: { path: /proc, type: Directory } }
+        - { name: cni-socket-dir, hostPath: { path: /var/run/istio-cni } }
+        - { name: netns-dir, hostPath: { path: /var/run/netns, type: DirectoryOrCreate } }
+        - { name: ztunnel-sock-dir, hostPath: { path: /var/run/ztunnel, type: DirectoryOrCreate } }

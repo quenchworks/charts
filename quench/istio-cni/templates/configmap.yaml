@@ -1,0 +1,31 @@
+{{- $data := dict
+  "CURRENT_AGENT_VERSION" .Chart.AppVersion
+  "AMBIENT_ENABLED" true
+  "AMBIENT_DNS_CAPTURE" .Values.ambient.dnsCapture
+  "AMBIENT_IPV6" .Values.ambient.ipv6
+  "AMBIENT_RECONCILE_POD_RULES_ON_STARTUP" true
+  "AMBIENT_ENABLEMENT_SELECTOR" (include "istio-cni.enablementSelector" .)
+  "CHAINED_CNI_PLUGIN" true
+  "ISTIO_OWNED_CNI_CONFIG" false
+  "EXCLUDE_NAMESPACES" .Values.excludeNamespaces
+  "REPAIR_ENABLED" true
+  "REPAIR_LABEL_PODS" false
+  "REPAIR_DELETE_PODS" false
+  "REPAIR_REPAIR_PODS" true
+  "REPAIR_INIT_CONTAINER_NAME" "istio-validation"
+  "REPAIR_BROKEN_POD_LABEL_KEY" "cni.istio.io/uninitialized"
+  "REPAIR_BROKEN_POD_LABEL_VALUE" "true"
+-}}
+{{- $data = mergeOverwrite $data (.Values.extraConfig | default dict) -}}
+# The agent's settings, read as environment variables. Ambient on, the plugin chained into the
+# node's existing CNI configuration (the node's own CNI keeps doing the networking).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: istio-cni-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  {{- range $k := keys $data | sortAlpha }}
+  {{ $k }}: {{ get $data $k | toString | quote }}
+  {{- end }}

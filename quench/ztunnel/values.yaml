@@ -1,0 +1,33 @@
+# QuenchWorks ztunnel: Istio's ambient-mode node proxy on the QuenchWorks ztunnel image (built
+# from source, 0-CVE, cosign-signed, pinned by digest). Install it in istio-system with the istiod
+# chart (ambient on, CA_TRUSTED_NODE_ACCOUNTS=istio-system/ztunnel) and the istio-cni chart; the
+# three versions must match.
+image:
+  repository: ghcr.io/quenchworks/images/ztunnel
+  digest: "sha256:61b0e274990afb158e85c1ee6189f2f68f72790c788654d922eff317f75d314b"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# istiod's certificate authority and xDS server (TLS port 15012).
+caAddress: istiod.istio-system.svc:15012
+xdsAddress: istiod.istio-system.svc:15012
+# Must match istiod's CLUSTER_ID.
+clusterId: Kubernetes
+
+# Rust log filter; access logs ("connection complete") are at info.
+logLevel: info
+
+extraEnvVars: []
+
+priorityClassName: system-node-critical
+terminationGracePeriodSeconds: 30
+resources:
+  requests: { cpu: 200m, memory: 512Mi }
+  limits: { memory: 1Gi }
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations:
+  - { effect: NoSchedule, operator: Exists }
+  - { key: CriticalAddonsOnly, operator: Exists }
+  - { effect: NoExecute, operator: Exists }

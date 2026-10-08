@@ -1,0 +1,37 @@
+# QuenchWorks istio-cni: the Istio CNI node agent for ambient mode on the QuenchWorks istio-cni
+# image (built from source, 0-CVE, cosign-signed, pinned by digest). Install it in istio-system
+# with the istiod chart (ambient on) and the ztunnel chart; the three versions must match.
+image:
+  repository: ghcr.io/quenchworks/images/istio-cni
+  digest: "sha256:4d79d3c3892beb45b250f26152c2f69a5fb51829a51fc5ba827c6796665c1de7"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# Pods join the mesh when they or their namespace carry istio.io/dataplane-mode=ambient.
+ambient:
+  # capture the pods' DNS so ztunnel can answer for ServiceEntries
+  dnsCapture: true
+  ipv6: true
+# Namespaces whose pods the agent never touches, comma separated.
+excludeNamespaces: kube-system
+
+# Where the node keeps its CNI plugins and configuration (k3s and some distros differ).
+cniBinDir: /opt/cni/bin
+cniConfDir: /etc/cni/net.d
+
+logLevel: info
+
+# Any other agent setting, as environment variables (upstream's istio-cni-config keys).
+extraConfig: {}
+
+priorityClassName: system-node-critical
+resources:
+  requests: { cpu: 100m, memory: 100Mi }
+  limits: { memory: 512Mi }
+nodeSelector:
+  kubernetes.io/os: linux
+tolerations:
+  - { effect: NoSchedule, operator: Exists }
+  - { key: CriticalAddonsOnly, operator: Exists }
+  - { effect: NoExecute, operator: Exists }

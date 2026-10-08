@@ -1,0 +1,41 @@
+# The agent watches pods, nodes and namespaces to decide which pods are in the mesh, repairs
+# pods that started before it, records events, marks ambient pods in their status, and reads
+# its own DaemonSet. Fixed names: one install per cluster.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: istio-cni
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: istio-cni
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ['']
+    resources: [pods, nodes, namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: ['']
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: ['']
+    resources: [pods/status]
+    verbs: [patch, update]
+  - apiGroups: [apps]
+    resources: [daemonsets]
+    resourceNames: [istio-cni-node]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: istio-cni
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: istio-cni }
+subjects:
+  - { kind: ServiceAccount, name: istio-cni, namespace: {{ .Release.Namespace }} }
