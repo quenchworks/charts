@@ -45,7 +45,7 @@ jobs:
           helm install rtest "${CHART_DIR}" -n kubescape --create-namespace -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
           imgs="$(kubectl -n kubescape get pods -o jsonpath='{range .items[*]}{range .spec.containers[*]}{.image}{"\n"}{end}{end}' | sort -u)"
           echo "$imgs"
-          ! grep -v '^ghcr.io/quenchworks/images/[a-z-]*@sha256:' <<<"$imgs"
+          ! grep -v '^ghcr.io/quenchworks/images/[a-z-]*@sha256:' <<<"$imgs" || exit 1
           kubectl wait --for=condition=Available apiservice/v1beta1.spdx.softwarecomposition.kubescape.io --timeout=300s
           # A workload to scan: its image gets a vulnerability manifest, its Deployment a
           # configuration scan summary. The operator scans at startup and on new pods.

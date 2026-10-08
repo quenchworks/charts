@@ -70,7 +70,7 @@ jobs:
           # the conversion webhook serves the old version of the same object
           kubectl -n gate get opentelemetrycollectors.v1alpha1.opentelemetry.io gate -o jsonpath='{.apiVersion}' | grep -q v1alpha1
           # a sidecar collector cannot carry tolerations: the webhook and the CRD CEL rule refuse it
-          ! kubectl -n gate apply -f - <<'YAML' 2>/tmp/bad.txt
+          ! kubectl -n gate apply -f - <<'YAML' 2>/tmp/bad.txt || exit 1
           apiVersion: opentelemetry.io/v1beta1
           kind: OpenTelemetryCollector
           metadata: { name: bad, namespace: gate }
@@ -94,7 +94,7 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data @/tmp/span.json http://127.0.0.1:4318/v1/traces)" = 200
           for i in $(seq 1 30); do kubectl -n gate logs deploy/gate-collector | grep -q 'gate-span' && break; sleep 2; done
           kubectl -n gate logs deploy/gate-collector | grep -q 'gate-span'
-          ! kubectl -n otel-operator logs deployment/rtest-opentelemetry-operator | grep -E 'panic:|"level":"(fatal|FATAL)"'
+          ! kubectl -n otel-operator logs deployment/rtest-opentelemetry-operator | grep -E 'panic:|"level":"(fatal|FATAL)"' || exit 1
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not
