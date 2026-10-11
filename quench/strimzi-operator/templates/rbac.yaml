@@ -1,0 +1,202 @@
+{{/*
+The operator's RBAC, rules as upstream Strimzi 1.2.0 publishes them.
+strimzi-kafka-broker, strimzi-entity-operator and strimzi-kafka-client keep
+their upstream names: the operator binds the pods it creates to those names
+(hard-coded in KafkaCluster, EntityOperator and KafkaConnectCluster), and it
+must hold every permission it grants. So only one release per cluster.
+*/}}
+{{- $fullName := include "quench-common.fullname" . -}}
+{{- $sa := include "quench-common.serviceAccountName" . -}}
+{{- $all := list "get" "list" "watch" "create" "delete" "patch" "update" -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fullName }}-namespaced
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings, roles]
+    verbs: {{ toJson $all }}
+  - apiGroups: [""]
+    resources: [pods, serviceaccounts, configmaps, services, endpoints, secrets, persistentvolumeclaims]
+    verbs: {{ toJson $all }}
+  - apiGroups: [""]
+    resources: [pods/resize]
+    verbs: [patch, update]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets]
+    verbs: {{ toJson $all }}
+  - apiGroups: [apps]
+    resources: [deployments/scale]
+    verbs: [get, patch, update]
+  - apiGroups: [events.k8s.io]
+    resources: [events]
+    verbs: [create]
+  - apiGroups: [build.openshift.io]
+    resources: [buildconfigs, buildconfigs/instantiate, builds]
+    verbs: {{ toJson $all }}
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies, ingresses]
+    verbs: {{ toJson $all }}
+  - apiGroups: [route.openshift.io]
+    resources: [routes, routes/custom-host]
+    verbs: {{ toJson $all }}
+  - apiGroups: [image.openshift.io]
+    resources: [imagestreams]
+    verbs: [get]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: {{ toJson $all }}
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [tlsroutes]
+    verbs: {{ toJson $all }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fullName }}-global
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterrolebindings]
+    verbs: {{ toJson $all }}
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fullName }}-leader-election
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    resourceNames: [{{ $fullName }}]
+    verbs: [get, list, watch, delete, patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fullName }}-watched
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [watch, list]
+  - apiGroups: [kafka.strimzi.io]
+    resources: [kafkas, kafkanodepools, kafkaconnects, kafkaconnectors, kafkabridges, kafkamirrormaker2s, kafkarebalances]
+    verbs: [get, list, watch, create, patch, update]
+  - apiGroups: [kafka.strimzi.io]
+    resources: [kafkas/status, kafkanodepools/status, kafkaconnects/status, kafkaconnectors/status, kafkabridges/status, kafkamirrormaker2s/status, kafkarebalances/status]
+    verbs: [get, patch, update]
+  - apiGroups: [kafka.strimzi.io]
+    resources: [kafkas/finalizers, kafkanodepools/finalizers, kafkaconnects/finalizers, kafkaconnectors/finalizers, kafkabridges/finalizers, kafkamirrormaker2s/finalizers, kafkarebalances/finalizers]
+    verbs: [update]
+  - apiGroups: [core.strimzi.io]
+    resources: [strimzipodsets]
+    verbs: {{ toJson $all }}
+  - apiGroups: [core.strimzi.io]
+    resources: [strimzipodsets/status]
+    verbs: [get, patch, update]
+  - apiGroups: [core.strimzi.io]
+    resources: [strimzipodsets/finalizers]
+    verbs: [update]
+  - apiGroups: [kafka.strimzi.io]
+    resources: [kafkarebalances]
+    verbs: [delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: strimzi-kafka-broker
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: strimzi-kafka-client
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: strimzi-entity-operator
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [kafka.strimzi.io]
+    resources: [kafkatopics]
+    verbs: [get, list, watch, create, patch, update, delete]
+  - apiGroups: [kafka.strimzi.io]
+    resources: [kafkausers]
+    verbs: [get, list, watch, create, patch, update]
+  - apiGroups: [kafka.strimzi.io]
+    resources: [kafkatopics/status, kafkausers/status]
+    verbs: [get, patch, update]
+  - apiGroups: [kafka.strimzi.io]
+    resources: [kafkatopics/finalizers, kafkausers/finalizers]
+    verbs: [update]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: {{ toJson $all }}
+{{- /* Always cluster-wide: these grants are not namespaced. */}}
+{{- range $role := list "global" "strimzi-kafka-broker" "strimzi-kafka-client" }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $fullName }}-{{ trimPrefix "strimzi-" $role }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ hasPrefix "strimzi-" $role | ternary $role (printf "%s-%s" $fullName $role) }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sa }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- /* The release namespace, or every namespace with watchAnyNamespace. */}}
+{{- range $role := list "namespaced" "watched" "strimzi-entity-operator" "leader-election" }}
+{{- $cluster := and $.Values.watchAnyNamespace (ne $role "leader-election") }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ $cluster | ternary "ClusterRoleBinding" "RoleBinding" }}
+metadata:
+  name: {{ $fullName }}-{{ trimPrefix "strimzi-" $role }}
+  {{- if not $cluster }}
+  namespace: {{ $.Release.Namespace }}
+  {{- end }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ hasPrefix "strimzi-" $role | ternary $role (printf "%s-%s" $fullName $role) }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ $sa }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}

@@ -1,0 +1,40 @@
+QuenchWorks Strimzi {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }}.
+It watches {{ if .Values.watchAnyNamespace }}every namespace{{ else }}namespace {{ .Release.Namespace }}{{ end }}.
+
+Create a single-node KRaft cluster (Kafka 4.3.1, QuenchWorks strimzi-kafka image):
+
+  apiVersion: kafka.strimzi.io/v1
+  kind: KafkaNodePool
+  metadata:
+    name: dual-role
+    labels:
+      strimzi.io/cluster: my-cluster
+  spec:
+    replicas: 1
+    roles: [controller, broker]
+    storage:
+      type: jbod
+      volumes:
+        - id: 0
+          type: persistent-claim
+          size: 10Gi
+          kraftMetadata: shared
+  ---
+  apiVersion: kafka.strimzi.io/v1
+  kind: Kafka
+  metadata:
+    name: my-cluster
+  spec:
+    kafka:
+      listeners:
+        - { name: plain, port: 9092, type: internal, tls: false }
+      config:
+        offsets.topic.replication.factor: 1
+        transaction.state.log.replication.factor: 1
+        transaction.state.log.min.isr: 1
+    entityOperator:
+      topicOperator: {}
+      userOperator: {}
+
+Cruise Control (spec.cruiseControl) and KafkaRebalance are not supported: the
+strimzi-kafka image does not include Cruise Control.

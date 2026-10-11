@@ -1,0 +1,113 @@
+{{- $fullName := include "quench-common.fullname" . -}}
+{{- $kafka := printf "%s@%s" .Values.kafkaImage.repository .Values.kafkaImage.digest -}}
+{{- $operator := include "quench-common.image" . -}}
+{{- $versions := list "4.2.0" "4.2.1" "4.3.0" "4.3.1" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        # The NetworkPolicies Strimzi creates for Kafka admit the operator by this label.
+        strimzi.io/kind: cluster-operator
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      # The operator talks to the API server; quench-common leaves the token off.
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: strimzi-cluster-operator
+          image: {{ $operator }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          # The image has no ENTRYPOINT.
+          args:
+            - /opt/strimzi/bin/cluster_operator_run.sh
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          env:
+            - name: STRIMZI_NAMESPACE
+              {{- if .Values.watchAnyNamespace }}
+              value: "*"
+              {{- else }}
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+              {{- end }}
+            - name: STRIMZI_OPERATOR_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: STRIMZI_LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            - name: STRIMZI_FULL_RECONCILIATION_INTERVAL_MS
+              value: {{ .Values.fullReconciliationIntervalMs | quote }}
+            - name: STRIMZI_OPERATION_TIMEOUT_MS
+              value: {{ .Values.operationTimeoutMs | quote }}
+            - name: STRIMZI_FEATURE_GATES
+              value: {{ .Values.featureGates | quote }}
+            {{- range $var := list "STRIMZI_KAFKA_IMAGES" "STRIMZI_KAFKA_CONNECT_IMAGES" "STRIMZI_KAFKA_MIRROR_MAKER_2_IMAGES" }}
+            - name: {{ $var }}
+              value: |
+                {{- range $versions }}
+                {{ . }}={{ $kafka }}
+                {{- end }}
+            {{- end }}
+            - name: STRIMZI_DEFAULT_KAFKA_EXPORTER_IMAGE
+              value: {{ $kafka }}
+            # Cruise Control is not in the strimzi-kafka image: spec.cruiseControl
+            # and KafkaRebalance are unsupported.
+            - name: STRIMZI_DEFAULT_CRUISE_CONTROL_IMAGE
+              value: {{ $kafka }}
+            - name: STRIMZI_DEFAULT_TOPIC_OPERATOR_IMAGE
+              value: {{ $operator }}
+            - name: STRIMZI_DEFAULT_USER_OPERATOR_IMAGE
+              value: {{ $operator }}
+            - name: STRIMZI_DEFAULT_KAFKA_INIT_IMAGE
+              value: {{ $operator }}
+            - name: STRIMZI_DEFAULT_KAFKA_BRIDGE_IMAGE
+              value: {{ .Values.upstreamImages.kafkaBridge }}
+            - name: STRIMZI_DEFAULT_KANIKO_EXECUTOR_IMAGE
+              value: {{ .Values.upstreamImages.kanikoExecutor }}
+            - name: STRIMZI_DEFAULT_BUILDAH_IMAGE
+              value: {{ .Values.upstreamImages.buildah }}
+            - name: STRIMZI_DEFAULT_MAVEN_BUILDER
+              value: {{ .Values.upstreamImages.mavenBuilder }}
+            - name: STRIMZI_LEADER_ELECTION_ENABLED
+              value: "true"
+            - name: STRIMZI_LEADER_ELECTION_LEASE_NAME
+              value: {{ $fullName }}
+            - name: STRIMZI_LEADER_ELECTION_LEASE_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: STRIMZI_LEADER_ELECTION_IDENTITY
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" (dict "httpGet" (dict "path" "/healthy" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 30)) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" (dict "httpGet" (dict "path" "/ready" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 30)) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

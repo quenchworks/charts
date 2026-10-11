@@ -1,0 +1,58 @@
+# The digests below are the contract with the image factory. They are never tags.
+image:
+  repository: ghcr.io/quenchworks/images/strimzi-operator
+  digest: "sha256:9061f50c961e9a2df0dec4279e2fca4d4bee3c9cea8018613a7a8a98ce26b014"
+  pullPolicy: IfNotPresent
+
+# Brokers, controllers, Connect, MirrorMaker 2 and Kafka Exporter run from this
+# image (Kafka 4.3.1). Strimzi 1.2.0 refuses to start unless every Kafka version
+# it supports (4.2.0 to 4.3.1) maps to an image, so all of them map here: leave
+# spec.kafka.version unset or set it to 4.3.1.
+kafkaImage:
+  repository: ghcr.io/quenchworks/images/strimzi-kafka
+  digest: "sha256:707b4d26fe6f6bc452cb1477584935ab72d1c654f190b62e897dfd6d58d13fc1"
+
+# QuenchWorks does not build these. They are only pulled for a KafkaBridge or a
+# KafkaConnect with spec.build.
+upstreamImages:
+  kafkaBridge: quay.io/strimzi/kafka-bridge:1.1.0
+  kanikoExecutor: quay.io/strimzi/kaniko-executor:1.2.0
+  buildah: quay.io/strimzi/buildah:1.2.0
+  mavenBuilder: quay.io/strimzi/maven-builder:1.2.0
+
+nameOverride: ""
+fullnameOverride: ""
+
+# More than one replica is safe: leader election is always on.
+replicaCount: 1
+
+# false: watch the release namespace only. true: watch every namespace
+# (ClusterRoleBindings instead of RoleBindings).
+watchAnyNamespace: false
+
+logLevel: INFO
+fullReconciliationIntervalMs: 120000
+operationTimeoutMs: 300000
+featureGates: ""
+extraEnvVars: []
+
+resources:
+  requests: { cpu: 200m, memory: 384Mi }
+  limits: { cpu: "1", memory: 384Mi }
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podLabels: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+imagePullSecrets: []
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
