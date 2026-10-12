@@ -29,6 +29,38 @@ kubectl exec pulsar-pulsar-0 -- /opt/pulsar/bin/pulsar-client consume \
   -s sub -n 1 -p Earliest persistent://public/default/demo
 ```
 
+## Upgrading from 0.0.x (Pulsar 4.2) to 0.1.x (Pulsar 5.0)
+
+`helm upgrade` in place keeps your topics and messages. The release gate proves it on
+every chart release: it installs chart 0.0.22 (Pulsar 4.2.4) on a PVC, creates a durable
+subscription, produces a message, upgrades to this chart, checks the broker reports 5.0,
+and consumes the message produced under 4.2.
+
+- **No downgrade.** Apache documents no 5.0 to 4.x rollback path. Snapshot the PVC before
+  upgrading if you may need to go back.
+- **The conf on the PVC is seeded once.** The entrypoint copies the dist's
+  `standalone.conf` and `log4j2.yaml` to `/pulsar/conf` only when `standalone.conf` is
+  missing, so an upgraded release keeps the 4.2 files and their defaults (4 namespace
+  bundles, no managed-ledger metadata compression). A fresh 5.0 install gets the 5.0
+  file: 32 namespace bundles (64 for system namespaces), LZ4-compressed managed-ledger
+  and cursor metadata, separate BookKeeper client IO threads. To adopt them, move
+  `/pulsar/conf/standalone.conf` aside and restart the pod; it is re-seeded on boot.
+  Settings 5.0 dropped (`disableBrokerInterceptors`,
+  `managedLedgerUnackedRangesOpenCacheSetEnabled`,
+  `bookkeeperClientMinAvailableBookiesInIsolationGroups`) are ignored if the old file
+  still sets them.
+- **Classic dispatchers are gone** (PIP-379): the classic Shared and Key_Shared
+  dispatcher implementations were removed, so any
+  `subscription*UseClassicPersistentImplementation=true` you passed in
+  `config.extraOpts` no longer applies.
+- **Code defaults that apply to upgraded releases too:** `dispatcherMaxReadBatchSize` 500
+  (was 100), Netty adaptive allocator, subscription-thread dispatch off. AvgShedder is the
+  new load-shedding default, but standalone runs the `NoopLoadManager`, so it does not
+  apply here.
+- **Java 21** is required by 5.0 servers; the image already ran 4.2 on Java 21.
+- The etcd metadata backend was removed in 5.0; this chart uses the embedded RocksDB
+  store, so nothing to migrate.
+
 ## Verify the image
 
 ```bash

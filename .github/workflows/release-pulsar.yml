@@ -64,6 +64,29 @@ jobs:
           # assert the produced payload comes back through the subscription
           grep -q 'quench' /tmp/consume.log
 
+      # 4.2 -> 5.0 in place: data written by the last 4.2 chart (0.0.22) must survive a
+      # helm upgrade to this chart. Needs a PVC (the CI values use emptyDir, which a pod
+      # restart wipes) and a durable subscription so the message is retained.
+      - name: Upgrade gate (kind, from 0.0.22 / Pulsar 4.2.4)
+        run: |
+          set -o pipefail
+          helm uninstall rtest --wait
+          kubectl delete pvc --all --wait
+          v="--set persistence.enabled=true -f ${CHART_DIR}/ci/default-values.yaml"
+          topic=persistent://public/default/upgrade
+          helm install up "${OCI_REPO}/pulsar" --version 0.0.22 $v --wait --timeout 12m
+          kubectl exec up-pulsar-0 -- /opt/pulsar/bin/pulsar-admin topics create "$topic"
+          kubectl exec up-pulsar-0 -- /opt/pulsar/bin/pulsar-admin topics create-subscription -s keep "$topic"
+          kubectl exec up-pulsar-0 -- /opt/pulsar/bin/pulsar-client produce -m before-upgrade -n 1 "$topic"
+          helm upgrade up "${CHART_DIR}" $v --wait --timeout 12m
+          kubectl rollout status statefulset/up-pulsar --timeout=600s
+          ver="$(kubectl exec up-pulsar-0 -- /opt/pulsar/bin/pulsar-admin brokers version)"
+          echo "broker version after upgrade: $ver"
+          grep -q '^5\.' <<<"$ver"
+          out="$(kubectl exec up-pulsar-0 -- /opt/pulsar/bin/pulsar-client consume -s keep -n 1 "$topic" 2>&1)"
+          echo "$out" | tail -20
+          grep -q 'before-upgrade' <<<"$out"
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not
