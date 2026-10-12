@@ -27,6 +27,21 @@ jobs:
       - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
       - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
 
+      # kind's containerd runs a createContainer hook (/kind/bin/mount-product-files.sh)
+      # that bind-mounts fake product_name/product_uuid FILES over the pod's sysfs. On a
+      # runner with DMI (Azure VMs; Docker Desktop has none, so the hook does nothing
+      # there) the privileged worker's /sys carries those file overmounts. A Concourse
+      # task container gets a new user namespace, where the overmounts are locked, and
+      # the kernel refuses its fresh sysfs mount because it would reveal what they hide
+      # (fs/namespace.c mnt_already_visible): runc "error mounting sysfs ... operation
+      # not permitted". Real nodes have no such hook. Make it a no-op before any chart
+      # pod starts; the time check below still runs a real unprivileged task.
+      - name: Disable kind's sysfs product-file hook
+        run: |
+          for n in $(docker ps -q --filter label=io.x-k8s.kind.cluster); do
+            docker exec "$n" sh -c 'printf "#!/bin/sh\ncat >/dev/null\n" > /kind/bin/mount-product-files.sh'
+          done
+
       # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
       # docker/login-action writes there (helm/oras logins do not).
       - name: Log in to GHCR (for cosign)
