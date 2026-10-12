@@ -17,6 +17,10 @@ execution (JS/Python) into a separate process.
 > before commercial use; `.ee` (enterprise) features additionally require an n8n
 > Enterprise License.
 
+> The image ships no `git` binary, so the **Git** node and the enterprise source-control
+> feature do not work in it (source control refuses to start without git). This also
+> keeps the four simple-git advisories unreachable; they carry a VEX statement.
+
 ## Install
 
 ```bash
