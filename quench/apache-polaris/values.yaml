@@ -1,0 +1,81 @@
+# Quenchworks Apache Polaris: the Iceberg REST catalog on the QuenchWorks apache-polaris image
+# (nonroot, 0-CVE, cosign-signed, pinned by digest). Iceberg REST and management APIs on 8181,
+# health and metrics on 8182.
+image:
+  repository: ghcr.io/quenchworks/images/apache-polaris
+  digest: "sha256:04919057ae9f76940e92d1abed6add99491525559bf1c89ff35396c1d7d901cc"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+# Where Polaris keeps catalogs, principals and grants:
+#   in-memory        lost on every restart, one replica (for trying it out)
+#   relational-jdbc  PostgreSQL: the bundled postgresql subchart or externalDatabase below.
+#                    An initContainer bootstraps the realm with the admin tool (idempotent).
+persistence:
+  type: in-memory
+
+# The realm and its root principal. The client secret and the token signing key are generated
+# into this chart's Secret when empty, and kept across upgrades.
+auth:
+  realm: POLARIS
+  clientId: root
+  clientSecret: ""
+  # a Secret with the keys client-id, client-secret and token-key (32+ characters) instead
+  existingSecret: ""
+
+# Bundled PostgreSQL (the QuenchWorks postgresql chart) for persistence.type=relational-jdbc.
+# Polaris connects as auth.username, whose password the subchart keeps in its Secret.
+postgresql:
+  enabled: false
+  auth:
+    username: polaris
+    password: ""
+    database: polaris_catalog
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# An existing PostgreSQL (postgresql.enabled=false, persistence.type=relational-jdbc).
+externalDatabase:
+  url: ""                       # e.g. jdbc:postgresql://pg.data.svc:5432/polaris
+  existingSecret: ""            # a Secret holding the username and password
+  usernameKey: username
+  passwordKey: password
+
+# The schema holding the Polaris tables. It must exist (public always does); upstream's
+# default is POLARIS_SCHEMA, created by a DBA before bootstrap.
+jdbcSchema: public
+
+# Extra Polaris or Quarkus settings, rendered into config/application.properties, e.g.
+#   polaris.features."SUPPORTED_CATALOG_STORAGE_TYPES": '["S3","GCS","AZURE"]'
+properties: {}
+
+# Ignored for in-memory, which keeps its state in the pod.
+replicas: 1
+
+javaOpts: "-XX:MaxRAMPercentage=75"
+extraEnvVars: []
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { cpu: 1000m, memory: 1Gi }
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+service:
+  type: ClusterIP
+  port: 8181
+  managementPort: 8182
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+podSecurityContext: {}
+containerSecurityContext: {}

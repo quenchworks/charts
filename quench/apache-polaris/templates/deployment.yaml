@@ -1,0 +1,124 @@
+{{- include "apache-polaris.validate" . }}
+{{- $jdbc := include "apache-polaris.jdbc" . }}
+{{- $java := "/usr/lib/jvm/java-21-openjdk/bin/java" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ if $jdbc }}{{ .Values.replicas }}{{ else }}1{{ end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+      annotations:
+        checksum/config: {{ toYaml .Values.properties | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "apache-polaris.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if $jdbc }}
+      # Creates the schema tables and the realm root principal on first install, and skips
+      # a realm that is already bootstrapped. Fails (and is retried) until the database is up.
+      initContainers:
+        - name: bootstrap
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [{{ $java | quote }}, "-jar", "/usr/lib/polaris/admin/quarkus-run.jar"]
+          args:
+            - bootstrap
+            - -r
+            - {{ .Values.auth.realm | quote }}
+            - -c
+            - {{ printf "%s,$(POLARIS_CLIENT_ID),$(POLARIS_CLIENT_SECRET)" .Values.auth.realm | quote }}
+          env:
+            {{- include "apache-polaris.env" . | nindent 12 }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      {{- end }}
+      containers:
+        - name: polaris
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            - name: JAVA_TOOL_OPTIONS
+              value: {{ .Values.javaOpts | quote }}
+            {{- include "apache-polaris.env" . | nindent 12 }}
+            {{- if not $jdbc }}
+            # in-memory: the server bootstraps the realm itself at startup
+            - name: POLARIS_BOOTSTRAP_CREDENTIALS
+              value: {{ printf "%s,$(POLARIS_CLIENT_ID),$(POLARIS_CLIENT_SECRET)" .Values.auth.realm | quote }}
+            {{- end }}
+            - name: POLARIS_AUTHENTICATION_TOKEN_BROKER_TYPE
+              value: symmetric-key
+            - name: POLARIS_AUTHENTICATION_TOKEN_BROKER_SYMMETRIC_KEY_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "apache-polaris.authSecret" . }}
+                  key: token-key
+            {{- with .Values.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8181
+            - name: management
+              containerPort: 8182
+          readinessProbe:
+            httpGet:
+              path: /q/health/ready
+              port: management
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /q/health/live
+              port: management
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if .Values.properties }}
+            - name: config
+              mountPath: /home/nonroot/config
+              readOnly: true
+            {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        # Quarkus and the JDBC driver write temp files on a read-only root
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.properties }}
+        - name: config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}
+        {{- end }}

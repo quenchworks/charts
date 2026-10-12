@@ -1,0 +1,16 @@
+Quenchworks Apache Polaris {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }} ({{ .Values.persistence.type }} metastore, realm {{ .Values.auth.realm }}).
+
+Root principal credentials:
+  CLIENT_ID=$(kubectl get secret {{ include "apache-polaris.authSecret" . }} -n {{ .Release.Namespace }} -o jsonpath='{.data.client-id}' | base64 -d)
+  CLIENT_SECRET=$(kubectl get secret {{ include "apache-polaris.authSecret" . }} -n {{ .Release.Namespace }} -o jsonpath='{.data.client-secret}' | base64 -d)
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8181:{{ .Values.service.port }}
+  curl http://127.0.0.1:8181/api/catalog/v1/oauth/tokens -d grant_type=client_credentials \
+    -d client_id=$CLIENT_ID -d client_secret=$CLIENT_SECRET -d scope=PRINCIPAL_ROLE:ALL
+
+Iceberg REST catalog URI for engines: http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/api/catalog
+{{- if eq .Values.persistence.type "in-memory" }}
+
+The in-memory metastore loses every catalog, principal and grant when the pod restarts.
+Set persistence.type=relational-jdbc (with postgresql.enabled=true or externalDatabase) to keep them.
+{{- end }}
