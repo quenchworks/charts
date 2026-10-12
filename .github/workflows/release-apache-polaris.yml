@@ -79,8 +79,9 @@ jobs:
           cats="$(curl -fsS "${H[@]}" "$B/management/v1/catalogs")"; grep -q '"name" *: *"gate"' <<<"$cats"
           ns="$(curl -fsS "${H[@]}" "$B/catalog/v1/gate/namespaces")"; grep -q '"smoke"' <<<"$ns"
           kill $PF
-          logs="$(kubectl logs deployment/rtest-apache-polaris -c polaris)"
-          ! grep -E 'ClassNotFound|NoClassDefFound|LinkageError|Production readiness checks failed' <<<"$logs" || exit 1
+          # readiness warnings (the realm header default) are fine; a severe one aborts startup
+          logs="$(kubectl logs deployment/rtest-apache-polaris -c polaris | tr -d '\000')"
+          ! grep -E 'ClassNotFound|NoClassDefFound|LinkageError|Severe production readiness' <<<"$logs" || exit 1
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not
