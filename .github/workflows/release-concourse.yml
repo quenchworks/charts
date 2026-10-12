@@ -123,13 +123,16 @@ jobs:
           curl -fsS -X PUT -H "$AUTH" -H 'Content-Type: application/x-yaml' --data-binary "$pipeline" "$B/api/v1/teams/main/pipelines/smoke/config"
           curl -fsS -X PUT -H "$AUTH" "$B/api/v1/teams/main/pipelines/smoke/unpause"
           bid="$(curl -fsS -X POST -H "$AUTH" -H 'Content-Type: application/json' -d '{}' "$B/api/v1/teams/main/pipelines/smoke/resources/tick/check" | jq -r .id)"
+          # A check build lives in memory while it runs (/api/v1/builds/<id> answers 404),
+          # so read its status from the resource, then require the version it emitted.
           st=""
           for _ in $(seq 1 60); do
-            st="$(curl -fsS -H "$AUTH" "$B/api/v1/builds/$bid" | jq -r .status)"
-            case "$st" in started|pending) sleep 3 ;; *) break ;; esac
+            st="$(curl -fsS -H "$AUTH" "$B/api/v1/teams/main/pipelines/smoke/resources/tick" | jq -r '.build.status // empty')"
+            case "$st" in started|pending|"") sleep 3 ;; *) break ;; esac
           done
-          echo "time check build $bid: $st"
-          test "$st" = succeeded
+          echo "time check (requested build $bid): $st"
+          test "$st" = succeeded || { curl -sS -H "$AUTH" "$B/api/v1/builds/$bid/events" --max-time 5 | grep -a "^data:" | tail -20; exit 1; }
+          curl -fsS -H "$AUTH" "$B/api/v1/teams/main/pipelines/smoke/resources/tick/versions" | jq -e 'length > 0' >/dev/null
           # Upgrades keep the keys: the keygen Job leaves an existing Secret alone.
           before="$(kubectl -n ci get secret rtest-concourse-keys -o jsonpath='{.data.worker_key\.pub}')"
           helm upgrade rtest "${CHART_DIR}" -n ci -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
