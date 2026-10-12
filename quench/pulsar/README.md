@@ -29,31 +29,37 @@ kubectl exec pulsar-pulsar-0 -- /opt/pulsar/bin/pulsar-client consume \
   -s sub -n 1 -p Earliest persistent://public/default/demo
 ```
 
-## Upgrading from 0.0.x (Pulsar 4.2) to 0.1.x (Pulsar 5.0)
+## Upgrading from 0.0.x (Pulsar 4.2) to 0.1.x (Pulsar 5.0): fresh install only
 
-`helm upgrade` in place keeps your topics and messages. The release gate proves it on
-every chart release: it installs chart 0.0.22 (Pulsar 4.2.4) on a PVC, creates a durable
-subscription, produces a message, upgrades to this chart, checks the broker reports 5.0,
-and consumes the message produced under 4.2.
+A `helm upgrade` from 0.0.x boots 5.0 but cannot read the data written under 4.2. Pulsar
+4.2 standalone named its in-process bookie after the pod IP (`10.244.0.7:35081`), and
+every ledger's ensemble references that name. 5.0 keeps the legacy name from the bookie
+cookie (apache/pulsar#26790) and so advertises the OLD pod IP; a restarted pod has a new
+IP, so every read fails with `Bookie handle is not available` and the broker never turns
+Ready. Measured 2026-10-12: chart release run 38231713018 (kind, 0.0.22 then upgrade:
+pod went from 10.244.0.7 to 10.244.0.8, readiness never passed), and a Docker repro on
+the two image digests: new IP fails, same IP consumes the 4.2 message. The same naming
+most likely loses a 0.0.x release's data on any pod restart, upgrade or not.
 
-- **No downgrade.** Apache documents no 5.0 to 4.x rollback path. Snapshot the PVC before
-  upgrading if you may need to go back.
-- **The conf on the PVC is seeded once.** The entrypoint copies the dist's
-  `standalone.conf` and `log4j2.yaml` to `/pulsar/conf` only when `standalone.conf` is
-  missing, so an upgraded release keeps the 4.2 files and their defaults (4 namespace
-  bundles, no managed-ledger metadata compression). A fresh 5.0 install gets the 5.0
-  file: 32 namespace bundles (64 for system namespaces), LZ4-compressed managed-ledger
-  and cursor metadata, separate BookKeeper client IO threads. To adopt them, move
-  `/pulsar/conf/standalone.conf` aside and restart the pod; it is re-seeded on boot.
-  Settings 5.0 dropped (`disableBrokerInterceptors`,
-  `managedLedgerUnackedRangesOpenCacheSetEnabled`,
-  `bookkeeperClientMinAvailableBookiesInIsolationGroups`) are ignored if the old file
-  still sets them.
+So install 0.1.x as a new release on a new PVC and move what you need at the client level
+(re-produce, or replicate from the old release while its pod still holds its IP).
+
+5.0 names standalone bookies by index (`bk-0`), so its data survives pod restarts and
+IP changes. The release gate proves it each release: PVC install, durable subscription,
+produce, delete the pod, consume after it comes back on a new IP.
+
+- **No downgrade.** Apache documents no 5.0 to 4.x rollback path.
+- **New 5.0 defaults** (from the seeded `standalone.conf`): 32 namespace bundles (64 for
+  system namespaces), LZ4-compressed managed-ledger and cursor metadata, separate
+  BookKeeper client IO threads. 5.0 dropped `disableBrokerInterceptors`,
+  `managedLedgerUnackedRangesOpenCacheSetEnabled` and
+  `bookkeeperClientMinAvailableBookiesInIsolationGroups`. The conf under `/pulsar/conf`
+  is seeded once, on first boot.
 - **Classic dispatchers are gone** (PIP-379): the classic Shared and Key_Shared
   dispatcher implementations were removed, so any
   `subscription*UseClassicPersistentImplementation=true` you passed in
   `config.extraOpts` no longer applies.
-- **Code defaults that apply to upgraded releases too:** `dispatcherMaxReadBatchSize` 500
+- **Code defaults:** `dispatcherMaxReadBatchSize` 500
   (was 100), Netty adaptive allocator, subscription-thread dispatch off. AvgShedder is the
   new load-shedding default, but standalone runs the `NoopLoadManager`, so it does not
   apply here.
