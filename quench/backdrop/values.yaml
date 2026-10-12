@@ -1,0 +1,151 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/backdrop
+  digest: "sha256:7010d78ae499b30272bd9f79614d375827452ecdb377683c519ebb74ac05d585"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Backdrop is served by PHP-FPM + nginx (supervisord) on port 8080. The image's
+# settings.php is read-only and takes the database from BACKDROP_DB_* env vars, which
+# this chart sets (the password from a Secret). files/ (uploads, the active and staging
+# config, backups) is the one writable app directory: a PVC here.
+#
+# First start: an init container waits for the database, then runs Backdrop's CLI
+# installer (core/scripts/install.sh), which creates the schema, the admin account and
+# the active config in files/config/. Once that config exists the init container does
+# nothing, so restarts and upgrades never reinstall.
+#
+# Single replica: the files PVC is ReadWriteOnce.
+replicaCount: 1
+
+backdrop:
+  siteName: "Quench Backdrop"
+  admin:
+    # The account the installer creates (uid 1). The password is used only by the
+    # installer; changing it later does not change the account.
+    username: admin
+    email: admin@example.com
+    # Empty generates one into the managed Secret, kept across upgrades.
+    password: ""
+    existingSecret: ""
+    existingSecretPasswordKey: admin-password
+  # Salt for one-time login links and form tokens. Empty generates one into the
+  # managed Secret, kept across upgrades.
+  hashSalt: ""
+
+database:
+  # Optional table prefix, so several sites can share one database.
+  prefix: ""
+
+# --- Bundled MySQL (the default) ---
+# The Backdrop pod reads the password from the MySQL subchart's own Secret, so the two
+# can never disagree.
+mysql:
+  enabled: true
+  auth:
+    # Both are generated into MySQL's Secret if left empty.
+    rootPassword: ""
+    password: ""
+    database: backdrop
+    username: backdrop
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- External database (mysql.enabled=false) ---
+# MySQL or MariaDB. The database and user must exist; the installer creates the tables.
+# With existingSecret, that Secret supplies the password under existingSecretPasswordKey.
+externalDatabase:
+  host: ""
+  port: 3306
+  database: backdrop
+  user: backdrop
+  password: ""          # generated into the managed Secret if empty and no existingSecret
+  existingSecret: ""
+  existingSecretPasswordKey: db-password
+
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+init:
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "2", memory: 1Gi }
+  # How long the init container waits for the database before failing (the pod
+  # then restarts it).
+  dbWaitSeconds: 300
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# --- files/ volume: uploads, files/config/{active,staging}, files/backups ---
+# Always a PVC: losing the active config while the database survives would leave a
+# site that cannot boot and cannot be reinstalled over its own tables.
+persistence:
+  size: 10Gi
+  # storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  existingClaim: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Merged over the hardened quench-common defaults (nonroot uid 1001, fsGroup 1001 so
+# the PVC is writable, read-only rootfs).
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Ingress to Backdrop is limited to the release namespace unless allowExternal.
+# Egress: DNS, the database port, and general egress (update checks, mail).
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
