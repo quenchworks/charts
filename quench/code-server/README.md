@@ -109,3 +109,10 @@ The chart depends on the `quench-common` library chart, pulled from
 `microsoft-authentication` and `npm-scripts` extensions are stripped from the
 image (they drag a desktop GTK/webkit stack and a false-positive npm-CLI CVE
 match, respectively); npm still runs from the integrated terminal.
+
+Since 2026-10-13 the image also drops the closed-source native binaries that
+ship inside the built-in GitHub Copilot and sandbox extensions (the same cut
+VSCodium makes). They carried Rust crates the scanner could not see, and no
+recipe can patch a closed binary. Built-in Copilot chat is therefore not
+available; install a Copilot or other AI extension from the marketplace into
+your own user data if you need one.
