@@ -8,9 +8,9 @@ and runs single node as `rustfs server <VOLUMES>` on a read-only root filesystem
 with all capabilities dropped, serving the S3 API on port 9000. The web console
 (port 9001) is opt-in and off by default (S3-only).
 
-> **BETA / preview.** RustFS has not cut a stable release yet; this chart pins the
-> latest published pre-release (`1.0.0_beta7`). For a stable default object store,
-> use the Quenchworks **SeaweedFS** chart — RustFS and Garage are the alternatives.
+> RustFS 1.0 is upstream's first stable line (1.0.0, 2026-09-16). The default object
+> store is the Quenchworks **SeaweedFS** chart; RustFS and Garage are the alternatives.
+> Upgrading from a 1.0.0 beta image: RustFS 1.0 migrates the beta IAM data on start.
 
 ## Install
 
@@ -141,9 +141,7 @@ kubectl delete pvc -l app.kubernetes.io/instance=objstore
 
 ## Notes
 
-RustFS is a BETA/preview project with no stable release yet — validate carefully
-before relying on it, and prefer the Quenchworks SeaweedFS chart for a stable
-default object store. At boot RustFS emits benign ERROR lines (an expired-TLS
+At boot RustFS emits benign ERROR lines (an expired-TLS
 remote check and transient `AccessDenied` during init); these are not failures —
 the `/health` probe on port 9000 is the source of truth for readiness. The chart
 depends on the `quench-common` library chart, pulled from
