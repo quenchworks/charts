@@ -3,8 +3,15 @@
 [Grist](https://www.getgrist.com) is a self-hosted spreadsheet-database: tables with
 column types, relational references and Python formulas, plus a REST API. This chart
 runs grist-core on the QuenchWorks grist image as a single-replica StatefulSet with
-its SQLite home database and documents on a PVC. The image is nonroot, 0 fixable CVEs,
-cosign-signed and pinned by digest.
+its SQLite home database and documents on a PVC. The image is nonroot, cosign-signed
+and pinned by digest.
+
+> **Known issue (2026-10-13):** the published image (grist 1.7.21) scanned 0 fixable,
+> but the scanner cannot see inside the Rust `deno` binaries it ships, which run the
+> formula sandbox. deno 2.9.7 carries known fixable crate advisories (hickory-resolver,
+> hickory-proto, rustls; TLS is reachable from the sandbox), and an unused npm copy of
+> deno 2.6.3 carries more. The image is on hold until a deno release with the fixed
+> crates ships; a rebuilt image will drop the unused copy and expose the crates to the scan.
 
 ## Install
 
