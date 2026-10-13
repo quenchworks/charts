@@ -1,0 +1,117 @@
+# The digest below is the contract with the image factory. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/grist
+  digest: "sha256:aeb7755f794daba097d17eedc1e69cf79ef4e5efe8020d83a75d34ab4b6b93cc"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Grist keeps its home database (SQLite) and every document under /persist on one
+# volume, so this single-instance layout does not scale out; keep this at 1.
+replicaCount: 1
+
+# The hardened image runs nonroot (uid 1001) and binds this port; PORT is wired to it
+# so the container and probes stay in sync.
+containerPort: 8484
+
+# Email of the install admin (GRIST_ADMIN_EMAIL). With no login system configured,
+# Grist's "minimal" login signs every visitor in as this user (GRIST_DEFAULT_EMAIL), so
+# keep the Service private or configure OIDC/SAML/forward auth through extraEnvVars.
+adminEmail: ""
+
+# Public URL Grist builds links with (APP_HOME_URL), e.g. https://grist.example.com.
+homeUrl: ""
+
+# GRIST_SESSION_SECRET signs session cookies. The chart generates one and keeps it
+# across upgrades; point existingSecret at your own Secret to supply it instead.
+sessionSecret:
+  existingSecret: ""
+  existingSecretKey: session-secret
+
+persistence:
+  enabled: true
+  size: 5Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+# Each open document runs its own pyodide sandbox (deno), roughly 100-200Mi apiece.
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 8484
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# Extra env, e.g. GRIST_OIDC_IDP_ISSUER/CLIENT_ID/CLIENT_SECRET for OIDC login, or
+# TYPEORM_TYPE=postgres with TYPEORM_HOST/DATABASE/USERNAME/PASSWORD for an external
+# home database. Formulas run in the pyodide sandbox (GRIST_SANDBOX_FLAVOR=pyodide).
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # Grist is usually reached from outside the namespace (browsers, an ingress
+  # controller). Set true to allow ingress from any source; the default restricts
+  # client traffic to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Optional Ingress (HTTP only). Disabled by default, so enabling it is an explicit
+# operator decision and this chart's behaviour is unchanged until then.
+ingress:
+  enabled: false
+  # IngressClass to claim this Ingress. Empty -> the cluster default applies.
+  className: ""
+  annotations: {}
+  # Service port to route to. Unset -> resolved from service.port, then
+  # service.ports.http / .https.
+  servicePort: null
+  # e.g. [{host: app.example.com, paths: [{path: /, pathType: Prefix}]}]
+  # `paths` may be omitted for the common "/" Prefix case.
+  hosts: []
+  # Standard Ingress TLS list, e.g. [{hosts: [app.example.com], secretName: app-tls}]
+  tls: []

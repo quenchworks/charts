@@ -1,0 +1,24 @@
+Quenchworks Grist {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }}.
+
+Reach it from inside the cluster:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Port-forward it to your laptop:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8484:{{ .Values.service.port }}
+  # then open http://127.0.0.1:8484
+
+With no login system configured, Grist signs every visitor in as
+{{ .Values.adminEmail | default "you@example.com" }}. Keep the Service private, or set up OIDC, SAML or
+forward auth (GRIST_OIDC_*, GRIST_SAML_*, GRIST_FORWARD_AUTH_* through extraEnvVars)
+before exposing it.
+
+Formulas run in the pyodide sandbox (Python in WebAssembly under deno), so the pod
+needs no extra privileges. The home database and documents persist on the PVC at /persist.
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
