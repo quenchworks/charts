@@ -1,0 +1,46 @@
+{{- if not .Values.config.existingConfigMap }}
+{{- $base := include "satosa.baseUrl" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "satosa.configMapName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  proxy_conf.yaml: |-
+  {{- if .Values.config.proxyConf }}
+    {{- tpl .Values.config.proxyConf . | nindent 4 }}
+  {{- else }}
+    # Default: a SAML2 service provider backend that publishes its metadata at
+    # BASE/Saml2/metadata.xml, and the ping frontend the probes use. Replace it with
+    # config.proxyConf for a real deployment (keep the ping frontend or change the probes).
+    BASE: {{ $base }}
+    COOKIE_STATE_NAME: SATOSA_STATE
+    INTERNAL_ATTRIBUTES:
+      {{- toYaml .Values.config.internalAttributes | nindent 6 }}
+    BACKEND_MODULES:
+      - module: satosa.backends.saml2.SAMLBackend
+        name: Saml2
+        config:
+          entityid_endpoint: true
+          sp_config:
+            entityid: {{ $base }}/Saml2/metadata.xml
+            key_file: /etc/satosa/saml/tls.key
+            cert_file: /etc/satosa/saml/tls.crt
+            metadata:
+              {{- toYaml .Values.config.idpMetadata | nindent 14 }}
+            service:
+              sp:
+                endpoints:
+                  assertion_consumer_service:
+                    - [{{ $base }}/Saml2/acs/post, "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"]
+    FRONTEND_MODULES:
+      - module: satosa.frontends.ping.PingFrontend
+        name: ping
+        config: {}
+  {{- end }}
+  {{- range $name, $body := .Values.config.extraFiles }}
+  {{ $name }}: |-
+    {{- tpl $body $ | nindent 4 }}
+  {{- end }}
+{{- end }}

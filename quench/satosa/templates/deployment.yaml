@@ -1,0 +1,99 @@
+{{/* The ping frontend answers 200 on /ping once the proxy has loaded its config. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/ping" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/ping" "port" "http") "initialDelaySeconds" 3 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "satosa.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: satosa
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/opt/satosa/venv/bin/gunicorn"]
+          args:
+            - "--bind=0.0.0.0:8080"
+            - "--workers={{ .Values.workers }}"
+            - "--worker-tmp-dir=/tmp"
+            - "--access-logfile=-"
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+            - "satosa.wsgi:app"
+          env:
+            - name: SATOSA_CONFIG
+              value: /etc/satosa/config/proxy_conf.yaml
+            - name: SATOSA_STATE_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "satosa.stateSecretName" . }}
+                  key: state-encryption-key
+            {{- with .Values.extraEnvVars }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+            {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/satosa/config
+              readOnly: true
+            - name: saml
+              mountPath: /etc/satosa/saml
+              readOnly: true
+            # gunicorn worker heartbeats and pysaml2's xmlsec1 temp files
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "satosa.configMapName" . }}
+        - name: saml
+          secret:
+            secretName: {{ include "satosa.samlSecretName" . }}
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

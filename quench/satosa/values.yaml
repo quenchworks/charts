@@ -1,0 +1,123 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/satosa
+  digest: "sha256:37adb38a9bb1550d54542f1ecbc76e07de28d41b7ea9c3a306627298743ac9d7"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# SATOSA keeps its per-login state in an encrypted cookie, so the proxy is stateless:
+# replicas only need the same state key and SAML key pair (both Secrets below).
+replicaCount: 1
+# gunicorn worker processes per pod
+workers: 2
+# Extra gunicorn flags, placed before the satosa.wsgi:app argument.
+extraArgs: []
+
+# The public URL of the proxy (SATOSA BASE): entity IDs and endpoint URLs are built
+# from it. Empty -> http://<fullname>.<namespace>.svc.cluster.local:<service.port>.
+baseUrl: ""
+
+# proxy_conf.yaml, rendered into a ConfigMap mounted at /etc/satosa/config.
+config:
+  # Full proxy_conf.yaml (templated with tpl). Empty -> the default below: a SAML2 SP
+  # backend publishing its metadata at <baseUrl>/Saml2/metadata.xml plus the ping
+  # frontend at /ping, which the probes use. Keep a ping frontend or change the probes.
+  # The SAML key pair is at /etc/satosa/saml/tls.{key,crt}; STATE_ENCRYPTION_KEY comes
+  # from the environment (stateEncryption), so leave it out.
+  proxyConf: ""
+  # Default config only: INTERNAL_ATTRIBUTES (the attribute map).
+  internalAttributes:
+    attributes:
+      mail:
+        saml: [mail]
+        openid: [email]
+  # Default config only: pysaml2 metadata sources for the IdPs, e.g.
+  # {local: [/etc/satosa/config/idp.xml]} or {remote: [{url: https://idp/metadata}]}.
+  idpMetadata:
+    local: []
+  # Extra files next to proxy_conf.yaml (plugin configs, IdP metadata): name -> content.
+  extraFiles: {}
+  # Use your own ConfigMap (key proxy_conf.yaml) instead of all of the above.
+  existingConfigMap: ""
+
+# Key that encrypts the state cookie. Empty -> generated once and kept across upgrades.
+stateEncryption:
+  key: ""
+  # Existing Secret with key `state-encryption-key`.
+  existingSecret: ""
+
+# SAML signing and encryption key pair. Empty -> a self-signed pair is generated once
+# and kept across upgrades. Point existingSecret at a kubernetes.io/tls Secret.
+samlKeyPair:
+  existingSecret: ""
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { cpu: 500m, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# Optional horizontal autoscaling on CPU.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Browsers and identity providers reach the proxy from outside, so external ingress
+# is allowed by default. Set allowExternal=false to restrict it to the namespace.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Optional Ingress (HTTP only). Set baseUrl to the Ingress URL when you enable it.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
