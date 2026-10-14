@@ -1,0 +1,134 @@
+# The digest below is the contract with the image factory. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/plone
+  digest: "sha256:e80d1e9bcc81dca920af30970857ae8de2bd0fdb4b5aab722a8f7daca335f9bd"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# With FileStorage (the default) the ZODB is one Data.fs on one volume, so keep this
+# at 1. RelStorage (relstorage.existingSecret) is the path to several Zope instances,
+# which this chart does not wire (each replica would still get its own PVC).
+replicaCount: 1
+
+# The hardened image runs nonroot (uid 1001); waitress listens here (PLONE_LISTEN).
+containerPort: 8080
+
+# Zope admin user (Manager), created on first boot. The chart generates its password
+# once and keeps it across upgrades; point existingSecret at your own Secret instead.
+# The password only applies when the user is created: later changes go through Plone.
+admin:
+  user: admin
+  existingSecret: ""
+  existingSecretKey: admin-password
+
+# The Plone site created on first boot (plone.distribution). "volto" is the headless
+# site a Volto frontend talks to through plone.restapi; "classic" is the server-rendered
+# Classic UI. An empty id skips site creation.
+site:
+  id: Plone
+  title: Plone site
+  distribution: volto
+  language: en
+  timezone: UTC
+  exampleContent: false
+
+# RelStorage on PostgreSQL instead of FileStorage on the PVC: a Secret holding a libpq
+# style DSN, e.g. "host=pg dbname=plone user=plone password=...". Blobs then live in the
+# database and the PVC holds only the blob cache.
+relstorage:
+  existingSecret: ""
+  existingSecretKey: dsn
+
+# waitress worker threads, and ZODB object cache size per connection
+threads: 4
+cacheSize: 30000
+
+persistence:
+  enabled: true
+  size: 5Gi
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+# Extra env for the entrypoint or Zope, e.g. PLONE_SITE_DESCRIPTION, PLONE_LOG_LEVEL or
+# PLONE_RELSTORAGE_KEEP_HISTORY=true.
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+# The first boot creates the site before the server listens; the startup probe allows
+# up to 10 minutes for it.
+startupProbe: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # Plone is usually reached from outside the namespace (browsers, an ingress
+  # controller). Set true to allow ingress from any source; the default restricts
+  # client traffic to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Optional Ingress (HTTP only). Disabled by default, so enabling it is an explicit
+# operator decision and this chart's behaviour is unchanged until then.
+ingress:
+  enabled: false
+  # IngressClass to claim this Ingress. Empty -> the cluster default applies.
+  className: ""
+  annotations: {}
+  # Service port to route to. Unset -> resolved from service.port, then
+  # service.ports.http / .https.
+  servicePort: null
+  # e.g. [{host: app.example.com, paths: [{path: /, pathType: Prefix}]}]
+  # `paths` may be omitted for the common "/" Prefix case.
+  hosts: []
+  # Standard Ingress TLS list, e.g. [{hosts: [app.example.com], secretName: app-tls}]
+  tls: []
