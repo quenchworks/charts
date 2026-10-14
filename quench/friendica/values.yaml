@@ -1,0 +1,144 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/friendica
+  digest: "sha256:0ccf2ae5dc7b13a0fce915e428d99fdac84a93da71a6d09e96e92f85a142e3e9"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Friendica is served by PHP-FPM + nginx (supervisord) on port 8080, with its background
+# worker daemon in the same container. The image ships a read-only docroot; config/ is a
+# symlink to /var/friendica/config, a small PVC here.
+#
+# First start: an init container waits for the database, then runs
+# `bin/console.php autoinstall`, which creates the schema and writes local.config.php to
+# the config PVC. Once that file exists the init container does nothing, so restarts and
+# upgrades never reinstall. Database upgrades run on the first request after an upgrade.
+#
+# Single replica: the config PVC is ReadWriteOnce and the worker daemon is one per site.
+replicaCount: 1
+
+friendica:
+  # The public base URL (scheme://host[/path]). Every link and federation id is built
+  # from it, so set it before the first start; changing it later breaks federation.
+  # Empty: the first ingress host, else the in-cluster Service address.
+  url: ""
+  # The account registered with this address becomes the node administrator.
+  adminEmail: admin@example.com
+  siteName: "Quench Friendica"
+  timezone: UTC
+  language: en
+
+# --- Bundled MariaDB (the default) ---
+# The Friendica pod reads the password from the MariaDB subchart's own Secret, so the two
+# can never disagree.
+mariadb:
+  enabled: true
+  auth:
+    # Both are generated into MariaDB's Secret if left empty.
+    rootPassword: ""
+    password: ""
+    database: friendica
+    username: friendica
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- External database (mariadb.enabled=false) ---
+# The database and user must exist; the installer creates the tables. With
+# existingSecret, that Secret supplies the password under existingSecretPasswordKey.
+externalDatabase:
+  host: ""
+  port: 3306
+  database: friendica
+  user: friendica
+  password: ""          # generated into the managed Secret if empty and no existingSecret
+  existingSecret: ""
+  existingSecretPasswordKey: db-password
+
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+# autoinstall builds the schema: the heaviest step.
+init:
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "2", memory: 1Gi }
+  # How long the init container waits for the database before failing (the pod
+  # then restarts it).
+  dbWaitSeconds: 300
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# --- Config volume (local.config.php, written by the installer) ---
+# local.config.php holds the DB password and the site URL: keep it on a PVC. Uploads are
+# stored in the database by default (Friendica's "Database" storage backend).
+configPersistence:
+  size: 128Mi
+  # storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  existingClaim: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Merged over the hardened quench-common defaults (nonroot uid 1001, fsGroup 1001 so
+# the PVC is writable, read-only rootfs).
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Ingress to Friendica is limited to the release namespace unless allowExternal (set it
+# true behind an ingress: federation needs other servers to reach the node).
+# Egress: DNS, the database port, and general egress (federation, mail).
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []

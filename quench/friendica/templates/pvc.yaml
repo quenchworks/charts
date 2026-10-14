@@ -1,0 +1,25 @@
+{{- $fullname := include "quench-common.fullname" . -}}
+{{- if not .Values.configPersistence.existingClaim }}
+# Always a PVC: losing local.config.php would make the next start reinstall over a live
+# database.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fullname }}-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+    {{- with .Values.configPersistence.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.configPersistence.accessModes | nindent 4 }}
+  {{- if .Values.configPersistence.storageClass }}
+  storageClassName: {{ .Values.configPersistence.storageClass }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.configPersistence.size }}
+{{- end }}

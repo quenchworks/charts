@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # Run by the init container. autoinstall has no password-file option, so the DB
+  # password passes as an argument; it comes from the MYSQL_PASSWORD env (a Secret
+  # reference) and is visible only inside this container.
+  install.sh: |
+    set -eu
+    if [ -s /var/friendica/config/local.config.php ]; then
+      echo "local.config.php exists, Friendica is installed"
+      exit 0
+    fi
+    # autoinstall fails on an unreachable database, and a half-run install leaves tables
+    # behind, so wait for the port first. busybox here has no nc; PHP does it.
+    echo "waiting for $MYSQL_HOST:$MYSQL_PORT"
+    php -r '$t = time() + (int) getenv("FRIENDICA_DB_WAIT");
+      while (!($s = @fsockopen(getenv("MYSQL_HOST"), (int) getenv("MYSQL_PORT"), $e, $m, 3))) {
+        if (time() > $t) { fwrite(STDERR, "database not reachable: $m\n"); exit(1); }
+        sleep(2);
+      }'
+    # The installer checks that the compiled-template dir (a /tmp symlink) is writable.
+    mkdir -p /tmp/friendica/smarty3
+    cd /var/www/html
+    php bin/console.php autoinstall \
+      --dbhost "$MYSQL_HOST" --dbport "$MYSQL_PORT" \
+      --dbdata "$MYSQL_DATABASE" --dbuser "$MYSQL_USER" --dbpass "$MYSQL_PASSWORD" \
+      --url "$FRIENDICA_URL" --admin "$FRIENDICA_ADMIN_MAIL" \
+      --tz "$FRIENDICA_TZ" --lang "$FRIENDICA_LANG"
+    test -s /var/friendica/config/local.config.php
