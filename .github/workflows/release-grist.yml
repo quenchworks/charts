@@ -57,18 +57,21 @@ jobs:
           }
           forward
           trap 'kill $pf' EXIT
-          # create a document, a table with a formula column, write a row, read the computed value
+          # create a document, a table with formula columns, write a row, read the computed values.
+          # H is the hostname the engine sees: run.py names the runsc sandbox gristland, so the
+          # formula ran inside gVisor (the pod keeps the chart's default securityContext).
           ws="$(api "$B/orgs/current/workspaces")"
           ws="$(jq -r '.[0].id' <<<"$ws")"
           doc="$(api -X POST "$B/workspaces/$ws/docs" -d '{"name":"quench-gate"}' | tr -d '"')"
           echo "document $doc"
-          api -X POST "$B/docs/$doc/tables" -d '{"tables":[{"id":"Gate","columns":[{"id":"A","fields":{"type":"Numeric"}},{"id":"B","fields":{"type":"Numeric","isFormula":true,"formula":"$A * 6 + len(\"abc\")"}}]}]}' >/dev/null
+          api -X POST "$B/docs/$doc/tables" -d '{"tables":[{"id":"Gate","columns":[{"id":"A","fields":{"type":"Numeric"}},{"id":"B","fields":{"type":"Numeric","isFormula":true,"formula":"$A * 6 + len(\"abc\")"}},{"id":"H","fields":{"type":"Text","isFormula":true,"formula":"__import__(\"os\").uname()[1]"}}]}]}' >/dev/null
           api -X POST "$B/docs/$doc/tables/Gate/records" -d '{"records":[{"fields":{"A":7}}]}' >/dev/null
           out="$(api "$B/docs/$doc/tables/Gate/records")"
           echo "$out"
           grep -q '"B":45' <<<"$out"
+          grep -q '"H":"gristland"' <<<"$out"
           logs="$(kubectl logs rtest-grist-0)"
-          grep -q 'flavor=pyodide' <<<"$logs"
+          grep -q 'flavor=gvisor' <<<"$logs"
           # the document survives a pod restart: the home DB and the .grist file are on the PVC
           kill $pf
           uid="$(kubectl get pod rtest-grist-0 -o jsonpath='{.metadata.uid}')"

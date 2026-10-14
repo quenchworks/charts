@@ -6,12 +6,9 @@ runs grist-core on the QuenchWorks grist image as a single-replica StatefulSet w
 its SQLite home database and documents on a PVC. The image is nonroot, cosign-signed
 and pinned by digest.
 
-> **Known issue (2026-10-13):** the published image (grist 1.7.21) scanned 0 fixable,
-> but the scanner cannot see inside the Rust `deno` binaries it ships, which run the
-> formula sandbox. deno 2.9.7 carries known fixable crate advisories (hickory-resolver,
-> hickory-proto, rustls; TLS is reachable from the sandbox), and an unused npm copy of
-> deno 2.6.3 carries more. The image is on hold until a deno release with the fixed
-> crates ships; a rebuilt image will drop the unused copy and expose the crates to the scan.
+> **Changed in 0.0.4 (2026-10-14):** formulas run in gVisor, not in pyodide under deno.
+> Earlier versions shipped deno 2.9.7, whose binary hid fixable crate advisories
+> (hickory-resolver, hickory-proto, rustls) from the scan; the image no longer contains deno.
 
 ## Install
 
@@ -37,12 +34,23 @@ it Grist signs cookies with a built-in constant. Bring your own with
 
 ## Formula sandbox
 
-Grist evaluates formulas in Python. The image runs them in the pyodide sandbox
-(`GRIST_SANDBOX_FLAVOR=pyodide`): Python compiled to WebAssembly, run by deno with read
-and write access dropped before any formula runs and no network access. Upstream's
-default image uses gVisor, which needs privileges a read-only nonroot pod does not have.
-Each open document gets its own sandbox process, roughly 100-200Mi of memory; size
-`resources` for the number of documents open at once.
+Grist evaluates formulas in Python. The image runs them in gVisor
+(`GRIST_SANDBOX_FLAVOR=gvisor`, upstream's default): each open document gets its own
+`runsc` sandbox with its own kernel (the gVisor sentry), no network, a read-only view of
+the Python runtime and the engine, and an empty filesystem everywhere else, so a formula
+cannot reach the documents on `/persist`, the pod's environment or the cluster network.
+
+Like upstream's image, `runsc` runs in Grist's unprivileged mode
+(`GVISOR_FLAGS="-unprivileged -ignore-cgroups"`): the sandbox and its file proxy start as
+the pod user without new namespaces or chroot. That is what lets it run in this chart's
+default pod, which needs nothing extra: nonroot, all capabilities dropped, no privilege
+escalation, a read-only root and the `RuntimeDefault` seccomp profile. Stock `runsc` cannot
+start there; it needs `CAP_SYS_ADMIN` to create namespaces. The isolation of formulas rests
+on the gVisor kernel, not on host namespaces around it. `runsc` is built from source with
+that flag ported to current gVisor, since upstream's binary is a 2022 build.
+
+Each sandbox is a few processes (sentry, file proxy, Python); size `resources` for the
+number of documents open at once.
 
 ## Storage
 
@@ -67,10 +75,12 @@ PVC, so keep `replicaCount` at 1.
 | `networkPolicy.allowExternal` | `false` | allow ingress from any source |
 
 Pods run with a read-only root filesystem and all capabilities dropped; `/tmp` is an
-emptyDir (uploads and the deno cache).
+emptyDir (uploads and the `runsc` state under `/tmp/runsc`).
 
 The release gate installs the chart on kind with persistence on, creates a document
-through the REST API, writes a row to a table with a formula column, reads the value the
-sandbox computed, deletes the pod and reads the same value back after it restarts.
+through the REST API, writes a row to a table with formula columns, reads the value the
+sandbox computed and the hostname the engine sees (`gristland`, the name `run.py` gives the
+`runsc` sandbox, so the formula ran inside gVisor), checks the pod log for `flavor=gvisor`,
+deletes the pod and reads the same value back after it restarts.
 
 The chart depends on the `quench-common` chart from `oci://ghcr.io/quenchworks/charts`.
