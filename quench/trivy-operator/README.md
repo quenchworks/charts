@@ -40,7 +40,7 @@ Scan Jobs download the vulnerability databases from `trivy.dbRepository` and
 | `excludeNamespaces` | `kube-system` | namespaces to skip |
 | `scanners.*` | see table | which scanners run |
 | `scanJob.concurrentLimit` | `3` | parallel scan Jobs |
-| `trivy.repository`, `trivy.tag` | QuenchWorks trivy-scanner `0.74.0` | the scanner image (the operator composes `repository:tag`) |
+| `trivy.repository`, `trivy.tag` | QuenchWorks trivy-scanner `0.75.0@sha256:...` | the scanner image; the operator composes `repository:tag`, so the tag carries the digest |
 | `operatorConfig` | `{}` | extra `OPERATOR_*` settings |
 
 The operator pod runs with a read-only root filesystem and all capabilities dropped;
@@ -49,5 +49,15 @@ scan Jobs get the same container security context.
 The release gate installs the chart on kind, deploys a workload in a scanned namespace,
 and requires a VulnerabilityReport and a ConfigAuditReport for it, produced by a scan Job
 on the QuenchWorks trivy-scanner image.
+
+## Upgrading to 0.0.6
+
+0.0.6 moves the operator from 0.34.0 to 0.35.0 (upstream changed no CRDs, RBAC or
+settings; it fixes ConfigMap content in config audits) and its scan Jobs from
+trivy-scanner `0.74.0`, a tag no longer rebuilt or scanned, to `0.75.0` pinned by
+digest, the trivy line 0.35.0 pairs with. A plain `helm upgrade` is enough. Because the
+tag now carries the digest, reports show the scanner digest in
+`report.scanner.version` instead of `0.75.0`. If you set `trivy.tag` yourself, use a
+trivy-scanner version that is still published, ideally as `<version>@sha256:...`.
 
 The chart depends on the `quench-common` chart from `oci://ghcr.io/quenchworks/charts`.

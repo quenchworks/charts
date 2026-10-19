@@ -7,7 +7,7 @@
 # install one release per namespace.
 image:
   repository: ghcr.io/quenchworks/images/trivy-operator
-  digest: "sha256:22d4dd8a873268856b97f0bad5a2896f0d6d1d6571a153f6f5e016b064205328"
+  digest: "sha256:e940e0f7ada04995870cbf650ac06a52b2840faafb7820627c32515cd794f77a"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -35,12 +35,14 @@ scanJob:
   timeout: 5m
   retryAfter: 30s
 
-# The scanner image the scan Jobs run (by tag: the operator composes repository:tag).
+# The scanner image the scan Jobs run. The operator composes repository:tag and has no
+# digest key, so the tag carries the digest ("<version>@sha256:..."). Keep the version
+# the operator release pairs with (upstream values trivy.tag): 0.35.0 runs trivy 0.75.0.
 # Scan Jobs run `/bin/sh -c "trivy ...; cat|bzip2|base64 ..."`, so this must be an image
 # with a shell: trivy-scanner is the QuenchWorks trivy build plus busybox and bzip2.
 trivy:
   repository: ghcr.io/quenchworks/images/trivy-scanner
-  tag: "0.74.0"
+  tag: "0.75.0@sha256:6e2175bd0471799e6e6aee707dedbd3ba9cff5ba3613f1c3688c958146dd5a94"
   severity: "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"
   # where scan jobs download the vulnerability DBs from (mirror them for air-gapped clusters)
   dbRepository: mirror.gcr.io/aquasec/trivy-db

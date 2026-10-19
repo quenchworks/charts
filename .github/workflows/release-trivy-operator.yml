@@ -59,9 +59,15 @@ jobs:
           kubectl -n gate get vulnerabilityreports,configauditreports
           test "$(kubectl -n gate get vulnerabilityreports -o name | wc -l)" -ge 1
           test "$(kubectl -n gate get configauditreports -o name | wc -l)" -ge 1
-          # the report was made by the QuenchWorks trivy scanner
+          # the report was made by the pinned QuenchWorks trivy scanner: trivy.tag is
+          # "<version>@sha256:...", and the operator records the digest as the version
+          tag="$(helm get values rtest -n trivy-system -a -o json | jq -r .trivy.tag)"
+          echo "trivy.tag=$tag"; grep -qE '^[0-9]+\.[0-9]+\.[0-9]+@sha256:[0-9a-f]{64}$' <<<"$tag"
           kubectl -n gate get vulnerabilityreports -o jsonpath='{.items[0].report.scanner.name} {.items[0].report.scanner.version}{"\n"}' | tee /tmp/scanner.txt
-          grep -q '^Trivy 0.74.0' /tmp/scanner.txt
+          grep -qx "Trivy ${tag#*@}" /tmp/scanner.txt
+          # and the report lists the scanned workload's image
+          kubectl -n gate get vulnerabilityreports -o jsonpath='{.items[0].report.artifact.repository}{"\n"}' | tee /tmp/artifact.txt
+          grep -q 'quenchworks/images/distribution' /tmp/artifact.txt
       - name: Dump the operator on failure
         if: failure()
         run: |
