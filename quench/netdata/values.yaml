@@ -1,0 +1,56 @@
+# The digest below is the contract with the image factory. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/netdata
+  digest: "sha256:ca783e768638ea040f03e0c90386a87d67fd915ed54553a63e1e5f21b1ceb5e0"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Netdata reads the node through the host's /proc and /sys, mounted read-only under /host
+# (`-s /host`). hostPID lets apps.plugin see every process on the node; it stays off by
+# default, and without CAP_SYS_PTRACE/CAP_DAC_READ_SEARCH it reports what a nonroot user
+# can read either way.
+hostPID: false
+# Optional netdata.conf. Empty keeps the image's own (logs to stderr, health notifications
+# off, port 19999). Anything here replaces /etc/netdata/netdata.conf entirely.
+config: ""
+# Appended to the netdata command, e.g. ["-W", "set", "db", "retention", "7200"].
+extraArgs: []
+extraEnv: []
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { memory: 512Mi }
+
+service:
+  enabled: true
+  type: ClusterIP
+  port: 19999
+
+# A ServiceMonitor for the Prometheus Operator, scraping /api/v1/allmetrics?format=prometheus.
+# Rendered only when its CRD is installed.
+serviceMonitor:
+  enabled: false
+  interval: 30s
+  scrapeTimeout: 10s
+  labels: {}
+
+priorityClassName: ""
+nodeSelector:
+  kubernetes.io/os: linux
+# every node, tainted or not
+tolerations:
+  - operator: Exists
+affinity: {}
+podLabels: {}
+podAnnotations: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+updateStrategy:
+  type: RollingUpdate
+  rollingUpdate: { maxUnavailable: 1 }
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
