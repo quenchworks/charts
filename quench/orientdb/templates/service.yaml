@@ -1,0 +1,25 @@
+{{- range $headless := list false true }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ if $headless }}{{ include "orientdb.headlessName" $ }}{{ else }}{{ include "quench-common.fullname" $ }}{{ end }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+spec:
+  {{- if $headless }}
+  type: ClusterIP
+  clusterIP: None
+  {{- else }}
+  type: {{ $.Values.service.type }}
+  {{- end }}
+  ports:
+    - port: {{ $.Values.service.binaryPort }}
+      targetPort: binary
+      name: binary
+    - port: {{ $.Values.service.httpPort }}
+      targetPort: http
+      name: http
+  selector:
+    {{- include "quench-common.selectorLabels" $ | nindent 4 }}
+{{- end }}

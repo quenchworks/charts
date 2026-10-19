@@ -1,0 +1,94 @@
+# The digest below is the contract with the image factory. CI rewrites it after
+# every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/orientdb
+  digest: "sha256:d0eaecf860afdb57f43444b08f59a99ec203dacd1dc0d291a8b021c348a4e2ae"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Standalone only: the image has no distributed (Hazelcast) mode, so one replica.
+replicaCount: 1
+
+# Server root user. OrientDB reads ORIENTDB_ROOT_PASSWORD on start and stores the
+# root user in its config (an emptyDir here, so the Secret stays the source of truth).
+auth:
+  password: ""                 # generated (24 chars) if empty; kept across upgrades
+  existingSecret: ""           # use this Secret instead of the managed one
+  existingSecretPasswordKey: "root-password"
+
+# JVM memory flags (ORIENTDB_OPTS_MEMORY) and extra -D server settings
+# (ORIENTDB_SETTINGS), e.g. "-Dstorage.diskCache.bufferSize=512".
+javaOpts:
+  memory: "-Xms512m -Xmx512m"
+  settings: ""
+
+persistence:
+  enabled: true
+  size: 8Gi
+  # storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""
+
+resources:
+  requests: { cpu: 250m, memory: 1Gi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  binaryPort: 2424             # binary protocol (drivers, console.sh)
+  httpPort: 2480               # HTTP API and Studio
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Optional Ingress for the HTTP API and Studio. Disabled by default.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: 2480           # the HTTP API and Studio port
+  hosts: []
+  tls: []
