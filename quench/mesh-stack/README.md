@@ -7,9 +7,9 @@ cosign-signed.
 
 | Component | Chart | Name in the cluster |
 |---|---|---|
-| istiod 1.30.5 (control plane, CA) | istiod 0.0.6 | Deployment and Service `istiod` |
-| Istio CNI node agent 1.30.5 | istio-cni 0.0.2 | DaemonSet `istio-cni-node` |
-| ztunnel 1.30.5 (L4 proxy) | ztunnel 0.0.2 | DaemonSet `ztunnel` |
+| istiod 1.30.6 (control plane, CA) | istiod 0.0.6 | Deployment and Service `istiod` |
+| Istio CNI node agent 1.30.6 | istio-cni 0.0.2 | DaemonSet `istio-cni-node` |
+| ztunnel 1.30.6 (L4 proxy) | ztunnel 0.0.2 | DaemonSet `ztunnel` |
 
 ## Install
 
