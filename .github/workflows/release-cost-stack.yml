@@ -68,12 +68,14 @@ jobs:
             test -n "$ok" || { echo "Prometheus has no $q: ${out:0:300}"; exit 1; }
             echo "Prometheus has $q"
           done
-          # OpenCost answers the allocation API from that Prometheus with real pods.
+          # OpenCost answers the allocation API from that Prometheus with real pods. Right after the
+          # first scrapes it returns negative hours (window shorter than a sample step), so wait
+          # for kube-system to carry positive CPU hours and cost.
           ok=""
           for i in $(seq 1 40); do
             out="$(curl -s 'http://127.0.0.1:9003/allocation/compute?window=1h&aggregate=namespace')"
             if [ "$(jq -r '.code' <<<"$out" 2>/dev/null)" = 200 ] \
-              && jq -e '.data | length > 0 and (.[0] | has("kube-system"))' <<<"$out" >/dev/null 2>&1; then
+              && jq -e '.data[0]["kube-system"] | .cpuCoreHours > 0 and .totalCost > 0' <<<"$out" >/dev/null 2>&1; then
               ok=1; break
             fi
             sleep 15
