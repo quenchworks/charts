@@ -1,0 +1,16 @@
+runtime-security-stack is installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+{{- if .Values.falco.enabled }}
+
+Falco alerts are JSON lines on stdout (try reading /etc/shadow in a container):
+
+  kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/name=falco -f
+{{- end }}
+{{- if .Values.tetragon.enabled }}
+
+Tetragon events from one node's agent:
+
+  kubectl -n {{ .Release.Namespace }} exec ds/{{ .Release.Name }}-tetragon-agent -c tetragon -- tetra getevents -o compact
+{{- end }}
+
+Falco runs as root with host PID and BPF, PERFMON, SYS_RESOURCE, SYS_PTRACE (not
+privileged); the Tetragon agent runs privileged. Nodes need a kernel with BTF.

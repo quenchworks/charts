@@ -1,0 +1,184 @@
+name: release-runtime-security-stack
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/runtime-security-stack/**"
+      - ".github/workflows/release-runtime-security-stack.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/runtime-security-stack
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          CTX="$(kubectl config current-context)"
+          case "$CTX" in kind-*) ;; *) echo "refusing to install outside kind (got $CTX)"; exit 1;; esac
+          helm install rs "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 12m
+          kubectl rollout status daemonset/rs-falco --timeout=300s
+          kubectl rollout status daemonset/rs-tetragon-agent --timeout=300s
+          kubectl rollout status deployment/rs-tetragon-operator --timeout=300s
+
+          # --- PROVE BOTH SENSORS SEE THE SAME CONTAINER. ---
+          # 1. Falco opened the modern eBPF probe; Tetragon answers tetra.
+          for _ in $(seq 1 30); do
+            kubectl logs ds/rs-falco -c falco > /tmp/falco.log 2>&1 || true
+            grep -q "Opening 'syscall' source with modern BPF probe" /tmp/falco.log && break
+            sleep 2
+          done
+          grep -q "Opening 'syscall' source with modern BPF probe" /tmp/falco.log
+          T() { kubectl exec ds/rs-tetragon-agent -c tetragon -- tetra "$@"; }
+          T status > /tmp/status.txt
+          cat /tmp/status.txt
+          grep -qi running /tmp/status.txt
+
+          # 2. One pod that reads /etc/shadow in a loop.
+          kubectl apply -f - <<'YAML'
+          apiVersion: v1
+          kind: Pod
+          metadata: { name: shadow-reader }
+          spec:
+            restartPolicy: Never
+            containers:
+              - name: shadow-reader
+                image: ghcr.io/quenchworks/images/busybox:1.38.0
+                securityContext: { runAsUser: 0 }
+                command: ["sh", "-c", "while true; do cat /etc/shadow >/dev/null; sleep 2; done"]
+          YAML
+          kubectl wait --for=condition=Ready pod/shadow-reader --timeout=180s
+
+          # 3. Falco: the default rule "Read sensitive file untrusted" fires with the
+          #    container name. Filter to files: grep | head SIGPIPEs under pipefail.
+          ok=0
+          for _ in $(seq 1 60); do
+            kubectl logs ds/rs-falco -c falco > /tmp/falco.log 2>&1 || true
+            grep -F '"rule":"Read sensitive file untrusted"' /tmp/falco.log > /tmp/shadow.txt || true
+            grep -F '"container.name":"shadow-reader"' /tmp/shadow.txt > /tmp/hit.txt || true
+            if [ -s /tmp/hit.txt ]; then ok=1; break; fi
+            sleep 3
+          done
+          sed -n 1p /tmp/hit.txt
+          if [ "$ok" != 1 ]; then
+            echo "missing: Falco alert with container.name shadow-reader"
+            sed -n 1,3p /tmp/shadow.txt
+            tail -60 /tmp/falco.log
+            exit 1
+          fi
+
+          # 4. Tetragon: a process_exec event for the same pod's cat, with the
+          #    namespace/pod from the Kubernetes API.
+          timeout 30 kubectl exec ds/rs-tetragon-agent -c tetragon -- tetra getevents -o compact > /tmp/events.txt 2>&1 || true
+          grep 'default/shadow-reader' /tmp/events.txt > /tmp/pod-events.txt || true
+          sed -n 1,3p /tmp/pod-events.txt
+          grep -qE 'process +default/shadow-reader .*/cat /etc/shadow' /tmp/pod-events.txt
+
+          # 5. No restarts in either DaemonSet.
+          r="$(kubectl get pods -l app.kubernetes.io/instance=rs -o jsonpath='{.items[*].status.containerStatuses[*].restartCount}')"
+          echo "restarts: $r"
+          for n in $r; do [ "$n" = 0 ]; done
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/runtime-security-stack-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/runtime-security-stack@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/runtime-security-stack:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
