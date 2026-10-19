@@ -1,0 +1,19 @@
+Quenchworks Selenium Grid {{ .Chart.AppVersion }} is installed: hub {{ include "selenium-grid.hubName" . }}
+{{- if .Values.firefox.enabled }} with {{ .Values.firefox.replicas }} Firefox node(s) (one session each){{ end }}.
+
+Point your WebDriver clients at the hub from inside the cluster:
+
+  http://{{ include "selenium-grid.hubName" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+Port-forward it to your laptop (the Grid UI is at /ui):
+
+  kubectl port-forward svc/{{ include "selenium-grid.hubName" . }} 4444:{{ .Values.service.port }}
+  curl http://127.0.0.1:4444/status
+
+The hub has no authentication: keep it off the public internet.
+
+The images are pinned by digest and signed. Verify one:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

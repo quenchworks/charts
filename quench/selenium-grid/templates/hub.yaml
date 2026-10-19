@@ -1,0 +1,81 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "selenium-grid.hubName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: hub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: hub
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.podTemplateLabels" . | nindent 8 }}
+        app.kubernetes.io/component: hub
+    spec:
+      automountServiceAccountToken: false
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: hub
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - hub
+            - --session-request-timeout
+            - {{ .Values.hub.sessionRequestTimeout | quote }}
+            {{- range .Values.hub.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- with .Values.hub.extraEnvVars }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - { name: http, containerPort: 4444, protocol: TCP }
+            - { name: publish, containerPort: 4442, protocol: TCP }
+            - { name: subscribe, containerPort: 4443, protocol: TCP }
+          startupProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 3
+            failureThreshold: 60
+          livenessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /status, port: http }
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.hub.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: home, mountPath: /home/nonroot }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: home, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "selenium-grid.hubName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: hub
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - { name: http, port: {{ .Values.service.port }}, targetPort: http, protocol: TCP }
+    - { name: publish, port: 4442, targetPort: publish, protocol: TCP }
+    - { name: subscribe, port: 4443, targetPort: subscribe, protocol: TCP }
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: hub

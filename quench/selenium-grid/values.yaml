@@ -1,0 +1,71 @@
+# Quenchworks Selenium Grid: one hub and N headless Firefox nodes. Both images are
+# QuenchWorks builds of the upstream selenium-server jar (0-CVE, cosign-signed), pinned
+# by digest, never a tag.
+
+# The hub image (selenium-server; the role is picked by its first argument).
+image:
+  repository: ghcr.io/quenchworks/images/selenium-server
+  digest: "sha256:558c0a80e50e568d58764279defde74293a6f5bf9ab836f430efaed96d9d7db5"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+imagePullSecrets: []
+
+hub:
+  # How long a new-session request waits in the queue for a free slot, in seconds.
+  sessionRequestTimeout: 300
+  # Extra hub flags, e.g. ["--log-level", "FINE"]. JVM flags go in extraEnvVars as
+  # JAVA_TOOL_OPTIONS.
+  extraArgs: []
+  extraEnvVars: []
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+
+# The hub Service: 4444 is the WebDriver endpoint and the Grid UI; 4442/4443 are the
+# event bus the nodes publish to and subscribe from.
+service:
+  type: ClusterIP
+  port: 4444
+
+firefox:
+  enabled: true
+  image:
+    repository: ghcr.io/quenchworks/images/selenium-node-firefox
+    digest: "sha256:2b0a29eda53ab7605f3c6dfd7bf33d66e14a13262f27be3b9726a3a292027d06"
+  # Each node pod offers one Firefox slot; scale with replicas.
+  replicas: 1
+  # /dev/shm for Firefox (a memory-backed emptyDir)
+  shmSize: 512Mi
+  # Extra node flags, e.g. ["--session-timeout", "600"].
+  extraArgs: []
+  extraEnvVars: []
+  resources:
+    requests: { cpu: 250m, memory: 1Gi }
+    limits: { cpu: "1", memory: 2Gi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+commonLabels: {}
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+
+# Optional Ingress to the hub (HTTP only). Disabled by default.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  # e.g. [{host: grid.example.com, paths: [{path: /, pathType: Prefix}]}]
+  hosts: []
+  tls: []

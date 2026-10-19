@@ -1,0 +1,78 @@
+{{- if .Values.firefox.enabled }}
+{{- $hub := include "selenium-grid.hubName" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "selenium-grid.firefoxName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-firefox
+spec:
+  replicas: {{ .Values.firefox.replicas }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: node-firefox
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.podTemplateLabels" . | nindent 8 }}
+        app.kubernetes.io/component: node-firefox
+    spec:
+      automountServiceAccountToken: false
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: firefox
+          image: {{ printf "%s@%s" .Values.firefox.image.repository .Values.firefox.image.digest }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          # The node registers through the hub's event bus (4442/4443) and advertises its
+          # pod IP, so the hub reaches it on 5555.
+          args:
+            - node
+            - --config
+            - /etc/selenium/config.toml
+            - --hub
+            - {{ printf "http://%s:%v" $hub .Values.service.port | quote }}
+            - --host
+            - $(POD_IP)
+            - --port
+            - "5555"
+            {{- range .Values.firefox.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef: { fieldPath: status.podIP }
+            {{- with .Values.firefox.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - { name: node, containerPort: 5555, protocol: TCP }
+          startupProbe:
+            tcpSocket: { port: node }
+            periodSeconds: 3
+            failureThreshold: 60
+          livenessProbe:
+            tcpSocket: { port: node }
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.firefox.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: home, mountPath: /home/nonroot }
+            - { name: dshm, mountPath: /dev/shm }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: home, emptyDir: {} }
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.firefox.shmSize }}
+{{- end }}
