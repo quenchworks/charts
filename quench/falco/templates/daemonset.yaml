@@ -1,0 +1,126 @@
+{{- $caps := .Values.capabilities | default list -}}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        # Rules reload in place (watch_config_files); a config change rolls the pods.
+        checksum/config: {{ include "falco.config" . | sha256sum }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+    spec:
+      # Falco reads no Kubernetes API: pod and container names come from the
+      # container runtime through the container plugin.
+      automountServiceAccountToken: false
+      # Processes are tracked by host PID.
+      hostPID: true
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: falco
+          image: {{ include "falco.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["-c", "/etc/falco/chart/falco.yaml"]
+          # Root with the capabilities in values, not privileged by default.
+          # The image's default user (1001) is overridden for this container.
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+            readOnlyRootFilesystem: true
+            {{- if .Values.privileged }}
+            privileged: true
+            {{- else }}
+            privileged: false
+            {{- if not (has "SYS_ADMIN" $caps) }}
+            allowPrivilegeEscalation: false
+            {{- end }}
+            capabilities:
+              drop: ["ALL"]
+              {{- with $caps }}
+              add:
+                {{- toYaml . | nindent 16 }}
+              {{- end }}
+            seccompProfile:
+              type: RuntimeDefault
+            {{- end }}
+          env:
+            # Falco and the container plugin read /host/proc, /host/etc and
+            # the runtime sockets under /host.
+            - name: HOST_ROOT
+              value: /host
+            - name: FALCO_HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          ports:
+            - name: http
+              containerPort: {{ .Values.config.webserver.listen_port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.config.webserver.k8s_healthz_endpoint }}
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.config.webserver.k8s_healthz_endpoint }}
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: config, mountPath: /etc/falco/chart, readOnly: true }
+            - { name: rules, mountPath: /etc/falco/rules.d, readOnly: true }
+            - { name: host-proc, mountPath: /host/proc, readOnly: true }
+            - { name: host-etc, mountPath: /host/etc, readOnly: true }
+            {{- range $i, $d := .Values.runtimeSocketDirs }}
+            - { name: runtime-{{ $i }}, mountPath: /host{{ $d }}, readOnly: true }
+            {{- end }}
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}
+        - name: rules
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-rules
+        - name: host-proc
+          hostPath: { path: /proc, type: Directory }
+        - name: host-etc
+          hostPath: { path: /etc, type: Directory }
+        {{- range $i, $d := .Values.runtimeSocketDirs }}
+        - name: runtime-{{ $i }}
+          hostPath: { path: {{ $d }}, type: Directory }
+        {{- end }}
+        - name: tmp
+          emptyDir: {}

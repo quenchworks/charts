@@ -1,0 +1,106 @@
+# Falco: one pod per node (DaemonSet) running the modern eBPF probe. The image
+# digest is the contract with the image factory; it is never a tag.
+
+image:
+  repository: ghcr.io/quenchworks/images/falco
+  digest: "sha256:811af68b4d2c62ece82e437d701dbdb565130cbff0aa3b027a57bdeab435294b"
+  pullPolicy: IfNotPresent
+
+# Privileges. The modern eBPF probe runs as root with these capabilities and
+# host PID, not privileged (kernel 5.8 or newer with BTF). On an older kernel
+# add SYS_ADMIN, or set privileged: true.
+privileged: false
+capabilities:
+  - BPF            # load the probe and its maps
+  - PERFMON        # attach tracing programs
+  - SYS_RESOURCE   # raise the memlock limit for the ring buffers
+  - SYS_PTRACE     # read other processes' /proc entries
+
+# Host directories holding the container runtime sockets the container plugin
+# talks to. Each is mounted read-only at /host<dir>; the sockets themselves are
+# set under config.plugins[container].init_config.engines.
+runtimeSocketDirs:
+  - /run/containerd
+
+# Extra rules files, one key per file, loaded from /etc/falco/rules.d after the
+# default ruleset. Use them to add rules, or to append to and override default
+# lists, macros and rules, e.g.
+#   customRules:
+#     my-rules.yaml: |-
+#       - list: read_sensitive_file_images
+#         items: [ghcr.io/acme/backup]
+#         override: { items: append }
+customRules: {}
+
+# falco.yaml, rendered as is into a ConfigMap (Falco watches it and reloads).
+# Keys not set here take Falco's built-in defaults. Helm merges your values
+# map by map; lists such as plugins replace the whole list.
+config:
+  engine:
+    kind: modern_ebpf
+    modern_ebpf:
+      cpus_for_each_buffer: 2
+      buf_size_preset: 4
+      drop_failed_exit: false
+  config_files: []
+  watch_config_files: true
+  rules_files:
+    - /etc/falco/falco_rules.yaml
+    - /etc/falco/falco_rules.local.yaml
+    - /etc/falco/rules.d
+  load_plugins: [container]
+  plugins:
+    - name: container
+      library_path: libcontainer.so
+      init_config:
+        label_max_len: 100
+        with_size: false
+        engines:
+          docker: { enabled: false }
+          podman: { enabled: false }
+          containerd: { enabled: false }
+          # Kubernetes runtimes through CRI: container and pod names.
+          cri:
+            enabled: true
+            sockets:
+              - /run/containerd/containerd.sock
+          lxc: { enabled: false }
+          libvirt_lxc: { enabled: false }
+          bpm: { enabled: false }
+  priority: debug
+  rule_matching: first
+  # One JSON object per alert on stdout, with the container fields the plugin
+  # suggests (container.id, container.name) in output_fields.
+  json_output: true
+  json_include_output_property: true
+  json_include_output_fields_property: true
+  json_include_tags_property: true
+  append_output:
+    - suggested_output: true
+  stdout_output:
+    enabled: true
+  syslog_output:
+    enabled: false
+  log_stderr: true
+  log_syslog: false
+  log_level: info
+  # /healthz backs the probes.
+  webserver:
+    enabled: true
+    threadiness: 0
+    listen_port: 8765
+    listen_address: 0.0.0.0
+    k8s_healthz_endpoint: /healthz
+    prometheus_metrics_enabled: false
+    ssl_enabled: false
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { cpu: "1", memory: 1Gi }
+tolerations:
+  - operator: Exists
+nodeSelector: {}
+priorityClassName: ""
+
+nameOverride: ""
+imagePullSecrets: []

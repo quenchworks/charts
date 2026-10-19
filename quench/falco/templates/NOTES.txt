@@ -1,0 +1,21 @@
+Quenchworks Falco is installed in {{ .Release.Namespace }}: one pod per node watching syscalls with the {{ .Values.config.engine.kind }} engine.
+
+Alerts are JSON lines on stdout:
+
+  kubectl logs -n {{ .Release.Namespace }} -l app.kubernetes.io/instance={{ .Release.Name }},app.kubernetes.io/name={{ include "quench-common.name" . }} -f
+
+Try it: read /etc/shadow in any container and look for "Read sensitive file untrusted".
+
+{{- if .Values.privileged }}
+
+The pods run privileged as root with host PID.
+{{- else }}
+
+The pods run as root with host PID and only these capabilities: {{ join ", " .Values.capabilities }}.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/falco \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
