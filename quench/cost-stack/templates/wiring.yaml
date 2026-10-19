@@ -1,0 +1,64 @@
+{{- $prom := printf "http://%s-prometheus:%v" .Release.Name (.Values.prometheus.service.port | default 9090) -}}
+{{- if .Values.opencost.enabled }}
+# OpenCost's Prometheus URL. Fixed name: the static opencost.extraEnvVarsCM value
+# references it, and opencost.prometheus.endpoint expands $(COST_STACK_PROMETHEUS_URL).
+# ponytail: fixed ConfigMap names => one cost-stack per namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cost-stack-opencost
+  labels:
+    {{- include "cost-stack.labels" . | nindent 4 }}
+data:
+  COST_STACK_PROMETHEUS_URL: {{ $prom | quote }}
+{{- end }}
+{{- if .Values.grafana.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cost-stack-datasources
+  labels:
+    {{- include "cost-stack.labels" . | nindent 4 }}
+data:
+  stack.yaml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        uid: prometheus
+        access: proxy
+        url: {{ $prom }}
+        isDefault: true
+        editable: false
+{{- end }}
+{{- if .Values.prometheus.enabled }}
+---
+# Read access for Prometheus' pod/node discovery and the cAdvisor job (nodes/proxy).
+# The prometheus subchart's ServiceAccount is <release>-prometheus.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Release.Name }}-cost-stack-prometheus
+  labels:
+    {{- include "cost-stack.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods, nodes, nodes/metrics, nodes/proxy, services, endpoints]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Release.Name }}-cost-stack-prometheus
+  labels:
+    {{- include "cost-stack.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Release.Name }}-cost-stack-prometheus
+subjects:
+  - kind: ServiceAccount
+    name: {{ .Release.Name }}-prometheus
+    namespace: {{ .Release.Namespace }}
+{{- end }}

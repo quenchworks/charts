@@ -1,0 +1,147 @@
+# cost-stack: an umbrella over the QuenchWorks opencost, prometheus and grafana charts.
+#
+#     kubelet cAdvisor --(container CPU/memory usage)--> <release>-prometheus:9090
+#     OpenCost /metrics --(pricing, requests, pod state)--> <release>-prometheus:9090
+#     OpenCost --(PromQL)--> <release>-prometheus:9090 --> /allocation on <release>-opencost:9003
+#     Grafana --(Prometheus datasource, uid prometheus)--> the same Prometheus
+#
+# OpenCost emits the pod, node and request metrics it needs itself, so no
+# kube-state-metrics or node-exporter is bundled. The umbrella's ConfigMaps have FIXED
+# names (static subchart values reference them), so run one cost-stack per namespace.
+# Prometheus reads nodes and pods cluster-wide (a ClusterRole this chart creates).
+
+# OpenCost (subchart). Values pass straight through to the opencost chart.
+opencost:
+  enabled: true
+  clusterId: "default-cluster"
+  prometheus:
+    # Expanded by the kubelet from COST_STACK_PROMETHEUS_URL, which the umbrella's
+    # cost-stack-opencost ConfigMap sets to http://<release>-prometheus:9090. A
+    # Prometheus elsewhere: put its URL here and drop extraEnvVarsCM.
+    endpoint: "$(COST_STACK_PROMETHEUS_URL)"
+  extraEnvVarsCM: cost-stack-opencost
+  # The bundled Prometheus finds OpenCost's /metrics through these annotations.
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "9003"
+    prometheus.io/path: /metrics
+
+# Prometheus (subchart). Keep the scrape jobs below: OpenCost's allocation needs
+# both the kubelet cAdvisor job (usage) and the annotated-pod job (OpenCost itself).
+prometheus:
+  enabled: true
+  config:
+    prometheusYaml: |
+      global:
+        scrape_interval: 30s
+        evaluation_interval: 30s
+
+      scrape_configs:
+        - job_name: prometheus
+          static_configs:
+            - targets:
+                - localhost:9090
+
+        # Pods annotated prometheus.io/scrape: "true" (OpenCost, and your own apps).
+        - job_name: kubernetes-pods
+          kubernetes_sd_configs:
+            - role: pod
+          relabel_configs:
+            - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+              action: keep
+              regex: "true"
+            - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+              action: replace
+              target_label: __metrics_path__
+              regex: (.+)
+            - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+              action: replace
+              regex: ([^:]+)(?::\d+)?;(\d+)
+              replacement: $1:$2
+              target_label: __address__
+            - source_labels: [__meta_kubernetes_namespace]
+              target_label: namespace
+            - source_labels: [__meta_kubernetes_pod_name]
+              target_label: pod
+            - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+              target_label: job
+              regex: (.+)
+
+        # Container usage from the kubelet's cAdvisor, through the API server proxy.
+        - job_name: kubernetes-cadvisor
+          scheme: https
+          metrics_path: /metrics/cadvisor
+          tls_config:
+            ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+          kubernetes_sd_configs:
+            - role: node
+          relabel_configs:
+            - action: labelmap
+              regex: __meta_kubernetes_node_label_(.+)
+            - target_label: __address__
+              replacement: kubernetes.default.svc:443
+            - source_labels: [__meta_kubernetes_node_name]
+              regex: (.+)
+              target_label: __metrics_path__
+              replacement: /api/v1/nodes/$1/proxy/metrics/cadvisor
+    retentionTime: "15d"
+  persistence:
+    enabled: true
+    size: 8Gi
+  # The prometheus chart mounts no API token (hardened default); service discovery
+  # and the cAdvisor job need one, bound to the ClusterRole in templates/.
+  extraVolumes:
+    - name: kube-api-access
+      projected:
+        defaultMode: 420
+        sources:
+          - serviceAccountToken:
+              path: token
+              expirationSeconds: 3607
+          - configMap:
+              name: kube-root-ca.crt
+              items:
+                - key: ca.crt
+                  path: ca.crt
+          - downwardAPI:
+              items:
+                - path: namespace
+                  fieldRef:
+                    fieldPath: metadata.namespace
+  extraVolumeMounts:
+    - name: kube-api-access
+      mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      readOnly: true
+
+# Grafana (subchart). Keep datasources: [] here: the Prometheus datasource comes from
+# this umbrella's ConfigMap so it can name the release's Prometheus Service. Stateless:
+# persistence off, so a reinstall never keeps an old admin password on a PVC.
+grafana:
+  enabled: true
+  datasources: []
+  auth:
+    adminPassword: ""
+  extraVolumes:
+    - name: stack-datasources
+      configMap:
+        name: cost-stack-datasources
+  extraVolumeMounts:
+    - name: stack-datasources
+      mountPath: /etc/grafana/provisioning/datasources/stack.yaml
+      subPath: stack.yaml
+      readOnly: true
+  persistence:
+    enabled: false
+
+# Optional Ingress, fronting Grafana by default (a stack has no Service of its own).
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # Backend Service. Unset -> "<release>-grafana".
+  serviceName: ""
+  # Backend port. Unset -> grafana.service.port.
+  servicePort: null
+  hosts: []
+  tls: []

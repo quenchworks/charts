@@ -1,0 +1,17 @@
+cost-stack is installed as release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+{{- if .Values.opencost.enabled }}
+
+OpenCost (cost allocation API, reads http://{{ .Release.Name }}-prometheus:9090):
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-opencost 9003:9003
+  curl -s 'http://127.0.0.1:9003/allocation/compute?window=1d&aggregate=namespace'
+
+Allocation fills in once Prometheus has a few scrapes (a minute or two).
+{{- end }}
+{{- if .Values.grafana.enabled }}
+
+Grafana, with this release's Prometheus as the default datasource:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-grafana 3000:{{ .Values.grafana.service.port | default 3000 }}
+  kubectl -n {{ .Release.Namespace }} get secret {{ .Release.Name }}-grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo
+{{- end }}
