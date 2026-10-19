@@ -1,0 +1,22 @@
+QuenchWorks Camel K {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }}.
+It watches {{ if .Values.watchAnyNamespace }}every namespace{{ else }}namespace {{ .Release.Namespace }}{{ end }}.
+{{- if not .Values.registry.address }}
+
+No registry is set (registry.address). Integrations cannot be built until one is set,
+here or in an IntegrationPlatform's spec.build.registry.
+{{- end }}
+
+Run a first integration:
+
+  apiVersion: camel.apache.org/v1
+  kind: Integration
+  metadata:
+    name: hello
+  spec:
+    flows:
+      - from:
+          uri: "timer:tick?period=5000"
+          steps:
+            - setBody:
+                constant: "Hello from Camel K"
+            - to: "log:info"

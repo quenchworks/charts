@@ -1,0 +1,94 @@
+{{- $fullName := include "quench-common.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullName }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  # One replica: Camel K takes a leader lease, and builds run in the leader's pod.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        # Upstream's operator pod labels, kept for selectors and monitoring that expect them.
+        app: camel-k
+        camel.apache.org/component: operator
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      # The operator talks to the API server; quench-common leaves the token off.
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      volumes:
+        # Build directories, the Kamelet catalog download and Jib's cache.
+        - name: tmp
+          emptyDir: {}
+        # Maven local repository (defaults.LocalRepository).
+        - name: m2
+          emptyDir: {}
+      containers:
+        - name: camel-k-operator
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: [kamel, operator]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: m2
+              mountPath: /etc/maven/m2
+          env:
+            - name: WATCH_NAMESPACE
+              {{- if .Values.watchAnyNamespace }}
+              value: ""
+              {{- else }}
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+              {{- end }}
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OPERATOR_NAME
+              value: camel-k
+            - name: OPERATOR_ID
+              value: {{ .Values.operatorId | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            - name: REGISTRY_ADDRESS
+              value: {{ .Values.registry.address | quote }}
+            - name: REGISTRY_INSECURE
+              value: {{ .Values.registry.insecure | quote }}
+            - name: REGISTRY_SECRET
+              value: {{ .Values.registry.secret | quote }}
+            - name: REGISTRY_ORGANIZATION
+              value: {{ .Values.registry.organization | quote }}
+            # Maven and Jib write under $HOME; the root filesystem is read-only.
+            - name: HOME
+              value: /tmp
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          ports:
+            - name: metrics
+              containerPort: 8080
+              protocol: TCP
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" (dict "httpGet" (dict "path" "/healthz" "port" "health") "initialDelaySeconds" 20 "periodSeconds" 10)) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

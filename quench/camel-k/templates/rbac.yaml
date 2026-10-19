@@ -1,0 +1,141 @@
+{{/*
+The operator's RBAC, rules as upstream Camel K 2.11.0 publishes them (operator, events,
+leases, keda, knative, openshift, podmonitors, strimzi), merged into one role. A Role in
+the release namespace, or a ClusterRole when watchAnyNamespace is true. The operator
+creates the camel-k-builder ServiceAccount and Role itself when a build needs them.
+*/}}
+{{- $fullName := include "quench-common.fullname" . -}}
+{{- $kind := ternary "ClusterRole" "Role" .Values.watchAnyNamespace -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ $kind }}
+metadata:
+  name: {{ $fullName }}
+  {{- if not .Values.watchAnyNamespace }}
+  namespace: {{ .Release.Namespace }}
+  {{- end }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [camel.apache.org]
+    resources: [builds, camelcatalogs, integrationkits, integrationplatforms, integrationprofiles, integrations, pipes, kamelets]
+    verbs: [create, get, list, patch, update, watch]
+  - apiGroups: [camel.apache.org]
+    resources: [builds, integrations]
+    verbs: [delete]
+  - apiGroups: [camel.apache.org]
+    resources: [builds/status, camelcatalogs/status, integrationkits/status, integrationplatforms/status, integrationprofiles/status, integrations/scale, integrations/status, pipes/status, pipes/scale, kamelets/status]
+    verbs: [get, patch, update]
+  - apiGroups: [camel.apache.org]
+    resources: [builds/finalizers, integrationkits/finalizers, integrationplatforms/finalizers, integrationprofiles/finalizers, integrations/finalizers, pipes/finalizers]
+    verbs: [update]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [create, delete, get, list, patch, watch]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, create, patch, list, watch, delete]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+  - apiGroups: [""]
+    resources: [pods/proxy, pods/log]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [create, delete, get, list, patch, watch]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    verbs: [create, delete, get, list, watch]
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [create, get, list, watch]
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, patch]
+  - apiGroups: ["", events.k8s.io]
+    resources: [events]
+    verbs: [create, patch, get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [create, delete, get, list, patch, watch]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [create, delete, get, list, patch, watch]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get, list]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: [create, delete, list, patch]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [create, delete, get, list, patch]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [gateways, httproutes]
+    verbs: [create, delete, get, list, patch]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [create, get, list, patch, watch]
+  - apiGroups: [authorization.k8s.io]
+    resources: [subjectaccessreviews]
+    verbs: [create]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [keda.sh]
+    resources: [scaledobjects, triggerauthentications]
+    verbs: [create, delete, get, list, patch]
+  - apiGroups: [serving.knative.dev]
+    resources: [services, routes]
+    verbs: [create, delete, get, list, patch, watch]
+  - apiGroups: [eventing.knative.dev]
+    resources: [triggers, brokers]
+    verbs: [create, delete, get, list, patch]
+  - apiGroups: [messaging.knative.dev]
+    resources: [subscriptions, channels, inmemorychannels]
+    verbs: [create, delete, get, list, patch]
+  - apiGroups: [sources.knative.dev]
+    resources: [sinkbindings]
+    verbs: [create, delete, get, list, patch]
+  - apiGroups: ["", build.openshift.io]
+    resources: [buildconfigs, buildconfigs/webhooks, builds]
+    verbs: [create, delete, deletecollection, get, list, patch, update, watch]
+  - apiGroups: ["", build.openshift.io]
+    resources: [buildconfigs/instantiate, buildconfigs/instantiatebinary, builds/clone]
+    verbs: [create]
+  - apiGroups: ["", image.openshift.io]
+    resources: [imagestreamimages, imagestreammappings, imagestreams, imagestreams/secrets, imagestreamtags]
+    verbs: [create, delete, deletecollection, get, list, patch, update, watch]
+  - apiGroups: ["", route.openshift.io]
+    resources: [routes]
+    verbs: [create, delete, deletecollection, get, list, patch, update, watch]
+  - apiGroups: ["", route.openshift.io]
+    resources: [routes/custom-host]
+    verbs: [create]
+  - apiGroups: [monitoring.coreos.com]
+    resources: [podmonitors]
+    verbs: [create, delete, get, list, patch]
+  - apiGroups: [kafka.strimzi.io]
+    resources: [kafkatopics, kafkatopics/status, kafkas]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: {{ $kind }}Binding
+metadata:
+  name: {{ $fullName }}
+  {{- if not .Values.watchAnyNamespace }}
+  namespace: {{ .Release.Namespace }}
+  {{- end }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: {{ $kind }}
+  name: {{ $fullName }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "quench-common.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
