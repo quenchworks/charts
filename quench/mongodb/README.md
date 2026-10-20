@@ -170,3 +170,7 @@ Standalone (single `mongod`) by default, or a replica set with
 deliberately not shipped; `mongosh` (Apache-2.0) is in-image as a client/bootstrap
 shell. Sharding is out of scope. Depends on the `quench-common` library chart,
 pulled from `oci://ghcr.io/quenchworks/charts/quench-common`.
+
+MongoDB does not start on Linux kernels 6.19 through 7.0.13: mongod detects them and exits,
+because its bundled TCMalloc is incompatible with those kernels (MongoDB production notes,
+SERVER-121912). Kernel 7.0.14 or later, or 6.18 or earlier, avoids it.

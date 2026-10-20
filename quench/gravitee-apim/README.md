@@ -57,3 +57,7 @@ file, which defines four demo users with published passwords. Only `admin` exist
   `api.extraEnv` and `gateway.extraEnv` to turn them on.
 - The developer portal UI. The portal REST API (`/portal`) runs in the management API.
 - The SQL Server JDBC driver (the PostgreSQL and MariaDB drivers ship for a JDBC repository).
+
+The bundled MongoDB does not start on Linux kernels 6.19 through 7.0.13: mongod detects them and exits,
+because its bundled TCMalloc is incompatible with those kernels (MongoDB production notes,
+SERVER-121912). Kernel 7.0.14 or later, or 6.18 or earlier, avoids it.

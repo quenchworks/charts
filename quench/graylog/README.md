@@ -208,3 +208,7 @@ The chart depends on the `quench-common` library chart, pulled from
 read-only root filesystem with all capabilities dropped, and the image is pinned by
 digest. Graylog is licensed under the SSPL (see the notice above); confirm it fits
 your use before deploying.
+
+The bundled MongoDB does not start on Linux kernels 6.19 through 7.0.13: mongod detects them and exits,
+because its bundled TCMalloc is incompatible with those kernels (MongoDB production notes,
+SERVER-121912). Kernel 7.0.14 or later, or 6.18 or earlier, avoids it.
