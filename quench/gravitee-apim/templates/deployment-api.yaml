@@ -1,0 +1,88 @@
+{{- $sel := dict "ctx" . "component" "api" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}-api
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.api.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "gravitee.selectorLabels" $sel | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "gravitee.selectorLabels" $sel | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "gravitee.waitForMongo" . | nindent 6 }}
+      containers:
+        - name: api
+          image: {{ include "gravitee.image" .Values.api.image | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "gravitee.mongoEnv" . | nindent 12 }}
+            {{- include "gravitee.commonEnv" . | nindent 12 }}
+            - name: GRAVITEE_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.admin.existingSecret | default (include "gravitee.secretName" .) }}
+                  key: {{ ternary .Values.admin.existingSecretKey "admin-password" (not (empty .Values.admin.existingSecret)) }}
+            - name: GRAVITEE_JWT_SECRET
+              valueFrom:
+                secretKeyRef: { name: {{ include "gravitee.secretName" . }}, key: jwt-secret }
+            {{- with .Values.api.javaOpts }}
+            - name: JAVA_TOOL_OPTIONS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.api.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - { name: http, containerPort: 8083, protocol: TCP }
+            - { name: node, containerPort: 18083, protocol: TCP }
+          startupProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 5
+            failureThreshold: 90
+          readinessProbe:
+            # public portal endpoint: answers 200 once the DEFAULT environment is initialized
+            httpGet: { path: /portal/environments/DEFAULT/configuration, port: http }
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /opt/gravitee-management-api/config/gravitee.yml
+              subPath: gravitee.yml
+              readOnly: true
+            # plugins unpack into /tmp/gravitee/plugins and the search index lives in
+            # /tmp/gravitee/data (rebuilt from MongoDB at boot)
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}
+            items:
+              - { key: gravitee.yml, path: gravitee.yml }
+        - name: tmp
+          emptyDir: {}

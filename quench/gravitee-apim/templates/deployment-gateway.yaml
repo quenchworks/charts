@@ -1,0 +1,74 @@
+{{- $sel := dict "ctx" . "component" "gateway" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}-gateway
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: {{ .Values.gateway.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "gravitee.selectorLabels" $sel | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "gravitee.selectorLabels" $sel | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "gravitee.waitForMongo" . | nindent 6 }}
+      containers:
+        - name: gateway
+          image: {{ include "gravitee.image" .Values.gateway.image | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "gravitee.mongoEnv" . | nindent 12 }}
+            - name: gravitee_repositories_ratelimit_type
+              value: mongodb
+            - name: gravitee_repositories_ratelimit_mongodb_uri
+              value: "$(GRAVITEE_MONGODB_URI)"
+            # no Elasticsearch is deployed with the chart; enable it with gateway.extraEnv
+            - name: gravitee_reporters_elasticsearch_enabled
+              value: "false"
+            {{- include "gravitee.commonEnv" . | nindent 12 }}
+            {{- with .Values.gateway.javaOpts }}
+            - name: JAVA_TOOL_OPTIONS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.gateway.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - { name: http, containerPort: 8082, protocol: TCP }
+            - { name: node, containerPort: 18082, protocol: TCP }
+          startupProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: http }
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.gateway.resources | nindent 12 }}
+          volumeMounts:
+            # plugins unpack into /tmp/gravitee/plugins at boot; also the JVM tmpdir
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}

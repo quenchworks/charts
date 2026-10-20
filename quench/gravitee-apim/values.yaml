@@ -1,0 +1,133 @@
+# Gravitee API Management (APIM) community edition: the gateway, the management API
+# and the console, on the QuenchWorks images (community plugins only; the Enterprise
+# plugins are removed from the images at build time).
+#
+# The digests below are the contract with the image factory. CI rewrites them from the
+# image-published dispatch after every green image build. They are never tags.
+
+image:
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+fullnameOverride: ""
+
+# --- Gateway: serves the APIs you deploy (HTTP and TCP proxy) ---
+gateway:
+  image:
+    repository: ghcr.io/quenchworks/images/gravitee-gateway
+    digest: "sha256:a39efd34481a6157eff329575c8b74cd69c3a2278ac49036baf3bf06066a3026"
+  replicaCount: 1
+  # JVM flags (JAVA_TOOL_OPTIONS). The image sizes the heap at 70% of the container limit.
+  javaOpts: ""
+  service:
+    type: ClusterIP
+    port: 8082
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: "2", memory: 1Gi }
+  extraEnv: []
+
+# --- Management API: the REST API behind the console (/management) and portal (/portal) ---
+api:
+  image:
+    repository: ghcr.io/quenchworks/images/gravitee-management-api
+    digest: "sha256:61ec1508c0386e2379376c84497a5072231b5f53adb86d29c6c7191d167d656f"
+  replicaCount: 1
+  javaOpts: ""
+  service:
+    type: ClusterIP
+    port: 8083
+  resources:
+    requests: { cpu: 250m, memory: 768Mi }
+    limits: { cpu: "2", memory: 1536Mi }
+  extraEnv: []
+
+# --- Console: the admin UI. Its nginx proxies /management and /portal to the API, so
+# one address (port-forward or ingress) serves the UI and the API it calls. ---
+console:
+  enabled: true
+  image:
+    repository: ghcr.io/quenchworks/images/gravitee-console
+    digest: "sha256:da5974526bad5eb30ff99a9c5407e28595200630d8be5cb64e8db5bb731fc909"
+  replicaCount: 1
+  service:
+    type: ClusterIP
+    port: 8080
+  resources:
+    requests: { cpu: 25m, memory: 32Mi }
+    limits: { cpu: 500m, memory: 128Mi }
+
+# The console and management API administrator (in-memory identity provider, user
+# "admin"). Empty generates a random password into the chart Secret (key
+# admin-password), kept across upgrades. existingSecret supplies it instead.
+admin:
+  password: ""
+  existingSecret: ""
+  existingSecretKey: admin-password
+
+# Basic-auth password of the node API (user "admin"; health, configuration and logging
+# endpoints on 18082/18083, never exposed by a Service). Empty generates one.
+nodeApi:
+  password: ""
+
+# Signs console and portal session tokens. Empty generates a 64-character secret.
+jwtSecret: ""
+# Encrypts API properties marked as encrypted; the gateway and the API share it.
+# Exactly 32 characters. Empty generates one.
+encryptionSecret: ""
+
+# Name of the MongoDB database APIM uses.
+database: gravitee
+
+# --- Bundled MongoDB (default) ---
+# The QuenchWorks MongoDB subchart; its Service is "<release>-mongodb". The root password
+# is generated into that chart's Secret and both APIM components read it from there.
+mongodb:
+  enabled: true
+  # Shared with the subchart (same key): also runs the gateway and API wait-for-mongodb
+  # init containers, which ping the database with mongosh before the JVM starts.
+  image:
+    repository: ghcr.io/quenchworks/images/mongodb
+    digest: "sha256:b06e35e5358bf9b5785d64ffd7cc6aa5005c3f689defca65b67cb60fa6673724"
+  auth:
+    enabled: true
+    rootUsername: root
+    rootPassword: ""
+    existingSecret: ""
+    existingSecretPasswordKey: mongodb-root-password
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- External MongoDB (mongodb.enabled=false) ---
+# A full connection string, or an existing Secret holding one.
+externalMongodb:
+  uri: ""
+  existingSecret: ""
+  existingSecretUriKey: mongodb-uri
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  # Console and management API (/, /management, /portal on one host)
+  consoleHost: apim.local
+  # Gateway (the APIs you deploy)
+  gatewayHost: gateway.local
+  tls: []
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+podAnnotations: {}
+podLabels: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+imagePullSecrets: []

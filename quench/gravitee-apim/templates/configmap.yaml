@@ -1,0 +1,98 @@
+{{- $name := include "quench-common.fullname" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # Management API configuration. It replaces the image's stock gravitee.yml, which ships
+  # four demo users with published passwords; only "admin" exists here. ${...} entries
+  # resolve from the pod environment (the chart Secret), so this file holds no secret.
+  # Any key can still be overridden with a gravitee_<path> env var (api.extraEnv).
+  gravitee.yml: |
+    repositories:
+      management:
+        type: mongodb
+      analytics:
+        type: none
+    services:
+      core:
+        http:
+          enabled: true
+          port: 18083
+          host: 0.0.0.0
+          authentication:
+            type: basic
+            users:
+              admin: ${GRAVITEE_NODE_PASSWORD}
+    security:
+      providers:
+        - type: memory
+          password-encoding-algo: none
+          allow-email-in-search-results: false
+          users:
+            - user:
+              username: admin
+              password: ${GRAVITEE_ADMIN_PASSWORD}
+              roles: ORGANIZATION:ADMIN,ENVIRONMENT:ADMIN
+        - type: gravitee
+    jwt:
+      secret: ${GRAVITEE_JWT_SECRET}
+    email:
+      enabled: false
+    notifiers:
+      email:
+        enabled: false
+{{- if .Values.console.enabled }}
+  # The console reads its management API location from constants.json. "/management" is
+  # same-origin: the console's nginx proxies it (and /portal) to the API Service.
+  constants.json: |
+    {
+      "baseURL": "/management",
+      "defaultPortal": "classic",
+      "production": true
+    }
+  nginx.conf: |
+    daemon off;
+    worker_processes auto;
+    pid /tmp/nginx.pid;
+    error_log /dev/stderr notice;
+    events {
+        worker_connections 1024;
+    }
+    http {
+        include       /etc/nginx/mime.types;
+        default_type  application/octet-stream;
+        client_body_temp_path /tmp/client_body_temp;
+        proxy_temp_path       /tmp/proxy_temp;
+        fastcgi_temp_path     /tmp/fastcgi_temp;
+        uwsgi_temp_path       /tmp/uwsgi_temp;
+        scgi_temp_path        /tmp/scgi_temp;
+        access_log /dev/stdout;
+        sendfile      on;
+        gzip          on;
+        server_tokens off;
+        client_max_body_size 32m;
+        server {
+            listen      8080;
+            server_name _;
+            root        /usr/share/nginx/html;
+            index       index.html;
+            location ~ ^/(management|portal)/ {
+                proxy_pass http://{{ $name }}-api.{{ .Release.Namespace }}.svc:{{ .Values.api.service.port }};
+                proxy_set_header Host $host;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_set_header X-Forwarded-Host $host;
+                proxy_read_timeout 120s;
+            }
+            location = /constants.json {
+                add_header Cache-Control "no-store";
+            }
+            location / {
+                try_files $uri $uri/ /index.html;
+            }
+        }
+    }
+{{- end }}

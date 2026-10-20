@@ -1,0 +1,62 @@
+{{- if .Values.console.enabled }}
+{{- $sel := dict "ctx" . "component" "console" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}-console
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: console
+spec:
+  replicas: {{ .Values.console.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "gravitee.selectorLabels" $sel | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "gravitee.selectorLabels" $sel | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: console
+          image: {{ include "gravitee.image" .Values.console.image | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - { name: http, containerPort: 8080, protocol: TCP }
+          readinessProbe:
+            httpGet: { path: /constants.json, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /constants.json, port: http }
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.console.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /usr/share/nginx/html/constants.json
+              subPath: constants.json
+              readOnly: true
+            - name: config
+              mountPath: /etc/gravitee-console/nginx.conf
+              subPath: nginx.conf
+              readOnly: true
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}
+        - name: tmp
+          emptyDir: {}
+{{- end }}

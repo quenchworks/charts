@@ -1,0 +1,14 @@
+Gravitee APIM {{ .Chart.AppVersion }} (community edition) is starting. The first boot takes a minute or two.
+
+Console and management API (one address; the console proxies /management and /portal):
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }}-console 8080:{{ .Values.console.service.port }}
+  open http://127.0.0.1:8080  (user: admin)
+
+Admin password:
+  kubectl get secret -n {{ .Release.Namespace }} {{ .Values.admin.existingSecret | default (include "gravitee.secretName" .) }} -o jsonpath='{.data.{{ ternary .Values.admin.existingSecretKey "admin-password" (not (empty .Values.admin.existingSecret)) }}}' | base64 -d; echo
+
+Gateway (the APIs you deploy):
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }}-gateway 8082:{{ .Values.gateway.service.port }}
+
+Only the Apache-2.0 community plugins are installed. No Elasticsearch is deployed, so
+analytics and request logs are off (management analytics type "none").
