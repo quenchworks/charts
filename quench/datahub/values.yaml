@@ -1,0 +1,185 @@
+# The digests below are the contract with the image factory: charts reference images by
+# repository and digest, never a tag. Three images, one DataHub release.
+images:
+  pullPolicy: IfNotPresent
+  # registry: mirror.example.com   # optional, prepended to every repository
+  gms:
+    repository: ghcr.io/quenchworks/images/datahub-gms
+    digest: "sha256:5cb81778e07034d80c66cdbf95edbd48b8ddd9671f3cfa53f68fbc03dda3d615"
+  frontend:
+    repository: ghcr.io/quenchworks/images/datahub-frontend
+    digest: "sha256:f417ca1b3784a2c2fab1027a710494d05227920174fae0bb49dfe87ab114fa2c"
+  upgrade:
+    repository: ghcr.io/quenchworks/images/datahub-upgrade
+    digest: "sha256:7d4452a171f27fc059ff306181ea22c8aa13fb057579e76842788d41095a1576"
+  # Restarts GMS after SystemUpdate (see setup-job.yaml).
+  kubectl:
+    repository: ghcr.io/quenchworks/images/kubectl
+    digest: "sha256:d5c4037b5c931585adcd7d8c997f094c9b8b90e56600ed2ff0f585b1b6b48cee"
+imagePullSecrets: []
+
+nameOverride: ""
+
+# DataHub runs as three parts:
+#   gms       the metadata service (REST.li, OpenAPI, GraphQL on 8080), with the MAE, MCE
+#             and platform-event Kafka consumers embedded, so no consumer Deployments
+#   frontend  the React UI, login and the GraphQL proxy (9002); this chart's main Service
+#   setup     datahub-upgrade `-u SystemUpdate`, a Helm hook (post-install, pre-upgrade)
+#             that creates the SQL table, the Kafka topics and the search indices, and
+#             records the upgrade GMS waits for before it reports healthy; a second hook
+#             (post-install, post-upgrade) then restarts GMS
+# The schema registry is DataHub's INTERNAL one, served by GMS: no Confluent registry.
+
+# Credentials. Every empty value is generated once into this chart's Secret and kept
+# across upgrades (read back with lookup). The UI login is `datahub` with adminPassword:
+# read it with
+#   kubectl get secret <release>-datahub -o jsonpath='{.data.admin-password}' | base64 -d
+auth:
+  adminPassword: ""
+  # GMS and the frontend authenticate to each other with this shared secret.
+  systemClientSecret: ""
+  # Signs and salts the access tokens GMS issues (personal access tokens, sessions).
+  tokenSigningKey: ""
+  tokenSalt: ""
+  # The frontend session cookie key (Play secret), at least 32 characters.
+  frontendSecret: ""
+
+gms:
+  replicaCount: 1
+  # Extra JVM flags (JDK_JAVA_OPTIONS). The image sizes the heap at 75% of the limit.
+  javaOpts: ""
+  # DataHub's anonymous usage telemetry to the upstream project. Off by default.
+  telemetry: false
+  resources:
+    requests: { cpu: 500m, memory: 1536Mi }
+    limits: { cpu: "2", memory: 2560Mi }
+  extraEnvVars: []
+
+frontend:
+  replicaCount: 1
+  javaOpts: ""
+  resources:
+    requests: { cpu: 250m, memory: 768Mi }
+    limits: { cpu: "1", memory: 1280Mi }
+  extraEnvVars: []
+
+# The SystemUpdate hook Job. It runs after the install's resources exist (so the bundled
+# MySQL, Kafka and Elasticsearch may still be starting: a failed attempt exits and the
+# Job retries) and before every upgrade rolls GMS.
+setup:
+  backoffLimit: 10
+  # A stuck attempt is killed after this long and retried.
+  podDeadlineSeconds: 1200
+  javaOpts: ""
+  resources:
+    requests: { cpu: 250m, memory: 1Gi }
+    limits: { cpu: "2", memory: 2Gi }
+  extraEnvVars: []
+
+# Kafka topics SystemUpdate creates: partitions per topic and replication factor. Keep
+# replicationFactor at or below the broker count.
+topics:
+  partitions: 1
+  replicationFactor: 1
+
+# Search: Elasticsearch 7, 8 or 9 (DataHub 1.7 also takes OpenSearch 2.x, but refuses
+# OpenSearch 3). replicasPerIndex 0 suits the single-node bundled cluster.
+search:
+  replicasPerIndex: 0
+
+service:
+  type: ClusterIP
+  # frontend (UI) port
+  port: 9002
+  gmsPort: 8080
+
+# --- Bundled MySQL (default) ---
+# The MySQL image creates auth.database and auth.username on first init; GMS and the
+# setup job read the password from the MySQL subchart's own Secret.
+mysql:
+  enabled: true
+  auth:
+    rootPassword: ""
+    database: datahub
+    username: datahub
+    password: ""
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- External database (mysql.enabled=false): MySQL 8+ or MariaDB ---
+externalDatabase:
+  host: ""
+  port: 3306
+  database: datahub
+  user: datahub
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: "db-password"
+
+# --- Bundled Kafka (default): one KRaft broker. For HA set replicaCount 3, the kraft
+# replication settings to 3/2, and topics.replicationFactor to 3. ---
+kafka:
+  enabled: true
+  replicaCount: 1
+  kraft:
+    defaultReplicationFactor: 1
+    minInsyncReplicas: 1
+    offsetsTopicReplicationFactor: 1
+    transactionStateLogReplicationFactor: 1
+    transactionStateLogMinIsr: 1
+
+# --- External Kafka (kafka.enabled=false) ---
+externalKafka:
+  bootstrapServers: ""
+
+# --- Bundled Elasticsearch (default): single node, security off inside the namespace ---
+elasticsearch:
+  enabled: true
+
+# --- External Elasticsearch (elasticsearch.enabled=false) ---
+externalElasticsearch:
+  host: ""
+  port: 9200
+  useSSL: false
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+# Security contexts merge over the hardened quench-common defaults (nonroot uid 1001,
+# read-only rootfs). /tmp is an emptyDir in every pod: logs go there, and Kafka's snappy
+# and zstd natives unpack and load from it.
+podSecurityContext: {}
+containerSecurityContext: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Ingress to the frontend and GMS is restricted to the release namespace by default;
+# allowExternal opens both (for an ingress controller in another namespace, or
+# ingestion from outside).
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+# Optional Ingress to the frontend (HTTP only). Disabled by default.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []

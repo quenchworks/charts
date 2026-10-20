@@ -1,0 +1,208 @@
+name: release-datahub
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/datahub/**"
+      - ".github/workflows/release-datahub.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/datahub
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      # pin actions to SHAs before going public (renovate)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@06c1ae10762d3b9c1644e7fe69596ae519e015a2 # v1.15.0
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          # pulls quench-common + the bundled mysql subchart into charts/
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Warm the images on the kind node
+        run: |
+          set -o pipefail
+          # Pull every pinned digest onto the kind node HERE, outside the helm --wait
+          # window, so the readiness gate is not eaten by image extraction (GMS and the
+          # upgrade image are about 700 MB each).
+          NODE="$(docker ps --filter name=control-plane --format '{{.Names}}' | head -1)"
+          for img in $(helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" | grep -oE 'ghcr.io/quenchworks/images/[a-z0-9-]+@sha256:[a-f0-9]{64}' | sort -u); do
+            echo "warming $img"
+            docker exec "$NODE" crictl pull "$img"
+          done
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          kubectl config current-context | grep -q '^kind-' || { echo "not a kind context"; exit 1; }
+          # --wait covers MySQL, Kafka, Elasticsearch, GMS (TCP readiness) and the frontend;
+          # the SystemUpdate post-install hook then runs inside the same --timeout. No
+          # passwords are set: the admin login is the generated one.
+          helm install rtest "${CHART_DIR}" -n meta --create-namespace -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 25m
+          kubectl get job -n meta rtest-datahub-system-update -o jsonpath='{.status.succeeded}' | grep -qx 1
+          # the post-install restart hook rolls GMS once SystemUpdate is done
+          kubectl get job -n meta rtest-datahub-gms-restart -o jsonpath='{.status.succeeded}' | grep -qx 1
+          kubectl rollout status -n meta deployment/rtest-datahub-gms --timeout=600s
+          uid="$(kubectl get pod -n meta -l app.kubernetes.io/component=gms -o jsonpath='{.items[0].spec.securityContext.runAsUser}')"
+          echo "runAsUser: $uid"; test "$uid" = "1001"
+
+      - name: Metadata flow (login, token, ingest, GraphQL read-back, search)
+        run: |
+          set -euo pipefail
+          kubectl port-forward -n meta svc/rtest-datahub-gms 18080:8080 >/tmp/pf-gms.log 2>&1 &
+          kubectl port-forward -n meta svc/rtest-datahub 19002:9002 >/tmp/pf-fe.log 2>&1 &
+          sleep 5
+          GMS=http://127.0.0.1:18080; FE=http://127.0.0.1:19002
+          # GMS is healthy only after it has read the SystemUpdate record.
+          for i in $(seq 1 60); do curl -fsS "$GMS/health" >/dev/null 2>&1 && break; [ "$i" = 60 ] && { echo "GMS never healthy"; exit 1; }; sleep 5; done
+          cfg="$(curl -fsS "$GMS/config")"
+          ver="$(awk '/^appVersion:/{gsub(/"/,"",$2); print $2}' "${CHART_DIR}/Chart.yaml")"
+          grep -q "\"version\" : \"v$ver\"" <<<"$cfg" || { echo "GMS is not v$ver"; exit 1; }
+          pw="$(kubectl get secret -n meta rtest-datahub -o jsonpath='{.data.admin-password}' | base64 -d)"
+          test -n "$pw"
+          login() { curl -sS -o /dev/null -w '%{http_code}' -c /tmp/jar "$FE/logIn" -H 'Content-Type: application/json' -d "{\"username\":\"datahub\",\"password\":\"$1\"}"; }
+          code="$(login datahub)"; echo "default password: HTTP $code"; test "$code" != 200
+          code="$(login "$pw")"; echo "generated password: HTTP $code"; test "$code" = 200
+          tok="$(curl -fsS -b /tmp/jar "$FE/api/v2/graphql" -H 'Content-Type: application/json' \
+            -d '{"query":"mutation { createAccessToken(input:{type:PERSONAL, actorUrn:\"urn:li:corpuser:datahub\", duration:ONE_HOUR, name:\"gate\"}) { accessToken } }"}' \
+            | sed -n 's/.*"accessToken":"\([^"]*\)".*/\1/p')"
+          test -n "$tok"
+          URN='urn:li:dataset:(urn:li:dataPlatform:hive,quench.gate,PROD)'
+          code="$(curl -sS -o /dev/null -w '%{http_code}' "$GMS/api/graphql" -H 'Content-Type: application/json' -d '{"query":"{ me { corpUser { urn } } }"}')"
+          echo "anonymous GraphQL: HTTP $code"; test "$code" = 401
+          res="$(curl -fsS -X POST "$GMS/aspects?action=ingestProposal" -H "Authorization: Bearer $tok" \
+            -H 'Content-Type: application/json' -H 'X-RestLi-Protocol-Version: 2.0.0' \
+            -d "{\"proposal\":{\"entityType\":\"dataset\",\"entityUrn\":\"$URN\",\"changeType\":\"UPSERT\",\"aspectName\":\"datasetProperties\",\"aspect\":{\"value\":\"{\\\"name\\\":\\\"quench-gate\\\",\\\"description\\\":\\\"ingested by the kind gate\\\"}\",\"contentType\":\"application/json\"}}}")"
+          echo "ingest: $res"; grep -q '"value":"success"' <<<"$res"
+          got="$(curl -fsS "$GMS/api/graphql" -H "Authorization: Bearer $tok" -H 'Content-Type: application/json' \
+            -d "{\"query\":\"{ dataset(urn: \\\"$URN\\\") { properties { name description } } }\"}")"
+          echo "GraphQL: $got"; grep -q '"name":"quench-gate"' <<<"$got"
+          # search only finds it once the embedded MAE consumer has carried it Kafka -> index
+          for i in $(seq 1 30); do
+            s="$(curl -fsS -b /tmp/jar "$FE/api/v2/graphql" -H 'Content-Type: application/json' -d '{"query":"{ search(input:{type:DATASET, query:\"quench\", start:0, count:5}) { total } }"}')"
+            grep -q '"total":[1-9]' <<<"$s" && break
+            [ "$i" = 30 ] && { echo "dataset never reached search: $s"; exit 1; }
+            sleep 4
+          done
+          echo "metadata flow passed: generated login, token, REST ingest, GraphQL read-back, search"
+
+      - name: Upgrade gate (pre-upgrade SystemUpdate, generated secrets kept)
+        run: |
+          set -euo pipefail
+          before="$(kubectl get secret -n meta rtest-datahub -o jsonpath='{.data.admin-password}')"
+          helm upgrade rtest "${CHART_DIR}" -n meta -f "${CHART_DIR}/ci/default-values.yaml" --set-string podAnnotations.gate=upgrade --wait --timeout 20m
+          kubectl get job -n meta rtest-datahub-system-update -o jsonpath='{.status.succeeded}' | grep -qx 1
+          after="$(kubectl get secret -n meta rtest-datahub -o jsonpath='{.data.admin-password}')"
+          test "$before" = "$after"
+          kubectl rollout status -n meta deployment/rtest-datahub-gms --timeout=600s
+          kubectl rollout status -n meta deployment/rtest-datahub --timeout=300s
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          kubectl get pods,jobs -n meta -o wide || true
+          kubectl get events -n meta --sort-by=.lastTimestamp | tail -60 || true
+          for p in $(kubectl get pods -n meta -o name); do
+            for c in $(kubectl get -n meta "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c]"; kubectl logs -n meta "$p" -c "$c" --tail=200 || true
+              echo "=== $p [$c] previous"; kubectl logs -n meta "$p" -c "$c" --previous --tail=100 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/datahub-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"   # fail loudly rather than handing cosign an empty ref
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/datahub@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@1d808f7d7f6995cc68b7bf507bfe5c5446e1dc9d # v2.0.1
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -q REPLACE "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push. Register the ArtifactHub repo and set the ID."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/datahub:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

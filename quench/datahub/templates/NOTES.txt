@@ -1,0 +1,16 @@
+DataHub {{ .Chart.AppVersion }} is installed.
+
+The SystemUpdate hook has created the tables, topics and indices. GMS reports healthy
+on /health once it has read that upgrade record (a minute or two after the hook).
+
+1. Open the UI:
+     kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+     http://localhost:{{ .Values.service.port }}/
+
+2. Log in as "datahub" with the generated password:
+     kubectl get secret -n {{ .Release.Namespace }} {{ include "quench-common.fullname" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+
+3. GMS (REST.li, OpenAPI, GraphQL) for ingestion, inside the namespace:
+     http://{{ include "datahub.gmsName" . }}:{{ .Values.service.gmsPort }}
+   Create a personal access token under Settings > Access Tokens and send it as
+   "Authorization: Bearer <token>".

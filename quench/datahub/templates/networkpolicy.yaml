@@ -1,0 +1,27 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- range $component, $port := dict "gms" "http" "frontend" "http" }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "quench-common.fullname" $ }}-{{ $component }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "datahub.selectorLabels" (dict "ctx" $ "component" $component) | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # GMS APIs (frontend, ingestion, the setup job) or the UI: namespace-internal
+    # unless networkPolicy.allowExternal.
+    - ports:
+        - port: {{ $port }}
+          protocol: TCP
+      {{- if not $.Values.networkPolicy.allowExternal }}
+      from:
+        - podSelector: {}
+      {{- end }}
+{{- end }}
+{{- end }}

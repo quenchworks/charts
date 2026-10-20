@@ -1,0 +1,92 @@
+{{/* GMS readiness is a TCP check, not /health: GMS answers /health 503 until the
+     SystemUpdate hook has run, and a post-install hook runs only after `helm install
+     --wait` (or Argo CD) sees the pods ready, so an HTTP readiness check would deadlock
+     the first install. Liveness is TCP for the same reason; /health is what the gate and
+     the NOTES check once the hook is done. */}}
+{{- $probe := dict "tcpSocket" (dict "port" "http") "initialDelaySeconds" 30 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "datahub.gmsName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gms
+spec:
+  replicas: {{ .Values.gms.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "datahub.selectorLabels" (dict "ctx" . "component" "gms") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "datahub.selectorLabels" (dict "ctx" . "component" "gms") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "datahub.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: gms
+          image: {{ include "datahub.image" (dict "ctx" . "part" "gms") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "datahub.backendEnv" . | nindent 12 }}
+            - name: METADATA_SERVICE_AUTH_ENABLED
+              value: "true"
+            # The Kafka consumers run inside GMS (upstream's default deployment shape).
+            - name: MAE_CONSUMER_ENABLED
+              value: "true"
+            - name: MCE_CONSUMER_ENABLED
+              value: "true"
+            - name: PE_CONSUMER_ENABLED
+              value: "true"
+            {{- with .Values.gms.javaOpts }}
+            - name: JDK_JAVA_OPTIONS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.gms.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          readinessProbe:
+            {{- toYaml $probe | nindent 12 }}
+          livenessProbe:
+            {{- toYaml (merge (dict "initialDelaySeconds" 120 "failureThreshold" 6) $probe) | nindent 12 }}
+          resources:
+            {{- toYaml .Values.gms.resources | nindent 12 }}
+          volumeMounts:
+            # logs (/tmp/datahub/logs), the file object store and Kafka's native libraries
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "datahub.gmsName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gms
+spec:
+  type: ClusterIP
+  ports:
+    # REST.li, OpenAPI, GraphQL (/api/graphql) and the internal schema registry
+    - port: {{ .Values.service.gmsPort }}
+      targetPort: http
+      name: http
+      protocol: TCP
+  selector:
+    {{- include "datahub.selectorLabels" (dict "ctx" . "component" "gms") | nindent 4 }}

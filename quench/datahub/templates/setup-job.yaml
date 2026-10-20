@@ -1,0 +1,115 @@
+{{/*
+SystemUpdate, as a Helm hook. post-install: it needs the bundled MySQL, Kafka and
+Elasticsearch, which are ordinary resources of this release (a pre-install hook would run
+before they exist); an attempt made while they are still starting exits non-zero and the
+Job retries. pre-upgrade: it migrates before the new GMS rolls, which is the order
+DataHub's upgrade guide asks for. The Job is kept after success or failure for its log
+and replaced on the next run.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "quench-common.fullname" . }}-system-update
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: setup
+  annotations:
+    helm.sh/hook: post-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: {{ .Values.setup.backoffLimit }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: setup
+    spec:
+      restartPolicy: Never
+      activeDeadlineSeconds: {{ .Values.setup.podDeadlineSeconds }}
+      serviceAccountName: {{ include "datahub.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: system-update
+          image: {{ include "datahub.image" (dict "ctx" . "part" "upgrade") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args: ["-u", "SystemUpdate"]
+          env:
+            {{- include "datahub.backendEnv" . | nindent 12 }}
+            - name: DATAHUB_SQL_SETUP_ENABLED
+              value: "true"
+            - name: DATAHUB_PRECREATE_TOPICS
+              value: "true"
+            - name: USE_CONFLUENT_SCHEMA_REGISTRY
+              value: "false"
+            - name: SCHEMA_REGISTRY_SYSTEM_UPDATE
+              value: "true"
+            - name: SPRING_KAFKA_PROPERTIES_AUTO_REGISTER_SCHEMAS
+              value: "true"
+            - name: SPRING_KAFKA_PROPERTIES_USE_LATEST_VERSION
+              value: "true"
+            - name: PARTITIONS
+              value: {{ .Values.topics.partitions | quote }}
+            - name: REPLICATION_FACTOR
+              value: {{ .Values.topics.replicationFactor | quote }}
+            {{- with .Values.setup.javaOpts }}
+            - name: JDK_JAVA_OPTIONS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.setup.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.setup.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+{{/*
+Restart GMS once SystemUpdate is done. A GMS that was already running while SystemUpdate
+ran (always the case on a first install, where the hook runs after the pods exist) keeps
+dropping every write afterwards ("DataHub is currently in read only mode"), so tokens it
+mints are rejected with 401. Measured 2026-10-20 in kind; a GMS started after
+SystemUpdate is writable. The restart is a rolling one and also follows each upgrade.
+*/}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "quench-common.fullname" . }}-gms-restart
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: setup
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-weight: "10"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: setup
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "quench-common.fullname" . }}-gms-restart
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: restart
+          image: {{ include "datahub.image" (dict "ctx" . "part" "kubectl") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args: ["rollout", "restart", "deployment/{{ include "datahub.gmsName" . }}", "-n", "{{ .Release.Namespace }}"]
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 200m, memory: 128Mi }

@@ -1,0 +1,108 @@
+{{/* The frontend answers /admin with 200 as soon as Play is up, independent of GMS. */}}
+{{- $probe := dict "httpGet" (dict "path" "/admin" "port" "http") "initialDelaySeconds" 20 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  replicas: {{ .Values.frontend.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "datahub.selectorLabels" (dict "ctx" . "component" "frontend") | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "datahub.selectorLabels" (dict "ctx" . "component" "frontend") | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "datahub.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: frontend
+          image: {{ include "datahub.image" (dict "ctx" . "part" "frontend") }}
+          imagePullPolicy: {{ .Values.images.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: DATAHUB_GMS_HOST
+              value: {{ include "datahub.gmsName" . | quote }}
+            - name: DATAHUB_GMS_PORT
+              value: {{ .Values.service.gmsPort | quote }}
+            - name: DATAHUB_SYSTEM_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "quench-common.fullname" . }}
+                  key: system-client-secret
+            - name: DATAHUB_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "quench-common.fullname" . }}
+                  key: frontend-secret
+            # usage analytics go to DataHub's own DataHubUsageEvent_v1 topic
+            - name: KAFKA_BOOTSTRAP_SERVER
+              value: {{ include "datahub.kafka" . | quote }}
+            - name: ELASTIC_CLIENT_HOST
+              value: {{ include "datahub.es.host" . | quote }}
+            - name: ELASTIC_CLIENT_PORT
+              value: {{ include "datahub.es.port" . | quote }}
+            {{- with .Values.frontend.javaOpts }}
+            - name: JDK_JAVA_OPTIONS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.frontend.extraEnvVars }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 9002
+              protocol: TCP
+          readinessProbe:
+            {{- toYaml $probe | nindent 12 }}
+          livenessProbe:
+            {{- toYaml (merge (dict "initialDelaySeconds" 60 "failureThreshold" 6) $probe) | nindent 12 }}
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          volumeMounts:
+            # the admin login (the image ships an empty user.props: no default password)
+            - name: auth
+              mountPath: /datahub-frontend/conf/user.props
+              subPath: user.props
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: auth
+          secret:
+            secretName: {{ include "quench-common.fullname" . }}
+            items:
+              - key: user.props
+                path: user.props
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: frontend
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      name: http
+      protocol: TCP
+  selector:
+    {{- include "datahub.selectorLabels" (dict "ctx" . "component" "frontend") | nindent 4 }}
