@@ -51,16 +51,16 @@ jobs:
           kubectl port-forward rtest-solr-0 8983:8983 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # health endpoint reports OK
-          curl -fsS 'http://127.0.0.1:8983/solr/admin/info/health' | grep -q '"status":"OK"'
+          curl -fsS 'http://127.0.0.1:8983/solr/admin/info/health' | >/dev/null grep '"status":"OK"'
           # the "gate" core is precreated via SOLR_CORE=gate (ci/default-values.yaml).
           # ensure it exists (idempotent create in case the precreate path changes).
-          curl -fsS 'http://127.0.0.1:8983/solr/admin/cores?action=STATUS&core=gate' | grep -q '"name":"gate"' \
+          curl -fsS 'http://127.0.0.1:8983/solr/admin/cores?action=STATUS&core=gate' | >/dev/null grep '"name":"gate"' \
             || curl -fsS 'http://127.0.0.1:8983/solr/admin/cores?action=CREATE&name=gate&configSet=_default'
           # index a document and commit
           curl -fsS -XPOST 'http://127.0.0.1:8983/solr/gate/update?commit=true' \
             -H 'Content-Type: application/json' -d '[{"id":"1","title_s":"quench"}]' >/dev/null
           # query it back and assert the indexed value comes through
-          curl -fsS 'http://127.0.0.1:8983/solr/gate/select?q=id:1' | grep -q 'quench'
+          curl -fsS 'http://127.0.0.1:8983/solr/gate/select?q=id:1' | >/dev/null grep 'quench'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

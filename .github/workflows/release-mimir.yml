@@ -58,14 +58,14 @@ jobs:
             --wait --timeout 8m
           kubectl rollout status statefulset/rtest-mimir --timeout=480s
           # PVC must be bound (volumeClaimTemplate is named "storage")
-          kubectl get pvc storage-rtest-mimir-0 -o jsonpath='{.status.phase}' | grep -q Bound
+          kubectl get pvc storage-rtest-mimir-0 -o jsonpath='{.status.phase}' | >/dev/null grep Bound
           # probe over a port-forward (the runtime image has no HTTP client)
           kubectl port-forward svc/rtest-mimir 8080:8080 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # /ready returns 200 "ready" once every component is up
-          curl -fsS http://127.0.0.1:8080/ready | grep -q ready
+          curl -fsS http://127.0.0.1:8080/ready | >/dev/null grep ready
           # effective config must render
-          curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/v1/status/config | grep -q 200
+          curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/api/v1/status/config | >/dev/null grep 200
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

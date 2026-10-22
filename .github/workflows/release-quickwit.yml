@@ -58,15 +58,15 @@ jobs:
             --wait --timeout 5m
           kubectl rollout status statefulset/rtest-quickwit --timeout=300s
           # PVC must be bound
-          kubectl get pvc data-rtest-quickwit-0 -o jsonpath='{.status.phase}' | grep -q Bound
+          kubectl get pvc data-rtest-quickwit-0 -o jsonpath='{.status.phase}' | >/dev/null grep Bound
           # probe over a port-forward (the runtime image has no HTTP client)
           kubectl port-forward svc/rtest-quickwit 7280:7280 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # /health/livez and /health/readyz return 200 once the REST server is up
-          curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7280/health/livez | grep -q 200
-          curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7280/health/readyz | grep -q 200
+          curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7280/health/livez | >/dev/null grep 200
+          curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:7280/health/readyz | >/dev/null grep 200
           # REST roundtrip: index list returns a JSON array on a fresh node
-          curl -fsS http://127.0.0.1:7280/api/v1/indexes | grep -q '\['
+          curl -fsS http://127.0.0.1:7280/api/v1/indexes | >/dev/null grep '\['
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

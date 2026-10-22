@@ -67,16 +67,16 @@ jobs:
                   -o jsonpath='{.items[0].metadata.name}')"
           kubectl -n crossplane-system port-forward "pod/${pod}" 8081:8081 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
-          curl -fsS http://127.0.0.1:8081/healthz | grep -q '^ok$'
-          curl -fsS http://127.0.0.1:8081/readyz  | grep -q '^ok$'
+          curl -fsS http://127.0.0.1:8081/healthz | >/dev/null grep '^ok$'
+          curl -fsS http://127.0.0.1:8081/readyz  | >/dev/null grep '^ok$'
 
           # 3. `core init` really minted the webhook TLS material into the empty Secrets
           #    the chart created, and registered the webhook with that CA bundle.
           kubectl -n crossplane-system get secret rtest-crossplane-tls-server \
-            -o jsonpath='{.data.tls\.crt}' | base64 -d | grep -q "BEGIN CERTIFICATE"
+            -o jsonpath='{.data.tls\.crt}' | base64 -d | >/dev/null grep "BEGIN CERTIFICATE"
           # (the VWC name is fixed upstream, hence one Crossplane per cluster)
           kubectl get validatingwebhookconfiguration crossplane-no-usages \
-            -o jsonpath='{.webhooks[0].clientConfig.service.name}' | grep -qx rtest-crossplane
+            -o jsonpath='{.webhooks[0].clientConfig.service.name}' | >/dev/null grep -x rtest-crossplane
 
           # 4. the control plane actually SERVES its own API: create a real XRD and wait
           #    for Crossplane to establish the CRD it derives from it. This exercises the

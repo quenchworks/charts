@@ -50,13 +50,13 @@ jobs:
           # /healthz returns 200 once the server binds (server + webhook + UI port)
           kubectl port-forward statefulset/rtest-atlantis 4141:4141 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
-          curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:4141/healthz | grep -q 200
+          curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:4141/healthz | >/dev/null grep 200
           # the bundled OpenTofu (NOT Terraform) is on PATH in the pod
-          kubectl exec rtest-atlantis-0 -- tofu version | grep -q OpenTofu
+          kubectl exec rtest-atlantis-0 -- tofu version | >/dev/null grep OpenTofu
           # nonroot uid 1001 + read-only rootfs
           test "$(kubectl get pod rtest-atlantis-0 -o jsonpath='{.spec.securityContext.runAsUser}')" = "1001"
           test "$(kubectl get pod rtest-atlantis-0 -o jsonpath='{.spec.containers[0].securityContext.readOnlyRootFilesystem}')" = "true"
-          kubectl exec rtest-atlantis-0 -- id | grep -q 'uid=1001'
+          kubectl exec rtest-atlantis-0 -- id | >/dev/null grep 'uid=1001'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

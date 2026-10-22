@@ -117,7 +117,7 @@ jobs:
           dp_image="$(helm get values rtest -a -o json \
             | python3 -c 'import json,sys;v=json.load(sys.stdin)["dataPlane"]["image"];print(v["repository"]+"@"+v["digest"])')"
           kubectl get pod -l gateway.networking.k8s.io/gateway-name=example \
-            -o jsonpath='{.items[0].spec.containers[?(@.name=="kgateway-proxy")].image}' | grep -qxF "$dp_image"
+            -o jsonpath='{.items[0].spec.containers[?(@.name=="kgateway-proxy")].image}' | >/dev/null grep -xF "$dp_image"
 
           # End to end: the provisioned Envoy fleet must serve a route it was given
           # over xDS. A DirectResponse needs no backend image and exercises this
@@ -154,7 +154,7 @@ jobs:
           kubectl port-forward svc/example 8080:80 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           curl -fsS --retry 20 --retry-delay 3 --retry-all-errors http://127.0.0.1:8080/ \
-            | grep -qx 'quenchworks-kgateway-ok'
+            | >/dev/null grep -x 'quenchworks-kgateway-ok'
 
           # Nothing crash-looped on the way here.
           test -z "$(kubectl get pods -o jsonpath='{range .items[*].status.containerStatuses[*]}{.restartCount}{"\n"}{end}' | grep -v '^0$')"

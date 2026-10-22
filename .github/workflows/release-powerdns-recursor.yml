@@ -62,7 +62,7 @@ jobs:
           fwd rtest-powerdns-recursor
           a="$(q www.quench.test A)"; echo "$a"
           grep -qE '^www\.quench\.test\.\s+[0-9]+\s+IN\s+A\s+192\.0\.2\.10' <<<"$a"
-          q missing.quench.test A | grep -q 'status: NXDOMAIN'
+          q missing.quench.test A | >/dev/null grep 'status: NXDOMAIN'
 
           # 2. Real recursion from the root. The runner's network is not ours to
           #    promise, so a failure here warns instead of failing the release.
@@ -80,7 +80,7 @@ jobs:
           fwd strict-powerdns-recursor
           r="$(q www.quench.test A 2>&1 || true)"; echo "$r"
           if grep -q '192\.0\.2\.10' <<<"$r"; then echo "answered a client outside allowFrom"; exit 1; fi
-          kubectl logs deployment/strict-powerdns-recursor | grep 'acl="allow-from"' | grep -q 'addresses="192.0.2.0/24"'
+          kubectl logs deployment/strict-powerdns-recursor | grep 'acl="allow-from"' | >/dev/null grep 'addresses="192.0.2.0/24"'
           echo "client outside allowFrom got no answer"
           kill $pf 2>/dev/null || true
 

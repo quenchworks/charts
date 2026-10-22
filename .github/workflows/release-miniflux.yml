@@ -62,14 +62,14 @@ jobs:
           kubectl rollout status statefulset/rtest-postgresql --timeout=300s
           kubectl rollout status deployment/rtest-miniflux --timeout=300s
           # postgres PVC must be bound
-          kubectl get pvc data-rtest-postgresql-0 -o jsonpath='{.status.phase}' | grep -q Bound
+          kubectl get pvc data-rtest-postgresql-0 -o jsonpath='{.status.phase}' | >/dev/null grep Bound
           # probe over a port-forward (the runtime image has no HTTP client)
           kubectl port-forward svc/rtest-miniflux 8080:80 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # /healthcheck returns 200 "OK" once the server is up and the DB is reachable
-          curl -fsS http://127.0.0.1:8080/healthcheck | grep -q OK
+          curl -fsS http://127.0.0.1:8080/healthcheck | >/dev/null grep OK
           # bonus: log in with the seeded admin via the REST API
-          curl -fsS -u admin:quench-admin http://127.0.0.1:8080/v1/me | grep -q '"username":"admin"'
+          curl -fsS -u admin:quench-admin http://127.0.0.1:8080/v1/me | >/dev/null grep '"username":"admin"'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

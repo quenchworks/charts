@@ -48,10 +48,10 @@ jobs:
           kubectl port-forward svc/rtest-krakend 8080:80 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # lura's built-in health endpoint: the server is up
-          curl -fsS http://127.0.0.1:8080/__health | grep -q '"status":"ok"'
+          curl -fsS http://127.0.0.1:8080/__health | >/dev/null grep '"status":"ok"'
           # the endpoint DECLARED IN THE SHIPPED CONFIG: proves the gateway parsed
           # our krakend.json, registered the route and proxied a real backend call
-          curl -fsS http://127.0.0.1:8080/quench/sample | grep -q '"status":"ok"'
+          curl -fsS http://127.0.0.1:8080/quench/sample | >/dev/null grep '"status":"ok"'
           # an undeclared route must 404 from the router, not fail to connect
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/no-such-route)" = 404
           # nothing crash-looped on the way to Ready

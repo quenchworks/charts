@@ -58,12 +58,12 @@ jobs:
             --wait --timeout 5m
           kubectl rollout status statefulset/rtest-headscale --timeout=300s
           # PVC must be bound
-          kubectl get pvc data-rtest-headscale-0 -o jsonpath='{.status.phase}' | grep -q Bound
+          kubectl get pvc data-rtest-headscale-0 -o jsonpath='{.status.phase}' | >/dev/null grep Bound
           # probe over a port-forward (the runtime image has no HTTP client)
           kubectl port-forward svc/rtest-headscale 8080:8080 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # /health returns 200 once the server generated its noise key and opened the DB
-          curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/health | grep -q '^200$'
+          curl -fsS -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/health | >/dev/null grep '^200$'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

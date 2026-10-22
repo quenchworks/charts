@@ -53,13 +53,13 @@ jobs:
           # NOTE: pg_isready over the socket can report false-negatives in the published
           # image (peer-auth quirk), so HA is asserted via patronictl, NOT pg_isready.
           for i in $(seq 1 30); do
-            kubectl exec rtest-timescaledb-0 -c timescaledb -- patronictl list 2>/dev/null | grep -qi 'Leader' && break
+            kubectl exec rtest-timescaledb-0 -c timescaledb -- patronictl list 2>/dev/null | >/dev/null grep -i 'Leader' && break
             sleep 2
           done
           kubectl exec rtest-timescaledb-0 -c timescaledb -- patronictl list
-          kubectl exec rtest-timescaledb-0 -c timescaledb -- patronictl list | grep -qi 'Leader'
+          kubectl exec rtest-timescaledb-0 -c timescaledb -- patronictl list | >/dev/null grep -i 'Leader'
           # a replica is actually streaming from the leader (real replication, not just membership)
-          kubectl exec rtest-timescaledb-0 -c timescaledb -- patronictl list | grep -q 'streaming'
+          kubectl exec rtest-timescaledb-0 -c timescaledb -- patronictl list | >/dev/null grep 'streaming'
           # Prove the TimescaleDB extension actually loaded (created on bootstrap, then
           # replicated to standbys): extversion must be non-empty on this member's app db.
           ext="$(kubectl exec rtest-timescaledb-0 -c timescaledb -- psql -h /var/run/postgresql -U postgres -d qwapp -tAc "SELECT extversion FROM pg_extension WHERE extname='timescaledb'")"

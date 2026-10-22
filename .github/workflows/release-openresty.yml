@@ -58,12 +58,12 @@ jobs:
           echo "$body"
           grep -q '^quench openresty [0-9]* LuaJIT 2\.1' <<<"$body" || { echo "Lua handler did not answer"; exit 1; }
           # the image reports the chart's appVersion
-          kubectl exec deploy/rtest-openresty -- /usr/local/openresty/bin/openresty -v 2>&1 | grep -q "openresty/${appver}" \
+          kubectl exec deploy/rtest-openresty -- /usr/local/openresty/bin/openresty -v 2>&1 | >/dev/null grep "openresty/${appver}" \
             || { echo "image is not openresty ${appver}"; exit 1; }
           # resty.sha256 is FFI into the libcrypto nginx links
           test "$(curl -fsS http://127.0.0.1:8080/sha)" = "a8b51e95fe15708a5f253f567e72f00f052cd6c11f013b19c5b122bc52b98073"
           grep -q 'Active connections' <<<"$(curl -fsS http://127.0.0.1:8080/stub_status)"
-          if kubectl logs deploy/rtest-openresty | grep -qiE '\[emerg\]|\[alert\]|read-only file system'; then
+          if kubectl logs deploy/rtest-openresty | >/dev/null grep -iE '\[emerg\]|\[alert\]|read-only file system'; then
             kubectl logs deploy/rtest-openresty | tail -30; exit 1
           fi
           echo "install gate OK: Lua served from the chart config, resty.sha256 correct, appVersion ${appver}"

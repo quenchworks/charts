@@ -52,7 +52,7 @@ jobs:
           out="$(kubectl run cqlclient --rm -i --restart=Never --image=cassandra:5.0 --command -- \
             cqlsh rtest-cassandra 9042 -e "CREATE KEYSPACE IF NOT EXISTS gate WITH replication={'class':'SimpleStrategy','replication_factor':1}; CREATE TABLE IF NOT EXISTS gate.t(id int PRIMARY KEY, v text); INSERT INTO gate.t(id,v) VALUES (1,'quench'); SELECT v FROM gate.t WHERE id=1;" 2>&1)"
           echo "$out"
-          echo "$out" | grep -q quench || { echo "::error::CQL roundtrip did not return the expected value"; exit 1; }
+          echo "$out" | >/dev/null grep quench || { echo "::error::CQL roundtrip did not return the expected value"; exit 1; }
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

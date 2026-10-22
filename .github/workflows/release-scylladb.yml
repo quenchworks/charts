@@ -66,7 +66,7 @@ jobs:
             out="$(kubectl run "cqlclient-${i}" --rm -i --restart=Never --image=scylladb/scylla:6.2 --command -- \
               cqlsh rtest-scylladb 9042 --connect-timeout=20 --request-timeout=30 -e "$CQL" 2>&1 || true)"
             echo "attempt ${i}:"; echo "$out"
-            if echo "$out" | grep -q quench; then ok=1; break; fi
+            if echo "$out" | >/dev/null grep quench; then ok=1; break; fi
             echo "CQL not ready yet, retrying in 15s..."; sleep 15
           done
           [ -n "$ok" ] || { echo "::error::CQL roundtrip did not return the expected value"; exit 1; }

@@ -51,10 +51,10 @@ jobs:
           # that must return the seeded base entry
           kubectl exec rtest-openldap-0 -- \
             ldapwhoami -x -H ldap://127.0.0.1:1389 -D "cn=admin,dc=example,dc=org" -w "$pw" \
-            | grep -qi '^dn:cn=admin,dc=example,dc=org$'
+            | >/dev/null grep -i '^dn:cn=admin,dc=example,dc=org$'
           kubectl exec rtest-openldap-0 -- \
             ldapsearch -x -LLL -H ldap://127.0.0.1:1389 -b "dc=example,dc=org" -s base dn \
-            | grep -q '^dn: dc=example,dc=org$'
+            | >/dev/null grep '^dn: dc=example,dc=org$'
           # and a real write through the admin bind
           kubectl exec -i rtest-openldap-0 -- \
             ldapadd -x -H ldap://127.0.0.1:1389 -D "cn=admin,dc=example,dc=org" -w "$pw" <<'LDIF'
@@ -64,7 +64,7 @@ jobs:
           LDIF
           kubectl exec rtest-openldap-0 -- \
             ldapsearch -x -LLL -H ldap://127.0.0.1:1389 -b "dc=example,dc=org" "(ou=users)" dn \
-            | grep -q '^dn: ou=users,dc=example,dc=org$'
+            | >/dev/null grep '^dn: ou=users,dc=example,dc=org$'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

@@ -52,10 +52,10 @@ jobs:
           kubectl rollout status statefulset/rtest-redis-replica --timeout=120s
           kubectl rollout status statefulset/rtest-redis-sentinel --timeout=120s
           # liveness: PONG (no auth) or NOAUTH (auth on) both prove redis is answering
-          kubectl exec rtest-redis-primary-0 -c redis -- redis-cli ping 2>&1 | grep -qE 'PONG|NOAUTH'
+          kubectl exec rtest-redis-primary-0 -c redis -- redis-cli ping 2>&1 | >/dev/null grep -E 'PONG|NOAUTH'
           # HA signal: Sentinel reports a master for the monitored set
           kubectl exec rtest-redis-sentinel-0 -c sentinel -- \
-            redis-cli -p 26379 sentinel get-master-addr-by-name mymaster | grep -qE '[0-9]'
+            redis-cli -p 26379 sentinel get-master-addr-by-name mymaster | >/dev/null grep -E '[0-9]'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

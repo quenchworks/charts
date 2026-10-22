@@ -61,7 +61,7 @@ jobs:
             sleep 5
           done
           test -n "$ok"   # fail loudly if /health never reported 200
-          curl -fsS http://127.0.0.1:7700/health | grep -q '"available"'
+          curl -fsS http://127.0.0.1:7700/health | >/dev/null grep '"available"'
           echo "/health -> 200 (available)"
 
           # PROVE AUTH end-to-end: pull the generated master key from the chart Secret.
@@ -96,10 +96,10 @@ jobs:
           # real API roundtrip (WITH key): create index, add a doc, search it back typo-tolerantly.
           curl -fsS -X POST 'http://127.0.0.1:7700/indexes' \
             -H "Authorization: Bearer $KEY" -H 'content-type: application/json' \
-            -d '{"uid":"citest","primaryKey":"id"}' | grep -q '"taskUid"'
+            -d '{"uid":"citest","primaryKey":"id"}' | >/dev/null grep '"taskUid"'
           curl -fsS -X POST 'http://127.0.0.1:7700/indexes/citest/documents' \
             -H "Authorization: Bearer $KEY" -H 'content-type: application/json' \
-            -d '[{"id":1,"title":"Interstellar"},{"id":2,"title":"Inception"}]' | grep -q '"taskUid"'
+            -d '[{"id":1,"title":"Interstellar"},{"id":2,"title":"Inception"}]' | >/dev/null grep '"taskUid"'
           # wait for the async indexing task to finish processing
           for i in $(seq 1 30); do
             done_n="$(curl -fsS -H "Authorization: Bearer $KEY" 'http://127.0.0.1:7700/tasks?statuses=succeeded' | grep -o '"uid"' | wc -l || true)"
@@ -110,7 +110,7 @@ jobs:
             -H "Authorization: Bearer $KEY" -H 'content-type: application/json' \
             -d '{"q":"interstelar"}')"
           echo "$out"
-          echo "$out" | grep -q '"id":1'
+          echo "$out" | >/dev/null grep '"id":1'
           echo "typo-tolerant search hit matched"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",

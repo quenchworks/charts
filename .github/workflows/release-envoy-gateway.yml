@@ -97,7 +97,7 @@ jobs:
           proxy_image="$(helm get values rtest -a -o json \
             | python3 -c 'import json,sys;v=json.load(sys.stdin)["envoyProxy"]["image"];print(v["repository"]+"@"+v["digest"])')"
           kubectl get pod -l gateway.envoyproxy.io/owning-gateway-name=example \
-            -o jsonpath='{.items[0].spec.containers[?(@.name=="envoy")].image}' | grep -qxF "$proxy_image"
+            -o jsonpath='{.items[0].spec.containers[?(@.name=="envoy")].image}' | >/dev/null grep -xF "$proxy_image"
 
           # kind has no LoadBalancer, so a Gateway never gets an address and never
           # reaches Programmed. Attach an EnvoyProxy that provisions a ClusterIP
@@ -156,7 +156,7 @@ jobs:
           kubectl port-forward "$svc" 8080:80 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           curl -fsS --retry 10 --retry-delay 3 --retry-all-errors http://127.0.0.1:8080/ \
-            | grep -qx 'quenchworks-envoy-gateway-ok'
+            | >/dev/null grep -x 'quenchworks-envoy-gateway-ok'
 
           # Nothing crash-looped on the way here.
           test -z "$(kubectl get pods -o jsonpath='{range .items[*].status.containerStatuses[*]}{.restartCount}{"\n"}{end}' | grep -v '^0$')"

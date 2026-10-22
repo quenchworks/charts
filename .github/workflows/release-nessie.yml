@@ -48,7 +48,7 @@ jobs:
                  for i in $(seq 1 30); do curl -fsS http://127.0.0.1:19120/api/v2/config >/dev/null 2>&1 && return; sleep 1; done; return 1; }
           API=http://127.0.0.1:19120/api/v2
           pf
-          curl -fsS "$API/config" | grep -q '"defaultBranch" *: *"main"'
+          curl -fsS "$API/config" | >/dev/null grep '"defaultBranch" *: *"main"'
           hash="$(curl -fsS "$API/trees/main" | sed -n 's/.*"hash" *: *"\([0-9a-f]*\)".*/\1/p')"
           test -n "$hash"
           curl -fsS -X POST -H 'Content-Type: application/json' \
@@ -64,8 +64,8 @@ jobs:
           kubectl delete pod -l app.kubernetes.io/instance=rtest --wait
           kubectl rollout status deployment/rtest-nessie --timeout=300s
           pf
-          curl -fsS "$API/trees" | grep -q '"name" *: *"gate"'
-          curl -fsS "$API/trees/gate/entries" | grep -q '"quench"'
+          curl -fsS "$API/trees" | >/dev/null grep '"name" *: *"gate"'
+          curl -fsS "$API/trees/gate/entries" | >/dev/null grep '"quench"'
           kill $PF
           # the RocksDB native library loaded from the read-only root, no stack traces
           ! kubectl logs deployment/rtest-nessie | grep -E ' ERROR |Exception' || exit 1

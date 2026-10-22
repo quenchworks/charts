@@ -66,9 +66,9 @@ jobs:
           for i in $(seq 1 30); do kubectl apply -f /tmp/col.yaml && break; sleep 3; done
           for i in $(seq 1 60); do kubectl -n gate get deploy gate-collector >/dev/null 2>&1 && break; sleep 2; done
           kubectl -n gate rollout status deploy/gate-collector --timeout=180s
-          kubectl -n gate get deploy gate-collector -o jsonpath='{.spec.template.spec.containers[0].image}' | grep -q '^ghcr.io/quenchworks/images/otel-collector@'
+          kubectl -n gate get deploy gate-collector -o jsonpath='{.spec.template.spec.containers[0].image}' | >/dev/null grep '^ghcr.io/quenchworks/images/otel-collector@'
           # the conversion webhook serves the old version of the same object
-          kubectl -n gate get opentelemetrycollectors.v1alpha1.opentelemetry.io gate -o jsonpath='{.apiVersion}' | grep -q v1alpha1
+          kubectl -n gate get opentelemetrycollectors.v1alpha1.opentelemetry.io gate -o jsonpath='{.apiVersion}' | >/dev/null grep v1alpha1
           # a sidecar collector cannot carry tolerations: the webhook and the CRD CEL rule refuse it
           ! kubectl -n gate apply -f - <<'YAML' 2>/tmp/bad.txt || exit 1
           apiVersion: opentelemetry.io/v1beta1
@@ -92,8 +92,8 @@ jobs:
              "name":"gate-span","kind":1,"startTimeUnixNano":"1700000000000000000","endTimeUnixNano":"1700000001000000000"}]}]}]}
           JSON
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' --data @/tmp/span.json http://127.0.0.1:4318/v1/traces)" = 200
-          for i in $(seq 1 30); do kubectl -n gate logs deploy/gate-collector | grep -q 'gate-span' && break; sleep 2; done
-          kubectl -n gate logs deploy/gate-collector | grep -q 'gate-span'
+          for i in $(seq 1 30); do kubectl -n gate logs deploy/gate-collector | >/dev/null grep 'gate-span' && break; sleep 2; done
+          kubectl -n gate logs deploy/gate-collector | >/dev/null grep 'gate-span'
           ! kubectl -n otel-operator logs deployment/rtest-opentelemetry-operator | grep -E 'panic:|"level":"(fatal|FATAL)"' || exit 1
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

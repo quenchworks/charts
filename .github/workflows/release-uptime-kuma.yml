@@ -49,8 +49,8 @@ jobs:
           # probe over a port-forward (the runtime image has no HTTP client)
           kubectl port-forward svc/rtest-uptime-kuma 3001:3001 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
-          curl -fsS http://127.0.0.1:3001/api/entry-page | grep -q '"type":"entryPage"'
-          curl -fsSL http://127.0.0.1:3001/ | grep -qi '<div id="app"'
+          curl -fsS http://127.0.0.1:3001/api/entry-page | >/dev/null grep '"type":"entryPage"'
+          curl -fsSL http://127.0.0.1:3001/ | >/dev/null grep -i '<div id="app"'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/metrics)" = 401
           # SQLite was created on the PVC (the image has no shell; node checks the file)
           kubectl exec rtest-uptime-kuma-0 -- /usr/bin/node -e \

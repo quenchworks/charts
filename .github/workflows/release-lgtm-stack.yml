@@ -71,7 +71,7 @@ jobs:
           for i in $(seq 1 30); do
             body="$(curl -fsS "http://127.0.0.1:8428/api/v1/query?query=up" || true)"
             echo "vm up attempt $i: $body"
-            if echo "$body" | grep -q '"status":"success"' && echo "$body" | grep -qE '"result":\[[^]]'; then ok=1; break; fi
+            if echo "$body" | >/dev/null grep '"status":"success"' && echo "$body" | >/dev/null grep -E '"result":\[[^]]'; then ok=1; break; fi
             sleep 5
           done
           test -n "$ok" || { echo "VictoriaMetrics 'up' query returned no data — promscrape not working"; exit 1; }
@@ -92,7 +92,7 @@ jobs:
           for i in $(seq 1 30); do
             body="$(curl -fsS "http://127.0.0.1:3100/loki/api/v1/label/namespace/values" || true)"
             echo "loki ns attempt $i: $body"
-            if echo "$body" | grep -q '"status":"success"' && echo "$body" | grep -qE '"data":\[[^]]'; then ingested=1; break; fi
+            if echo "$body" | >/dev/null grep '"status":"success"' && echo "$body" | >/dev/null grep -E '"data":\[[^]]'; then ingested=1; break; fi
             sleep 5
           done
           test -n "$ingested" || { echo "Loki has no 'namespace' label values — Vector->Loki not working"; exit 1; }
@@ -123,9 +123,9 @@ jobs:
             body="$(curl -fsS -u "admin:${pw}" 'http://127.0.0.1:3000/api/datasources' || true)"
             echo "datasources attempt $i: $body"
             # require all three provisioned datasource UIDs to be present
-            if echo "$body" | grep -q '"uid":"metrics"' \
-               && echo "$body" | grep -q '"uid":"loki"' \
-               && echo "$body" | grep -q '"uid":"tempo"'; then ds=1; break; fi
+            if echo "$body" | >/dev/null grep '"uid":"metrics"' \
+               && echo "$body" | >/dev/null grep '"uid":"loki"' \
+               && echo "$body" | >/dev/null grep '"uid":"tempo"'; then ds=1; break; fi
             sleep 5
           done
           test -n "$ds" || { echo "Grafana is missing one of the three provisioned datasources (metrics/loki/tempo)"; exit 1; }

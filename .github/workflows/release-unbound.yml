@@ -48,7 +48,7 @@ jobs:
           kubectl port-forward svc/rtest-unbound 5053:53 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           q() { dig +tcp @127.0.0.1 -p 5053 +time=5 +tries=3 "$@"; }
-          for i in $(seq 1 20); do q +short example.com A | grep -qE '^[0-9.]+$' && break; sleep 3; done
+          for i in $(seq 1 20); do q +short example.com A | >/dev/null grep -E '^[0-9.]+$' && break; sleep 3; done
           q +short example.com A | grep -E '^[0-9.]+$'
           # DNSSEC: a signed zone validates (ad), a broken signature is refused
           q +dnssec isc.org A | grep -E '^;; flags:' | grep ' ad'

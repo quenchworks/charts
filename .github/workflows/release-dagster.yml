@@ -52,12 +52,12 @@ jobs:
           # the webserver loads the example code location over gRPC
           for i in $(seq 1 30); do
             out="$(gql '{ workspaceOrError { ... on Workspace { locationEntries { name loadStatus locationOrLoadError { __typename ... on PythonError { message } } } } } }' || true)"
-            echo "$out" | grep -q '"__typename":"RepositoryLocation"' && break
+            echo "$out" | >/dev/null grep '"__typename":"RepositoryLocation"' && break
             sleep 5
           done
           echo "$out"
-          echo "$out" | grep -q '"name":"example"'
-          echo "$out" | grep -q '"__typename":"RepositoryLocation"' || {
+          echo "$out" | >/dev/null grep '"name":"example"'
+          echo "$out" | >/dev/null grep '"__typename":"RepositoryLocation"' || {
             kubectl logs deployment/rtest-dagster-example --tail=100
             kubectl logs deployment/rtest-dagster-webserver --tail=100
             exit 1
@@ -65,11 +65,11 @@ jobs:
           # the daemon heartbeats through the shared PostgreSQL storage
           for i in $(seq 1 30); do
             out="$(gql '{ instance { daemonHealth { allDaemonStatuses { daemonType healthy } } } }' || true)"
-            echo "$out" | grep -q '"healthy":true' && break
+            echo "$out" | >/dev/null grep '"healthy":true' && break
             sleep 5
           done
           echo "$out"
-          echo "$out" | grep -q '"healthy":true'
+          echo "$out" | >/dev/null grep '"healthy":true'
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

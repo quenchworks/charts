@@ -58,14 +58,14 @@ jobs:
       - name: Install gate (kind)
         run: |
           set -o pipefail
-          kubectl config current-context | grep -q '^kind-' || { echo "not a kind context"; exit 1; }
+          kubectl config current-context | >/dev/null grep '^kind-' || { echo "not a kind context"; exit 1; }
           # --wait covers MySQL, Kafka, Elasticsearch, GMS (TCP readiness) and the frontend;
           # the SystemUpdate post-install hook then runs inside the same --timeout. No
           # passwords are set: the admin login is the generated one.
           helm install rtest "${CHART_DIR}" -n meta --create-namespace -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 25m
-          kubectl get job -n meta rtest-datahub-system-update -o jsonpath='{.status.succeeded}' | grep -qx 1
+          kubectl get job -n meta rtest-datahub-system-update -o jsonpath='{.status.succeeded}' | >/dev/null grep -x 1
           # the post-install restart hook rolls GMS once SystemUpdate is done
-          kubectl get job -n meta rtest-datahub-gms-restart -o jsonpath='{.status.succeeded}' | grep -qx 1
+          kubectl get job -n meta rtest-datahub-gms-restart -o jsonpath='{.status.succeeded}' | >/dev/null grep -x 1
           kubectl rollout status -n meta deployment/rtest-datahub-gms --timeout=600s
           uid="$(kubectl get pod -n meta -l app.kubernetes.io/component=gms -o jsonpath='{.items[0].spec.securityContext.runAsUser}')"
           echo "runAsUser: $uid"; test "$uid" = "1001"
@@ -115,7 +115,7 @@ jobs:
           set -euo pipefail
           before="$(kubectl get secret -n meta rtest-datahub -o jsonpath='{.data.admin-password}')"
           helm upgrade rtest "${CHART_DIR}" -n meta -f "${CHART_DIR}/ci/default-values.yaml" --set-string podAnnotations.gate=upgrade --wait --timeout 20m
-          kubectl get job -n meta rtest-datahub-system-update -o jsonpath='{.status.succeeded}' | grep -qx 1
+          kubectl get job -n meta rtest-datahub-system-update -o jsonpath='{.status.succeeded}' | >/dev/null grep -x 1
           after="$(kubectl get secret -n meta rtest-datahub -o jsonpath='{.data.admin-password}')"
           test "$before" = "$after"
           kubectl rollout status -n meta deployment/rtest-datahub-gms --timeout=600s

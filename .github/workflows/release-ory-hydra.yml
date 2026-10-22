@@ -53,11 +53,11 @@ jobs:
           want="$(awk '/^appVersion:/ {gsub(/"/,"",$2); print $2}' "${CHART_DIR}/Chart.yaml")"
           curl -fsS http://127.0.0.1:4445/version | tee /tmp/ver.json; echo
           grep -q "${want}" /tmp/ver.json
-          curl -fsS http://127.0.0.1:4444/.well-known/openid-configuration | grep -q '"issuer":"http://127.0.0.1:4444'
+          curl -fsS http://127.0.0.1:4444/.well-known/openid-configuration | >/dev/null grep '"issuer":"http://127.0.0.1:4444'
           # a client registered through the admin API lands in PostgreSQL ...
           curl -fsS -X POST -H 'Content-Type: application/json' http://127.0.0.1:4445/admin/clients \
             -d '{"client_id":"gate","client_secret":"gate-secret-0123456789","grant_types":["client_credentials"],"token_endpoint_auth_method":"client_secret_basic"}' \
-            | grep -q '"client_id":"gate"'
+            | >/dev/null grep '"client_id":"gate"'
           # ... then mints a token on the public API, which introspection reports active
           tok="$(curl -fsS -u gate:gate-secret-0123456789 -d grant_type=client_credentials http://127.0.0.1:4444/oauth2/token)"
           at="$(echo "$tok" | jq -r .access_token)"

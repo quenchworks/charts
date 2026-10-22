@@ -107,9 +107,9 @@ jobs:
           test "$(echo "$imgs" | grep -c .)" = 3
           ! echo "$imgs" | grep -v '^ghcr.io/quenchworks/images/' || exit 1
           # and the reloader and exporter are running beside nats
-          kubectl get pod eventbus-default-js-0 -o jsonpath='{.status.containerStatuses[*].ready}' | grep -qv false
+          kubectl get pod eventbus-default-js-0 -o jsonpath='{.status.containerStatuses[*].ready}' | >/dev/null grep -v false
           for d in gate-eventsource gate-sensor; do
-            for i in $(seq 1 60); do kubectl get deploy -l "$( [ $d = gate-eventsource ] && echo eventsource-name=gate || echo sensor-name=gate )" -o name | grep -q . && break; sleep 2; done
+            for i in $(seq 1 60); do kubectl get deploy -l "$( [ $d = gate-eventsource ] && echo eventsource-name=gate || echo sensor-name=gate )" -o name | >/dev/null grep . && break; sleep 2; done
           done
           kubectl wait --for=condition=Available deploy -l eventsource-name=gate --timeout=180s
           kubectl wait --for=condition=Available deploy -l sensor-name=gate --timeout=180s

@@ -67,7 +67,7 @@ jobs:
             out="$(kubectl exec rtest-mongodb-0 -- \
               mongosh "mongodb://root:${PW}@localhost:27017/admin" --quiet \
               --eval 'db.gate.insertOne({k:"quench"}); print(db.gate.findOne().k)' 2>/tmp/mongosh.err || true)"
-            if printf '%s' "$out" | grep -q quench; then ok=1; echo "MongoDB roundtrip OK: $out"; break; fi
+            if printf '%s' "$out" | >/dev/null grep quench; then ok=1; echo "MongoDB roundtrip OK: $out"; break; fi
             echo "attempt $i: not ready yet"; sleep 5
           done
           if [ -z "$ok" ]; then
@@ -97,7 +97,7 @@ jobs:
               --eval 'rs.status().members.map(m => m.stateStr).sort().join(",")' 2>/dev/null | tr -d '\r' || true)"
             echo "attempt $i: members=[$states]"
             # grep -qx isolates the exact state line, robust to any residual mongosh chatter
-            if printf '%s\n' "$states" | grep -qx 'PRIMARY,SECONDARY,SECONDARY'; then ok=1; echo "replica set healthy: 1 PRIMARY + 2 SECONDARY"; break; fi
+            if printf '%s\n' "$states" | >/dev/null grep -x 'PRIMARY,SECONDARY,SECONDARY'; then ok=1; echo "replica set healthy: 1 PRIMARY + 2 SECONDARY"; break; fi
             sleep 6
           done
           if [ -z "$ok" ]; then
@@ -111,7 +111,7 @@ jobs:
           out="$(kubectl exec rtestha-mongodb-0 -- \
             env HOME=/tmp mongosh "mongodb://root:${PW}@${MEMBERS}/admin?replicaSet=rs0" --quiet \
             --eval 'db.getSiblingDB("quench").gate.insertOne({k:"quench"}); print(db.getSiblingDB("quench").gate.findOne().k)' 2>/tmp/ha.err || true)"
-          if ! printf '%s' "$out" | grep -q quench; then
+          if ! printf '%s' "$out" | >/dev/null grep quench; then
             echo "::error::HA replica-set write/read did not return 'quench'"
             cat /tmp/ha.err || true
             exit 1

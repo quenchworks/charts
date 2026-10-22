@@ -55,11 +55,11 @@ jobs:
             [ "$sz" = "3" ] && break
             sleep 4
           done
-          kubectl exec rtest-mariadb-0 -- mariadb --socket=/run/mysqld/mysqld.sock -uroot -p"$pw0" -N -B -e "show status like 'wsrep_cluster_size'" | grep -qw 3
+          kubectl exec rtest-mariadb-0 -- mariadb --socket=/run/mysqld/mysqld.sock -uroot -p"$pw0" -N -B -e "show status like 'wsrep_cluster_size'" | >/dev/null grep -w 3
           pw=$(kubectl get secret rtest-mariadb -o jsonpath='{.data.mariadb-root-password}' | base64 -d)
           # authenticated ping prints "mysqld is alive"; an unauthenticated ping only proves the server is up
-          kubectl exec rtest-mariadb-0 -- mariadb-admin --socket=/run/mysqld/mysqld.sock -uroot -p"$pw" ping | grep -q "mysqld is alive"
-          kubectl exec rtest-mariadb-0 -- mariadb --socket=/run/mysqld/mysqld.sock -uroot -p"$pw" qwapp -e "select 1" | grep -q 1
+          kubectl exec rtest-mariadb-0 -- mariadb-admin --socket=/run/mysqld/mysqld.sock -uroot -p"$pw" ping | >/dev/null grep "mysqld is alive"
+          kubectl exec rtest-mariadb-0 -- mariadb --socket=/run/mysqld/mysqld.sock -uroot -p"$pw" qwapp -e "select 1" | >/dev/null grep 1
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

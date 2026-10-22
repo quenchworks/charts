@@ -56,7 +56,7 @@ jobs:
           done
           test -n "$ca"
           kubectl get validatingwebhookconfiguration validation.webhook.pipeline.tekton.dev \
-            -o jsonpath='{.webhooks[0].rules[*].resources}' | grep -q taskruns
+            -o jsonpath='{.webhooks[0].rules[*].resources}' | >/dev/null grep taskruns
 
           # THE gate: a real TaskRun to completion. A TaskRun that hangs in
           # Init:ImagePullBackOff is exactly what this catches -- the controller
@@ -104,10 +104,10 @@ jobs:
           # broken on success: the loop exits 0 either way once seq runs out.
           kubectl get taskrun gate
           kubectl wait --for=condition=Succeeded --timeout=300s taskrun/gate
-          kubectl logs -l tekton.dev/taskRun=gate -c step-say | grep -q "QUENCHWORKS TEKTON SMOKE OK"
+          kubectl logs -l tekton.dev/taskRun=gate -c step-say | >/dev/null grep "QUENCHWORKS TEKTON SMOKE OK"
           # Results round-trip proves the entrypoint wrapper and the sidecar stop
           # (nop) worked, not just that the pod exited 0.
-          kubectl get taskrun gate -o jsonpath='{.status.results[0].value}' | grep -q hi-from-step
+          kubectl get taskrun gate -o jsonpath='{.status.results[0].value}' | >/dev/null grep hi-from-step
           # Every container in the run pod -- the injected helpers included --
           # must come from an image we publish.
           foreign="$(kubectl get pod -l tekton.dev/taskRun=gate \

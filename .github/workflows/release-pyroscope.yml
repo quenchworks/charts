@@ -58,12 +58,12 @@ jobs:
             --wait --timeout 8m
           kubectl rollout status statefulset/rtest-pyroscope --timeout=480s
           # PVC must be bound
-          kubectl get pvc data-rtest-pyroscope-0 -o jsonpath='{.status.phase}' | grep -q Bound
+          kubectl get pvc data-rtest-pyroscope-0 -o jsonpath='{.status.phase}' | >/dev/null grep Bound
           # probe over a port-forward (the runtime image has no HTTP client)
           kubectl port-forward svc/rtest-pyroscope 4040:4040 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # /ready returns 200 once metastore + ingester are up
-          curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:4040/ready | grep -q 200
+          curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:4040/ready | >/dev/null grep 200
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

@@ -58,12 +58,12 @@ jobs:
             --wait --timeout 5m
           kubectl rollout status statefulset/rtest-pocketbase --timeout=300s
           # PVC must be bound
-          kubectl get pvc data-rtest-pocketbase-0 -o jsonpath='{.status.phase}' | grep -q Bound
+          kubectl get pvc data-rtest-pocketbase-0 -o jsonpath='{.status.phase}' | >/dev/null grep Bound
           # probe over a port-forward (the runtime image has no HTTP client)
           kubectl port-forward svc/rtest-pocketbase 8080:80 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # /api/health returns 200 {"code":200,"message":"API is healthy.",...} once up
-          curl -fsS http://127.0.0.1:8080/api/health | grep -q '"message":"API is healthy."'
+          curl -fsS http://127.0.0.1:8080/api/health | >/dev/null grep '"message":"API is healthy."'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

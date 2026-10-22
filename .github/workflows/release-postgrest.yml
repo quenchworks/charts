@@ -48,7 +48,7 @@ jobs:
           # already connected to the database with a loaded schema cache.
           kubectl rollout status statefulset/rtest-postgresql --timeout=300s
           kubectl rollout status deployment/rtest-postgrest --timeout=300s
-          kubectl get pvc data-rtest-postgresql-0 -o jsonpath='{.status.phase}' | grep -q Bound
+          kubectl get pvc data-rtest-postgresql-0 -o jsonpath='{.status.phase}' | >/dev/null grep Bound
           # Create a REAL table with REAL rows, then reload the schema cache in place.
           kubectl exec -i statefulset/rtest-postgresql -- \
             psql -h /var/run/postgresql -U postgres -d postgrest \
@@ -63,15 +63,15 @@ jobs:
           test "$(python3 -c 'import json;print(len(json.load(open("/tmp/todos.json"))))')" = "2"
           grep -q '"task":"write the chart"' /tmp/todos.json
           # filtering and projection go through PostgREST's query planner, not a static file
-          curl -fsS 'http://127.0.0.1:3000/todos?done=eq.false&select=task' | grep -q '\[{"task":"gate the chart"}\]'
+          curl -fsS 'http://127.0.0.1:3000/todos?done=eq.false&select=task' | >/dev/null grep '\[{"task":"gate the chart"}\]'
           # writes work too, and read back
           curl -fsS -X POST http://127.0.0.1:3000/todos \
             -H 'Content-Type: application/json' -H 'Prefer: return=representation' \
-            -d '{"task":"posted by the gate"}' | grep -q '"task":"posted by the gate"'
+            -d '{"task":"posted by the gate"}' | >/dev/null grep '"task":"posted by the gate"'
           curl -fsS 'http://127.0.0.1:3000/todos?select=id' | python3 -c \
             'import json,sys; rows=json.load(sys.stdin); assert len(rows)==3, rows; print("rows after POST:", len(rows))'
           # OpenAPI description is generated from the live schema
-          curl -fsS http://127.0.0.1:3000/ | grep -q '"/todos"'
+          curl -fsS http://127.0.0.1:3000/ | >/dev/null grep '"/todos"'
           # no crash-looping
           test "$(kubectl get pod -l app.kubernetes.io/name=postgrest \
             -o jsonpath='{.items[*].status.containerStatuses[*].restartCount}')" = "0"

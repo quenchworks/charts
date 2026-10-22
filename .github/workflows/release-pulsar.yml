@@ -53,9 +53,9 @@ jobs:
           kubectl port-forward rtest-pulsar-0 8080:8080 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # broker health endpoint returns the plain body "ok"
-          curl -fsS 'http://127.0.0.1:8080/admin/v2/brokers/health' | grep -q 'ok'
+          curl -fsS 'http://127.0.0.1:8080/admin/v2/brokers/health' | >/dev/null grep 'ok'
           # the standalone cluster is registered as "standalone"
-          curl -fsS 'http://127.0.0.1:8080/admin/v2/clusters' | grep -q '"standalone"'
+          curl -fsS 'http://127.0.0.1:8080/admin/v2/clusters' | >/dev/null grep '"standalone"'
           # produce -> consume roundtrip via the in-image CLI clients
           kubectl exec rtest-pulsar-0 -- /opt/pulsar/bin/pulsar-client produce \
             -m quench -n 1 persistent://public/default/gate

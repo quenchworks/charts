@@ -58,13 +58,13 @@ jobs:
             --wait --timeout 5m
           kubectl rollout status statefulset/rtest-forgejo --timeout=300s
           # PVC must be bound
-          kubectl get pvc data-rtest-forgejo-0 -o jsonpath='{.status.phase}' | grep -q Bound
+          kubectl get pvc data-rtest-forgejo-0 -o jsonpath='{.status.phase}' | >/dev/null grep Bound
           # probe over a port-forward (the runtime image has no HTTP client)
           kubectl port-forward svc/rtest-forgejo 3000:80 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # /api/healthz returns 200 {"status":"pass",...} once the server is up
           # (install-locked: this proves it booted past the installer)
-          curl -fsS http://127.0.0.1:3000/api/healthz | grep -q '"status": "pass"'
+          curl -fsS http://127.0.0.1:3000/api/healthz | >/dev/null grep '"status": "pass"'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

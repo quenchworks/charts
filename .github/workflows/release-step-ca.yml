@@ -59,14 +59,14 @@ jobs:
             --wait --timeout 5m
           kubectl rollout status statefulset/rtest-step-ca --timeout=300s
           # the standalone PKI PVC must be bound (bootstrap Job wrote the CA to it)
-          kubectl get pvc rtest-step-ca-pki -o jsonpath='{.status.phase}' | grep -q Bound
+          kubectl get pvc rtest-step-ca-pki -o jsonpath='{.status.phase}' | >/dev/null grep Bound
           # prove the bootstrap Job actually generated the PKI
           kubectl exec rtest-step-ca-0 -- /usr/bin/step-ca version >/dev/null
           # probe over a port-forward (HTTPS; the CA presents a self-signed leaf)
           kubectl port-forward svc/rtest-step-ca 9000:443 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # /health returns 200 {"status":"ok"} once the CA is serving
-          curl -fsSk https://127.0.0.1:9000/health | grep -q '"status":"ok"'
+          curl -fsSk https://127.0.0.1:9000/health | >/dev/null grep '"status":"ok"'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

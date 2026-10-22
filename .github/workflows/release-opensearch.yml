@@ -51,11 +51,11 @@ jobs:
           # probe the REST API over a port-forward (the runtime image has no HTTP client)
           kubectl port-forward rtest-opensearch-master-0 9200:9200 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
-          curl -fsS http://127.0.0.1:9200/ | grep -q '"cluster_name"'
-          curl -fsS http://127.0.0.1:9200/_cluster/health | grep -qE '"status":"(green|yellow)"'
+          curl -fsS http://127.0.0.1:9200/ | >/dev/null grep '"cluster_name"'
+          curl -fsS http://127.0.0.1:9200/_cluster/health | >/dev/null grep -E '"status":"(green|yellow)"'
           # index + read back a document
           curl -fsS -XPOST 'http://127.0.0.1:9200/gate/_doc/1?refresh=true' -H 'Content-Type: application/json' -d '{"k":"quench"}' >/dev/null
-          curl -fsS 'http://127.0.0.1:9200/gate/_doc/1' | grep -q '"quench"'
+          curl -fsS 'http://127.0.0.1:9200/gate/_doc/1' | >/dev/null grep '"quench"'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

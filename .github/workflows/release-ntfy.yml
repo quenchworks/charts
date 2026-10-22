@@ -61,10 +61,10 @@ jobs:
           kubectl port-forward deployment/rtest-ntfy 8080:8080 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # /v1/health returns 200 {"healthy":true} once the server is up
-          curl -fsS http://127.0.0.1:8080/v1/health | grep -q '"healthy":true'
+          curl -fsS http://127.0.0.1:8080/v1/health | >/dev/null grep '"healthy":true'
           # publish a message and read it back: proves the pub/sub path works end to end
           curl -fsS -d "ci smoke" http://127.0.0.1:8080/citopic >/dev/null
-          curl -fsS "http://127.0.0.1:8080/citopic/json?poll=1&since=all" | grep -q '"message":"ci smoke"'
+          curl -fsS "http://127.0.0.1:8080/citopic/json?poll=1&since=all" | >/dev/null grep '"message":"ci smoke"'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

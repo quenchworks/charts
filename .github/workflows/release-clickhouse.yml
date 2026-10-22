@@ -53,7 +53,7 @@ jobs:
           kubectl port-forward rtest-clickhouse-0 8123:8123 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # /ping returns "Ok." unauthenticated when the server is ready
-          curl -fsS http://127.0.0.1:8123/ping | grep -q '^Ok\.'
+          curl -fsS http://127.0.0.1:8123/ping | >/dev/null grep '^Ok\.'
           # read the password from the Secret and exercise the HTTP query API with auth
           PASSWORD="$(kubectl get secret rtest-clickhouse -o jsonpath='{.data.admin-password}' | base64 -d)"
           test -n "$PASSWORD"
@@ -64,7 +64,7 @@ jobs:
           # derive the expected version from the chart's appVersion so this never
           # goes stale when the image is bumped
           expect="$(awk -F'"' '/^appVersion:/{print $2}' "${CHART_DIR}/Chart.yaml")"
-          echo "$ver" | grep -qF "$expect"
+          echo "$ver" | >/dev/null grep -F "$expect"
           # CREATE / INSERT / SELECT roundtrip, asserting the value comes back
           curl -fsS "http://127.0.0.1:8123/?${AUTH}" \
             --data-binary 'CREATE TABLE gate (id UInt32, name String) ENGINE = MergeTree ORDER BY id' >/dev/null

@@ -50,7 +50,7 @@ jobs:
           URL=http://127.0.0.1:3000
           PW=Quench-gate-pw-1
           pf
-          curl -fsS "$URL/healthcheck" | grep -q 'Database connection: OK'
+          curl -fsS "$URL/healthcheck" | >/dev/null grep 'Database connection: OK'
           # the admin from values exists (created by the postStart hook) and gets a token
           tok="$(curl -fsS -u "gogs-admin:$PW" -H 'Content-Type: application/json' -d '{"name":"gate"}' \
             "$URL/api/v1/users/gogs-admin/tokens" | sed -n 's/.*"sha1":"\([0-9a-f]*\)".*/\1/p')"
@@ -61,17 +61,17 @@ jobs:
           git clone -q "http://gogs-admin:$PW@127.0.0.1:3000/gogs-admin/gate.git" /tmp/gate
           ( cd /tmp/gate && echo quench > pushed.txt && git add pushed.txt \
             && git -c user.email=gate@example.com -c user.name=gate commit -qm gate && git push -q origin master )
-          curl -fsS -H "Authorization: token $tok" "$URL/api/v1/repos/gogs-admin/gate/raw/master/pushed.txt" | grep -qx quench
+          curl -fsS -H "Authorization: token $tok" "$URL/api/v1/repos/gogs-admin/gate/raw/master/pushed.txt" | >/dev/null grep -x quench
           # the built-in SSH server answers with its host keys
-          ssh-keyscan -p 2222 127.0.0.1 2>/dev/null | grep -q 'ssh-'
+          ssh-keyscan -p 2222 127.0.0.1 2>/dev/null | >/dev/null grep 'ssh-'
           # self-registration is off
-          curl -fsS "$URL/user/sign_up" | grep -q 'registration has been disabled'
+          curl -fsS "$URL/user/sign_up" | >/dev/null grep 'registration has been disabled'
           kill $PF
           # repositories and SQLite are on the PVC: recreate the pod and read the file back
           kubectl delete pod rtest-gogs-0 --wait
           kubectl rollout status statefulset/rtest-gogs --timeout=300s
           pf
-          curl -fsS -H "Authorization: token $tok" "$URL/api/v1/repos/gogs-admin/gate/raw/master/pushed.txt" | grep -qx quench
+          curl -fsS -H "Authorization: token $tok" "$URL/api/v1/repos/gogs-admin/gate/raw/master/pushed.txt" | >/dev/null grep -x quench
           kill $PF
           ! kubectl logs rtest-gogs-0 | grep -E '\[ERROR\]|\[FATAL\]|panic:' || exit 1
       # A failed install gate otherwise reports only "Progress deadline exceeded",

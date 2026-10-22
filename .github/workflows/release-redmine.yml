@@ -54,7 +54,7 @@ jobs:
           B=http://127.0.0.1:3000
 
           # 1. Serving, and the chart's version.
-          curl -fsS -m 30 $B/login | grep -q 'Redmine'
+          curl -fsS -m 30 $B/login | >/dev/null grep 'Redmine'
           want="$(sed -n 's/^appVersion: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "${CHART_DIR}/Chart.yaml")"
           got="$(kubectl exec deployment/rtest-redmine -c redmine -- /usr/bin/ruby /opt/redmine/launch.rb runner 'puts Redmine::VERSION.to_s' | tail -1)"
           echo "redmine $got (want $want)"
@@ -82,7 +82,7 @@ jobs:
           kubectl port-forward deployment/rtest-redmine 3000:3000 >/tmp/pf.log 2>&1 &
           pf=$!
           for i in $(seq 1 30); do grep -q 'Forwarding from 127.0.0.1:3000' /tmp/pf.log && break; sleep 1; done
-          curl -fsS -m 30 -u "admin:$PW" $B/users/current.json | grep -q '"login":"admin"'
+          curl -fsS -m 30 -u "admin:$PW" $B/users/current.json | >/dev/null grep '"login":"admin"'
           echo "install gate OK: schema migrated, admin password set once, restart keeps the database"
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

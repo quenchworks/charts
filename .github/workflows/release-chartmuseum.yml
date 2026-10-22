@@ -45,12 +45,12 @@ jobs:
           helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
           kubectl rollout status deployment/rtest-chartmuseum --timeout=300s
           # the chart storage PVC must actually bind
-          kubectl get pvc rtest-chartmuseum-storage -o jsonpath='{.status.phase}' | grep -q Bound
+          kubectl get pvc rtest-chartmuseum-storage -o jsonpath='{.status.phase}' | >/dev/null grep Bound
           # probe over a port-forward (the runtime image has no HTTP client)
           kubectl port-forward svc/rtest-chartmuseum 8080:8080 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # /health answers unauthenticated once the server is listening
-          curl -fsS http://127.0.0.1:8080/health | grep -q '"healthy":true'
+          curl -fsS http://127.0.0.1:8080/health | >/dev/null grep '"healthy":true'
           # Prove it is a working CHART REPOSITORY, not just a live port: package a
           # chart, push it through the write API, then read it back from both the
           # API listing and the generated index.yaml.
@@ -58,13 +58,13 @@ jobs:
           helm package /tmp/ciprobe -d /tmp >/dev/null
           curl -fsS -u quench-ci:quench-ci-pass \
             --data-binary @/tmp/ciprobe-0.1.0.tgz \
-            http://127.0.0.1:8080/api/charts | grep -q '"saved":true'
-          curl -fsS http://127.0.0.1:8080/api/charts | grep -q '"name":"ciprobe"'
-          curl -fsS http://127.0.0.1:8080/index.yaml | grep -q 'ciprobe-0.1.0.tgz'
+            http://127.0.0.1:8080/api/charts | >/dev/null grep '"saved":true'
+          curl -fsS http://127.0.0.1:8080/api/charts | >/dev/null grep '"name":"ciprobe"'
+          curl -fsS http://127.0.0.1:8080/index.yaml | >/dev/null grep 'ciprobe-0.1.0.tgz'
           # and it is serviceable as a real Helm repo
           helm repo add ciprobe http://127.0.0.1:8080
           helm repo update ciprobe
-          helm search repo ciprobe/ciprobe --version 0.1.0 | grep -q ciprobe
+          helm search repo ciprobe/ciprobe --version 0.1.0 | >/dev/null grep ciprobe
           # anonymous writes must be refused while auth is configured
           code="$(curl -s -o /dev/null -w '%{http_code}' \
             --data-binary @/tmp/ciprobe-0.1.0.tgz http://127.0.0.1:8080/api/charts)"

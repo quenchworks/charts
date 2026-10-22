@@ -82,7 +82,7 @@ jobs:
               "http://127.0.0.1:3000/api/datasources/proxy/uid/${uid}/api/v1/query?query=up" || true)"
             echo "attempt $i: $body"
             # require status success AND a non-empty result array
-            if echo "$body" | grep -q '"status":"success"' && echo "$body" | grep -qE '"result":\[[^]]'; then ok=1; break; fi
+            if echo "$body" | >/dev/null grep '"status":"success"' && echo "$body" | >/dev/null grep -E '"result":\[[^]]'; then ok=1; break; fi
             sleep 5
           done
           test -n "$ok" || { echo "Grafana->Prometheus datasource proxy 'up' query returned no data"; exit 1; }
@@ -93,7 +93,7 @@ jobs:
             body="$(curl -fsS -u "admin:${pw}" \
               "http://127.0.0.1:3000/api/datasources/proxy/uid/${uid}/api/v1/query?query=kube_pod_info" || true)"
             echo "ksm attempt $i: $body"
-            if echo "$body" | grep -q '"status":"success"' && echo "$body" | grep -qE '"result":\[[^]]'; then ksm=1; break; fi
+            if echo "$body" | >/dev/null grep '"status":"success"' && echo "$body" | >/dev/null grep -E '"result":\[[^]]'; then ksm=1; break; fi
             sleep 5
           done
           test -n "$ksm" || { echo "kube_pod_info not present — kube-state-metrics not scraped"; exit 1; }

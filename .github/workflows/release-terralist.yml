@@ -50,16 +50,16 @@ jobs:
                  for i in $(seq 1 30); do curl -fsS http://127.0.0.1:5758/.well-known/terraform.json >/dev/null 2>&1 && return; sleep 1; done; return 1; }
           B=http://127.0.0.1:5758
           pf
-          curl -fsS "$B/.well-known/terraform.json" | grep -q 'modules.v1'
+          curl -fsS "$B/.well-known/terraform.json" | >/dev/null grep 'modules.v1'
           curl -fsS -o /dev/null -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
             -d '{"name":"gate","public":true,"owner":"gate@example.com"}' "$B/v1/api/authorities/"
           curl -fsS -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
             -d '{"download_url":"https://github.com/cloudposse/terraform-null-label/archive/refs/tags/0.25.0.tar.gz"}' \
-            "$B/v1/api/modules/gate/label/null/0.25.0/upload" | grep -q '"errors":\[\]'
-          curl -fsS "$B/v1/modules/gate/label/null/versions" | grep -q '"version":"0.25.0"'
+            "$B/v1/api/modules/gate/label/null/0.25.0/upload" | >/dev/null grep '"errors":\[\]'
+          curl -fsS "$B/v1/modules/gate/label/null/versions" | >/dev/null grep '"version":"0.25.0"'
           fetch() {
             get="$(curl -fsS -o /dev/null -D - "$B/v1/modules/gate/label/null/0.25.0/download" | tr -d '\r' | sed -n 's/^[Xx]-[Tt]erraform-[Gg]et: //p')"
-            test -n "$get"; curl -fsS -o /tmp/m.zip "$get"; unzip -l /tmp/m.zip | grep -q 'main.tf'
+            test -n "$get"; curl -fsS -o /tmp/m.zip "$get"; unzip -l /tmp/m.zip | >/dev/null grep 'main.tf'
           }
           fetch
           # no key, no upload

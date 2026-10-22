@@ -81,7 +81,7 @@ jobs:
           # body below can only come from a programmed data plane.
           kubectl port-forward svc/rtest-contour-envoy 18080:80 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
-          curl -fsS -H 'Host: direct.gate.local' http://127.0.0.1:18080/ | grep -q 'contour-xds-ok'
+          curl -fsS -H 'Host: direct.gate.local' http://127.0.0.1:18080/ | >/dev/null grep 'contour-xds-ok'
           # an unrouted host must still reach Envoy and get its 404, not a refused connection
           test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: nope.gate.local' http://127.0.0.1:18080/)" = "404"
 

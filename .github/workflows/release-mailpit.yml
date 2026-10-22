@@ -68,12 +68,12 @@ jobs:
           PY
           sleep 3
           curl -fsS -u quench-ci:quench-ci-pass http://127.0.0.1:8025/api/v1/messages \
-            | tee /tmp/messages.json | grep -q '"Subject":"quench-ci-probe"'
+            | tee /tmp/messages.json | >/dev/null grep '"Subject":"quench-ci-probe"'
           grep -q '"messages_count":1' /tmp/messages.json
           # and the full message body is retrievable
           id="$(python3 -c 'import json;print(json.load(open("/tmp/messages.json"))["messages"][0]["ID"])')"
           curl -fsS -u quench-ci:quench-ci-pass "http://127.0.0.1:8025/api/v1/message/${id}" \
-            | grep -q 'delivered by the install gate'
+            | >/dev/null grep 'delivered by the install gate'
           # no crash-looping
           test "$(kubectl get pod -l app.kubernetes.io/name=mailpit \
             -o jsonpath='{.items[*].status.containerStatuses[*].restartCount}')" = "0"

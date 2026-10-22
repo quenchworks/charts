@@ -48,17 +48,17 @@ jobs:
           kubectl port-forward svc/rtest-zipkin 9411:9411 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           z=http://127.0.0.1:9411
-          curl -fsS "$z/health" | grep -q '"status" *: *"UP"'
+          curl -fsS "$z/health" | >/dev/null grep '"status" *: *"UP"'
           want="$(awk '/^appVersion:/ {gsub(/"/,"",$2); print $2}' "${CHART_DIR}/Chart.yaml")"
           curl -fsS "$z/info" | tee /tmp/info.json; echo
           grep -q "\"version\":\"${want}\"" /tmp/info.json
           # a span posted over the v2 API is stored, listed and returned by trace ID
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' "$z/api/v2/spans" \
             -d '[{"traceId":"5af7183fb1d4cf5f","id":"6b221d5bc9e6496c","name":"get /","timestamp":1790000000000000,"duration":2000,"localEndpoint":{"serviceName":"quench-gate"}}]')" = 202
-          for i in $(seq 1 20); do curl -fsS "$z/api/v2/services" | grep -q quench-gate && break; sleep 2; done
-          curl -fsS "$z/api/v2/services" | grep -q quench-gate
-          curl -fsS "$z/api/v2/trace/5af7183fb1d4cf5f" | grep -q '"id":"6b221d5bc9e6496c"'
-          curl -fsS "$z/zipkin/" | grep -qi '<html'
+          for i in $(seq 1 20); do curl -fsS "$z/api/v2/services" | >/dev/null grep quench-gate && break; sleep 2; done
+          curl -fsS "$z/api/v2/services" | >/dev/null grep quench-gate
+          curl -fsS "$z/api/v2/trace/5af7183fb1d4cf5f" | >/dev/null grep '"id":"6b221d5bc9e6496c"'
+          curl -fsS "$z/zipkin/" | >/dev/null grep -i '<html'
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

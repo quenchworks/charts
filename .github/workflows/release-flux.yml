@@ -90,7 +90,7 @@ jobs:
               spec: { chart: opa, version: ">=0.0.1", sourceRef: { kind: HelmRepository, name: quenchworks } }
           Y
           kubectl -n flux-system wait helmrelease/opa --for=condition=Ready --timeout=400s
-          kubectl -n default get deploy -l app.kubernetes.io/instance=opa -o name | grep -q deployment
+          kubectl -n default get deploy -l app.kubernetes.io/instance=opa -o name | >/dev/null grep deployment
           echo "  HelmRepository (OCI) + HelmRelease: opa installed"
           # 3. notification-controller: a Provider and an Alert on the Kustomization
           cat <<Y | kubectl apply -f -
@@ -146,7 +146,7 @@ jobs:
                   - { from: "@repo/kustomize/**", to: "@artifact/" }
           Y
           kubectl -n flux-system wait artifactgenerator/podinfo-kustomize --for=condition=Ready --timeout=300s
-          kubectl -n flux-system get externalartifact -o name | grep -q .
+          kubectl -n flux-system get externalartifact -o name | >/dev/null grep .
           echo "  ArtifactGenerator: a new artifact was built from the GitRepository"
           # 6. image-automation-controller: it accepts an ImageUpdateAutomation and does not crash
           # (updating a repository needs push credentials, which a gate has no place for)
