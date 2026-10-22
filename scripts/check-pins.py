@@ -31,13 +31,15 @@ import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DEFAULT_LOCK = ROOT.parent / "images" / "catalog.lock.yaml"
-PIN = re.compile(r'digest:\s*"?(sha256:[0-9a-f]{64})"?')
+# trivy-operator pins its scanner as `tag: "0.75.0@sha256:..."`; without the tag
+# form it kept a superseded digest through the 2026-10-22 re-pin.
+PIN = re.compile(r'(?:digest|tag):\s*"?(?:[^"@\s]*@)?(sha256:[0-9a-f]{64})"?')
 # Charts spell the repository as `repository:` or, in the stacks, `image:`; both
 # with the digest on a later line. An inline ref (`images/<name>@sha256:...`) is
 # a pin too, in values.yaml and in Chart.yaml's artifacthub.io/images, which is
 # what ArtifactHub tells users to pull.
 REPO = re.compile(r'(?:repository|image):\s*"?ghcr\.io/quenchworks/images/([A-Za-z0-9._-]+)"?\s*$')
-INLINE = re.compile(r"ghcr\.io/quenchworks/images/([A-Za-z0-9._-]+)@(sha256:[0-9a-f]{64})")
+INLINE = re.compile(r"ghcr\.io/quenchworks/images/([A-Za-z0-9._-]+)(?::[^@\s\"]+)?@(sha256:[0-9a-f]{64})")
 
 
 def pins(values: pathlib.Path):
