@@ -65,12 +65,15 @@ jobs:
           # wait for the controller to log the records it applied to the provider
           for i in $(seq 1 30); do
             log="$(kubectl logs deployment/rtest-external-dns)"
-            echo "$log" | grep -q 'CREATE: gate.example.com' \
-              && echo "$log" | grep -q 'CREATE: ing.example.com' && break
+            grep -q 'CREATE: gate.example.com' <<<"$log" \
+              && grep -q 'CREATE: ing.example.com' <<<"$log" && break
             sleep 5
           done
-          kubectl logs deployment/rtest-external-dns | grep -E 'CREATE:'
-          kubectl logs deployment/rtest-external-dns | grep -q 'CREATE: gate.example.com 0 IN A' \
+          # grep -q on a pipe exits at the first match; under pipefail the SIGPIPE'd
+          # kubectl then fails the check (2026-10-22, run 39784089867), so read a variable.
+          log="$(kubectl logs deployment/rtest-external-dns)"
+          grep -E 'CREATE:' <<<"$log"
+          grep -q 'CREATE: gate.example.com 0 IN A' <<<"$log" \
             || { echo "external-dns never published the Service record"; exit 1; }
           kubectl logs deployment/rtest-external-dns | grep -q 'CREATE: ing.example.com 0 IN A' \
             || { echo "external-dns never published the Ingress record"; exit 1; }
