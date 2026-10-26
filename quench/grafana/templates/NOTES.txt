@@ -1,5 +1,21 @@
 Quenchworks Grafana is installed as {{ include "quench-common.fullname" . }}.
 
+{{- if include "quench-common.tls.enabled" . }}
+
+The dashboard UI and HTTP API are served over HTTPS (native TLS) on port {{ .Values.service.httpsPort }} from inside the cluster:
+
+  https://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local{{ if ne (int .Values.service.httpsPort) 443 }}:{{ .Values.service.httpsPort }}{{ end }}
+
+The certificate is in Secret {{ include "quench-common.tls.secretName" . }}; trust its ca.crt (self-signed by default):
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "quench-common.tls.secretName" . }} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+
+Reach the UI from your machine with a port-forward:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8443:{{ .Values.service.httpsPort }}
+  # then open https://localhost:8443
+{{- else }}
+
 The dashboard UI and HTTP API are served on port {{ .Values.service.port }} from inside the cluster:
 
   http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
@@ -8,6 +24,7 @@ Reach the UI from your machine with a port-forward:
 
   kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 3000:{{ .Values.service.port }}
   # then open http://127.0.0.1:3000
+{{- end }}
 
 Log in as the admin user:
 
@@ -17,7 +34,7 @@ Log in as the admin user:
 
 Health check:
 
-  curl -fsS http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/api/health
+  {{ if include "quench-common.tls.enabled" . }}curl -fsS --cacert ca.crt https://{{ include "quench-common.fullname" . }}:{{ .Values.service.httpsPort }}{{ else }}curl -fsS http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}{{ end }}/api/health
   # -> {"database":"ok","version":"{{ .Chart.AppVersion }}"}
 
 {{- if .Values.datasources }}

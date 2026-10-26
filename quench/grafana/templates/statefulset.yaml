@@ -2,8 +2,11 @@
      calls /api/health on the HTTP port. It returns 200 once SQLite is initialized
      and the server is serving. SQLite init on first boot needs a moment, hence the
      modest initialDelay. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/api/health" "port" "http") "initialDelaySeconds" 15 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/api/health" "port" "http") "initialDelaySeconds" 15 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/api/health" "port" $port "scheme" $scheme) "initialDelaySeconds" 15 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/api/health" "port" $port "scheme" $scheme) "initialDelaySeconds" 15 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -50,8 +53,20 @@ spec:
           env:
             # bind the HTTP server to the service port; the entrypoint runs
             # `grafana server` which reads GF_* from the environment.
+            {{- if $tls }}
+            # Native TLS: HTTPS on 8443 (nonroot cannot bind 443), mapped to 443 by the Service.
+            - name: GF_SERVER_HTTP_PORT
+              value: "8443"
+            - name: GF_SERVER_PROTOCOL
+              value: https
+            - name: GF_SERVER_CERT_FILE
+              value: /tls/tls.crt
+            - name: GF_SERVER_CERT_KEY
+              value: /tls/tls.key
+            {{- else }}
             - name: GF_SERVER_HTTP_PORT
               value: "{{ .Values.service.port }}"
+            {{- end }}
             # admin credentials from the Secret (no anonymous access by default)
             - name: GF_SECURITY_ADMIN_USER
               valueFrom:
@@ -70,8 +85,8 @@ spec:
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 .Values.service.port (eq $tls "true") }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}
@@ -100,6 +115,7 @@ spec:
               subPath: datasources.yaml
               readOnly: true
             {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -122,6 +138,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
   volumeClaimTemplates:

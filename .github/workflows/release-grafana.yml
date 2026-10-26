@@ -68,6 +68,21 @@ jobs:
           curl -fsS -u "$USER:$PASS" http://127.0.0.1:3000/api/org | tee /tmp/org.json
           grep -q '"name"' /tmp/org.json
 
+          # native TLS: the same release with tls.enabled serves HTTPS on the Service's
+          # 443 with a self-signed certificate that verifies against its own ca.crt
+          kill $pf 2>/dev/null || true; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status statefulset/rtest-grafana --timeout=600s
+          kubectl get secret rtest-grafana-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-grafana 8443:443 >/tmp/pf-tls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          body="$(curl -fsS --cacert /tmp/ca.crt https://localhost:8443/api/health)"
+          grep -q '"database": *"ok"' <<<"$body"
+          curl -fsS --cacert /tmp/ca.crt -u "$USER:$PASS" https://localhost:8443/api/org -o /tmp/org.json
+          grep -q '"name"' /tmp/org.json
+          echo "Grafana: HTTPS health + authenticated API on Service port 443 verified against the chart CA"
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not
