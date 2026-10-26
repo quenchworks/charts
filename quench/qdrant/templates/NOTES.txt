@@ -1,27 +1,41 @@
+{{- $tlsOn := eq (include "quench-common.tls.enabled" .) "true" }}
+{{- $fn := include "quench-common.fullname" . }}
+{{- $url := ternary (printf "https://%s:%v" $fn .Values.service.httpsPort) (printf "http://%s:%v" $fn .Values.service.port) $tlsOn }}
+{{- $fqdn := ternary (printf "https://%s.%s.svc.cluster.local:%v" $fn .Release.Namespace .Values.service.httpsPort) (printf "http://%s.%s.svc.cluster.local:%v" $fn .Release.Namespace .Values.service.port) $tlsOn }}
+{{- $local := ternary "https://localhost:8443" (printf "http://127.0.0.1:%v" .Values.service.port) $tlsOn }}
+{{- $pf := ternary (printf "8443:%v" .Values.service.httpsPort) (printf "%v:%v" .Values.service.port .Values.service.port) $tlsOn }}
+{{- $cacert := ternary "--cacert ca.crt " "" $tlsOn }}
 Quenchworks Qdrant is installed as {{ include "quench-common.fullname" . }} (single-node).
+{{- if $tlsOn }}
+
+Served over HTTPS (native TLS) on Service port {{ .Values.service.httpsPort }}. The certificate is in
+Secret {{ include "quench-common.tls.secretName" . }}; trust its ca.crt (self-signed by default):
+
+  kubectl get secret {{ include "quench-common.tls.secretName" . }} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+{{- end }}
 
 The APIs are reachable inside the cluster at:
 
-  REST + dashboard : http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
-  gRPC             : {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.grpcPort }}
+  REST + dashboard : {{ $fqdn }}
+  gRPC{{ if $tlsOn }} (TLS){{ else }}      {{ end }}       : {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.grpcPort }}
 
 Health (always unauthenticated):
 
-  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/healthz   # -> 200
-  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/readyz    # -> 200
-  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/livez     # -> 200
+  curl {{ $cacert }}{{ $url }}/healthz   # -> 200
+  curl {{ $cacert }}{{ $url }}/readyz    # -> 200
+  curl {{ $cacert }}{{ $url }}/livez     # -> 200
 
 Port-forward to reach it from your workstation (the web dashboard is served at /dashboard):
 
-  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
-  # then open http://127.0.0.1:{{ .Values.service.port }}/dashboard in a browser
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ $pf }}
+  # then open {{ $local }}/dashboard in a browser
 
 {{- if include "qdrant.apiKeyEnabled" . }}
 
 API-KEY AUTH IS ENABLED. Send the key on every data-path request:
 
   KEY=...   # the value you set in auth.apiKey (or your existingSecret)
-  curl -H "api-key: $KEY" http://127.0.0.1:{{ .Values.service.port }}/collections
+  curl {{ $cacert }}-H "api-key: $KEY" {{ $local }}/collections
 {{- else }}
 
 No API key is set: the NetworkPolicy is the trust boundary. To require a key, set
@@ -30,19 +44,19 @@ sent as the `api-key` header on REST and gRPC; health endpoints stay open so pro
 keep working.
 {{- end }}
 
-Create a collection, upsert a point, then search (over a port-forward to :{{ .Values.service.port }}):
+Create a collection, upsert a point, then search (over the port-forward above):
 {{- $auth := "" }}
 {{- if include "qdrant.apiKeyEnabled" . }}{{ $auth = " -H \"api-key: $KEY\"" }}{{ end }}
 
-  curl -fsS -X PUT "http://127.0.0.1:{{ .Values.service.port }}/collections/demo"{{ $auth }} \
+  curl {{ $cacert }}-fsS -X PUT "{{ $local }}/collections/demo"{{ $auth }} \
     -H 'content-type: application/json' \
     -d '{"vectors":{"size":4,"distance":"Dot"}}'
 
-  curl -fsS -X PUT "http://127.0.0.1:{{ .Values.service.port }}/collections/demo/points?wait=true"{{ $auth }} \
+  curl {{ $cacert }}-fsS -X PUT "{{ $local }}/collections/demo/points?wait=true"{{ $auth }} \
     -H 'content-type: application/json' \
     -d '{"points":[{"id":1,"vector":[0.1,0.2,0.3,0.4],"payload":{"label":"a"}}]}'
 
-  curl -fsS -X POST "http://127.0.0.1:{{ .Values.service.port }}/collections/demo/points/search"{{ $auth }} \
+  curl {{ $cacert }}-fsS -X POST "{{ $local }}/collections/demo/points/search"{{ $auth }} \
     -H 'content-type: application/json' \
     -d '{"vector":[0.1,0.2,0.3,0.4],"limit":1,"with_payload":true}'
 

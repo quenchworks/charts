@@ -76,6 +76,30 @@ jobs:
           echo "$out"
           echo "$out" | >/dev/null grep '"id":1'
 
+          # native TLS: the same release with tls.enabled serves HTTPS on the Service's
+          # 443 with a self-signed certificate that verifies against its own ca.crt
+          kill $pf 2>/dev/null || true; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status statefulset/rtest-qdrant --timeout=600s
+          kubectl get secret rtest-qdrant-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-qdrant 8443:443 >/tmp/pf-tls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          ok=""
+          for i in $(seq 1 30); do
+            code="$(curl -sS --cacert /tmp/ca.crt -o /dev/null -w '%{http_code}' https://localhost:8443/readyz || true)"
+            if [ "$code" = "200" ]; then ok=1; break; fi
+            sleep 5
+          done
+          test -n "$ok"
+          # API roundtrip over HTTPS (emptyDir in the gate, so the collection is new)
+          curl -fsS --cacert /tmp/ca.crt -X PUT 'https://localhost:8443/collections/citls' \
+            -H 'content-type: application/json' \
+            -d '{"vectors":{"size":4,"distance":"Dot"}}' | >/dev/null grep '"result":true'
+          out="$(curl -fsS --cacert /tmp/ca.crt https://localhost:8443/collections)"
+          grep -q '"citls"' <<<"$out"
+          echo "Qdrant: HTTPS REST on Service port 443 verified against the chart CA"
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not
