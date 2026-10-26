@@ -78,6 +78,18 @@ jobs:
           test "$(kubectl get pod -l app.kubernetes.io/name=mailpit \
             -o jsonpath='{.items[*].status.containerStatuses[*].restartCount}')" = "0"
 
+          # native TLS: the same release with tls.enabled serves the UI + API over HTTPS on the
+          # Service's 443 with a self-signed certificate that verifies against its own ca.crt
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-mailpit --timeout=300s
+          kubectl get secret rtest-mailpit-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-mailpit 8443:443 >/tmp/pf-tls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/ca.crt https://localhost:8443/readyz >/dev/null
+          curl -fsS --cacert /tmp/ca.crt -u quench-ci:quench-ci-pass https://localhost:8443/api/v1/messages >/dev/null
+          echo "Mailpit: HTTPS UI + API on Service port 443 verified against the chart CA"
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

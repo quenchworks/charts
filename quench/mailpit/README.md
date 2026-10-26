@@ -98,6 +98,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/mailpit \
 | `service.type`                     | `ClusterIP`                          | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
 | `service.ports.smtp`               | `1025`                               | SMTP submission port.                                                                     |
 | `service.ports.http`               | `8025`                               | Web UI and REST API.                                                                      |
+| `service.httpsPort`                | `443`                                | Service port for the TLS listener (container 8443) when `tls.enabled`.                    |
+| `tls.enabled`                      | `false`                              | Serve HTTPS on Mailpit's own listener; the certificate is mounted at `/tls`.              |
+| `tls.existingSecret`               | `""`                                 | Use this `kubernetes.io/tls` Secret (1st choice).                                         |
+| `tls.certManager.enabled`          | `false`                              | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice).       |
+| `tls.selfSigned.validityDays`      | `365`                                | Otherwise Helm generates a CA + certificate, kept across upgrades.                        |
 | `serviceAccount.create`            | `true`                               | Token automount is off.                                                                   |
 | `serviceAccount.name`              | `""`                                 | Use an existing ServiceAccount if set.                                                    |
 | `serviceAccount.annotations`       | `{}`                                 | Annotations on the ServiceAccount.                                                        |
@@ -105,7 +110,7 @@ gh attestation verify oci://ghcr.io/quenchworks/images/mailpit \
 | `networkPolicy.enabled`            | `true`                               | Restricts ingress to both listeners.                                                      |
 | `networkPolicy.allowExternal`      | `false`                              | Namespace-only by default. Add `networkPolicy.extraFrom` for other namespaces.            |
 | `podDisruptionBudget.enabled`      | `false`                              | Off: a `minAvailable: 1` PDB on a single-replica test tool blocks node drains.            |
-| `ingress.enabled`                  | `false`                              | Ingress for the web UI. Set `auth.*` first. HTTP only.                                    |
+| `ingress.enabled`                  | `false`                              | Ingress for the web UI. Set `auth.*` first. With `tls.enabled` it routes to `service.httpsPort`: set the controller's backend protocol to HTTPS. |
 | `ingress.className`                | `""`                                 | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
 | `ingress.annotations`              | `{}`                                 | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
 | `ingress.servicePort`              | `null`                               | Backend port. Unset resolves `service.ports.http`.                                        |

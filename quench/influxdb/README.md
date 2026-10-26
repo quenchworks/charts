@@ -68,9 +68,14 @@ gh attestation verify oci://ghcr.io/quenchworks/images/influxdb \
 | `auth.existingSecret`         | `""`                                  | Use an existing Secret for password + token.                                              |
 | `persistence.enabled`         | `true`                                | 8Gi PVC at `/var/lib/influxdb2`.                                                          |
 | `service.port`                | `8086`                                | HTTP API + web UI.                                                                        |
+| `service.httpsPort`           | `443`                                 | Service port for the TLS listener (container 8443) when `tls.enabled`.                    |
+| `tls.enabled`                 | `false`                               | Serve HTTPS on InfluxDB's own listener; the certificate is mounted at `/tls`.             |
+| `tls.existingSecret`          | `""`                                  | Use this `kubernetes.io/tls` Secret (1st choice).                                         |
+| `tls.certManager.enabled`     | `false`                               | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice).       |
+| `tls.selfSigned.validityDays` | `365`                                 | Otherwise Helm generates a CA + certificate, kept across upgrades.                        |
 | `networkPolicy.enabled`       | `true`                                | Restricts HTTP ingress to the release namespace.                                          |
 | `podDisruptionBudget.enabled` | `true`                                | `minAvailable: 1`.                                                                        |
-| `ingress.enabled`             | `false`                               | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.enabled`             | `false`                               | Create an Ingress for this chart. With `tls.enabled` it routes to `service.httpsPort`: set the controller's backend protocol to HTTPS. |
 | `ingress.className`           | `""`                                  | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
 | `ingress.annotations`         | `{}`                                  | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
 | `ingress.servicePort`         | `null`                                | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |

@@ -1,5 +1,9 @@
-{{- $liveness := dict "tcpSocket" (dict "port" "http") "initialDelaySeconds" 15 "periodSeconds" 15 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/readyz" "port" "http") "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $httpPort := ternary 8443 .Values.service.httpPort (eq $tls "true") -}}
+{{- $liveness := dict "tcpSocket" (dict "port" $port) "initialDelaySeconds" 15 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/readyz" "port" $port "scheme" $scheme) "initialDelaySeconds" 5 "periodSeconds" 10 -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -52,8 +56,13 @@ spec:
           #     WORKDIR /rqlite, so the non-root user cannot create rqlite's
           #     extension store there. Use /data, a writable mounted volume.
           args:
-            - -http-addr=0.0.0.0:{{ .Values.service.httpPort }}
-            - -http-adv-addr=$(POD_NAME).{{ include "rqlite.headlessName" . }}.$(POD_NAMESPACE).svc.cluster.local:{{ .Values.service.httpPort }}
+            # with tls.enabled the API serves HTTPS on 8443 (nonroot cannot bind 443; the Service maps it)
+            - -http-addr=0.0.0.0:{{ $httpPort }}
+            - -http-adv-addr=$(POD_NAME).{{ include "rqlite.headlessName" . }}.$(POD_NAMESPACE).svc.cluster.local:{{ $httpPort }}
+            {{- if $tls }}
+            - -http-cert=/tls/tls.crt
+            - -http-key=/tls/tls.key
+            {{- end }}
             - -raft-addr=0.0.0.0:{{ .Values.service.raftPort }}
             - -raft-adv-addr=$(POD_NAME).{{ include "rqlite.headlessName" . }}.$(POD_NAMESPACE).svc.cluster.local:{{ .Values.service.raftPort }}
             - /data
@@ -70,8 +79,8 @@ spec:
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: {{ .Values.service.httpPort }}
+            - name: {{ $port }}
+              containerPort: {{ $httpPort }}
             - name: raft
               containerPort: {{ .Values.service.raftPort }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
@@ -86,9 +95,10 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
-      {{- if or (and .Values.persistence.enabled .Values.persistence.existingClaim) (not .Values.persistence.enabled) .Values.extraVolumes }}
+      {{- if or (and .Values.persistence.enabled .Values.persistence.existingClaim) (not .Values.persistence.enabled) .Values.extraVolumes $tls }}
       volumes:
         {{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
         - name: data
@@ -98,6 +108,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
       {{- end }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}

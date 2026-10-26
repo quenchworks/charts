@@ -66,6 +66,23 @@ jobs:
           echo "$out"
           echo "$out" | >/dev/null grep '"123"'
 
+          # native TLS: the same release with tls.enabled serves the API over HTTPS on the
+          # Service's 443 with a self-signed certificate that verifies against its own ca.crt
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-victoriametrics --timeout=300s
+          kubectl get secret rtest-victoriametrics-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-victoriametrics 8443:443 >/tmp/pf-tls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          out="$(curl -fsS --cacert /tmp/ca.crt https://localhost:8443/health)"
+          grep -q '^OK$' <<<"$out" || { echo "health over HTTPS: $out"; exit 1; }
+          curl -fsS --cacert /tmp/ca.crt -d 'quench_tls_metric 7' https://localhost:8443/api/v1/import/prometheus
+          curl -fsS --cacert /tmp/ca.crt https://localhost:8443/internal/force_flush >/dev/null || true
+          sleep 3
+          out="$(curl -fsS --cacert /tmp/ca.crt 'https://localhost:8443/api/v1/query?query=quench_tls_metric%5B5m%5D')"
+          grep -q '"7"' <<<"$out" || { echo "query over HTTPS: $out"; exit 1; }
+          echo "VictoriaMetrics: HTTPS API on Service port 443 verified against the chart CA"
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

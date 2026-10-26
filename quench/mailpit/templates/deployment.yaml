@@ -1,8 +1,11 @@
 {{/* Mailpit serves /livez and /readyz on the UI/HTTP port; both are exempt from
      basic auth, so the probes work with or without auth.* configured. */}}
 {{- $root := trimSuffix "/" .Values.ui.webroot -}}
-{{- $liveness := dict "httpGet" (dict "path" (printf "%s/livez" $root) "port" "http") "initialDelaySeconds" 5 "periodSeconds" 15 -}}
-{{- $readiness := dict "httpGet" (dict "path" (printf "%s/readyz" $root) "port" "http") "initialDelaySeconds" 2 "periodSeconds" 10 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" (printf "%s/livez" $root) "port" $port "scheme" $scheme) "initialDelaySeconds" 5 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" (printf "%s/readyz" $root) "port" $port "scheme" $scheme) "initialDelaySeconds" 2 "periodSeconds" 10 -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -39,7 +42,14 @@ spec:
           command: ["/usr/bin/mailpit"]
           args:
             # Both listeners default to [::], which fails on IPv4-only nodes.
+            {{- if $tls }}
+            # nonroot cannot bind 443: the UI/API serve TLS on 8443, the Service maps it to 443
+            - "--listen=0.0.0.0:8443"
+            - "--ui-tls-cert=/tls/tls.crt"
+            - "--ui-tls-key=/tls/tls.key"
+            {{- else }}
             - "--listen=0.0.0.0:{{ .Values.ui.port }}"
+            {{- end }}
             - "--smtp=0.0.0.0:{{ .Values.smtp.port }}"
             - "--database={{ .Values.persistence.path }}/mailpit.db"
             - "--max={{ .Values.smtp.maxMessages }}"
@@ -67,8 +77,8 @@ spec:
             - name: smtp
               containerPort: {{ .Values.smtp.port }}
               protocol: TCP
-            - name: http
-              containerPort: {{ .Values.ui.port }}
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 .Values.ui.port (eq $tls "true") }}
               protocol: TCP
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
@@ -84,6 +94,7 @@ spec:
             # writable volume even when persistence is off (emptyDir fallback).
             - name: data
               mountPath: {{ .Values.persistence.path }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -94,4 +105,5 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

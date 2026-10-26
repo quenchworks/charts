@@ -64,6 +64,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/rqlite \
 | `service.type`                     | `ClusterIP`                         | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
 | `service.httpPort`                 | `4001`                              | rqlite HTTP API port.                                                                     |
 | `service.raftPort`                 | `4002`                              | Raft inter-node port.                                                                     |
+| `service.httpsPort`                | `443`                               | Service port for the TLS listener (container 8443) when `tls.enabled`.                    |
+| `tls.enabled`                      | `false`                             | Serve HTTPS on rqlite's own listener; the certificate is mounted at `/tls`.               |
+| `tls.existingSecret`               | `""`                                | Use this `kubernetes.io/tls` Secret (1st choice).                                         |
+| `tls.certManager.enabled`          | `false`                             | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice).       |
+| `tls.selfSigned.validityDays`      | `365`                               | Otherwise Helm generates a CA + certificate, kept across upgrades.                        |
 | `resources.requests`               | `100m / 128Mi`                      | CPU / memory requests.                                                                    |
 | `resources.limits`                 | `500m / 256Mi`                      | CPU / memory limits.                                                                      |
 | `command`                          | `[]`                                | Override the entrypoint (default `/usr/bin/rqlited`).                                     |
@@ -76,7 +81,7 @@ gh attestation verify oci://ghcr.io/quenchworks/images/rqlite \
 | `networkPolicy.allowExternal`      | `false`                             | Set `true` to allow HTTP ingress from any source.                                         |
 | `podDisruptionBudget.enabled`      | `true`                              |                                                                                           |
 | `podDisruptionBudget.minAvailable` | `1`                                 |                                                                                           |
-| `ingress.enabled`                  | `false`                             | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.enabled`                  | `false`                             | Create an Ingress for this chart. With `tls.enabled` it routes to `service.httpsPort`: set the controller's backend protocol to HTTPS. |
 | `ingress.className`                | `""`                                | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
 | `ingress.annotations`              | `{}`                                | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
 | `ingress.servicePort`              | `null`                              | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |

@@ -7,9 +7,15 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
+    {{- if include "quench-common.tls.enabled" . }}
+    - port: {{ .Values.service.httpsPort }}
+      targetPort: https
+      name: https
+    {{- else }}
     - port: {{ .Values.service.httpPort }}
       targetPort: http
       name: http
+    {{- end }}
   selector:
     {{- include "quench-common.selectorLabels" . | nindent 4 }}
 ---
@@ -24,9 +30,16 @@ spec:
   clusterIP: None
   publishNotReadyAddresses: true   # peers must resolve each other before they are ready
   ports:
+    {{- if include "quench-common.tls.enabled" . }}
+    # headless names resolve to pod IPs, so advertise the container's own TLS port
+    - port: 8443
+      targetPort: https
+      name: https
+    {{- else }}
     - port: {{ .Values.service.httpPort }}
       targetPort: http
       name: http
+    {{- end }}
     - port: {{ .Values.service.raftPort }}
       targetPort: raft
       name: raft

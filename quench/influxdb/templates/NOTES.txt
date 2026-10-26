@@ -1,8 +1,18 @@
 Quenchworks InfluxDB is installed as {{ include "quench-common.fullname" . }}.
 
+{{ if include "quench-common.tls.enabled" . -}}
+The HTTP API (and web UI) is served over HTTPS (native TLS) on port {{ .Values.service.httpsPort }} from inside the cluster:
+
+  https://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local{{ if ne (int .Values.service.httpsPort) 443 }}:{{ .Values.service.httpsPort }}{{ end }}
+
+Trust the ca.crt in Secret {{ include "quench-common.tls.secretName" . }} (self-signed by default):
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "quench-common.tls.secretName" . }} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+{{- else -}}
 The HTTP API (and web UI) is served on port {{ .Values.service.port }} from inside the cluster:
 
   http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+{{- end }}
 
 {{- if .Values.auth.setup }}
 
@@ -22,7 +32,11 @@ Get the admin password:
 
 Write a point, then query it back (from a client pod with the token in $TOKEN):
 
+  {{- if include "quench-common.tls.enabled" . }}
+  HOST=https://{{ include "quench-common.fullname" . }}:{{ .Values.service.httpsPort }}   # add --cacert ca.crt to curl
+  {{- else }}
   HOST=http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}
+  {{- end }}
 
   curl -fsS -XPOST "$HOST/api/v2/write?org={{ .Values.auth.org }}&bucket={{ .Values.auth.bucket }}&precision=s" \
     -H "Authorization: Token $TOKEN" \

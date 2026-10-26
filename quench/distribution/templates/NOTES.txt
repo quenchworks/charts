@@ -1,5 +1,17 @@
 Quenchworks Distribution (OCI registry) is installed as {{ include "quench-common.fullname" . }}.
 
+{{ if include "quench-common.tls.enabled" . -}}
+The registry API is served over HTTPS (native TLS) on port {{ .Values.service.httpsPort }}:
+
+  {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local{{ if ne (int .Values.service.httpsPort) 443 }}:{{ .Values.service.httpsPort }}{{ end }}
+
+The certificate is in Secret {{ include "quench-common.tls.secretName" . }}; container runtimes that pull
+from it must trust its ca.crt (self-signed by default):
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "quench-common.tls.secretName" . }} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8443:{{ .Values.service.httpsPort }}
+  curl --cacert ca.crt https://localhost:8443/v2/
+{{- else -}}
 The registry API is served on port {{ .Values.service.port }}:
 
   {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
@@ -8,6 +20,7 @@ Check the API base from a one-off client pod (returns 200):
 
   kubectl run reg-check --rm -it --restart=Never --image=ghcr.io/quenchworks/images/busybox -- \
     wget -qS -O- http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/v2/
+{{- end }}
 
 {{ if .Values.config.existingConfigMap -}}
 Using the config from ConfigMap "{{ .Values.config.existingConfigMap }}".
