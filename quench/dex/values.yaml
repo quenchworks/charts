@@ -70,6 +70,28 @@ service:
     http: 5556
     grpc: 5557
     telemetry: 5558
+    # With tls.enabled the Service publishes the HTTPS listener (container 8443) here
+    # instead of http.
+    https: 443
+
+# Native TLS on Dex's own web listener: the OIDC issuer and login UI are served over
+# HTTPS on container port 8443 (web.https, web.tlsCert, web.tlsKey), published as
+# service.ports.https (443); web.http is dropped and an http:// issuer becomes https://.
+# gRPC and telemetry (probes, metrics) stay as they are. With config.existingConfigMap
+# the chart cannot edit the config: set web.https: 0.0.0.0:8443, web.tlsCert:
+# /tls/tls.crt and web.tlsKey: /tls/tls.key there yourself. Off by default. The first
+# source set wins: existingSecret, then certManager, else a Helm-generated self-signed
+# CA + certificate. The Secret is mounted at /tls (tls.crt, tls.key, ca.crt).
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # Optional horizontal autoscaling on CPU. Only safe with a shared storage
 # backend (NOT storage.type: memory).
@@ -131,15 +153,18 @@ podDisruptionBudget:
   enabled: true
   minAvailable: 1
 
-# Optional Ingress (HTTP only). Disabled by default, so enabling it is an explicit
-# operator decision and this chart's behaviour is unchanged until then.
+# Optional Ingress. With tls.enabled it routes to service.ports.https (443) and the
+# controller must speak HTTPS to the backend (ingress-nginx:
+# nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"). Disabled by default, so
+# enabling it is an explicit operator decision and this chart's behaviour is
+# unchanged until then.
 ingress:
   enabled: false
   # IngressClass to claim this Ingress. Empty -> the cluster default applies.
   className: ""
   annotations: {}
-  # Service port to route to. Unset -> resolved from service.port, then
-  # service.ports.http / .https.
+  # Service port to route to. Unset -> service.ports.https with tls.enabled, else
+  # service.ports.http.
   servicePort: null
   # e.g. [{host: app.example.com, paths: [{path: /, pathType: Prefix}]}]
   # `paths` may be omitted for the common "/" Prefix case.

@@ -7,6 +7,22 @@ metadata:
     {{- include "quench-common.labels" . | nindent 4 }}
 data:
   # Mounted at .Values.configMountPath and passed to `dex serve`.
+  {{- if include "quench-common.tls.enabled" . }}
+  {{- /* Native TLS: Dex serves the web listener over HTTPS on 8443 (nonroot cannot
+       bind 443; the Service maps it) with the certificate mounted at /tls. web.http
+       is dropped so nothing is served in clear text, and an http:// issuer becomes
+       https://. */}}
+  {{- $cfg := fromYaml .Values.config.yaml }}
+  {{- $web := omit (get $cfg "web" | default dict) "http" }}
+  {{- $_ := set $web "https" "0.0.0.0:8443" }}
+  {{- $_ = set $web "tlsCert" "/tls/tls.crt" }}
+  {{- $_ = set $web "tlsKey" "/tls/tls.key" }}
+  {{- $_ = set $cfg "web" $web }}
+  {{- with $cfg.issuer }}{{ $_ = set $cfg "issuer" (regexReplaceAll "^http://" . "https://") }}{{ end }}
+  {{ include "dex.configFileName" . }}: |-
+    {{- toYaml $cfg | nindent 4 }}
+  {{- else }}
   {{ include "dex.configFileName" . }}: |-
     {{- .Values.config.yaml | nindent 4 }}
+  {{- end }}
 {{- end }}

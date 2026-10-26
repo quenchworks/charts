@@ -2,6 +2,7 @@
      200 once the process is up. Used for liveness + readiness. */}}
 {{- $liveness := dict "httpGet" (dict "path" "/healthz" "port" "telemetry") "initialDelaySeconds" 5 "periodSeconds" 15 -}}
 {{- $readiness := dict "httpGet" (dict "path" "/healthz" "port" "telemetry") "initialDelaySeconds" 2 "periodSeconds" 10 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -45,8 +46,13 @@ spec:
           {{- end }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
+            {{- if $tls }}
+            - name: https
+              containerPort: 8443
+            {{- else }}
             - name: http
               containerPort: 5556
+            {{- end }}
               protocol: TCP
             - name: grpc
               containerPort: 5557
@@ -67,10 +73,12 @@ spec:
             - name: config
               mountPath: {{ include "dex.configMountDir" . }}
               readOnly: true
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         - name: config
           configMap:
             name: {{ include "dex.mountedConfigMap" . }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

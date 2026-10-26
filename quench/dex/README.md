@@ -83,9 +83,14 @@ For production:
 | `service.ports.http`       | `5556`                           | OIDC issuer + UI                                                                          |
 | `service.ports.grpc`       | `5557`                           | gRPC API                                                                                  |
 | `service.ports.telemetry`  | `5558`                           | health + metrics                                                                          |
-| `ingress.enabled`          | `false`                          | Create an Ingress for this chart. HTTP only.                                              |
+| `service.ports.https`      | `443`                            | HTTPS listener (container 8443), published instead of `http` when `tls.enabled`.         |
+| `tls.enabled`              | `false`                          | Serve the OIDC issuer and login UI over HTTPS on the app's own listener; the certificate is mounted at `/tls`. |
+| `tls.existingSecret`       | `""`                             | Use this `kubernetes.io/tls` Secret (1st choice).                                         |
+| `tls.certManager.enabled`  | `false`                          | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice).       |
+| `tls.selfSigned.validityDays` | `365`                            | Otherwise Helm generates a CA + certificate, kept across upgrades.                        |
+| `ingress.enabled`          | `false`                          | Create an Ingress. With `tls.enabled` it routes to 443: set the backend protocol to HTTPS. |
 | `ingress.className`        | `""`                             | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
 | `ingress.annotations`      | `{}`                             | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
-| `ingress.servicePort`      | `null`                           | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.servicePort`      | `null`                           | Backend port. Unset: `service.ports.https` with `tls.enabled`, else `service.ports.http`.       |
 | `ingress.hosts`            | `[]`                             | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
 | `ingress.tls`              | `[]`                             | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
