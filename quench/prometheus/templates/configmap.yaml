@@ -8,5 +8,30 @@ data:
   # Mounted over /etc/prometheus/prometheus.yml (the entrypoint's --config.file).
   # Edit config.prometheusYaml and `helm upgrade`; the pod checksum annotation
   # rolls the StatefulSet, or reload live with `curl -XPOST .../-/reload`.
+  {{- if include "quench-common.tls.enabled" . }}
+  {{- /* Native TLS: the web listener moves to https://0.0.0.0:8443, so a self-scrape
+       target localhost:9090 follows it to localhost:8443 over https, verified
+       against /tls/ca.crt. Other jobs are left as written. */}}
+  {{- $cfg := fromYaml .Values.config.prometheusYaml }}
+  {{- range $sc := $cfg.scrape_configs }}
+  {{- range $st := $sc.static_configs }}
+  {{- if has "localhost:9090" $st.targets }}
+  {{- $t := list }}
+  {{- range $st.targets }}{{ $t = append $t (ternary "localhost:8443" . (eq . "localhost:9090")) }}{{ end }}
+  {{- $_ := set $st "targets" $t }}
+  {{- $_ = set $sc "scheme" "https" }}
+  {{- $_ = set $sc "tls_config" (dict "ca_file" "/tls/ca.crt") }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
+  prometheus.yml: |-
+    {{- toYaml $cfg | nindent 4 }}
+  # --web.config.file: serve the web listener over TLS with the mounted certificate.
+  web.yml: |-
+    tls_server_config:
+      cert_file: /tls/tls.crt
+      key_file: /tls/tls.key
+  {{- else }}
   prometheus.yml: |-
     {{- .Values.config.prometheusYaml | nindent 4 }}
+  {{- end }}

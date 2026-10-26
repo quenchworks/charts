@@ -7,9 +7,15 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
+    {{- if include "quench-common.tls.enabled" . }}
+    - port: {{ .Values.service.httpsPort }}
+      targetPort: https
+      name: https
+    {{- else }}
     - port: {{ .Values.service.port }}
       targetPort: http
       name: http
+    {{- end }}
   selector:
     {{- include "quench-common.selectorLabels" . | nindent 4 }}
 ---
@@ -24,8 +30,14 @@ spec:
   clusterIP: None
   publishNotReadyAddresses: true
   ports:
+    {{- if include "quench-common.tls.enabled" . }}
+    - port: {{ .Values.service.httpsPort }}
+      targetPort: https
+      name: https
+    {{- else }}
     - port: {{ .Values.service.port }}
       targetPort: http
       name: http
+    {{- end }}
   selector:
     {{- include "quench-common.selectorLabels" . | nindent 4 }}

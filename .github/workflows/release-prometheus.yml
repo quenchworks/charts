@@ -68,6 +68,27 @@ jobs:
           done
           test -n "$ok"   # fail loudly if the self-scrape `up` metric never appeared
 
+          # native TLS: the same release with tls.enabled serves HTTPS on the Service's
+          # 443 with a self-signed certificate that verifies against its own ca.crt
+          kill $pf 2>/dev/null || true; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status statefulset/rtest-prometheus --timeout=600s
+          kubectl get secret rtest-prometheus-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-prometheus 8443:443 >/tmp/pf-tls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/ca.crt https://localhost:8443/-/ready >/dev/null
+          # the self-scrape follows the listener to https://localhost:8443: wait for up == 1
+          ok=""
+          for i in $(seq 1 30); do
+            out="$(curl -fsS --cacert /tmp/ca.crt 'https://localhost:8443/api/v1/query?query=up{job="prometheus"}')" || true
+            echo "$out"
+            if grep -q '"value":\[[0-9.]*,"1"\]' <<<"$out"; then ok=1; break; fi
+            sleep 5
+          done
+          test -n "$ok"
+          echo "Prometheus: HTTPS on Service port 443 verified against the chart CA, self-scrape up over TLS"
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

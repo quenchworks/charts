@@ -1,8 +1,21 @@
 Quenchworks Prometheus is installed as {{ include "quench-common.fullname" . }}.
 
+{{- if include "quench-common.tls.enabled" . }}
+The HTTP API and UI are served over HTTPS (native TLS) inside the cluster at:
+
+  https://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local{{ if ne (int .Values.service.httpsPort) 443 }}:{{ .Values.service.httpsPort }}{{ end }}
+
+The certificate is in Secret {{ include "quench-common.tls.secretName" . }}; trust its ca.crt (self-signed by
+default) and use https:// on port {{ .Values.service.httpsPort }} in the examples below:
+
+  kubectl get secret {{ include "quench-common.tls.secretName" . }} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8443:{{ .Values.service.httpsPort }}
+  curl --cacert ca.crt https://localhost:8443/-/ready
+{{- else }}
 The HTTP API and UI are reachable inside the cluster at:
 
   http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+{{- end }}
 
 Health and readiness:
 
