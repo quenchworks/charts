@@ -2,8 +2,11 @@
      the HTTP port. Monolithic startup (TSDB open, ring join, compactor) takes
      ~30-60s, so readiness gets a generous initialDelay + failureThreshold;
      liveness uses /metrics (always up once the HTTP server binds). */}}
-{{- $liveness := dict "httpGet" (dict "path" "/metrics" "port" "http") "initialDelaySeconds" 30 "periodSeconds" 15 "timeoutSeconds" 3 "failureThreshold" 6 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/ready" "port" "http") "initialDelaySeconds" 30 "periodSeconds" 10 "timeoutSeconds" 3 "failureThreshold" 12 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/metrics" "port" $port "scheme" $scheme) "initialDelaySeconds" 30 "periodSeconds" 15 "timeoutSeconds" 3 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/ready" "port" $port "scheme" $scheme) "initialDelaySeconds" 30 "periodSeconds" 10 "timeoutSeconds" 3 "failureThreshold" 12 -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -49,6 +52,13 @@ spec:
           args:
             - -config.file=/etc/mimir/mimir.yaml
             - -target=all
+            {{- if $tls }}
+            # Native TLS on the HTTP server (CLI flags win over mimir.yaml): 8443 because
+            # nonroot cannot bind 443; the Service maps it. gRPC stays plain.
+            - -server.http-listen-port=8443
+            - -server.http-tls-cert-path=/tls/tls.crt
+            - -server.http-tls-key-path=/tls/tls.key
+            {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -56,8 +66,8 @@ spec:
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 .Values.service.port (eq $tls "true") }}
             - name: grpc
               containerPort: {{ .Values.service.grpcPort }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
@@ -83,6 +93,7 @@ spec:
             # writable scratch for the read-only rootfs.
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -99,6 +110,7 @@ spec:
         - name: storage
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
   volumeClaimTemplates:

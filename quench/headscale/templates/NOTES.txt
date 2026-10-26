@@ -1,5 +1,17 @@
 Quenchworks headscale is installed as {{ include "quench-common.fullname" . }}.
 
+{{ if include "quench-common.tls.enabled" . -}}
+Reach the control-server API over HTTPS (native TLS) from inside the cluster:
+
+  https://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local{{ if ne (int .Values.service.httpsPort) 443 }}:{{ .Values.service.httpsPort }}{{ end }}
+
+Set serverUrl to the https:// URL your clients dial. Trust the ca.crt in Secret
+{{ include "quench-common.tls.secretName" . }} (self-signed by default):
+
+  kubectl get secret {{ include "quench-common.tls.secretName" . }} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8443:{{ .Values.service.httpsPort }}
+  curl --cacert ca.crt https://localhost:8443/health   # -> 200
+{{- else -}}
 Reach the control-server API from inside the cluster:
 
   http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
@@ -12,6 +24,7 @@ Port-forward it to your laptop:
 Health check:
 
   curl http://127.0.0.1:8080/health   # -> 200
+{{- end }}
 
 Run headscale admin commands inside the pod (the CLI talks to the unix socket on
 the PVC, so pass --config):

@@ -67,6 +67,25 @@ jobs:
             -d '{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"citest"}}]},"scopeSpans":[{"spans":[{"traceId":"5b8efff798038103d269b633813fc60c","spanId":"eee19b7ec3c1b173","name":"ci-span","kind":1,"startTimeUnixNano":"1700000000000000000","endTimeUnixNano":"1700000000000001000"}]}]}]}' || true)"
           test "$code" = "200"   # fail loudly if the ingester rejected the span
 
+          # native TLS: the same release with tls.enabled serves the query API over HTTPS on the
+          # Service's 443 with a self-signed certificate that verifies against its own ca.crt
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-tempo --timeout=420s
+          kubectl get secret rtest-tempo-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-tempo 8443:443 >/tmp/pf-tls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          ok=""
+          for i in $(seq 1 30); do
+            code="$(curl -sS --cacert /tmp/ca.crt -o /dev/null -w '%{http_code}' https://localhost:8443/ready || true)"
+            if [ "$code" = "200" ]; then ok=1; break; fi
+            sleep 5
+          done
+          test -n "$ok"
+          curl -fsS --cacert /tmp/ca.crt https://localhost:8443/metrics >/dev/null
+          curl -fsS --cacert /tmp/ca.crt https://localhost:8443/api/echo >/dev/null
+          echo "Tempo: HTTPS query API on Service port 443 verified against the chart CA"
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

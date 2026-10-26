@@ -55,7 +55,7 @@ gh attestation verify oci://ghcr.io/quenchworks/images/zot \
 | `nameOverride`                     | `""`                             | Override the chart name in resource names.                                                             |
 | `replicaCount`                     | `1`                              | StatefulSet replicas. Keep at 1 unless using shared (S3) storage.                                      |
 | `config.configJson`                | filesystem, `:5000`              | Full zot `config.json`, rendered into a ConfigMap and mounted over `/etc/zot`.                         |
-| `config.existingConfigMap`         | `""`                             | Use an externally-managed ConfigMap (key `config.json`) instead.                                       |
+| `config.existingConfigMap`         | `""`                             | Use an externally-managed ConfigMap (key `config.json`) instead. With `tls.enabled` it must set `http.port` `"8443"` and `http.tls` (`/tls/tls.crt`, `/tls/tls.key`) itself. |
 | `persistence.enabled`              | `true`                           | 10Gi PVC mounted at `/var/lib/registry`. When `false`, uses an `emptyDir` (blobs are lost on restart). |
 | `persistence.size`                 | `10Gi`                           | Requested volume size.                                                                                 |
 | `persistence.storageClass`         | `""`                             | Default class if unset.                                                                                |
@@ -65,6 +65,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/zot \
 | `persistence.existingClaim`        | `""`                             | Bind an existing PVC instead of provisioning one.                                                      |
 | `service.type`                     | `ClusterIP`                      | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                                            |
 | `service.port`                     | `5000`                           | The registry HTTP API.                                                                                 |
+| `service.httpsPort`                | `443`                            | Service port for the TLS listener (container 8443) when `tls.enabled`.                                 |
+| `tls.enabled`                      | `false`                          | Serve HTTPS on zot's own listener; the certificate is mounted at `/tls`.                               |
+| `tls.existingSecret`               | `""`                             | Use this `kubernetes.io/tls` Secret (1st choice).                                                      |
+| `tls.certManager.enabled`          | `false`                          | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice).                    |
+| `tls.selfSigned.validityDays`      | `365`                            | Otherwise Helm generates a CA + certificate, kept across upgrades.                                     |
 | `resources.requests`               | `100m / 128Mi`                   | CPU / memory requests.                                                                                 |
 | `resources.limits`                 | `1 / 512Mi`                      | CPU / memory limits.                                                                                   |
 | `serviceAccount.create`            | `true`                           | Token automount is off.                                                                                |
@@ -75,7 +80,7 @@ gh attestation verify oci://ghcr.io/quenchworks/images/zot \
 | `networkPolicy.allowExternal`      | `true`                           | A registry is commonly pulled/pushed cluster-wide; set `false` to restrict ingress to the namespace.   |
 | `podDisruptionBudget.enabled`      | `true`                           |                                                                                                        |
 | `podDisruptionBudget.minAvailable` | `1`                              |                                                                                                        |
-| `ingress.enabled`                  | `false`                          | Create an Ingress for this chart. HTTP only.                                                           |
+| `ingress.enabled`                  | `false`                          | Create an Ingress for this chart. With `tls.enabled` it routes to `service.httpsPort`: set the controller's backend protocol to HTTPS. |
 | `ingress.className`                | `""`                             | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.                       |
 | `ingress.annotations`              | `{}`                             | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).                         |
 | `ingress.servicePort`              | `null`                           | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.                     |

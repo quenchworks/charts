@@ -52,6 +52,19 @@ jobs:
           code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5000/v2/)"
           test "$code" = "200"
 
+          # native TLS: the same release with tls.enabled serves the registry API over HTTPS on
+          # the Service's 443 with a self-signed certificate that verifies against its own ca.crt
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-zot --timeout=300s
+          kubectl get secret rtest-zot-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-zot 8443:443 >/tmp/pf-tls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          code="$(curl -s --cacert /tmp/ca.crt -o /dev/null -w '%{http_code}' https://localhost:8443/v2/)"
+          test "$code" = "200"
+          curl -fsS --cacert /tmp/ca.crt https://localhost:8443/v2/_catalog >/dev/null
+          echo "zot: HTTPS registry API on Service port 443 verified against the chart CA"
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

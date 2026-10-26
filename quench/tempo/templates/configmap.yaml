@@ -8,5 +8,17 @@ data:
   # Mounted over /etc/tempo/config.yaml (the chart's -config.file arg). tempoConfig
   # is templated so values like service ports flow in; edit it and `helm upgrade`
   # (the pod checksum annotation rolls the StatefulSet).
+  {{- if include "quench-common.tls.enabled" . }}
+  # tls.enabled: the query API serves HTTPS itself on 8443 (nonroot cannot bind 443;
+  # the Service maps it) via server.http_tls_config. OTLP receivers and gRPC stay plain.
+  {{- $cfg := tpl .Values.tempoConfig . | fromYaml }}
+  {{- $server := get $cfg "server" | default dict }}
+  {{- $_ := set $server "http_listen_port" 8443 }}
+  {{- $_ := set $server "http_tls_config" (dict "cert_file" "/tls/tls.crt" "key_file" "/tls/tls.key") }}
+  {{- $_ := set $cfg "server" $server }}
+  config.yaml: |-
+    {{- toYaml $cfg | nindent 4 }}
+  {{- else }}
   config.yaml: |-
     {{- tpl .Values.tempoConfig . | nindent 4 }}
+  {{- end }}

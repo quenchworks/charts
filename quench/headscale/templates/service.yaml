@@ -7,10 +7,17 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
+    {{- if include "quench-common.tls.enabled" . }}
+    - port: {{ .Values.service.httpsPort }}
+      targetPort: https
+      protocol: TCP
+      name: https
+    {{- else }}
     - port: {{ .Values.service.port }}
       targetPort: http
       protocol: TCP
       name: http
+    {{- end }}
     - port: {{ .Values.metricsPort }}
       targetPort: metrics
       protocol: TCP
@@ -28,10 +35,18 @@ spec:
   type: ClusterIP
   clusterIP: None
   ports:
+    {{- if include "quench-common.tls.enabled" . }}
+    # headless names resolve to pod IPs, so advertise the container's own TLS port
+    - port: 8443
+      targetPort: https
+      protocol: TCP
+      name: https
+    {{- else }}
     - port: {{ .Values.service.port }}
       targetPort: http
       protocol: TCP
       name: http
+    {{- end }}
     - port: {{ .Values.metricsPort }}
       targetPort: metrics
       protocol: TCP

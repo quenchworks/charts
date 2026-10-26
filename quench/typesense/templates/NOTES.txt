@@ -1,5 +1,18 @@
 Quenchworks Typesense is installed as {{ include "quench-common.fullname" . }} (single-node).
 
+{{ if include "quench-common.tls.enabled" . -}}
+The search API is served over HTTPS (native TLS) inside the cluster at:
+
+  https://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local{{ if ne (int .Values.service.httpsPort) 443 }}:{{ .Values.service.httpsPort }}{{ end }}
+
+Trust the ca.crt in Secret {{ include "quench-common.tls.secretName" . }} (self-signed by default):
+
+  kubectl get secret {{ include "quench-common.tls.secretName" . }} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+
+Health (always UNAUTHENTICATED, used by the probes):
+
+  curl --cacert ca.crt https://{{ include "quench-common.fullname" . }}:{{ .Values.service.httpsPort }}/health   # -> {"ok":true}
+{{- else -}}
 The search API is reachable inside the cluster at:
 
   http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
@@ -7,6 +20,7 @@ The search API is reachable inside the cluster at:
 Health (always UNAUTHENTICATED, used by the probes):
 
   curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/health   # -> {"ok":true}
+{{- end }}
 
 AUTH MODEL: Typesense REQUIRES an API key at startup. Every API route except
 GET /health requires the header:

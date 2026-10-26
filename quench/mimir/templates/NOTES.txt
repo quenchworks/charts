@@ -1,14 +1,24 @@
+{{- $tlsOn := include "quench-common.tls.enabled" . }}
+{{- $scheme := ternary "https" "http" (eq $tlsOn "true") }}
+{{- $svcPort := ternary .Values.service.httpsPort .Values.service.port (eq $tlsOn "true") -}}
 Quenchworks Mimir is installed as {{ include "quench-common.fullname" . }} (single-process / monolithic mode, -target=all).
 
 The HTTP API is reachable inside the cluster at:
 
-  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+  {{ $scheme }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ $svcPort }}
+{{- if $tlsOn }}
+
+HTTPS is native TLS (tls.enabled). Trust the ca.crt in Secret {{ include "quench-common.tls.secretName" . }}
+(self-signed by default) and pass it to curl with --cacert ca.crt:
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "quench-common.tls.secretName" . }} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+{{- end }}
 
 Readiness / health:
 
-  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/ready                     # -> 200 "ready"
-  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/api/v1/status/config      # -> 200 (effective config)
-  curl http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/metrics                   # -> 200
+  curl {{ $scheme }}://{{ include "quench-common.fullname" . }}:{{ $svcPort }}/ready                     # -> 200 "ready"
+  curl {{ $scheme }}://{{ include "quench-common.fullname" . }}:{{ $svcPort }}/api/v1/status/config      # -> 200 (effective config)
+  curl {{ $scheme }}://{{ include "quench-common.fullname" . }}:{{ $svcPort }}/metrics                   # -> 200
 
 Monolithic startup (open the TSDB, join the ring, start the compactor) takes
 ~30-60s before /ready returns 200 -- give it a moment after install.
@@ -17,16 +27,16 @@ Send metrics (Prometheus remote-write; Mimir has no scraper of its own -- point
 Prometheus / Grafana Alloy / the OTel collector at the push endpoint):
 
   remote_write:
-    - url: http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/api/v1/push
+    - url: {{ $scheme }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ $svcPort }}/api/v1/push
 
 Query (this instance runs single-tenant, multitenancy_enabled: false):
 
-  curl -G 'http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/prometheus/api/v1/query' \
+  curl -G '{{ $scheme }}://{{ include "quench-common.fullname" . }}:{{ $svcPort }}/prometheus/api/v1/query' \
     --data-urlencode 'query=up'
 
 Use as a Grafana datasource (add a "Prometheus" datasource):
 
-  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/prometheus
+  {{ $scheme }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ $svcPort }}/prometheus
 
 Custom config:
 

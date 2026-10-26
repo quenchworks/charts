@@ -7,6 +7,18 @@ metadata:
     {{- include "quench-common.labels" . | nindent 4 }}
 data:
   # Mounted at /etc/zot/config.json (the image runs `zot serve /etc/zot/config.json`).
+  {{- if include "quench-common.tls.enabled" . }}
+  # tls.enabled: zot serves HTTPS itself on 8443 (nonroot cannot bind 443; the Service
+  # maps it) with the certificate mounted at /tls.
+  {{- $cfg := fromJson .Values.config.configJson }}
+  {{- $http := get $cfg "http" | default dict }}
+  {{- $_ := set $http "port" "8443" }}
+  {{- $_ := set $http "tls" (dict "cert" "/tls/tls.crt" "key" "/tls/tls.key") }}
+  {{- $_ := set $cfg "http" $http }}
+  config.json: |-
+    {{- toPrettyJson $cfg | nindent 4 }}
+  {{- else }}
   config.json: |-
     {{- .Values.config.configJson | nindent 4 }}
+  {{- end }}
 {{- end }}
