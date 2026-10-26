@@ -55,12 +55,6 @@ jobs:
           # SQLite was created on the PVC (the image has no shell; node checks the file)
           kubectl exec rtest-uptime-kuma-0 -- /usr/bin/node -e \
             'const s = require("fs").statSync("/app/data/kuma.db"); console.log("kuma.db", s.size, "bytes"); process.exit(s.size > 0 ? 0 : 1)'
-      # A failed install gate otherwise reports only "Progress deadline exceeded",
-      # which says a pod never became ready and nothing about why: helm --wait
-      # aborts before the smoke checks, so no logs are kept. Per container, not
-      # --all-containers, because a chatty sidecar spends the whole tail; and a
-      # large tail, because a crash floods the log with every open request failing
-      # at once and buries the error that triggered it.
 
           # native TLS: the same release upgraded IN PLACE to tls.enabled serves HTTPS on the
           # Service's 443 with a self-signed certificate that verifies against its own ca.crt
@@ -73,6 +67,13 @@ jobs:
           grep -q '"type":"entryPage"' <<<"$(curl -fsS --cacert /tmp/ca.crt https://localhost:8443/api/entry-page)"
           test "$(curl -s --cacert /tmp/ca.crt -o /dev/null -w '%{http_code}' https://localhost:8443/metrics)" = 401
           echo "uptime-kuma: HTTPS on Service port 443 verified against the chart CA"
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
       - name: Why the install gate failed
         if: failure()
         run: |
