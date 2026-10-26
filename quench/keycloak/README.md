@@ -134,11 +134,16 @@ gh attestation verify oci://ghcr.io/quenchworks/images/postgresql --owner quench
 | `db.existingSecret`                            | `""`                                  | Override the Secret `KC_DB_PASSWORD` is read from (both modes). Empty = unchanged.        |
 | `db.existingSecretPasswordKey`                 | `db-password`                         | Key within `db.existingSecret`.                                                           |
 | `service.port`                                 | `8080`                                | HTTP (UI + protocol endpoints).                                                           |
+| `service.httpsPort`                            | `443`                                 | Service port for the TLS listener (container 8443) when `tls.enabled`.                    |
+| `tls.enabled`                                  | `false`                               | Serve HTTPS on Keycloak's own listener; the certificate is mounted at `/tls`.             |
+| `tls.existingSecret`                           | `""`                                  | Use this `kubernetes.io/tls` Secret (1st choice).                                         |
+| `tls.certManager.enabled`                      | `false`                               | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice).       |
+| `tls.selfSigned.validityDays`                  | `365`                                 | Otherwise Helm generates a CA + certificate, kept across upgrades.                        |
 | `service.managementPort`                       | `9000`                                | Health + metrics.                                                                         |
 | `networkPolicy.enabled`                        | `true`                                | Ingress 8080 (+9000 in-namespace), egress to DB.                                          |
 | `networkPolicy.allowExternal`                  | `true`                                | Console is usually reached externally; set false to restrict.                             |
 | `podDisruptionBudget.enabled`                  | `true`                                | `minAvailable: 1`.                                                                        |
-| `ingress.enabled`                              | `false`                               | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.enabled`                              | `false`                               | Create an Ingress. With `tls.enabled` it routes to 443: set the controller's backend protocol to HTTPS. |
 | `ingress.className`                            | `""`                                  | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
 | `ingress.annotations`                          | `{}`                                  | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
 | `ingress.servicePort`                          | `null`                                | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |

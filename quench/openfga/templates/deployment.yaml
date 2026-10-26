@@ -1,7 +1,10 @@
 {{/* OpenFGA's HTTP server exposes GET /healthz on the HTTP port; it returns 200
      {"status":"SERVING"} once the server is up. Used for liveness + readiness. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/healthz" "port" "http") "initialDelaySeconds" 5 "periodSeconds" 15 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/healthz" "port" "http") "initialDelaySeconds" 2 "periodSeconds" 10 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/healthz" "port" $port "scheme" $scheme) "initialDelaySeconds" 5 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/healthz" "port" $port "scheme" $scheme) "initialDelaySeconds" 2 "periodSeconds" 10 -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -45,6 +48,14 @@ spec:
             - "--datastore-uri={{ .Values.datastore.uri }}"
             {{- end }}
             - "--playground-enabled={{ .Values.playground.enabled }}"
+            {{- if $tls }}
+            # Native TLS on the HTTP API: nonroot cannot bind 443, so OpenFGA serves HTTPS
+            # on 8443 and the Service maps it to 443. The gRPC API is unchanged.
+            - "--http-addr=0.0.0.0:8443"
+            - "--http-tls-enabled=true"
+            - "--http-tls-cert=/tls/tls.crt"
+            - "--http-tls-key=/tls/tls.key"
+            {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -54,8 +65,8 @@ spec:
           {{- end }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: 8080
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 8080 (eq $tls "true") }}
               protocol: TCP
             - name: grpc
               containerPort: 8081
@@ -69,12 +80,14 @@ spec:
           {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- with .Values.extraVolumeMounts }}
+          {{- if or .Values.extraVolumeMounts $tls }}
           volumeMounts:
-            {{- include "quench-common.extraVolumeMounts" $ | nindent 12 }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
           {{- end }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
-      {{- with .Values.extraVolumes }}
+      {{- if or .Values.extraVolumes $tls }}
       volumes:
-        {{- include "quench-common.extraVolumes" $ | nindent 8 }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
       {{- end }}

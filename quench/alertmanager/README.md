@@ -102,10 +102,15 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/alertmanager --owne
 | `extraArgs`                   | `[]`                                      | Raw flags appended after the entrypoint's pinned flags.                                   |
 | `persistence.enabled`         | `true`                                    | 2Gi PVC mounted at `/alertmanager` (nflog + silences state).                              |
 | `service.port`                | `9093`                                    | Web UI + HTTP/v2 API + lifecycle endpoints.                                               |
+| `service.httpsPort`           | `443`                                     | Service port for the TLS listener (container 8443) when `tls.enabled`.                    |
+| `tls.enabled`                 | `false`                                   | Serve HTTPS on Alertmanager's own listener; the certificate is mounted at `/tls`.         |
+| `tls.existingSecret`          | `""`                                      | Use this `kubernetes.io/tls` Secret (1st choice).                                         |
+| `tls.certManager.enabled`     | `false`                                   | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice).       |
+| `tls.selfSigned.validityDays` | `365`                                     | Otherwise Helm generates a CA + certificate, kept across upgrades.                        |
 | `service.clusterPort`         | `9094`                                    | HA gossip mesh (tcp+udp), used when `replicaCount` > 1.                                   |
 | `networkPolicy.enabled`       | `true`                                    | Restricts ingress to the release namespace (+ gossip among own pods in HA).               |
 | `podDisruptionBudget.enabled` | `true`                                    | `minAvailable: 1`.                                                                        |
-| `ingress.enabled`             | `false`                                   | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.enabled`             | `false`                                   | Create an Ingress. With `tls.enabled` it routes to 443: set the controller's backend protocol to HTTPS. |
 | `ingress.className`           | `""`                                      | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
 | `ingress.annotations`         | `{}`                                      | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
 | `ingress.servicePort`         | `null`                                    | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |

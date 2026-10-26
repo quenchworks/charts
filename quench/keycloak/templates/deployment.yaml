@@ -2,8 +2,11 @@
      /health/live restarts a wedged JVM. Keycloak boots the Quarkus runtime + connects
      to Postgres + runs Liquibase migrations on first start, so the readiness window is
      generous. The runtime image ships no shell HTTP client; the kubelet does the GET. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/health/live" "port" "management") "initialDelaySeconds" 60 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/health/ready" "port" "management") "initialDelaySeconds" 30 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/health/live" "port" "management" "scheme" $scheme) "initialDelaySeconds" 60 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/health/ready" "port" "management" "scheme" $scheme) "initialDelaySeconds" 30 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -48,6 +51,16 @@ spec:
               value: "{{ .Values.service.port }}"
             - name: KC_HTTP_MANAGEMENT_PORT
               value: "{{ .Values.service.managementPort }}"
+            {{- if $tls }}
+            # --- Native TLS: HTTPS on 8443 (nonroot cannot bind 443; the Service maps it).
+            # The management port inherits it, so the health probes switch to HTTPS too. ---
+            - name: KC_HTTPS_PORT
+              value: "8443"
+            - name: KC_HTTPS_CERTIFICATE_FILE
+              value: /tls/tls.crt
+            - name: KC_HTTPS_CERTIFICATE_KEY_FILE
+              value: /tls/tls.key
+            {{- end }}
             # --- Database (Postgres, required) ---
             - name: KC_DB
               value: "postgres"
@@ -82,8 +95,8 @@ spec:
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 .Values.service.port (eq $tls "true") }}
             - name: management
               containerPort: {{ .Values.service.managementPort }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
@@ -105,6 +118,7 @@ spec:
               mountPath: /data
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -114,4 +128,5 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

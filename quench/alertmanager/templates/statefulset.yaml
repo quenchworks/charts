@@ -1,7 +1,10 @@
 {{/* Alertmanager exposes lifecycle endpoints on the web port: /-/healthy (process
      up) and /-/ready (ready to serve the API/UI). */}}
-{{- $liveness := dict "httpGet" (dict "path" "/-/healthy" "port" "http") "initialDelaySeconds" 15 "periodSeconds" 15 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/-/ready" "port" "http") "initialDelaySeconds" 15 "periodSeconds" 10 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/-/healthy" "port" $port "scheme" $scheme) "initialDelaySeconds" 15 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/-/ready" "port" $port "scheme" $scheme) "initialDelaySeconds" 15 "periodSeconds" 10 -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -62,6 +65,11 @@ spec:
             # Single replica: no gossip mesh. Bind to an empty address to disable it.
             - --cluster.listen-address=
             {{- end }}
+            {{- if $tls }}
+            # Native TLS (exporter-toolkit web config, rendered into the ConfigMap) on
+            # 8443, set by AM_WEB_LISTEN: nonroot cannot bind 443, the Service maps it
+            - --web.config.file=/etc/alertmanager/web.yml
+            {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -72,14 +80,14 @@ spec:
             - name: AM_STORAGE_PATH
               value: /alertmanager
             - name: AM_WEB_LISTEN
-              value: "0.0.0.0:{{ .Values.service.port }}"
+              value: "0.0.0.0:{{ ternary 8443 .Values.service.port (eq $tls "true") }}"
             - name: AM_CONFIG_FILE
               value: /etc/alertmanager/alertmanager.yml
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 .Values.service.port (eq $tls "true") }}
             {{- if gt (int .Values.replicaCount) 1 }}
             - name: cluster-tcp
               containerPort: {{ .Values.service.clusterPort }}
@@ -108,9 +116,16 @@ spec:
               mountPath: /etc/alertmanager/alertmanager.yml
               subPath: alertmanager.yml
               readOnly: true
+            {{- if $tls }}
+            - name: config
+              mountPath: /etc/alertmanager/web.yml
+              subPath: web.yml
+              readOnly: true
+            {{- end }}
             # writable scratch for the read-only rootfs.
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -127,6 +142,7 @@ spec:
         - name: storage
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
   volumeClaimTemplates:

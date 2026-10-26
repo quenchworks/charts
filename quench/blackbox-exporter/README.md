@@ -43,8 +43,13 @@ exporter.
 | `config.existingConfigMap` | `""` | Use an externally-managed ConfigMap (key `blackbox.yml`) instead. |
 | `extraArgs` | `[]` | Extra flags appended to the command. |
 | `service.type` / `service.port` | `ClusterIP` / `9115` | Service exposure. |
+| `service.httpsPort` | `443` | Service port for the TLS listener (container 8443) when `tls.enabled`. |
+| `tls.enabled` | `false` | Serve HTTPS on the exporter's own listener (`--web.config.file`); the certificate is mounted at `/tls`. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `autoscaling.*` | disabled | Optional HPA on CPU. |
-| `ingress.*` | disabled | Optional HTTP Ingress. |
+| `ingress.*` | disabled | Optional Ingress. With `tls.enabled` it routes to 443: set the controller's backend protocol to HTTPS. |
 | `networkPolicy.*` | enabled, external allowed | Prometheus often scrapes from another namespace. |
 | `podDisruptionBudget.*` | enabled, `minAvailable: 1` | |
 

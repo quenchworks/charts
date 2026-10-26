@@ -1,7 +1,10 @@
 {{/* The exporter serves /-/healthy on the API port as soon as the config parses; a bad
      config makes the process exit rather than serve, so this is a real readiness signal. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/-/healthy" "port" "http") "initialDelaySeconds" 5 "periodSeconds" 15 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/-/healthy" "port" "http") "initialDelaySeconds" 2 "periodSeconds" 10 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/-/healthy" "port" $port "scheme" $scheme) "initialDelaySeconds" 5 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/-/healthy" "port" $port "scheme" $scheme) "initialDelaySeconds" 2 "periodSeconds" 10 -}}
 {{- $hasConfig := include "blackbox-exporter.hasConfig" . -}}
 apiVersion: apps/v1
 kind: Deployment
@@ -43,7 +46,14 @@ spec:
             {{/* When no config is supplied the image's own minimal blackbox.yml
                  (a single http_2xx module) is used, so the chart boots as-is. */}}
             - "--config.file={{ if $hasConfig }}/config/blackbox.yml{{ else }}/etc/blackbox_exporter/blackbox.yml{{ end }}"
+            {{- if $tls }}
+            # Native TLS (exporter-toolkit web config): nonroot cannot bind 443, so the
+            # exporter serves HTTPS on 8443 and the Service maps it to 443.
+            - "--web.listen-address=:8443"
+            - "--web.config.file=/etc/tls-web/web.yml"
+            {{- else }}
             - "--web.listen-address=:{{ .Values.containerPort }}"
+            {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -53,8 +63,8 @@ spec:
           {{- end }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: {{ .Values.containerPort }}
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 .Values.containerPort (eq $tls "true") }}
               protocol: TCP
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
@@ -71,14 +81,26 @@ spec:
               mountPath: /config
               readOnly: true
             {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- if $tls }}
+            - name: tls-web
+              mountPath: /etc/tls-web
+              readOnly: true
+            {{- end }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
-      {{- if or $hasConfig .Values.extraVolumes }}
+      {{- if or $hasConfig .Values.extraVolumes $tls }}
       volumes:
         {{- if $hasConfig }}
         - name: config
           configMap:
             name: {{ include "blackbox-exporter.mountedConfigMap" . }}
+        {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- if $tls }}
+        - name: tls-web
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-tls-web
         {{- end }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
       {{- end }}

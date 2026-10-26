@@ -59,6 +59,18 @@ jobs:
           test "$(kubectl get pods -l app.kubernetes.io/name=blackbox-exporter \
             -o jsonpath='{.items[0].status.containerStatuses[0].restartCount}')" = 0
 
+          # native TLS: the same release upgraded IN PLACE to tls.enabled serves HTTPS on the
+          # Service's 443 with a self-signed certificate that verifies against its own ca.crt
+          [ -n "${pf:-}" ] && kill $pf || true; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-blackbox-exporter --timeout=600s
+          kubectl get secret rtest-blackbox-exporter-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-blackbox-exporter 8443:443 >/tmp/pf-tls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/ca.crt https://localhost:8443/-/healthy >/dev/null
+          curl -fsS --cacert /tmp/ca.crt 'https://localhost:8443/probe?target=http://127.0.0.1:9115/metrics&module=http_2xx' | >/dev/null grep '^probe_success'
+          echo "blackbox-exporter: HTTPS on Service port 443 verified against the chart CA"
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not
