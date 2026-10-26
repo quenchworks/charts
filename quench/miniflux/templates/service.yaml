@@ -7,9 +7,16 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
+    {{- if include "quench-common.tls.enabled" . }}
+    - name: https
+      port: {{ .Values.service.httpsPort }}
+      targetPort: https
+      protocol: TCP
+    {{- else }}
     - port: {{ .Values.service.port }}
       targetPort: http
       protocol: TCP
       name: http
+    {{- end }}
   selector:
     {{- include "quench-common.selectorLabels" . | nindent 4 }}

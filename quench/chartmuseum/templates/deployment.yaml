@@ -1,8 +1,11 @@
 {{/* ChartMuseum serves /health ({"healthy":true}) on the HTTP port as soon as the
      server is listening, and it is exempt from basic auth. Used for both probes. */}}
 {{- $path := printf "%s/health" (trimSuffix "/" .Values.contextPath) -}}
-{{- $liveness := dict "httpGet" (dict "path" $path "port" "http") "initialDelaySeconds" 5 "periodSeconds" 15 -}}
-{{- $readiness := dict "httpGet" (dict "path" $path "port" "http") "initialDelaySeconds" 2 "periodSeconds" 10 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" $path "port" $port "scheme" $scheme) "initialDelaySeconds" 5 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" $path "port" $port "scheme" $scheme) "initialDelaySeconds" 2 "periodSeconds" 10 -}}
 {{- $auth := include "chartmuseum.authEnabled" . -}}
 apiVersion: apps/v1
 kind: Deployment
@@ -41,7 +44,15 @@ spec:
             {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
           command: ["/usr/bin/chartmuseum"]
           args:
+            {{- if $tls }}
+            # Native TLS: nonroot cannot bind 443, so ChartMuseum serves HTTPS on 8443
+            # and the Service maps it to 443.
+            - "--port=8443"
+            - "--tls-cert=/tls/tls.crt"
+            - "--tls-key=/tls/tls.key"
+            {{- else }}
             - "--port=8080"
+            {{- end }}
             # The image binds [::] by default, which fails on IPv4-only nodes.
             - "--listen-host=0.0.0.0"
             - "--storage={{ .Values.storage.backend }}"
@@ -87,8 +98,8 @@ spec:
           {{- end }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: 8080
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 8080 (eq $tls "true") }}
               protocol: TCP
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
@@ -104,6 +115,7 @@ spec:
             # volume even when persistence is off (emptyDir fallback).
             - name: storage
               mountPath: {{ .Values.storage.local.path }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -114,4 +126,5 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

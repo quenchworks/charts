@@ -33,6 +33,22 @@ service:
   type: ClusterIP
   # The container serves HTTP on 8080; the Service maps the same port.
   port: 8080
+  # With tls.enabled the Service publishes the TLS listener (container 8443) here.
+  httpsPort: 443
+
+# Native TLS on ntfy's own listener (8443). Off by default. The first source set
+# wins: existingSecret, then certManager, else a Helm-generated self-signed CA +
+# certificate (kept across upgrades). The Secret is mounted at /tls.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # Writable cache/attachment directory. The runtime image has a read-only root
 # filesystem, so ntfy always gets a writable volume mounted at mountPath. With

@@ -1,8 +1,11 @@
 {{/* Meilisearch serves GET /health UNAUTHENTICATED on the HTTP port (7700) even with a
      master key set, so probes keep working regardless of auth. Both liveness and
      readiness use /health (the engine reports "available" once it is serving). */}}
-{{- $liveness := dict "httpGet" (dict "path" "/health" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 15 "timeoutSeconds" 2 "failureThreshold" 6 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/health" "port" "http") "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 2 "failureThreshold" 6 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/health" "port" $port "scheme" $scheme) "initialDelaySeconds" 10 "periodSeconds" 15 "timeoutSeconds" 2 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/health" "port" $port "scheme" $scheme) "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 2 "failureThreshold" 6 -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -62,6 +65,16 @@ spec:
             # DB-version inference fails if the DB dir also contains sibling dirs). We
             # deliberately do NOT override MEILI_DB_PATH here so that hardened default
             # applies; the whole /meili_data mount is the persisted volume.
+            {{- if $tls }}
+            # Native TLS: nonroot cannot bind 443, so Meilisearch serves HTTPS on 8443
+            # and the Service maps it to 443.
+            - name: MEILI_HTTP_ADDR
+              value: "0.0.0.0:8443"
+            - name: MEILI_SSL_CERT_PATH
+              value: /tls/tls.crt
+            - name: MEILI_SSL_KEY_PATH
+              value: /tls/tls.key
+            {{- end }}
             - name: MEILI_MASTER_KEY
               valueFrom:
                 secretKeyRef:
@@ -70,8 +83,8 @@ spec:
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 .Values.service.port (eq $tls "true") }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}
@@ -90,6 +103,7 @@ spec:
             # writable scratch for the read-only rootfs.
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -103,6 +117,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
   volumeClaimTemplates:

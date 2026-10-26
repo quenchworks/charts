@@ -1,7 +1,10 @@
 {{/* ntfy serves /v1/health on the API port; it returns 200 {"healthy":true} once
      the server is up. Used for liveness + readiness. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/v1/health" "port" "http") "initialDelaySeconds" 5 "periodSeconds" 15 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/v1/health" "port" "http") "initialDelaySeconds" 2 "periodSeconds" 10 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/v1/health" "port" $port "scheme" $scheme) "initialDelaySeconds" 5 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/v1/health" "port" $port "scheme" $scheme) "initialDelaySeconds" 2 "periodSeconds" 10 -}}
 {{- $hasConfig := include "ntfy.hasConfig" . -}}
 apiVersion: apps/v1
 kind: Deployment
@@ -43,6 +46,16 @@ spec:
             - "serve"
             - "--listen-http"
             - ":{{ .Values.service.port }}"
+            {{- if $tls }}
+            # Native TLS: nonroot cannot bind 443, so ntfy serves HTTPS on 8443 and the
+            # Service publishes only that listener, as 443.
+            - "--listen-https"
+            - ":8443"
+            - "--cert-file"
+            - "/tls/tls.crt"
+            - "--key-file"
+            - "/tls/tls.key"
+            {{- end }}
             {{- if $hasConfig }}
             - "--config"
             - "/etc/ntfy/server.yml"
@@ -56,8 +69,8 @@ spec:
           {{- end }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 .Values.service.port (eq $tls "true") }}
               protocol: TCP
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
@@ -76,6 +89,7 @@ spec:
               mountPath: /etc/ntfy
               readOnly: true
             {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -91,4 +105,5 @@ spec:
           configMap:
             name: {{ include "ntfy.mountedConfigMap" . }}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

@@ -88,6 +88,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/miniflux \
 | `replicaCount`                | `1`                                   | Stateless; can be scaled out.                                                             |
 | `containerPort`               | `8080`                                | Port miniflux binds (nonroot). Wired to `LISTEN_ADDR`.                                    |
 | `service.port`                | `80`                                  | Service port, forwards to the container's `http` port.                                    |
+| `service.httpsPort`           | `443`                                 | Service port for the TLS listener (container 8443) when `tls.enabled`.                    |
+| `tls.enabled`                 | `false`                               | Serve HTTPS on Miniflux's own listener; the certificate is mounted at `/tls`.             |
+| `tls.existingSecret`          | `""`                                  | Use this `kubernetes.io/tls` Secret (1st choice).                                         |
+| `tls.certManager.enabled`     | `false`                               | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice).       |
+| `tls.selfSigned.validityDays` | `365`                                 | Otherwise Helm generates a CA + certificate, kept across upgrades.                        |
 | `runMigrations`               | `true`                                | Runs schema migrations on startup (idempotent).                                           |
 | `admin.create`                | `true`                                | Seeds an admin only when the DB has no users.                                             |
 | `admin.username`              | `admin`                               |                                                                                           |
@@ -101,7 +106,7 @@ gh attestation verify oci://ghcr.io/quenchworks/images/miniflux \
 | `rbac.create`                 | `false`                               | Minimal empty Role/RoleBinding when enabled.                                              |
 | `networkPolicy.enabled`       | `true`                                | Client ingress from the namespace; set `allowExternal: true` to open it.                  |
 | `podDisruptionBudget.enabled` | `true`                                | `minAvailable: 1`.                                                                        |
-| `ingress.enabled`             | `false`                               | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.enabled`             | `false`                               | Create an Ingress. With `tls.enabled` it routes to 443: set the controller's backend protocol to HTTPS. |
 | `ingress.className`           | `""`                                  | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
 | `ingress.annotations`         | `{}`                                  | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
 | `ingress.servicePort`         | `null`                                | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |

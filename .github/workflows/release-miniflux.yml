@@ -71,6 +71,20 @@ jobs:
           # bonus: log in with the seeded admin via the REST API
           curl -fsS -u admin:quench-admin http://127.0.0.1:8080/v1/me | >/dev/null grep '"username":"admin"'
 
+          # native TLS: the same release upgraded in place to tls.enabled serves HTTPS on
+          # the Service's 443 with a self-signed certificate that verifies against its ca.crt
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set serviceAccount.create=false --set serviceAccount.name=miniflux-puller \
+            --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-miniflux --timeout=300s
+          kubectl get secret rtest-miniflux-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-miniflux 8443:443 >/tmp/pf-tls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/ca.crt https://localhost:8443/healthcheck | >/dev/null grep OK
+          curl -fsS --cacert /tmp/ca.crt -u admin:quench-admin https://localhost:8443/v1/me | >/dev/null grep '"username":"admin"'
+          echo "miniflux: HTTPS on Service port 443 verified against the chart CA"
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

@@ -118,11 +118,16 @@ A request without the key (or with a wrong key) is rejected with `401`/`403`.
 | `persistence.existingClaim`   | `""`                                     | Reuse an existing PVC.                                                                    |
 | `service.type`                | `ClusterIP`                              | Service type.                                                                             |
 | `service.port`                | `7700`                                   | REST API port.                                                                            |
+| `service.httpsPort`           | `443`                                    | Service port for the TLS listener (container 8443) when `tls.enabled`.                    |
+| `tls.enabled`                 | `false`                                  | Serve HTTPS on Meilisearch's own listener; the certificate is mounted at `/tls`.          |
+| `tls.existingSecret`          | `""`                                     | Use this `kubernetes.io/tls` Secret (1st choice).                                         |
+| `tls.certManager.enabled`     | `false`                                  | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice).       |
+| `tls.selfSigned.validityDays` | `365`                                    | Otherwise Helm generates a CA + certificate, kept across upgrades.                        |
 | `networkPolicy.enabled`       | `true`                                   | Restrict ingress to in-namespace pods.                                                    |
 | `networkPolicy.allowExternal` | `false`                                  | Allow ingress from any source.                                                            |
 | `podDisruptionBudget.enabled` | `true`                                   | PDB with `minAvailable: 1`.                                                               |
 | `resources`                   | requests 250m/256Mi, limits 1/1Gi        | Container resources.                                                                      |
-| `ingress.enabled`             | `false`                                  | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.enabled`             | `false`                                  | Create an Ingress. With `tls.enabled` it routes to 443: set the controller's backend protocol to HTTPS. |
 | `ingress.className`           | `""`                                     | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
 | `ingress.annotations`         | `{}`                                     | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
 | `ingress.servicePort`         | `null`                                   | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
