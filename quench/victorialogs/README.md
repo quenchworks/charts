@@ -78,6 +78,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/victorialogs \
 | `persistence.existingClaim`        | `""`                                      | Bind an existing PVC instead of provisioning one.                                         |
 | `service.type`                     | `ClusterIP`                               | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
 | `service.port`                     | `9428`                                    | Service port for ingestion and queries.                                                   |
+| `service.httpsPort`                | `443`                                     | Service port for the TLS listener (container 8443) when `tls.enabled`.                    |
+| `tls.enabled`                      | `false`                                   | Serve the HTTP API and query UI over HTTPS on the app's own listener; the certificate is mounted at `/tls`. |
+| `tls.existingSecret`               | `""`                                      | Use this `kubernetes.io/tls` Secret (1st choice).                                         |
+| `tls.certManager.enabled`          | `false`                                   | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice).       |
+| `tls.selfSigned.validityDays`      | `365`                                     | Otherwise Helm generates a CA + certificate, kept across upgrades.                        |
 | `resources.requests`               | `100m / 128Mi`                            | CPU / memory requests.                                                                    |
 | `resources.limits`                 | `1 / 1Gi`                                 | CPU / memory limits.                                                                      |
 | `args`                             | `[]`                                      | Extra flags appended to `victoria-logs` (e.g. `-retentionPeriod=30d`).                    |
@@ -90,10 +95,10 @@ gh attestation verify oci://ghcr.io/quenchworks/images/victorialogs \
 | `networkPolicy.allowExternal`      | `false`                                   | Set `true` to allow ingress from any source (log shippers, query clients).                |
 | `podDisruptionBudget.enabled`      | `true`                                    |                                                                                           |
 | `podDisruptionBudget.minAvailable` | `1`                                       |                                                                                           |
-| `ingress.enabled`                  | `false`                                   | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.enabled`                  | `false`                                   | Create an Ingress. With `tls.enabled` it routes to 443: set the backend protocol to HTTPS. |
 | `ingress.className`                | `""`                                      | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
 | `ingress.annotations`              | `{}`                                      | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
-| `ingress.servicePort`              | `null`                                    | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.servicePort`              | `null`                                    | Backend port. Unset: `service.httpsPort` with `tls.enabled`, else `service.port`.         |
 | `ingress.hosts`                    | `[]`                                      | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
 | `ingress.tls`                      | `[]`                                      | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 

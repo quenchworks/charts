@@ -1,5 +1,18 @@
 Quenchworks victorialogs is installed as {{ include "quench-common.fullname" . }}.
 
+{{- if include "quench-common.tls.enabled" . }}
+Reach the HTTP API over HTTPS (native TLS) from inside the cluster:
+
+  https://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local{{ if ne (int .Values.service.httpsPort) 443 }}:{{ .Values.service.httpsPort }}{{ end }}
+
+The certificate is in Secret {{ include "quench-common.tls.secretName" . }}; trust its ca.crt (self-signed by
+default). Port-forward it to your laptop (the examples below then use
+https://localhost:8443 with --cacert ca.crt):
+
+  kubectl get secret {{ include "quench-common.tls.secretName" . }} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8443:{{ .Values.service.httpsPort }}
+  curl --cacert ca.crt https://localhost:8443/health   # -> 200 OK
+{{- else }}
 Reach the HTTP API from inside the cluster:
 
   http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
@@ -12,6 +25,7 @@ Port-forward it to your laptop:
 Health check:
 
   curl http://127.0.0.1:9428/health   # -> 200 OK
+{{- end }}
 
 Ingest logs (JSON stream example):
 
