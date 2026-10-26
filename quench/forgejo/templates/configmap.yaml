@@ -1,5 +1,6 @@
 {{- $mp := .Values.persistence.mountPath -}}
-{{- $rootUrl := .Values.config.rootUrl | default (printf "http://localhost:%v/" (.Values.containerPort | toString)) -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $rootUrl := .Values.config.rootUrl | default (ternary "https://localhost:8443/" (printf "http://localhost:%v/" (.Values.containerPort | toString)) (eq $tls "true")) -}}
 {{- $disableSsh := ternary "false" "true" .Values.config.ssh.enabled -}}
 {{- $startSsh := ternary "true" "false" .Values.config.ssh.enabled -}}
 apiVersion: v1
@@ -18,8 +19,38 @@ data:
   seed.sh: |
     set -eu
     CONF="{{ $mp }}/app.ini"
+    # Native TLS: the chart owns PROTOCOL/HTTP_PORT/CERT_FILE/KEY_FILE in [server]
+    # while tls.enabled is on (HTTPS on 8443, the certificate mounted at /tls), and
+    # puts http on the container port back once it is off again. Run on every boot,
+    # so an existing app.ini follows the toggle; a config the chart never made
+    # https is left alone. Pure bash: the image ships no coreutils.
+    reconcile_tls() {
+      local want=() lines=() out=() sec="" l mine=""
+      {{- if $tls }}
+      want=('PROTOCOL = https' 'HTTP_PORT = 8443' 'CERT_FILE = /tls/tls.crt' 'KEY_FILE = /tls/tls.key')
+      {{- else }}
+      want=('PROTOCOL = http' 'HTTP_PORT = {{ .Values.containerPort }}')
+      {{- end }}
+      mapfile -t lines < "$CONF"
+      for l in "${lines[@]}"; do [[ $l =~ ^CERT_FILE[[:space:]]*=[[:space:]]*/tls/tls\.crt ]] && mine=1; done
+      {{- if not $tls }}
+      [ -n "$mine" ] || return 0
+      {{- end }}
+      for l in "${lines[@]}"; do
+        if [[ $l =~ ^\[(.*)\] ]]; then
+          sec="${BASH_REMATCH[1]}"; out+=("$l")
+          [ "$sec" = server ] && out+=("${want[@]}")
+          continue
+        fi
+        [ "$sec" = server ] && [[ $l =~ ^[[:space:]]*(PROTOCOL|HTTP_PORT|CERT_FILE|KEY_FILE)[[:space:]]*= ]] && continue
+        out+=("$l")
+      done
+      printf '%s\n' "${out[@]}" > "$CONF"
+      echo "forgejo: [server] ${want[*]}"
+    }
     if [ -f "$CONF" ]; then
       echo "forgejo: keeping existing ${CONF}"
+      reconcile_tls
       exit 0
     fi
     echo "forgejo: seeding install-locked ${CONF} with fresh secrets"
@@ -34,7 +65,14 @@ data:
       '' \
       '[server]' \
       'HTTP_ADDR = 0.0.0.0' \
+      {{- if $tls }}
+      'PROTOCOL = https' \
+      'HTTP_PORT = 8443' \
+      'CERT_FILE = /tls/tls.crt' \
+      'KEY_FILE = /tls/tls.key' \
+      {{- else }}
       'HTTP_PORT = {{ .Values.containerPort }}' \
+      {{- end }}
       'ROOT_URL = {{ $rootUrl }}' \
       'APP_DATA_PATH = {{ $mp }}' \
       'DISABLE_SSH = {{ $disableSsh }}' \
