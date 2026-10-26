@@ -1,6 +1,9 @@
 {{/* Navidrome serves GET /ping -> HTTP 200 (text/plain ".") once the server and DB are up. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/ping" "port" "http") "initialDelaySeconds" 15 "periodSeconds" 15 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/ping" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 10 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/ping" "port" $port "scheme" $scheme) "initialDelaySeconds" 15 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/ping" "port" $port "scheme" $scheme) "initialDelaySeconds" 10 "periodSeconds" 10 -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -39,8 +42,18 @@ spec:
           {{- include "quench-common.args" . | nindent 10 }}
           env:
             # Keep the server bind port in sync with containerPort/the probe.
+            {{- if $tls }}
+            # Native TLS: HTTPS on 8443 (nonroot cannot bind 443), mapped to 443 by the Service.
+            - name: ND_PORT
+              value: "8443"
+            - name: ND_TLSCERT
+              value: /tls/tls.crt
+            - name: ND_TLSKEY
+              value: /tls/tls.key
+            {{- else }}
             - name: ND_PORT
               value: {{ .Values.containerPort | quote }}
+            {{- end }}
             - name: ND_ADDRESS
               value: "0.0.0.0"
             # SQLite DB + scan cache + artwork live under the mounted data dir.
@@ -52,8 +65,8 @@ spec:
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: {{ .Values.containerPort }}
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 .Values.containerPort (eq $tls "true") }}
               protocol: TCP
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
@@ -73,6 +86,7 @@ spec:
             # Read-only root filesystem: give SQLite/scanner a writable tmp.
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -94,6 +108,7 @@ spec:
         {{- end }}
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- $dataVCT := and .Values.persistence.enabled (not .Values.persistence.existingClaim) -}}
   {{- $musicVCT := and .Values.music.persistence.enabled (not .Values.music.persistence.existingClaim) -}}
