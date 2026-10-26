@@ -1,0 +1,53 @@
+{{- include "quench-common.tls.resources" . }}
+{{- if include "quench-common.tls.enabled" . }}
+---
+# The image's nginx.conf (/etc/excalidraw/nginx.conf) with the server on 8443 + ssl.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-tls-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  nginx.conf: |
+    daemon off;
+    worker_processes auto;
+    pid /tmp/nginx.pid;
+    error_log /dev/stderr notice;
+
+    events {
+        worker_connections 1024;
+    }
+
+    http {
+        include       /etc/nginx/mime.types;
+        default_type  application/octet-stream;
+
+        client_body_temp_path /tmp/client_body_temp;
+        proxy_temp_path       /tmp/proxy_temp;
+        fastcgi_temp_path     /tmp/fastcgi_temp;
+        uwsgi_temp_path       /tmp/uwsgi_temp;
+        scgi_temp_path        /tmp/scgi_temp;
+
+        access_log /dev/stdout;
+        sendfile      on;
+        tcp_nopush    on;
+        gzip          on;
+        server_tokens off;
+
+        server {
+            listen      8443 ssl;
+            http2       on;
+            server_name _;
+            ssl_certificate     /tls/tls.crt;
+            ssl_certificate_key /tls/tls.key;
+            ssl_protocols       TLSv1.2 TLSv1.3;
+            root        /usr/share/nginx/html;
+            index       index.html;
+
+            location / {
+                try_files $uri $uri/ /index.html;
+            }
+        }
+    }
+{{- end }}

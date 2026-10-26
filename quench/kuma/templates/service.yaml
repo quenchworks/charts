@@ -1,3 +1,4 @@
+{{- $tls := include "quench-common.tls.enabled" . -}}
 apiVersion: v1
 kind: Service
 metadata:
@@ -7,12 +8,16 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
+    {{- if not $tls }}
     - name: http
       port: {{ .Values.service.ports.http }}
       targetPort: http
       protocol: TCP
+    {{- end }}
+    {{- /* tls.enabled: the API server's HTTPS listener (5682) carries the chart's
+         certificate and is published on httpsPort (443) in place of the plain port */}}
     - name: https
-      port: {{ .Values.service.ports.https }}
+      port: {{ ternary .Values.service.httpsPort .Values.service.ports.https (eq $tls "true") }}
       targetPort: https
       protocol: TCP
     - name: dp-server

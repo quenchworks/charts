@@ -8,9 +8,16 @@ spec:
   type: {{ .Values.service.type }}
   ports:
     # Drupal public site + /admin + installer (single HTTP port, nginx on 8080).
+    {{- if include "quench-common.tls.enabled" . }}
+    - name: https
+      port: {{ .Values.service.httpsPort }}
+      targetPort: https
+      protocol: TCP
+    {{- else }}
     - port: {{ .Values.service.port }}
       targetPort: http
       name: http
       protocol: TCP
+    {{- end }}
   selector:
     {{- include "quench-common.selectorLabels" . | nindent 4 }}

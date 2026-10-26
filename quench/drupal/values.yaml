@@ -37,6 +37,22 @@ resources:
 service:
   type: ClusterIP
   port: 8080
+  # With tls.enabled the Service publishes the TLS listener (container 8443) here.
+  httpsPort: 443
+
+# Native TLS on Drupal's own listener (8443). Off by default. The first source set
+# wins: existingSecret, then certManager, else a Helm-generated self-signed CA +
+# certificate (kept across upgrades). The Secret is mounted at /tls.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # --- Public files volume (PVC) ---
 # Drupal writes uploaded and aggregated assets under sites/default/files — the only writable
@@ -121,14 +137,11 @@ customLivenessProbe: {}
 customReadinessProbe: {}
 # On a fresh install Drupal can't answer 2xx/3xx until MySQL is reachable (it errors out
 # otherwise). A startup probe tolerates the DB init window (up to 300s: 30 x 10s) before
-# liveness/readiness take over.
-customStartupProbe:
-  httpGet:
-    path: /core/install.php
-    port: http
-  periodSeconds: 10
-  timeoutSeconds: 5
-  failureThreshold: 30
+# liveness/readiness take over. The chart's startup probe (GET /core/install.php, HTTP or
+# HTTPS to match tls.enabled) does exactly that; startupProbe: {failureThreshold: 60}
+# stretches it, a customStartupProbe replaces it.
+startupProbe: {}
+customStartupProbe: {}
 
 serviceAccount:
   create: true

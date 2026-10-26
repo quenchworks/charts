@@ -53,6 +53,15 @@ spec:
             # can stay read-only.
             - name: KUMA_GENERAL_WORK_DIR
               value: {{ .Values.workDir | quote }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # Native TLS: the API server's HTTPS listener (5682) serves the chart's
+            # certificate instead of the one kuma-cp generates; the Service publishes
+            # it on httpsPort (443) and drops the plain-HTTP port.
+            - name: KUMA_API_SERVER_HTTPS_TLS_CERT_FILE
+              value: /tls/tls.crt
+            - name: KUMA_API_SERVER_HTTPS_TLS_KEY_FILE
+              value: /tls/tls.key
+            {{- end }}
             {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
@@ -86,9 +95,11 @@ spec:
           volumeMounts:
             - name: work
               mountPath: {{ .Values.workDir | quote }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         - name: work
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

@@ -1,6 +1,9 @@
 {{/* nginx serves the SPA on :8080; a 200 on / means the app is being served. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/" "port" "http") "initialDelaySeconds" 5 "periodSeconds" 15 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/" "port" "http") "initialDelaySeconds" 2 "periodSeconds" 10 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/" "port" $port "scheme" $scheme) "initialDelaySeconds" 5 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/" "port" $port "scheme" $scheme) "initialDelaySeconds" 2 "periodSeconds" 10 -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -36,14 +39,19 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- if $tls }}
+          # Native TLS: the image's nginx with the chart's config (the image's server
+          # block, listening on 8443 with ssl). Nonroot cannot bind 443; the Service maps it.
+          command: ["/usr/bin/nginx", "-c", "/etc/excalidraw-tls/nginx.conf"]
+          {{- end }}
           {{- with .Values.extraEnvVars }}
           env:
             {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
           {{- end }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: 8080
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 8080 (eq $tls "true") }}
               protocol: TCP
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
@@ -59,9 +67,21 @@ spec:
             # so the container runs on a read-only root filesystem.
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- if $tls }}
+            - name: tls-config
+              mountPath: /etc/excalidraw-tls
+              readOnly: true
+            {{- end }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- if $tls }}
+        - name: tls-config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-tls-config
+        {{- end }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

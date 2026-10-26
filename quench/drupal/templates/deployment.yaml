@@ -3,8 +3,12 @@
      (a down DB makes Drupal error) — so --wait on readiness is the real integration test. The
      startup probe (customStartupProbe) gates these during the DB init window. The kubelet
      performs the GET; the image ships no HTTP client on PATH. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/" "port" "http") "initialDelaySeconds" 20 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/" "port" $port "scheme" $scheme) "initialDelaySeconds" 20 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/" "port" $port "scheme" $scheme) "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+{{- $startup := dict "httpGet" (dict "path" "/core/install.php" "port" $port "scheme" $scheme) "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -41,9 +45,38 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
-      {{- with .Values.initContainers }}
+      {{- if or .Values.initContainers $tls }}
       initContainers:
+        {{- if $tls }}
+        # Native TLS in the app's own nginx: derive the image's /etc/nginx/conf.d/drupal.conf with an
+        # extra `listen 8443 ssl` (and the certificate) beside its 8080 listen, so the
+        # site config itself is never copied into the chart. nginx sets $https, which
+        # fastcgi_params passes to PHP as HTTPS=on.
+        - name: tls-nginx-conf
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              awk '/listen 8080 default_server;/ && !done {
+                     print "    listen 8443 ssl;"
+                     print "    ssl_certificate /tls/tls.crt;"
+                     print "    ssl_certificate_key /tls/tls.key;"
+                     done = 1 } { print }' /etc/nginx/conf.d/drupal.conf > /tls-nginx/drupal.conf
+              grep -q 'listen 8443 ssl;' /tls-nginx/drupal.conf
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+          volumeMounts:
+            - name: tls-nginx
+              mountPath: /tls-nginx
+        {{- end }}
+        {{- with .Values.initContainers }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
       containers:
         - name: drupal
@@ -86,15 +119,12 @@ spec:
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 .Values.service.port (eq $tls "true") }}
               protocol: TCP
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
-          {{- with .Values.customStartupProbe }}
-          startupProbe:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "startup" "default" $startup) | nindent 10 }}
           {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
@@ -110,6 +140,13 @@ spec:
             # Writable scratch: nginx pid/temp, php sessions/uploads, Drupal temp (see the image).
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- if $tls }}
+            - name: tls-nginx
+              mountPath: /etc/nginx/conf.d/drupal.conf
+              subPath: drupal.conf
+              readOnly: true
+            {{- end }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -127,5 +164,13 @@ spec:
         {{- else }}
           persistentVolumeClaim:
             claimName: {{ include "quench-common.fullname" . }}-files
+        {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- if $tls }}
+        # the derived nginx config, in memory
+        - name: tls-nginx
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
         {{- end }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

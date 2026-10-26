@@ -1,8 +1,11 @@
 {{/* Quickwit's REST server returns 200 on /health/livez (process up) and
      /health/readyz (cluster ready to serve). Index init can take a moment, so give
      a generous startup window via the livenessProbe initialDelay. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/health/livez" "port" "http") "initialDelaySeconds" 20 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/health/readyz" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/health/livez" "port" $port "scheme" $scheme) "initialDelaySeconds" 20 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/health/readyz" "port" $port "scheme" $scheme) "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 6 -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -48,11 +51,24 @@ spec:
             # Bind all interfaces so the Service/probes can reach the REST + gRPC ports.
             - name: QW_LISTEN_ADDRESS
               value: 0.0.0.0
+            {{- if $tls }}
+            # Native TLS on the REST API (rest.tls in the mounted config): nonroot cannot
+            # bind 443, so it listens on 8443 and the Service maps it to 443. gRPC and
+            # gossip default to the REST port (+1), so they are pinned to their own ports.
+            - name: QW_CONFIG
+              value: /quickwit/tls-config/quickwit.yaml
+            - name: QW_REST_LISTEN_PORT
+              value: "8443"
+            - name: QW_GRPC_LISTEN_PORT
+              value: {{ .Values.grpcPort | quote }}
+            - name: QW_GOSSIP_LISTEN_PORT
+              value: {{ .Values.containerPort | quote }}
+            {{- end }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: {{ .Values.containerPort }}
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 .Values.containerPort (eq $tls "true") }}
               protocol: TCP
             - name: grpc
               containerPort: {{ .Values.grpcPort }}
@@ -73,6 +89,12 @@ spec:
             # emptyDir so the container root filesystem can stay read-only.
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- if $tls }}
+            - name: tls-config
+              mountPath: /quickwit/tls-config
+              readOnly: true
+            {{- end }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -85,6 +107,12 @@ spec:
         {{- else if not .Values.persistence.enabled }}
         - name: data
           emptyDir: {}
+        {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- if $tls }}
+        - name: tls-config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-tls-config
         {{- end }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}

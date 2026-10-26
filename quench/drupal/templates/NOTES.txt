@@ -1,4 +1,17 @@
 Quenchworks Drupal is installed as {{ include "quench-common.fullname" . }}.
+{{- if include "quench-common.tls.enabled" . }}
+
+TLS is on: Drupal serves HTTPS itself (native TLS) on Service port {{ .Values.service.httpsPort }},
+which replaces the plain-HTTP port in the URLs below:
+
+  https://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local{{ if ne (int .Values.service.httpsPort) 443 }}:{{ .Values.service.httpsPort }}{{ end }}/
+
+The certificate is in Secret {{ include "quench-common.tls.secretName" . }}; trust its ca.crt (self-signed by default):
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "quench-common.tls.secretName" . }} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8443:{{ .Values.service.httpsPort }}
+  curl --cacert ca.crt https://localhost:8443/
+{{- end }}
 
 The public site, /admin and the installer are served on port {{ .Values.service.port }} inside the cluster:
 

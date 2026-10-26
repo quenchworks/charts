@@ -55,6 +55,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/kuma --owner quenchworks
 | `service.type`                | `ClusterIP`                       | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
 | `service.ports.http`          | `5681`                            | REST API + GUI.                                                                           |
 | `service.ports.https`         | `5682`                            | REST API over TLS.                                                                        |
+| `service.httpsPort`           | `443`                             | Service port for the API server's HTTPS listener (5682) when `tls.enabled`.               |
+| `tls.enabled`                 | `false`                           | Serve HTTPS on Kuma's own listener; the certificate is mounted at `/tls`.                 |
+| `tls.existingSecret`          | `""`                              | Use this `kubernetes.io/tls` Secret (1st choice).                                         |
+| `tls.certManager.enabled`     | `false`                           | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice).       |
+| `tls.selfSigned.validityDays` | `365`                             | Otherwise Helm generates a CA + certificate, kept across upgrades.                        |
 | `service.ports.dpServer`      | `5678`                            | Dataplane / xDS gRPC.                                                                     |
 | `service.ports.mads`          | `5676`                            | Monitoring-assignment gRPC (Prometheus SD).                                               |
 | `serviceAccount.create`       | `true`                            | Token automount is off.                                                                   |
@@ -62,7 +67,7 @@ gh attestation verify oci://ghcr.io/quenchworks/images/kuma --owner quenchworks
 | `networkPolicy.enabled`       | `true`                            | Restricts ingress.                                                                        |
 | `networkPolicy.allowExternal` | `false`                           | Set `true` to allow ingress from any source.                                              |
 | `podDisruptionBudget.enabled` | `true`                            | `minAvailable: 1`.                                                                        |
-| `ingress.enabled`             | `false`                           | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.enabled`             | `false`                           | Create an Ingress. With `tls.enabled` it routes to 443: set the controller's backend protocol to HTTPS. |
 | `ingress.className`           | `""`                              | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
 | `ingress.annotations`         | `{}`                              | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
 | `ingress.servicePort`         | `null`                            | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |

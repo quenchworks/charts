@@ -1,0 +1,23 @@
+{{- include "quench-common.tls.resources" . }}
+{{- if include "quench-common.tls.enabled" . }}
+---
+# The image's default node config plus rest.tls (the certificate is hot-reloaded every
+# 5 minutes, so a renewed one needs no restart).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-tls-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  quickwit.yaml: |
+    version: 0.8
+    indexer:
+      enable_otlp_endpoint: ${QW_ENABLE_OTLP_ENDPOINT:-true}
+    jaeger:
+      enable_endpoint: ${QW_ENABLE_JAEGER_ENDPOINT:-true}
+    rest:
+      tls:
+        cert_path: /tls/tls.crt
+        key_path: /tls/tls.key
+{{- end }}

@@ -86,6 +86,11 @@ Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them 
 | `persistence.storageClass`     | (cluster default)                   |                                                                                                |
 | `service.type`                 | `ClusterIP`                         | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                                    |
 | `service.port`                 | `8080`                              |                                                                                                |
+| `service.httpsPort`            | `443`                               | Service port for the TLS listener (container 8443) when `tls.enabled`.                         |
+| `tls.enabled`                  | `false`                             | Serve HTTPS on Matomo's own listener; the certificate is mounted at `/tls`.                    |
+| `tls.existingSecret`           | `""`                                | Use this `kubernetes.io/tls` Secret (1st choice).                                              |
+| `tls.certManager.enabled`      | `false`                             | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice).            |
+| `tls.selfSigned.validityDays`  | `365`                               | Otherwise Helm generates a CA + certificate, kept across upgrades.                             |
 | `resources.requests`           | `cpu 200m / mem 512Mi`              |                                                                                                |
 | `resources.limits`             | `cpu 1 / mem 1Gi`                   |                                                                                                |
 | `serviceAccount.create`        | `true`                              |                                                                                                |
@@ -94,7 +99,7 @@ Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them 
 | `networkPolicy.enabled`        | `true`                              |                                                                                                |
 | `networkPolicy.allowExternal`  | `true`                              | Analytics must accept beacons from wherever your sites are served — unlike a datastore.         |
 | `podDisruptionBudget.enabled`  | `false`                             |                                                                                                |
-| `ingress.enabled`              | `false`                             | Set `ingress.hosts` and `ingress.className` to expose the UI.                                  |
+| `ingress.enabled`              | `false`                             | Create an Ingress. With `tls.enabled` it routes to 443: set the controller's backend protocol to HTTPS. |
 
 Plus the shared `quench-common` knobs: `partOf`, `commonLabels`, `commonAnnotations`,
 `podLabels`, `podAnnotations`, `selectorLabels`, `imagePullSecrets`, `nodeSelector`,

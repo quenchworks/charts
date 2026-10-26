@@ -79,6 +79,19 @@ jobs:
             *) echo "unexpected HTTP status $code"; head -c 500 /tmp/home.txt; exit 1;;
           esac
 
+          # native TLS: the same release upgraded IN PLACE to tls.enabled serves HTTPS on the
+          # Service's 443 with a self-signed certificate that verifies against its own ca.crt
+          [ -n "${pf:-}" ] && kill $pf || true; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -n cms -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 15m
+          kubectl rollout status deployment/rtest-drupal -n cms --timeout=600s
+          kubectl get secret rtest-drupal-tls -n cms -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward -n cms svc/rtest-drupal 8443:443 >/tmp/pf-tls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          code="$(curl -s --cacert /tmp/ca.crt -o /tmp/home-tls.txt -w '%{http_code}' https://localhost:8443/)"
+          echo "HTTPS / -> $code"
+          case "$code" in 2??|30?) ;; *) exit 1;; esac
+          echo "drupal: HTTPS on Service port 443 verified against the chart CA"
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not
