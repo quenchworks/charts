@@ -75,6 +75,36 @@ jobs:
           done
           test -n "$got"   # fail loudly if the pushed line never came back
 
+          # native TLS: the same release with tls.enabled serves HTTPS on the Service's
+          # 443 with a self-signed certificate that verifies against its own ca.crt
+          kill $pf 2>/dev/null || true; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status statefulset/rtest-loki --timeout=600s
+          kubectl get secret rtest-loki-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-loki 8443:443 >/tmp/pf-tls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          ok=""
+          for i in $(seq 1 30); do
+            code="$(curl -sS --cacert /tmp/ca.crt -o /dev/null -w '%{http_code}' https://localhost:8443/ready || true)"
+            if [ "$code" = "200" ]; then ok=1; break; fi
+            sleep 5
+          done
+          test -n "$ok"
+          # round-trip a log line over HTTPS
+          ts="$(date +%s)000000000"
+          curl -fsS --cacert /tmp/ca.crt -H 'Content-Type: application/json' \
+            -XPOST 'https://localhost:8443/loki/api/v1/push' \
+            --data-raw '{"streams":[{"stream":{"app":"citls"},"values":[["'"$ts"'","ci hello loki tls"]]}]}'
+          got=""
+          for i in $(seq 1 24); do
+            out="$(curl -fsS --cacert /tmp/ca.crt -G 'https://localhost:8443/loki/api/v1/query_range' --data-urlencode 'query={app="citls"}')" || true
+            if grep -q 'ci hello loki tls' <<<"$out"; then got=1; break; fi
+            sleep 5
+          done
+          test -n "$got"
+          echo "Loki: HTTPS push + query on Service port 443 verified against the chart CA"
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not
