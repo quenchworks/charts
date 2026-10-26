@@ -3,8 +3,14 @@
      serving — so --wait on readiness is the real integration test. The startup probe
      (customStartupProbe) gates these during the slow JVM first boot. The kubelet performs
      the GET; the image ships no shell HTTP client. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/api" "port" "http") "initialDelaySeconds" 60 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/api/system/lbstatus" "port" "http") "initialDelaySeconds" 30 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/api" "port" $port "scheme" $scheme) "initialDelaySeconds" 60 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/api/system/lbstatus" "port" $port "scheme" $scheme) "initialDelaySeconds" 30 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+{{/* First boot (JVM start, MongoDB + OpenSearch connect, schema/index init) often takes
+     60-180s: up to 600s (60 x 10s) before liveness/readiness take over. */}}
+{{- $startup := dict "httpGet" (dict "path" "/api/system/lbstatus" "port" $port "scheme" $scheme) "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -40,9 +46,48 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
-      {{- with .Values.initContainers }}
+      {{- if or .Values.initContainers $tls }}
       initContainers:
+        {{- if $tls }}
+        # Graylog reads only PKCS#8 keys ("BEGIN PRIVATE KEY"); the Helm self-signed key and
+        # cert-manager's default are PKCS#1 ("BEGIN RSA PRIVATE KEY"). Wrap an RSA PKCS#1 key
+        # in the PKCS#8 envelope (fixed rsaEncryption header + DER lengths), copy a PKCS#8 key
+        # as is. The image has no openssl; bash printf + base64 are enough.
+        - name: tls-key-pkcs8
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              in=/tls/tls.key; out=/tls-key/tls.key
+              if grep -q 'BEGIN RSA PRIVATE KEY' "$in"; then
+                sed '/-----/d' "$in" | base64 -d > /tls-key/rsa.der
+                n=$(wc -c < /tls-key/rsa.der)
+                len() { printf '\\x%02x\\x%02x' $(($1 >> 8)) $(($1 & 255)); }
+                { printf "\x30\x82$(len $((n + 22)))\x02\x01\x00\x30\x0d\x06\x09\x2a\x86\x48\x86\xf7\x0d\x01\x01\x01\x05\x00\x04\x82$(len "$n")"
+                  cat /tls-key/rsa.der; } > /tls-key/p8.der
+                { echo '-----BEGIN PRIVATE KEY-----'; base64 -w 64 /tls-key/p8.der; echo '-----END PRIVATE KEY-----'; } > "$out"
+                rm -f /tls-key/rsa.der /tls-key/p8.der
+              elif grep -q 'BEGIN PRIVATE KEY' "$in"; then
+                cat "$in" > "$out"
+              else
+                echo "tls.key must be RSA PKCS#1 or PKCS#8, got: $(head -1 "$in")" >&2; exit 1
+              fi
+              chmod 0400 "$out"
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+          volumeMounts:
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            - name: tls-key
+              mountPath: /tls-key
+        {{- end }}
+        {{- with .Values.initContainers }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
       containers:
         - name: graylog
@@ -57,9 +102,24 @@ spec:
             # entrypoint renders these into server.conf and launches the server.
             # Public URI the web UI / API clients reach Graylog at. REQUIRED.
             - name: GRAYLOG_HTTP_EXTERNAL_URI
-              value: {{ required "graylog.externalUri is required" .Values.graylog.externalUri | quote }}
+              {{- $externalUri := required "graylog.externalUri is required" .Values.graylog.externalUri }}
+              {{- if $tls }}{{ $externalUri = regexReplaceAll "^http://" $externalUri "https://" }}{{ end }}
+              value: {{ $externalUri | quote }}
+            {{- if $tls }}
+            # Native TLS: nonroot cannot bind 443, so Graylog serves HTTPS on 8443 and the
+            # Service maps it to 443. http_publish_uri defaults to https once TLS is on.
+            - name: GRAYLOG_HTTP_BIND_ADDRESS
+              value: "0.0.0.0:8443"
+            - name: GRAYLOG_HTTP_ENABLE_TLS
+              value: "true"
+            - name: GRAYLOG_HTTP_TLS_CERT_FILE
+              value: /tls/tls.crt
+            - name: GRAYLOG_HTTP_TLS_KEY_FILE
+              value: /tls-key/tls.key
+            {{- else }}
             - name: GRAYLOG_HTTP_BIND_ADDRESS
               value: {{ .Values.graylog.bindAddress | quote }}
+            {{- end }}
             - name: GRAYLOG_ROOT_USERNAME
               value: {{ .Values.graylog.adminUsername | quote }}
             {{- with .Values.graylog.serverJavaOpts }}
@@ -100,8 +160,8 @@ spec:
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 .Values.service.port (eq $tls "true") }}
               protocol: TCP
             {{- range .Values.service.inputs }}
             - name: {{ .name }}
@@ -110,10 +170,7 @@ spec:
             {{- end }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
-          {{- with .Values.customStartupProbe }}
-          startupProbe:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "startup" "default" $startup) | nindent 10 }}
           {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
@@ -124,11 +181,25 @@ spec:
             # Writable scratch for the JVM (java.io.tmpdir) with a read-only rootfs.
             - name: tmp
               mountPath: /tmp
+            {{- if $tls }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            - name: tls-key
+              mountPath: /tls-key
+              readOnly: true
+            {{- end }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if $tls }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        # The PKCS#8 copy of tls.key, in memory only.
+        - name: tls-key
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        {{- end }}
         - name: data
         {{- if not .Values.persistence.enabled }}
           emptyDir: {}

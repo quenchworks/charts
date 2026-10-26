@@ -24,7 +24,9 @@ graylog:
   # (behind your ingress/proxy), e.g. https://graylog.example.com/. Graylog builds the web
   # UI's asset/API base and redirect URLs from it. Must end with a trailing slash.
   externalUri: "http://localhost:9000/"
+  # With tls.enabled an http:// externalUri is served as https:// (same host and port).
   # GRAYLOG_HTTP_BIND_ADDRESS — where the server binds inside the pod. Keep 0.0.0.0:<port>.
+  # With tls.enabled Graylog binds 0.0.0.0:8443 instead.
   bindAddress: "0.0.0.0:9000"
   # The built-in admin (root) account. GRAYLOG_ROOT_USERNAME defaults to "admin".
   adminUsername: admin
@@ -52,6 +54,8 @@ resources:
 service:
   type: ClusterIP
   port: 9000
+  # With tls.enabled the Service publishes the TLS listener (container 8443) here instead.
+  httpsPort: 443
   # Extra message-input ports to expose on the Service (and open in the NetworkPolicy).
   # Inputs are created at runtime in the Graylog UI; declare their ports here so traffic
   # can reach the pod, e.g.:
@@ -161,13 +165,29 @@ customReadinessProbe: {}
 # initialises its schema/indices before serving — often 60-180s. A startup probe gates
 # liveness/readiness until the load-balancer status endpoint reports ALIVE, so the slow
 # boot isn't killed. Up to 600s grace (60 x 10s); after it passes, normal probe timing resumes.
-customStartupProbe:
-  httpGet:
-    path: /api/system/lbstatus
-    port: http
-  periodSeconds: 10
-  timeoutSeconds: 5
-  failureThreshold: 60
+# The chart's startup probe (on /api/system/lbstatus, HTTP or HTTPS to match tls.enabled)
+# does exactly that; startupProbe: {failureThreshold: 90} stretches it, a
+# customStartupProbe replaces it.
+startupProbe: {}
+customStartupProbe: {}
+
+# Native TLS on Graylog's own listener (http_enable_tls): the web UI and REST API are
+# served over HTTPS on container port 8443, published as service.httpsPort (443). Off by
+# default. The first source set wins: existingSecret, then certManager, else a
+# Helm-generated self-signed CA + certificate. The Secret is mounted at /tls; Graylog
+# needs a PKCS#8 key, so an init container rewrites an RSA PKCS#1 tls.key into an
+# in-memory volume. Graylog loads the certificate at startup: restart the pod after a
+# renewal.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 serviceAccount:
   create: true
@@ -189,15 +209,17 @@ podDisruptionBudget:
   enabled: true
   minAvailable: 1
 
-# Optional Ingress (HTTP only). Disabled by default, so enabling it is an explicit
+# Optional Ingress. Disabled by default. With tls.enabled it routes to service.httpsPort
+# (443) and the controller must speak HTTPS to the backend (ingress-nginx:
+# nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"). Disabled by default, so enabling it is an explicit
 # operator decision and this chart's behaviour is unchanged until then.
 ingress:
   enabled: false
   # IngressClass to claim this Ingress. Empty -> the cluster default applies.
   className: ""
   annotations: {}
-  # Service port to route to. Unset -> resolved from service.port, then
-  # service.ports.http / .https.
+  # Service port to route to. Unset -> service.httpsPort with tls.enabled, else
+  # service.port.
   servicePort: null
   # e.g. [{host: app.example.com, paths: [{path: /, pathType: Prefix}]}]
   # `paths` may be omitted for the common "/" Prefix case.

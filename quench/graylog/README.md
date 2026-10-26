@@ -76,6 +76,11 @@ Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them 
 | `resources.limits`                     | `cpu 2 / mem 2Gi`                    |                                                                                           |
 | `service.type`                         | `ClusterIP`                          | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
 | `service.port`                         | `9000`                               | Web UI + REST API.                                                                        |
+| `service.httpsPort`                    | `443`                                | Service port for the TLS listener (container 8443) when `tls.enabled`.                    |
+| `tls.enabled`                          | `false`                              | Serve the UI + API over HTTPS on Graylog's own listener; certificate mounted at `/tls`.   |
+| `tls.existingSecret`                   | `""`                                 | Use this `kubernetes.io/tls` Secret (1st choice). RSA PKCS#1 or PKCS#8 key.               |
+| `tls.certManager.enabled`              | `false`                              | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice).       |
+| `tls.selfSigned.validityDays`          | `365`                                | Otherwise Helm generates a CA + certificate, kept across upgrades.                        |
 | `service.inputs`                       | `[]`                                 | Extra message-input ports; added to the Service, container ports, and NetworkPolicy.      |
 | `persistence.enabled`                  | `true`                               | Data PVC at `/var/lib/graylog`.                                                           |
 | `persistence.size`                     | `8Gi`                                | Requested volume size.                                                                    |
@@ -98,10 +103,10 @@ Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them 
 | `networkPolicy.allowExternal`          | `false`                              | Set `true` to allow ingress from any source.                                              |
 | `podDisruptionBudget.enabled`          | `true`                               |                                                                                           |
 | `podDisruptionBudget.minAvailable`     | `1`                                  |                                                                                           |
-| `ingress.enabled`                      | `false`                              | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.enabled`                      | `false`                              | Create an Ingress. With `tls.enabled` it routes to 443: set the backend protocol to HTTPS. |
 | `ingress.className`                    | `""`                                 | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
 | `ingress.annotations`                  | `{}`                                 | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
-| `ingress.servicePort`                  | `null`                               | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.servicePort`                  | `null`                               | Backend port. Unset: `service.httpsPort` with `tls.enabled`, else `service.port`.         |
 | `ingress.hosts`                        | `[]`                                 | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
 | `ingress.tls`                          | `[]`                                 | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 
@@ -112,7 +117,7 @@ Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 `extraVolumes`, `extraVolumeMounts`, `initContainers`, `sidecars`,
 `lifecycleHooks`, `command`, `args`, `podSecurityContext`,
 `containerSecurityContext`, and the probe overrides (`livenessProbe`,
-`readinessProbe`, `customLivenessProbe`/`customReadinessProbe`/`customStartupProbe`).
+`readinessProbe`, `startupProbe`, `customLivenessProbe`/`customReadinessProbe`/`customStartupProbe`).
 
 ## Architecture
 
@@ -186,6 +191,24 @@ Expose the UI behind an ingress/TLS proxy:
 ```yaml
 networkPolicy:
   allowExternal: true
+```
+
+Serve HTTPS from Graylog itself (Service port 443). Without `existingSecret` or
+`certManager` the chart generates a self-signed CA; `ca.crt` in the `<release>-graylog-tls`
+Secret verifies it. An `http://` `graylog.externalUri` becomes `https://`. Graylog only reads
+PKCS#8 keys, so an init container rewrites an RSA PKCS#1 `tls.key` (Helm's self-signed key,
+cert-manager's default) before start; EC keys must already be PKCS#8. Graylog loads the
+certificate at startup: restart the pod after cert-manager renews it. Behind ingress-nginx,
+add `nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"`.
+
+```yaml
+graylog:
+  externalUri: https://graylog.example.com/
+tls:
+  enabled: true
+  certManager:
+    enabled: true
+    issuerRef: { name: letsencrypt, kind: ClusterIssuer }
 ```
 
 ## Uninstall

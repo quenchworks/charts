@@ -7,11 +7,18 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
-    # Graylog web UI + REST API (single HTTP port).
+    # Graylog web UI + REST API (single port, HTTPS on httpsPort with tls.enabled).
+    {{- if include "quench-common.tls.enabled" . }}
+    - port: {{ .Values.service.httpsPort }}
+      targetPort: https
+      name: https
+      protocol: TCP
+    {{- else }}
     - port: {{ .Values.service.port }}
       targetPort: http
       name: http
       protocol: TCP
+    {{- end }}
     {{- range .Values.service.inputs }}
     # Message input (created at runtime in the Graylog UI).
     - port: {{ .port }}

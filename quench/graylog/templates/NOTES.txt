@@ -1,5 +1,19 @@
 Quenchworks Graylog is installed as {{ include "quench-common.fullname" . }}.
 
+{{- if include "quench-common.tls.enabled" . }}
+The web UI and REST API are served over HTTPS (native TLS) on port {{ .Values.service.httpsPort }} inside the cluster:
+
+  https://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local{{ if ne (int .Values.service.httpsPort) 443 }}:{{ .Values.service.httpsPort }}{{ end }}/
+
+The certificate is in Secret {{ include "quench-common.tls.secretName" . }}; trust its ca.crt (self-signed by default):
+
+  kubectl get secret --namespace {{ .Release.Namespace }} {{ include "quench-common.tls.secretName" . }} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+
+Reach it from your machine with a port-forward:
+
+  kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8443:{{ .Values.service.httpsPort }}
+  # then open https://localhost:8443/ and log in as:
+{{- else }}
 The web UI and REST API are served on port {{ .Values.service.port }} inside the cluster:
 
   http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}/
@@ -8,6 +22,7 @@ Reach it from your machine with a port-forward:
 
   kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
   # then open http://localhost:{{ .Values.service.port }}/ and log in as:
+{{- end }}
   #   username: {{ .Values.graylog.adminUsername }}
   #   password: the graylog.adminPassword you set (only its sha256 is stored in the cluster)
 
