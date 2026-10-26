@@ -34,12 +34,30 @@ persistence:
   existingClaim: ""
 
 # The public URL users reach Mattermost on (MM_SERVICESETTINGS_SITEURL). Defaults to
-# the in-cluster service DNS; set this to your ingress/proxy URL in production.
+# the in-cluster service DNS (https:// on service.httpsPort with tls.enabled); set this
+# to your ingress/proxy URL in production.
 siteUrl: ""
 
 service:
   type: ClusterIP
   port: 8065
+  # With tls.enabled the Service publishes the TLS listener (container 8443) here instead.
+  httpsPort: 443
+
+# Native TLS on the app's own listener: the web UI and REST API is served over HTTPS on container port
+# 8443, published as service.httpsPort (443). Off by default. The first source set wins:
+# existingSecret, then certManager, else a Helm-generated self-signed CA + certificate.
+# The Secret is mounted at /tls (tls.crt, tls.key, ca.crt).
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # --- Bundled database (default) ---
 # postgresql.enabled deploys the Quenchworks PostgreSQL subchart. Its primary Service
@@ -124,15 +142,18 @@ podDisruptionBudget:
   enabled: true
   minAvailable: 1
 
-# Optional Ingress (HTTP only). Disabled by default, so enabling it is an explicit
-# operator decision and this chart's behaviour is unchanged until then.
+# Optional Ingress. With tls.enabled it routes to service.httpsPort (443) and the
+# controller must speak HTTPS to the backend (ingress-nginx:
+# nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"). Disabled by default, so
+# enabling it is an explicit operator decision and this chart's behaviour is
+# unchanged until then.
 ingress:
   enabled: false
   # IngressClass to claim this Ingress. Empty -> the cluster default applies.
   className: ""
   annotations: {}
-  # Service port to route to. Unset -> resolved from service.port, then
-  # service.ports.http / .https.
+  # Service port to route to. Unset -> service.httpsPort with tls.enabled, else
+  # resolved from service.port, then service.ports.http / .https.
   servicePort: null
   # e.g. [{host: app.example.com, paths: [{path: /, pathType: Prefix}]}]
   # `paths` may be omitted for the common "/" Prefix case.

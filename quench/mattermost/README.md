@@ -91,6 +91,11 @@ siteUrl: https://chat.example.com
 | `image.digest`                                 | pinned `sha256:…`                       | Image digest (never a tag)                                                                |
 | `replicaCount`                                 | `1`                                     | Team Edition is single-node                                                               |
 | `service.port`                                 | `8065`                                  | HTTP listener / service port                                                              |
+| `service.httpsPort`                            | `443`                                   | Service port for the TLS listener (container 8443) when `tls.enabled`.                    |
+| `tls.enabled`                                  | `false`                                 | Serve the web UI and REST API over HTTPS on the app's own listener; the certificate is mounted at `/tls`. |
+| `tls.existingSecret`                           | `""`                                    | Use this `kubernetes.io/tls` Secret (1st choice).                                         |
+| `tls.certManager.enabled`                      | `false`                                 | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice).       |
+| `tls.selfSigned.validityDays`                  | `365`                                   | Otherwise Helm generates a CA + certificate, kept across upgrades.                        |
 | `siteUrl`                                      | in-cluster svc DNS                      | Public URL (`MM_SERVICESETTINGS_SITEURL`)                                                 |
 | `persistence.size`                             | `10Gi`                                  | PVC size for `/opt/mattermost/data`                                                       |
 | `postgresql.enabled`                           | `true`                                  | Bundle the Quenchworks PostgreSQL subchart                                                |
@@ -98,10 +103,10 @@ siteUrl: https://chat.example.com
 | `externalDatabase.*`                           | `""`                                    | External DB connection (when `postgresql.enabled=false`)                                  |
 | `networkPolicy.enabled`                        | `true`                                  | Restrict traffic; egress opened to the DB port                                            |
 | `podDisruptionBudget.enabled`                  | `true`                                  | `minAvailable: 1`                                                                         |
-| `ingress.enabled`                              | `false`                                 | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.enabled`                              | `false`                                 | Create an Ingress. With `tls.enabled` it routes to 443: set the backend protocol to HTTPS. |
 | `ingress.className`                            | `""`                                    | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
 | `ingress.annotations`                          | `{}`                                    | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
-| `ingress.servicePort`                          | `null`                                  | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.servicePort`                          | `null`                                  | Backend port. Unset: `service.httpsPort` with `tls.enabled`, else `service.port`.         |
 | `ingress.hosts`                                | `[]`                                    | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
 | `ingress.tls`                                  | `[]`                                    | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
 

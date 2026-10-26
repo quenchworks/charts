@@ -58,7 +58,11 @@ with a coherent SiteURL; override with .Values.siteUrl for production.
 {{- if .Values.siteUrl -}}
 {{- .Values.siteUrl -}}
 {{- else -}}
+{{- if include "quench-common.tls.enabled" . -}}
+{{- printf "https://%s.%s.svc.cluster.local%s" (include "quench-common.fullname" .) .Release.Namespace (ternary "" (printf ":%d" (int .Values.service.httpsPort)) (eq (int .Values.service.httpsPort) 443)) -}}
+{{- else -}}
 {{- printf "http://%s.%s.svc.cluster.local:%d" (include "quench-common.fullname" .) .Release.Namespace (int .Values.service.port) -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 
