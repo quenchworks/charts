@@ -1,5 +1,21 @@
 Quenchworks Perses is installed as {{ include "quench-common.fullname" . }}.
 
+{{- if include "quench-common.tls.enabled" . }}
+
+The server runs nonroot and serves the dashboard UI and API over HTTPS (native TLS)
+on container port 8443; the Service exposes it on port {{ .Values.service.httpsPort }}:
+
+  https://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local{{ if ne (int .Values.service.httpsPort) 443 }}:{{ .Values.service.httpsPort }}{{ end }}
+
+The certificate is in Secret {{ include "quench-common.tls.secretName" . }}. Open the UI and check health
+over a port-forward, trusting its ca.crt (self-signed by default):
+
+  kubectl get secret {{ include "quench-common.tls.secretName" . }} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8443:{{ .Values.service.httpsPort }}
+  # UI:     https://localhost:8443/
+  # Health: curl --cacert ca.crt https://localhost:8443/api/v1/health
+{{- else }}
+
 The server runs nonroot and serves the dashboard UI and API on container port 8080;
 the Service exposes it on port {{ .Values.service.port }}:
 
@@ -10,6 +26,7 @@ Open the UI and check health over a port-forward:
   kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
   # UI:     http://127.0.0.1:{{ .Values.service.port }}/
   # Health: http://127.0.0.1:{{ .Values.service.port }}/api/v1/health
+{{- end }}
 
 {{ if .Values.persistence.enabled }}
 Dashboards and projects are stored on a PersistentVolumeClaim at {{ .Values.persistence.path }},

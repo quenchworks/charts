@@ -1,7 +1,10 @@
 {{/* Perses serves /api/v1/health on the API port; it returns 200 once the server
      is up and the datastore is reachable. Used for liveness + readiness. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/api/v1/health" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 15 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/api/v1/health" "port" "http") "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/api/v1/health" "port" $port "scheme" $scheme) "initialDelaySeconds" 10 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/api/v1/health" "port" $port "scheme" $scheme) "initialDelaySeconds" 5 "periodSeconds" 10 -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -40,6 +43,12 @@ spec:
           command: ["/usr/bin/perses"]
           args:
             - "--config=/etc/perses/config.yaml"
+            {{- if $tls }}
+            # Native TLS: HTTPS on 8443 (nonroot cannot bind 443), mapped to 443 by the Service.
+            - "--web.listen-address=:8443"
+            - "--web.tls-cert-file=/tls/tls.crt"
+            - "--web.tls-key-file=/tls/tls.key"
+            {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -49,8 +58,8 @@ spec:
           {{- end }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: 8080
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 8080 (eq $tls "true") }}
               protocol: TCP
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
@@ -70,6 +79,7 @@ spec:
             # writable ephemeral volume.
             - name: plugins
               mountPath: /etc/perses/plugins
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -82,4 +92,5 @@ spec:
           {{- end }}
         - name: plugins
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
