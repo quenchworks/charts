@@ -1,5 +1,18 @@
 Quenchworks oauth2-proxy is installed as {{ include "quench-common.fullname" . }}.
 
+{{- if include "quench-common.tls.enabled" . }}
+The proxy runs nonroot and serves the auth/proxy API over HTTPS (native TLS) on
+container port 8443; the Service exposes it on port {{ .Values.service.httpsPort }}:
+
+  https://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local{{ if ne (int .Values.service.httpsPort) 443 }}:{{ .Values.service.httpsPort }}{{ end }}
+
+The certificate is in Secret {{ include "quench-common.tls.secretName" . }}. Check the health endpoint
+over a port-forward, trusting its ca.crt (self-signed by default):
+
+  kubectl get secret {{ include "quench-common.tls.secretName" . }} -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 8443:{{ .Values.service.httpsPort }}
+  curl --cacert ca.crt https://localhost:8443/ping
+{{- else }}
 The proxy runs nonroot and serves the auth/proxy API on container port 4180; the
 Service exposes it on port {{ .Values.service.port }}:
 
@@ -9,6 +22,7 @@ Check the health endpoint over a port-forward:
 
   kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
   curl http://127.0.0.1:{{ .Values.service.port }}/ping
+{{- end }}
 
 {{- if and .Values.config.provider .Values.config.clientID .Values.config.clientSecret .Values.config.cookieSecret }}
 

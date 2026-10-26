@@ -1,7 +1,10 @@
 {{/* oauth2-proxy serves /ping on the proxy port; it returns 200 once the server is
      up. Used for liveness + readiness. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/ping" "port" "http") "initialDelaySeconds" 5 "periodSeconds" 15 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/ping" "port" "http") "initialDelaySeconds" 2 "periodSeconds" 10 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/ping" "port" $port "scheme" $scheme) "initialDelaySeconds" 5 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/ping" "port" $port "scheme" $scheme) "initialDelaySeconds" 2 "periodSeconds" 10 -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -38,7 +41,16 @@ spec:
           securityContext:
             {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
           args:
+            {{- if $tls }}
+            # nonroot cannot bind 443: HTTPS on 8443, mapped to 443 by the Service; "-"
+            # turns the plain HTTP listener off
+            - "--http-address=-"
+            - "--https-address=0.0.0.0:8443"
+            - "--tls-cert-file=/tls/tls.crt"
+            - "--tls-key-file=/tls/tls.key"
+            {{- else }}
             - "--http-address=0.0.0.0:4180"
+            {{- end }}
             {{- with .Values.config.provider }}
             - "--provider={{ . }}"
             {{- end }}
@@ -66,8 +78,8 @@ spec:
           {{- end }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: 4180
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 4180 (eq $tls "true") }}
               protocol: TCP
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
@@ -78,12 +90,14 @@ spec:
           {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- with .Values.extraVolumeMounts }}
+          {{- if or .Values.extraVolumeMounts $tls }}
           volumeMounts:
-            {{- include "quench-common.extraVolumeMounts" $ | nindent 12 }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
           {{- end }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
-      {{- with .Values.extraVolumes }}
+      {{- if or .Values.extraVolumes $tls }}
       volumes:
-        {{- include "quench-common.extraVolumes" $ | nindent 8 }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
       {{- end }}
