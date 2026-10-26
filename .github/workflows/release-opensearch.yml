@@ -57,6 +57,21 @@ jobs:
           curl -fsS -XPOST 'http://127.0.0.1:9200/gate/_doc/1?refresh=true' -H 'Content-Type: application/json' -d '{"k":"quench"}' >/dev/null
           curl -fsS 'http://127.0.0.1:9200/gate/_doc/1' | >/dev/null grep '"quench"'
 
+          # TLS: the same HA release with tls.enabled serves HTTPS on the Service's 443
+          # through the nginx sidecar, with a self-signed certificate that verifies
+          # against its own ca.crt, and the cluster re-forms after the rolling upgrade
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status statefulset/rtest-opensearch-master --timeout=420s
+          kubectl rollout status statefulset/rtest-opensearch-data --timeout=420s
+          kubectl get secret rtest-opensearch-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-opensearch 8443:443 >/tmp/pf-tls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          health="$(curl -fsS --cacert /tmp/ca.crt "https://localhost:8443/_cluster/health?wait_for_nodes=5&wait_for_status=yellow&timeout=180s")"
+          grep -qE '"status":"(green|yellow)"' <<<"$health"
+          grep -q '"number_of_nodes":5' <<<"$health"
+          echo "OpenSearch: HTTPS on Service port 443 verified against the chart CA, 5 nodes"
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

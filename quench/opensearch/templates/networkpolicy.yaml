@@ -20,9 +20,9 @@ spec:
         - podSelector:
             matchLabels:
               {{- include "quench-common.selectorLabels" . | nindent 14 }}
-    # HTTP API traffic
+    # HTTP API traffic (HTTPS through the TLS sidecar when tls.enabled)
     - ports:
-        - port: http
+        - port: {{ ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") }}
           protocol: TCP
       {{- if not .Values.networkPolicy.allowExternal }}
       from:

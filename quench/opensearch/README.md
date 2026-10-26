@@ -138,10 +138,18 @@ gh attestation verify oci://ghcr.io/quenchworks/images/opensearch \
 | `data.persistence.size`       | `16Gi`                                  | Per-pod PVC for shards.                                                                   |
 | `single.*`                    | —                                       | heap/persistence/resources for `mode: single`.                                            |
 | `service.httpPort`            | `9200`                                  | REST API (client Service across all nodes).                                               |
+| `service.enabled`             | `true`                                  | `false` drops the client Service (and, in single mode only, the headless one).            |
 | `service.transportPort`       | `9300`                                  | Node transport (headless Service).                                                        |
+| `service.httpsPort`           | `443`                                   | Service port for the TLS sidecar (container 8443) when `tls.enabled`.                     |
+| `tls.enabled`                 | `false`                                 | HTTPS via an nginx sidecar; OpenSearch HTTP then binds 127.0.0.1 only.                    |
+| `tls.existingSecret`          | `""`                                    | Use this `kubernetes.io/tls` Secret (1st choice).                                         |
+| `tls.certManager.enabled`     | `false`                                 | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). The sidecar reads the cert at start: roll the pods after a renewal.|
+| `tls.selfSigned.validityDays` | `365`                                   | Otherwise Helm generates a CA + certificate, kept across upgrades.                        |
+| `tlsProxy.image`              | QuenchWorks nginx, by digest            | The TLS sidecar image (hardened, nonroot, read-only rootfs).                              |
+| `tlsProxy.resources`          | `cpu 50m / mem 32Mi`                    | Sidecar requests (limits `500m / 128Mi`).                                                 |
 | `networkPolicy.enabled`       | `true`                                  | Restricts HTTP ingress to the release namespace; node-to-node transport always allowed.   |
 | `podDisruptionBudget.enabled` | `true`                                  | HA pins the master pool at quorum; single uses `minAvailable`.                            |
-| `ingress.enabled`             | `false`                                 | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.enabled`             | `false`                                 | Create an Ingress (needs `service.enabled`). With `tls.enabled` it routes to `service.httpsPort`; set the controller to backend-protocol HTTPS.|
 | `ingress.className`           | `""`                                    | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
 | `ingress.annotations`         | `{}`                                    | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
 | `ingress.servicePort`         | `null`                                  | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |

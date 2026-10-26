@@ -1,1 +1,11 @@
+{{- if .Values.ingress.enabled }}
+{{- if not .Values.service.enabled }}
+{{- fail "ingress.enabled needs service.enabled: the Ingress routes to the chart's client Service" }}
+{{- end }}
+{{- if include "quench-common.tls.enabled" . }}
+{{- /* TLS on: the Service publishes only httpsPort; the controller needs backend-protocol HTTPS */}}
+{{- include "quench-common.ingress" (dict "ctx" . "port" (.Values.ingress.servicePort | default .Values.service.httpsPort)) }}
+{{- else }}
 {{- include "quench-common.ingress" . }}
+{{- end }}
+{{- end }}

@@ -23,9 +23,17 @@ Arg is a dict:
 {{- $headless := include "opensearch.headlessName" $ctx -}}
 {{- $persistence := $cfg.persistence -}}
 {{- $existingClaim := $persistence.existingClaim | default "" -}}
+{{- $tls := include "quench-common.tls.enabled" $ctx -}}
 {{- $liveness := dict "tcpSocket" (dict "port" "http") "initialDelaySeconds" 60 "periodSeconds" 20 -}}
 {{/* readiness via the cluster health endpoint; the runtime image ships no shell client */}}
 {{- $readiness := dict "httpGet" (dict "path" "/_cluster/health" "port" "http") "initialDelaySeconds" 30 "periodSeconds" 10 "failureThreshold" 30 -}}
+{{- if $tls -}}
+{{/* TLS on: HTTP binds loopback, which the kubelet cannot reach. Liveness checks the
+     transport listener (pod address); readiness goes through the TLS sidecar (by number: a
+     named probe port must belong to the probed container). */}}
+{{- $liveness = dict "tcpSocket" (dict "port" "transport") "initialDelaySeconds" 60 "periodSeconds" 20 -}}
+{{- $readiness = dict "httpGet" (dict "path" "/_cluster/health" "port" 8443 "scheme" "HTTPS") "initialDelaySeconds" 30 "periodSeconds" 10 "failureThreshold" 30 -}}
+{{- end -}}
 {{/* Static seed + bootstrap lists: the master pods' stable headless DNS / node names. */}}
 {{- $masterReplicas := int $ctx.Values.master.replicaCount -}}
 {{- $seedHosts := list -}}
@@ -47,6 +55,9 @@ Arg is a dict:
 {{- $extra = append $extra (printf "cluster.initial_cluster_manager_nodes: [%s]" (join ", " $qb)) -}}
 {{- end -}}
 {{- end -}}
+{{/* TLS on: plain HTTP answers on loopback only (the sidecar's upstream); transport
+     keeps network.host so the nodes still find each other. */}}
+{{- if $tls }}{{- $extra = append $extra "http.host: 127.0.0.1" -}}{{- end -}}
 {{- with $ctx.Values.config.extraConfig }}{{- $extra = append $extra . -}}{{- end -}}
 {{- $sysctl := and $pool $ctx.Values.sysctls.enabled -}}
 apiVersion: apps/v1
@@ -171,8 +182,10 @@ spec:
             {{- include "quench-common.extraEnvVars" $ctx | nindent 12 }}
           {{- include "quench-common.envFrom" $ctx | nindent 10 }}
           ports:
+            {{- if not $tls }}
             - name: http
               containerPort: {{ $ctx.Values.service.httpPort }}
+            {{- end }}
             - name: transport
               containerPort: {{ $ctx.Values.service.transportPort }}
           {{- include "quench-common.probe" (dict "ctx" $ctx "name" "liveness" "default" $liveness) | nindent 10 }}
@@ -188,8 +201,38 @@ spec:
             - name: data
               mountPath: /data
             {{- include "quench-common.extraVolumeMounts" $ctx | nindent 12 }}
+        {{- if $tls }}
+        # TLS terminator: the hardened image has no security plugin, so no native HTTPS.
+        - name: tls-proxy
+          image: "{{ $ctx.Values.tlsProxy.image.repository }}@{{ $ctx.Values.tlsProxy.image.digest }}"
+          imagePullPolicy: {{ $ctx.Values.tlsProxy.image.pullPolicy }}
+          args: ["-c", "/etc/tls-proxy/nginx.conf"]
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" $ctx | nindent 12 }}
+          ports:
+            - name: https
+              containerPort: 8443
+          readinessProbe:
+            tcpSocket:
+              port: https
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: https
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml $ctx.Values.tlsProxy.resources | nindent 12 }}
+          volumeMounts:
+            - name: tls-proxy-config
+              mountPath: /etc/tls-proxy
+              readOnly: true
+            - name: tls-proxy-tmp
+              mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" $ctx | nindent 12 }}
+        {{- end }}
         {{- include "quench-common.sidecars" $ctx | nindent 8 }}
-      {{- if or (and $persistence.enabled $existingClaim) (not $persistence.enabled) $ctx.Values.extraVolumes }}
+      {{- if or (and $persistence.enabled $existingClaim) (not $persistence.enabled) $ctx.Values.extraVolumes $tls }}
       volumes:
         {{- if and $persistence.enabled $existingClaim }}
         - name: data
@@ -198,6 +241,14 @@ spec:
         {{- else if not $persistence.enabled }}
         - name: data
           emptyDir: {}
+        {{- end }}
+        {{- if $tls }}
+        - name: tls-proxy-config
+          configMap:
+            name: {{ $fullname }}-tls-proxy
+        - name: tls-proxy-tmp
+          emptyDir: {}
+        {{- include "quench-common.tls.volume" $ctx | nindent 8 }}
         {{- end }}
         {{- include "quench-common.extraVolumes" $ctx | nindent 8 }}
       {{- end }}

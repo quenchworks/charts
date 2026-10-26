@@ -1,9 +1,22 @@
 Quenchworks OpenSearch is installed as {{ include "quench-common.fullname" . }}
 {{- if eq .Values.mode "ha" }} in HA mode: {{ .Values.master.replicaCount }} cluster-manager node(s) + {{ .Values.data.replicaCount }} data node(s).{{ else }} in single-node mode (no fault tolerance).{{ end }}
 
+{{- if not .Values.service.enabled }}
+
+service.enabled is false: the chart created no client Service. Front the pods with
+your own Service{{ if include "quench-common.tls.enabled" . }} (target port "https", 8443 on the TLS sidecar){{ end }}.
+{{- else if include "quench-common.tls.enabled" . }}
+
+Query the HTTPS API from inside the cluster (OpenSearch HTTP is bound to loopback; an
+nginx sidecar terminates TLS). Trust the CA in Secret {{ include "quench-common.tls.secretName" . }}:
+
+  curl --cacert ca.crt https://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpsPort }}/_cluster/health
+{{- else }}
+
 Query the HTTP API from inside the cluster:
 
   curl http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.httpPort }}/_cluster/health
+{{- end }}
 
 {{- if eq .Values.mode "ha" }}
 
@@ -21,7 +34,7 @@ quorum ({{ add (div (int .Values.master.replicaCount) 2) 1 }}) survives. Losing 
 
 {{- if .Values.config.securityDisabled }}
 
-NOTE: the security plugin is disabled (no TLS/auth). This is for internal use behind
+NOTE: the security plugin is disabled (no auth{{ if not (include "quench-common.tls.enabled" .) }}, no TLS: set tls.enabled for HTTPS{{ end }}). This is for internal use behind
 the NetworkPolicy. The hardened image does not bundle the security plugin.
 {{- end }}
 

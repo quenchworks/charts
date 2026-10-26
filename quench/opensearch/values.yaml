@@ -84,9 +84,42 @@ single:
     limits: { cpu: "2", memory: 2Gi }
 
 service:
+  # false drops both Services in single mode, for a pod that fronts OpenSearch
+  # with its own TLS proxy and Service (the chart's ports would then point at a
+  # loopback-only listener). HA mode keeps the headless Service for discovery.
+  enabled: true
   type: ClusterIP
   httpPort: 9200
   transportPort: 9300
+  # With tls.enabled the Services publish the TLS sidecar (container 8443) here
+  # instead of httpPort, and OpenSearch HTTP binds to loopback only.
+  httpsPort: 443
+
+# HTTPS for the API. The hardened image has no security plugin, so OpenSearch cannot
+# serve TLS itself: an nginx sidecar (tlsProxy) terminates it on 8443 and proxies to
+# OpenSearch on 127.0.0.1. Transport (9300) stays plain, node to node, behind the
+# NetworkPolicy. Off by default. The first source set wins: existingSecret, then
+# certManager, else a Helm-generated self-signed CA + certificate (mounted at /tls).
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# The TLS sidecar (only with tls.enabled): the QuenchWorks hardened nginx, pinned by digest.
+tlsProxy:
+  image:
+    repository: ghcr.io/quenchworks/images/nginx
+    digest: "sha256:b104b20bcc1d2a7e0ee26086c3db8f51c2262cdd4d36fab9991602209ac6a7ce"
+    pullPolicy: IfNotPresent
+  resources:
+    requests: { cpu: 50m, memory: 32Mi }
+    limits: { cpu: 500m, memory: 128Mi }
 
 # --- Common production knobs, wired through quench-common (all optional) ---
 podLabels: {}
@@ -139,8 +172,11 @@ podDisruptionBudget:
   # uses this value as-is.
   minAvailable: 1
 
-# Optional Ingress (HTTP only). Disabled by default, so enabling it is an explicit
-# operator decision and this chart's behaviour is unchanged until then.
+# Optional Ingress. With tls.enabled it routes to service.httpsPort, so the
+# controller must speak HTTPS to the backend (ingress-nginx:
+# nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"). Needs service.enabled.
+# Disabled by default, so enabling it is an explicit operator decision and this
+# chart's behaviour is unchanged until then.
 ingress:
   enabled: false
   # IngressClass to claim this Ingress. Empty -> the cluster default applies.
