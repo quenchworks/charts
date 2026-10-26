@@ -52,6 +52,34 @@ jobs:
           # `vllm --version` reports <X.Y.Z>+cpu on the CPU build.
           kubectl exec statefulset/rtest-vllm -- /usr/bin/vllm --version | grep -E '\+cpu$'
 
+          # native TLS: the same release with tls.enabled publishes HTTPS on the Service's
+          # 443 with a self-signed certificate that verifies against its own ca.crt
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status statefulset/rtest-vllm --timeout=600s
+          kubectl get secret rtest-vllm-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          # No model in the gate (vllm serve cannot start), so prove the parts it would use:
+          # the chart's serve args carry the TLS flags on 8443, and the mounted certificate
+          # completes a TLS handshake for "localhost" in the image's own python ssl (what
+          # uvicorn uses), verified against ca.crt.
+          helm template rtest "${CHART_DIR}" --set tls.enabled=true --set model=x > /tmp/tls-render.yaml
+          grep -q -- '- --ssl-certfile' /tmp/tls-render.yaml
+          grep -q -- '- "8443"' /tmp/tls-render.yaml
+          kubectl exec statefulset/rtest-vllm -- /opt/vllm/venv/bin/python -c '
+          import socket, ssl, threading
+          srv = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); srv.load_cert_chain("/tls/tls.crt", "/tls/tls.key")
+          ls = socket.create_server(("127.0.0.1", 8443))
+          def serve():
+              c, _ = ls.accept()
+              with srv.wrap_socket(c, server_side=True) as s: s.sendall(b"ok")
+          threading.Thread(target=serve, daemon=True).start()
+          cli = ssl.create_default_context(cafile="/tls/ca.crt")
+          with cli.wrap_socket(socket.create_connection(("127.0.0.1", 8443)), server_hostname="localhost") as s:
+              assert s.recv(2) == b"ok"
+          print("tls handshake ok")'
+          test "$(kubectl get svc rtest-vllm -o jsonpath='{.spec.ports[0].port}/{.spec.ports[0].targetPort}')" = "443/https"
+          echo "vLLM: chart TLS flags, Service 443 and the certificate verified against the chart CA"
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

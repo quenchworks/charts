@@ -3,9 +3,12 @@
      model is loaded and the engine is ready) on the serve port. Model load is slow, so
      the startupProbe carries a generous failureThreshold (60 x 10s = up to 10 min) and
      liveness/readiness only begin once it first succeeds. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/health" "port" "http") "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/health" "port" "http") "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 6 -}}
-{{- $startup := dict "httpGet" (dict "path" "/health" "port" "http") "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/health" "port" $port "scheme" $scheme) "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/health" "port" $port "scheme" $scheme) "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $startup := dict "httpGet" (dict "path" "/health" "port" $port "scheme" $scheme) "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -51,8 +54,19 @@ spec:
             - {{ .Values.model | quote }}
             - --host
             - 0.0.0.0
+            {{- if $tls }}
+            # Native TLS (uvicorn): HTTPS on 8443 (nonroot cannot bind 443), mapped to
+            # 443 by the Service.
+            - --port
+            - "8443"
+            - --ssl-certfile
+            - /tls/tls.crt
+            - --ssl-keyfile
+            - /tls/tls.key
+            {{- else }}
             - --port
             - "8000"
+            {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -67,8 +81,8 @@ spec:
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: 8000
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 8000 (eq $tls "true") }}
               protocol: TCP
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
@@ -84,6 +98,7 @@ spec:
             # read-only rootfs needs a writable scratch dir
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -97,6 +112,7 @@ spec:
         - name: cache
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
   volumeClaimTemplates:
