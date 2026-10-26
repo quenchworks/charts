@@ -57,14 +57,13 @@ jobs:
           curl -fsS -XPOST 'http://127.0.0.1:9200/gate/_doc/1?refresh=true' -H 'Content-Type: application/json' -d '{"k":"quench"}' >/dev/null
           curl -fsS 'http://127.0.0.1:9200/gate/_doc/1' | >/dev/null grep '"quench"'
 
-          # TLS: an HA install with tls.enabled serves HTTPS on the Service's 443 through
-          # the nginx sidecar, with a self-signed certificate that verifies against its own
-          # ca.crt. A fresh install, not an upgrade: this fixture runs on emptyDir, and a
-          # rolling upgrade replaces both data pods before shards re-replicate, so the gate
-          # index is lost and the cluster stays red (run 40302623390).
+          # TLS: upgrade the same HA install in place to tls.enabled. This is a rolling
+          # restart with the gate index on it, the path users take. Data-node readiness waits
+          # for green here (this fixture has no persistence, so a restarted node comes back
+          # empty), so the second data pod is replaced only after the first one's shards are
+          # re-replicated. Before that it lost both copies and stayed red (run 40302623390).
           kill $pf; trap - EXIT
-          helm uninstall rtest --wait
-          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 12m
           kubectl rollout status statefulset/rtest-opensearch-master --timeout=420s
           kubectl rollout status statefulset/rtest-opensearch-data --timeout=420s
           kubectl get secret rtest-opensearch-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
@@ -75,7 +74,9 @@ jobs:
           echo "$health"
           grep -qE '"status":"(green|yellow)"' <<<"$health"
           grep -q '"number_of_nodes":5' <<<"$health"
-          echo "OpenSearch: HTTPS on Service port 443 verified against the chart CA, 5 nodes"
+          # the document indexed over HTTP survived the rolling restart
+          curl -fsS --cacert /tmp/ca.crt 'https://localhost:8443/gate/_doc/1' | >/dev/null grep '"quench"'
+          echo "OpenSearch: HTTPS on Service port 443 verified against the chart CA, 5 nodes, data kept"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

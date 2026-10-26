@@ -25,14 +25,23 @@ Arg is a dict:
 {{- $existingClaim := $persistence.existingClaim | default "" -}}
 {{- $tls := include "quench-common.tls.enabled" $ctx -}}
 {{- $liveness := dict "tcpSocket" (dict "port" "http") "initialDelaySeconds" 60 "periodSeconds" 20 -}}
-{{/* readiness via the cluster health endpoint; the runtime image ships no shell client */}}
-{{- $readiness := dict "httpGet" (dict "path" "/_cluster/health" "port" "http") "initialDelaySeconds" 30 "periodSeconds" 10 "failureThreshold" 30 -}}
+{{/* readiness via the cluster health endpoint; the runtime image ships no shell client.
+     Plain /_cluster/health answers 200 even when red, so a rolling restart could replace
+     data-0 before data-1 had its shards back; on emptyDir that lost both copies of an
+     index (release run 40302623390). A data node is ready only once the cluster is yellow
+     (it rejoined with its disk), or green when persistence is off (its copies are gone, so
+     the next node may restart only after they are re-replicated). 408 until then. */}}
+{{- $health := "/_cluster/health" -}}
+{{- if eq $pool "data" -}}
+{{- $health = printf "/_cluster/health?wait_for_status=%s&timeout=1s" (ternary "yellow" "green" (eq (toString $persistence.enabled) "true")) -}}
+{{- end -}}
+{{- $readiness := dict "httpGet" (dict "path" $health "port" "http") "initialDelaySeconds" 30 "periodSeconds" 10 "failureThreshold" 30 -}}
 {{- if $tls -}}
 {{/* TLS on: HTTP binds loopback, which the kubelet cannot reach. Liveness checks the
      transport listener (pod address); readiness goes through the TLS sidecar (by number: a
      named probe port must belong to the probed container). */}}
 {{- $liveness = dict "tcpSocket" (dict "port" "transport") "initialDelaySeconds" 60 "periodSeconds" 20 -}}
-{{- $readiness = dict "httpGet" (dict "path" "/_cluster/health" "port" 8443 "scheme" "HTTPS") "initialDelaySeconds" 30 "periodSeconds" 10 "failureThreshold" 30 -}}
+{{- $readiness = dict "httpGet" (dict "path" $health "port" 8443 "scheme" "HTTPS") "initialDelaySeconds" 30 "periodSeconds" 10 "failureThreshold" 30 -}}
 {{- end -}}
 {{/* Static seed + bootstrap lists: the master pods' stable headless DNS / node names. */}}
 {{- $masterReplicas := int $ctx.Values.master.replicaCount -}}
