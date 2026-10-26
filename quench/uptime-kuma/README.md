@@ -32,7 +32,12 @@ Uptime Kuma runs every check from one process, so keep `replicaCount` at 1.
 | `persistence.enabled` | `true` | PVC for the data dir |
 | `persistence.size` | `2Gi` | PVC size |
 | `service.port` | `3001` | Service port |
-| `ingress.enabled` | `false` | an Ingress for the UI |
+| `service.httpsPort` | `443` | Service port for the TLS listener (container 8443) when `tls.enabled`. |
+| `tls.enabled` | `false` | Serve HTTPS on Uptime Kuma's own listener; the certificate is mounted at `/tls`. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
+| `ingress.enabled` | `false` | Create an Ingress. With `tls.enabled` it routes to 443: set the controller's backend protocol to HTTPS. |
 | `networkPolicy.enabled` | `true` | restrict ingress to the namespace |
 | `networkPolicy.allowExternal` | `false` | allow ingress from any source |
 

@@ -180,13 +180,18 @@ n8n:
 | `resources`                                     | requests 250m/256Mi, limits 2/1Gi        | n8n container resources.                                                                  |
 | `service.type`                                  | `ClusterIP`                              | Service type.                                                                             |
 | `service.port`                                  | `5678`                                   | HTTP service + container port.                                                            |
+| `service.httpsPort`                             | `443`                                    | Service port for the TLS listener (container 8443) when `tls.enabled`.                    |
+| `tls.enabled`                                   | `false`                                  | Serve HTTPS on n8n's own listener; the certificate is mounted at `/tls`.                  |
+| `tls.existingSecret`                            | `""`                                     | Use this `kubernetes.io/tls` Secret (1st choice).                                         |
+| `tls.certManager.enabled`                       | `false`                                  | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice).       |
+| `tls.selfSigned.validityDays`                   | `365`                                    | Otherwise Helm generates a CA + certificate, kept across upgrades.                        |
 | `serviceAccount.create`                         | `true`                                   | Create a ServiceAccount.                                                                  |
 | `rbac.create`                                   | `false`                                  | Create an (empty) Role + RoleBinding.                                                     |
 | `networkPolicy.enabled`                         | `true`                                   | Create a NetworkPolicy.                                                                   |
 | `networkPolicy.allowExternal`                   | `true`                                   | Allow HTTP ingress from outside the namespace.                                            |
 | `podDisruptionBudget.enabled`                   | `true`                                   | Create a PodDisruptionBudget.                                                             |
 | `podDisruptionBudget.minAvailable`              | `1`                                      | PDB minimum available.                                                                    |
-| `ingress.enabled`                               | `false`                                  | Create an Ingress for this chart. HTTP only.                                              |
+| `ingress.enabled`                               | `false`                                  | Create an Ingress. With `tls.enabled` it routes to 443: set the controller's backend protocol to HTTPS. |
 | `ingress.className`                             | `""`                                     | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
 | `ingress.annotations`                           | `{}`                                     | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
 | `ingress.servicePort`                           | `null`                                   | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |

@@ -3,9 +3,12 @@
      better-sqlite3 module + storage init make the first boot a little slow, so a
      startup probe guards the slow start and the liveness/readiness probes get generous
      timing so a slow node or large image pull does not flap. */}}
-{{- $startup := dict "httpGet" (dict "path" "/api/app/ping" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 5 "timeoutSeconds" 5 "failureThreshold" 30 -}}
-{{- $liveness := dict "httpGet" (dict "path" "/api/app/ping" "port" "http") "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/api/app/ping" "port" "http") "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $startup := dict "httpGet" (dict "path" "/api/app/ping" "port" $port "scheme" $scheme) "initialDelaySeconds" 10 "periodSeconds" 5 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+{{- $liveness := dict "httpGet" (dict "path" "/api/app/ping" "port" $port "scheme" $scheme) "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/api/app/ping" "port" $port "scheme" $scheme) "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 6 -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -50,11 +53,23 @@ spec:
                 secretKeyRef:
                   name: {{ include "xyops.secretName" . }}
                   key: {{ include "xyops.secretKeyName" . }}
+            {{- if $tls }}
+            # Native TLS: xyOps' own HTTPS listener (pixl-server-web, WebServer.https*),
+            # on 8443 because nonroot cannot bind 443; the Service maps it to 443.
+            - name: XYOPS_WebServer__https
+              value: "true"
+            - name: XYOPS_WebServer__https_port
+              value: "8443"
+            - name: XYOPS_WebServer__https_cert_file
+              value: /tls/tls.crt
+            - name: XYOPS_WebServer__https_key_file
+              value: /tls/tls.key
+            {{- end }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: 5522
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 5522 (eq $tls "true") }}
               protocol: TCP
           {{- include "quench-common.probe" (dict "ctx" . "name" "startup" "default" $startup) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
@@ -73,6 +88,7 @@ spec:
               mountPath: /opt/xyops/temp
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -90,6 +106,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
   volumeClaimTemplates:

@@ -1,8 +1,11 @@
 {{/* code-server serves an unauthenticated /healthz that returns 200 once the HTTP
      server is up — used for liveness + readiness. The editor itself is behind the
      PASSWORD login. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/healthz" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 15 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/healthz" "port" "http") "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/healthz" "port" $port "scheme" $scheme) "initialDelaySeconds" 10 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/healthz" "port" $port "scheme" $scheme) "initialDelaySeconds" 5 "periodSeconds" 10 -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -36,9 +39,21 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
-          {{- with .Values.extraArgs }}
+          {{- if or .Values.extraArgs $tls }}
           args:
+            {{- if $tls }}
+            # Native TLS: nonroot cannot bind 443, so code-server serves HTTPS on 8443
+            # (overriding the image's --bind-addr) and the Service maps it to 443.
+            - --bind-addr
+            - 0.0.0.0:8443
+            - --cert
+            - /tls/tls.crt
+            - --cert-key
+            - /tls/tls.key
+            {{- end }}
+            {{- with .Values.extraArgs }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
           env:
             # code-server's default --auth password reads the login password from PASSWORD.
@@ -52,8 +67,8 @@ spec:
             {{- end }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: 8080
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 8080 (eq $tls "true") }}
               protocol: TCP
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
@@ -70,6 +85,7 @@ spec:
             # read-only rootfs: VS Code / node write scratch to the OS temp dir
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -82,4 +98,5 @@ spec:
         {{- end }}
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

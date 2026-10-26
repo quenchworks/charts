@@ -65,6 +65,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/versitygw --owner quenchw
 | `containerPort` | `7070` | Listen port. |
 | `persistence.enabled` / `.size` | `true` / `8Gi` | PVC at `/data` for the posix backend. `existingClaim` binds your own. |
 | `service.type` / `.port` | `ClusterIP` / `7070` | |
+| `service.httpsPort` | `443` | Service port for the TLS listener (container 8443) when `tls.enabled`. |
+| `tls.enabled` | `false` | Serve HTTPS on VersityGW's own listener; the certificate is mounted at `/tls`. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `networkPolicy.enabled` / `.allowExternal` | `true` / `false` | Default admits clients from the release namespace only. |
 | `replicaCount` | `1` | The posix backend owns one data dir; keep 1. |
 

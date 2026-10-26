@@ -1,8 +1,11 @@
 {{/* httpGet probes hit /healthz on the HTTP port: it returns 200 once n8n has run its DB
      migrations and is serving. The runtime image ships no shell HTTP client; the kubelet
      does the GET. First boot runs migrations (slow on Postgres), so readiness is generous. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/healthz" "port" "http") "initialDelaySeconds" 60 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/healthz" "port" "http") "initialDelaySeconds" 15 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/healthz" "port" $port "scheme" $scheme) "initialDelaySeconds" 60 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/healthz" "port" $port "scheme" $scheme) "initialDelaySeconds" 15 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
 {{- $encSecret := include "n8n.encryptionSecretName" . -}}
 {{- $encKey := include "n8n.encryptionSecretKey" . -}}
 {{- $pg := .Values.database.postgresql -}}
@@ -46,10 +49,23 @@ spec:
             # Public-facing identity used to build editor/webhook/OAuth-callback URLs.
             - name: N8N_HOST
               value: {{ .Values.n8n.host | quote }}
+            {{- if $tls }}
+            # Native TLS: nonroot cannot bind 443, so n8n serves HTTPS on 8443 and the
+            # Service maps it to 443. Set webhookUrl to the public https URL.
+            - name: N8N_PROTOCOL
+              value: "https"
+            - name: N8N_PORT
+              value: "8443"
+            - name: N8N_SSL_CERT
+              value: /tls/tls.crt
+            - name: N8N_SSL_KEY
+              value: /tls/tls.key
+            {{- else }}
             - name: N8N_PROTOCOL
               value: {{ .Values.n8n.protocol | quote }}
             - name: N8N_PORT
               value: {{ .Values.service.port | quote }}
+            {{- end }}
             - name: N8N_LISTEN_ADDRESS
               value: "0.0.0.0"
             {{- with .Values.n8n.webhookUrl }}
@@ -99,8 +115,8 @@ spec:
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
-            - name: http
-              containerPort: {{ .Values.service.port }}
+            - name: {{ $port }}
+              containerPort: {{ ternary 8443 .Values.service.port (eq $tls "true") }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}
@@ -121,6 +137,7 @@ spec:
               mountPath: /home/node/.cache
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- if .Values.taskRunners.enabled }}
         - name: task-runner
@@ -158,6 +175,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
   volumeClaimTemplates:
