@@ -48,7 +48,7 @@ jobs:
           kubectl port-forward svc/rtest-gitlab-runner 9252:9252 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           curl -fsS http://127.0.0.1:9252/metrics | grep '^gitlab_runner_version_info' | tee /tmp/ver.txt
-          grep -q 'version="19.4.1"' /tmp/ver.txt
+          grep -q "version=\"$(sed -n 's/^appVersion: "\(.*\)"/\1/p' "${CHART_DIR}/Chart.yaml")\"" /tmp/ver.txt
           # The executor's identity can run job pods here, and nowhere else.
           sa=system:serviceaccount:default:rtest-gitlab-runner
           for v in "create pods" "delete pods" "create pods/exec" "get pods/log" "create secrets"; do
