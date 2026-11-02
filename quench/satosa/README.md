@@ -49,6 +49,10 @@ Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them 
 | `workers` | `2` | gunicorn worker processes per pod. |
 | `extraArgs` | `[]` | Extra gunicorn flags. |
 | `baseUrl` | `""` | SATOSA `BASE`, the public URL. Empty uses the in-cluster Service URL. |
+| `tls.enabled` | `false` | gunicorn serves 8080 over HTTPS only (cert at `/tls`); probes follow; set `baseUrl` to the https address |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `config.proxyConf` | `""` | Full `proxy_conf.yaml` (templated). Empty uses the default SAML2 SP + ping config. |
 | `config.internalAttributes` | `mail` map | `INTERNAL_ATTRIBUTES` of the default config. |
 | `config.idpMetadata` | `{local: []}` | pysaml2 metadata sources of the default config. |

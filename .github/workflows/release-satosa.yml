@@ -58,6 +58,17 @@ jobs:
             /etc/satosa/config/proxy_conf.yaml /etc/satosa/saml/tls.key /etc/satosa/saml/tls.crt --dir /tmp
           kubectl exec deployment/rtest-satosa -- /usr/bin/xmlsec1 --verify --enabled-reference-uris empty,same-doc --enabled-key-data raw-x509-cert --lax-key-search --pubkey-cert-pem /etc/satosa/saml/tls.crt \
             --id-attr:ID urn:oasis:names:tc:SAML:2.0:metadata:EntityDescriptor /tmp/backend.xml
+          # native TLS: gunicorn serves 8080 over HTTPS only (probes follow); ping and the SP
+          # metadata over it verify the chart CA and the Service name
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-satosa --timeout=300s
+          kubectl get secret rtest-satosa-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/satosa-ca.crt
+          kubectl port-forward svc/rtest-satosa 8443:8080 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          tc=(--cacert /tmp/satosa-ca.crt --resolve rtest-satosa:8443:127.0.0.1)
+          curl -fsS "${tc[@]}" https://rtest-satosa:8443/ping >/dev/null
+          curl -fsS "${tc[@]}" https://rtest-satosa:8443/Saml2/metadata.xml | >/dev/null grep 'X509Certificate'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

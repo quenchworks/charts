@@ -1,6 +1,8 @@
 {{/* The ping frontend answers 200 on /ping once the proxy has loaded its config. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/ping" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 15 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/ping" "port" "http") "initialDelaySeconds" 3 "periodSeconds" 10 -}}
+{{- $get := dict "path" "/ping" "port" "http" -}}
+{{- if include "quench-common.tls.enabled" . }}{{- $_ := set $get "scheme" "HTTPS" }}{{- end -}}
+{{- $liveness := dict "httpGet" $get "initialDelaySeconds" 10 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" $get "initialDelaySeconds" 3 "periodSeconds" 10 -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -46,6 +48,11 @@ spec:
             - "--workers={{ .Values.workers }}"
             - "--worker-tmp-dir=/tmp"
             - "--access-logfile=-"
+            {{- if include "quench-common.tls.enabled" . }}
+            # 8080 serves HTTPS only
+            - "--certfile=/tls/tls.crt"
+            - "--keyfile=/tls/tls.key"
+            {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -85,6 +92,7 @@ spec:
             # gunicorn worker heartbeats and pysaml2's xmlsec1 temp files
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -96,4 +104,5 @@ spec:
             secretName: {{ include "satosa.samlSecretName" . }}
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
