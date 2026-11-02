@@ -1,0 +1,23 @@
+Teleport {{ .Chart.AppVersion }} (auth + proxy) is starting as cluster "{{ .Values.clusterName }}".
+
+The proxy serves the web UI and API over TLS on the Service:
+
+  https://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+
+From your machine:
+
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "quench-common.fullname" . }} 3080:{{ .Values.service.port }}
+  curl -k https://localhost:3080/webapi/ping
+{{- if not (include "quench-common.tls.enabled" .) }}
+
+The certificate is Teleport's own self-signed one; set tls.* for a real one.
+{{- end }}
+
+Create the first admin user and open the printed invite link:
+
+  kubectl -n {{ .Release.Namespace }} exec {{ include "quench-common.fullname" . }}-0 -- \
+    tctl users add admin --roles=editor,access --logins=root
+
+IMPORTANT: set publicAddr to the host:port users and agents really reach (normally an
+Ingress or LoadBalancer with a trusted certificate); invite links and agent joins use it.
+clusterName cannot change after the first start.

@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    # the proxy's web listener is always TLS (self-signed unless tls.* supplies a keypair)
+    - port: {{ .Values.service.port }}
+      targetPort: web
+      protocol: TCP
+      name: web
+    - port: {{ .Values.ports.tunnel }}
+      targetPort: tunnel
+      protocol: TCP
+      name: tunnel
+    - port: {{ .Values.ports.diag }}
+      targetPort: diag
+      protocol: TCP
+      name: diag
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "teleport.headlessName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - port: {{ .Values.ports.web }}
+      targetPort: web
+      protocol: TCP
+      name: web
+    - port: {{ .Values.ports.auth }}
+      targetPort: auth
+      protocol: TCP
+      name: auth
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

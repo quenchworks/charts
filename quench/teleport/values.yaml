@@ -1,0 +1,154 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# manifests/teleport.json after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/teleport
+  digest: "sha256:bb3cd8a80b7bd750300d62ea17f22e3b9b24cbb43fdab7cd1dc8021880f9697e"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# One auth + proxy process. Teleport keeps its cluster state in the data dir (SQLite backend),
+# so this chart runs a single replica; HA needs an external backend (etcd/DynamoDB/Postgres)
+# and is out of scope here.
+replicaCount: 1
+
+# Cluster name: immutable after the first start (it is baked into the CA).
+clusterName: teleport.local
+# The address users and agents reach the proxy on (host:port). Empty uses the Service name.
+publicAddr: ""
+
+ports:
+  web: 3080      # HTTPS web UI, API and tsh login (TLS always on)
+  tunnel: 3024   # reverse tunnels from agents and leaf clusters
+  auth: 3025     # auth service (cluster-internal)
+  diag: 3000     # /healthz, /readyz, /metrics
+
+# teleport.yaml, rendered through `tpl`. The web listener serves a self-signed certificate
+# unless tls.* supplies one (mounted at /tls).
+config: |
+  version: v3
+  teleport:
+    nodename: {{ include "quench-common.fullname" . }}
+    data_dir: {{ .Values.persistence.dataDir }}
+    diag_addr: 0.0.0.0:{{ .Values.ports.diag }}
+    log:
+      output: stderr
+      severity: INFO
+  auth_service:
+    enabled: true
+    cluster_name: {{ .Values.clusterName }}
+    listen_addr: 0.0.0.0:{{ .Values.ports.auth }}
+  proxy_service:
+    enabled: true
+    web_listen_addr: 0.0.0.0:{{ .Values.ports.web }}
+    tunnel_listen_addr: 0.0.0.0:{{ .Values.ports.tunnel }}
+    public_addr: {{ .Values.publicAddr | default (printf "%s:%d" (include "quench-common.fullname" .) (int .Values.service.port)) }}
+    {{- if include "quench-common.tls.enabled" . }}
+    https_keypairs:
+      - key_file: /tls/tls.key
+        cert_file: /tls/tls.crt
+    {{- end }}
+  ssh_service:
+    enabled: false
+
+persistence:
+  enabled: true
+  size: 2Gi
+  # Teleport's data_dir: the SQLite backend, host CA keys and session recordings.
+  dataDir: /var/lib/teleport
+  # storageClass: ""        # default class if unset
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  selector: {}
+  existingClaim: ""         # bind an existing PVC instead of provisioning one
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  # the proxy's web listener (always TLS)
+  port: 3080
+
+# A certificate for the proxy's web listener (port 3080, https_keypairs). Off by default: teleport
+# then serves its own self-signed one. The first
+# source set wins: existingSecret, then certManager, else a Helm-generated self-signed
+# CA + certificate. The Secret is mounted at /tls (tls.crt, tls.key, ca.crt).
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+# `teleport serve` is the entrypoint verb; override only for maintenance verbs.
+args: ["start", "--config=/etc/teleport/teleport.yaml"]
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # teleport is reached by tailscale clients from outside the cluster. Set true to
+  # allow ingress from any source; default restricts traffic to the namespace.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Optional Ingress (HTTP only). Disabled by default, so enabling it is an explicit
+# operator decision and this chart's behaviour is unchanged until then.
+ingress:
+  enabled: false
+  # IngressClass to claim this Ingress. Empty -> the cluster default applies.
+  className: ""
+  annotations: {}
+  # Service port to route to. Unset -> resolved from service.port, then
+  # service.ports.http / .https.
+  servicePort: null
+  # e.g. [{host: app.example.com, paths: [{path: /, pathType: Prefix}]}]
+  # `paths` may be omitted for the common "/" Prefix case.
+  hosts: []
+  # Standard Ingress TLS list, e.g. [{hosts: [app.example.com], secretName: app-tls}]
+  tls: []
