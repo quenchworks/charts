@@ -19,7 +19,12 @@ spec:
       {{- include "quench-common.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      annotations:
+        # mosquitto reads its config once: a config or TLS change rolls the pod
+        checksum/config: {{ printf "%s|%s|%s" .Values.config.conf .Values.config.existingConfigMap (include "quench-common.tls.enabled" .) | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       labels:
         {{- include "quench-common.selectorLabels" . | nindent 8 }}
         {{- include "quench-common.podLabels" . | nindent 8 }}
@@ -46,6 +51,11 @@ spec:
             - name: mqtt
               containerPort: 1883
               protocol: TCP
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: mqtts
+              containerPort: 8883
+              protocol: TCP
+            {{- end }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}
@@ -62,6 +72,13 @@ spec:
               readOnly: true
             - name: data
               mountPath: /mosquitto/data
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: tls-conf
+              mountPath: /etc/mosquitto/conf.d/tls-quench.conf
+              subPath: tls-quench.conf
+              readOnly: true
+            {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -80,6 +97,12 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- if include "quench-common.tls.enabled" . }}
+        - name: tls-conf
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-tls
+        {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
 {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
 ---

@@ -52,6 +52,17 @@ jobs:
           kubectl exec "$pod" -- mosquitto_pub -h 127.0.0.1 -p 1883 -t quench/ci -m ci-ok
           wait $sub
           grep -qx ci-ok /tmp/sub.out
+          # native TLS: the conf.d listener on 8883; pub/sub over TLS verifying the certificate
+          # (localhost is in its names; dialing the pod's own Service hairpins in kind)
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 5m
+          kubectl rollout status deployment/rtest-mosquitto --timeout=300s
+          pod="$(kubectl get pod -l app.kubernetes.io/name=mosquitto --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')"
+          t="-h localhost -p 8883 --cafile /tls/ca.crt"
+          kubectl exec "$pod" -- mosquitto_sub $t -t quench/tls -C 1 -W 15 >/tmp/sub-tls.out &
+          sub=$!; sleep 3
+          kubectl exec "$pod" -- mosquitto_pub $t -t quench/tls -m tls-ok
+          wait $sub
+          grep -qx tls-ok /tmp/sub-tls.out
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

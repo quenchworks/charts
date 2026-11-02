@@ -55,6 +55,11 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/mosquitto --owner q
 | `resources.limits` | `cpu 500m / mem 256Mi` | |
 | `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
 | `service.ports.mqtt` | `1883` | MQTT listener. |
+| `service.ports.mqtts` | `8883` | MQTT over TLS, only with `tls.enabled`. |
+| `tls.enabled` | `false` | An MQTT/TLS listener on 8883 via a `conf.d` drop-in (cert at `/tls`); a custom `config.conf` must keep `include_dir /etc/mosquitto/conf.d`. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `serviceAccount.create` | `true` | Token automount is off. |
 | `rbac.create` | `false` | Minimal Role/RoleBinding. |
 | `networkPolicy.enabled` | `true` | Restricts ingress. |
