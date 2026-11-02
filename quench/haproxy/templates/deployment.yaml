@@ -21,7 +21,7 @@ spec:
     metadata:
       annotations:
         # Roll the pods when the rendered config changes.
-        checksum/config: {{ .Values.config.haproxyConfig | sha256sum }}
+        checksum/config: {{ printf "%s|%s" .Values.config.haproxyConfig (include "quench-common.tls.enabled" .) | sha256sum }}
       {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -48,6 +48,10 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: https
+              containerPort: 8443
+            {{- end }}
             - name: stats
               containerPort: 8404
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
@@ -69,6 +73,7 @@ spec:
               mountPath: /var/lib/haproxy
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -79,4 +84,16 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        {{- if include "quench-common.tls.enabled" . }}
+        # haproxy 3.x looks for the key at <crt>.key, so the key is also projected as tls.crt.key
+        - name: tls
+          secret:
+            secretName: {{ include "quench-common.tls.secretName" . }}
+            defaultMode: 0440
+            items:
+              - { key: tls.crt, path: tls.crt }
+              - { key: tls.key, path: tls.key }
+              - { key: tls.key, path: tls.crt.key }
+              - { key: ca.crt, path: ca.crt }
+        {{- end }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

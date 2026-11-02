@@ -11,3 +11,15 @@ data:
   # value was supplied.
   haproxy.cfg: |
     {{- printf "%s\n" (trimSuffix "\n" .Values.config.haproxyConfig) | nindent 4 }}
+    {{- if include "quench-common.tls.enabled" . }}
+    # tls.enabled: HTTPS on 8443 with the chart certificate (the key is mounted as
+    # /tls/tls.crt.key, where haproxy looks), in front of the :8080 frontend
+    frontend quench_https_in
+        bind *:8443 ssl crt /tls/tls.crt
+        mode http
+        default_backend quench_https_loopback
+
+    backend quench_https_loopback
+        mode http
+        server local 127.0.0.1:8080
+    {{- end }}

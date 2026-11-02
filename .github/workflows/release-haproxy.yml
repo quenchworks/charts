@@ -56,6 +56,14 @@ jobs:
           curl -fsS http://127.0.0.1:8404/stats | >/dev/null grep -i 'Statistics Report'
           # the http frontend returns 200 and the sample backend body
           curl -fsS http://127.0.0.1:8080/ | >/dev/null grep 'quench-haproxy ok'
+          # native TLS: the appended 8443 frontend fronts :8080 over a verified session
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 5m
+          kubectl rollout status deployment/rtest-haproxy --timeout=300s
+          kubectl get secret rtest-haproxy-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/haproxy-ca.crt
+          kubectl port-forward svc/rtest-haproxy 8443:443 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/haproxy-ca.crt --resolve rtest-haproxy:8443:127.0.0.1 https://rtest-haproxy:8443/ | >/dev/null grep 'quench-haproxy ok'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

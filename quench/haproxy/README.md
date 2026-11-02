@@ -100,6 +100,11 @@ and cannot bind ports below 1024.
 | `service.type`                     | `ClusterIP`                          | Service type.                                                                             |
 | `service.port`                     | `8080`                               | Port for the http_in frontend (load-balanced traffic).                                    |
 | `service.statsPort`                | `8404`                               | Port for the stats + health endpoint.                                                     |
+| `service.httpsPort` | `443` | HTTPS (pod 8443), only with `tls.enabled`. |
+| `tls.enabled` | `false` | Appends a frontend on 8443 that terminates TLS (cert at `/tls`) and forwards to your `:8080` frontend; your config can also `bind ... ssl crt /tls/tls.crt`. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `serviceAccount.create`            | `true`                               | Create a ServiceAccount (token automount disabled).                                       |
 | `rbac.create`                      | `false`                              | Create an (empty) Role + RoleBinding.                                                     |
 | `networkPolicy.enabled`            | `true`                               | Create a NetworkPolicy.                                                                   |

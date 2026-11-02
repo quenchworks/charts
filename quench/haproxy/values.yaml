@@ -72,6 +72,23 @@ service:
   port: 8080
   # The stats + health endpoint port.
   statsPort: 8404
+  # HTTPS in front of the :8080 frontend (the pod's 8443), only with tls.enabled
+  httpsPort: 443
+
+# Native TLS: the chart appends a frontend on 8443 (published as service.httpsPort) that
+# terminates TLS with the certificate mounted at /tls and forwards to your :8080 frontend. Your
+# own config can also `bind ... ssl crt /tls/tls.crt` directly. The certificate comes from the
+# first source set: existingSecret, then a cert-manager Certificate, else a Helm-generated CA.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # --- Common production knobs, wired through quench-common (all optional) ---
 podLabels: {}
