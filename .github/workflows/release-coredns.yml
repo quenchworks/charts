@@ -50,6 +50,16 @@ jobs:
           # health plugin returns 200 "OK"; ready plugin returns 200 once plugins are ready
           curl -fsS http://127.0.0.1:8080/health | >/dev/null grep -i 'OK'
           curl -fsS http://127.0.0.1:8181/ready  | >/dev/null grep -i 'OK'
+          # native TLS: DNS over TLS on the Service's 853, verifying the Service name; the
+          # tls:// block forwards to the plain block, which resolves the API server Service
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 5m
+          kubectl rollout status deployment/rtest-coredns --timeout=300s
+          kubectl get secret rtest-coredns-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/coredns-ca.crt
+          kubectl port-forward svc/rtest-coredns 8853:853 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          api="$(kubectl get svc kubernetes -o jsonpath='{.spec.clusterIP}')"
+          dig +tls +tls-ca=/tmp/coredns-ca.crt +tls-hostname=rtest-coredns @127.0.0.1 -p 8853 +short kubernetes.default.svc.cluster.local A | grep -x "$api"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

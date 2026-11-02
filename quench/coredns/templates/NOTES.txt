@@ -17,6 +17,13 @@ Using the chart's Corefile (config.corefile). The health (8080) and ready (8181)
 endpoints back the probes; whoami answers queries and forward sends the rest to the
 node resolvers. Edit config.corefile and `helm upgrade` to change it.
 {{- end }}
+{{- if include "quench-common.tls.enabled" . }}
+
+DNS over TLS is on port {{ .Values.service.tlsPort }}. The CA is in Secret
+{{ include "quench-common.fullname" . }}-tls (key ca.crt) unless you brought your own:
+
+  dig +tls +tls-ca=ca.crt +tls-hostname={{ include "quench-common.fullname" . }} @<service-ip> -p {{ .Values.service.tlsPort }} quench-works.com
+{{- end }}
 
 The image is pinned by digest and signed. Verify it:
 

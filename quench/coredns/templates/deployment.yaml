@@ -21,7 +21,11 @@ spec:
       {{- include "quench-common.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      annotations:
+        checksum/config: {{ printf "%s|%s" .Values.config.corefile (include "quench-common.tls.enabled" .) | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       labels:
         {{- include "quench-common.selectorLabels" . | nindent 8 }}
         {{- include "quench-common.podLabels" . | nindent 8 }}
@@ -49,6 +53,11 @@ spec:
             - name: dns-tcp
               containerPort: 1053
               protocol: TCP
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: dns-tls
+              containerPort: 1853
+              protocol: TCP
+            {{- end }}
             - name: health
               containerPort: 8080
             - name: ready
@@ -67,10 +76,12 @@ spec:
             - name: config
               mountPath: /etc/coredns
               readOnly: true
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         - name: config
           configMap:
             name: {{ $cm }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

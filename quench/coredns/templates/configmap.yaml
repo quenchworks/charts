@@ -9,4 +9,12 @@ data:
   # Mounted at /etc/coredns/Corefile (the image's -conf path).
   Corefile: |-
     {{- .Values.config.corefile | nindent 4 }}
+    {{- if include "quench-common.tls.enabled" . }}
+
+    # DNS over TLS on 1853: terminates TLS and forwards to the plain server block on 1053
+    tls://.:1853 {
+        tls /tls/tls.crt /tls/tls.key
+        forward . 127.0.0.1:1053
+    }
+    {{- end }}
 {{- end }}

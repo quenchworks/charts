@@ -42,6 +42,25 @@ service:
   type: ClusterIP
   # DNS service port; the container listens on 1053 and the Service maps 53 -> 1053.
   port: 53
+  # DNS over TLS (the pod's 1853), only with tls.enabled
+  tlsPort: 853
+
+# Native TLS: DNS over TLS on 1853 (published as service.tlsPort) beside plain DNS, with the
+# certificate mounted at /tls. The chart appends a tls:// server block to the Corefile that
+# forwards to the plain block on 1053, so keep that block when you change config.corefile
+# (with config.existingConfigMap, add the tls:// block yourself). The certificate comes from
+# the first source set: existingSecret, then a cert-manager Certificate, else a Helm-generated
+# CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # Optional horizontal autoscaling on CPU.
 autoscaling:
