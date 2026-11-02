@@ -24,7 +24,12 @@ spec:
       {{- include "quench-common.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      annotations:
+        # Caddy loads the Caddyfile once: a config or TLS change rolls the pods
+        checksum/config: {{ printf "%s|%s|%s" .Values.config.caddyfile .Values.config.existingConfigMap (include "quench-common.tls.enabled" .) | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       labels:
         {{- include "quench-common.selectorLabels" . | nindent 8 }}
         {{- include "quench-common.podLabels" . | nindent 8 }}
@@ -76,6 +81,7 @@ spec:
               mountPath: /config
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -88,4 +94,5 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

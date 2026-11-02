@@ -52,6 +52,14 @@ jobs:
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # the default Caddyfile responds 200 with the QuenchWorks marker on /
           curl -fsS http://127.0.0.1:8080/ | >/dev/null grep 'QuenchWorks Caddy OK'
+          # native TLS: the appended :8443 site fronts the :8080 site over a verified session
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 5m
+          kubectl rollout status deployment/rtest-caddy --timeout=300s
+          kubectl get secret rtest-caddy-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/caddy-ca.crt
+          kubectl port-forward svc/rtest-caddy 8443:8443 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/caddy-ca.crt --resolve rtest-caddy:8443:127.0.0.1 https://rtest-caddy:8443/ | >/dev/null grep 'QuenchWorks Caddy OK'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

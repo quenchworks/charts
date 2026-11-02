@@ -89,6 +89,10 @@ hostname. For plain in-cluster HTTP, keep the default `:8080` site.
 | `config.existingConfigMap`    | `""`                               | Existing ConfigMap with a `Caddyfile` key; takes precedence over `config.caddyfile`.      |
 | `service.port`                | `8080`                             | http (named `http`).                                                                      |
 | `service.httpsPort`           | `8443`                             | https (named `https`).                                                                    |
+| `tls.enabled` | `false` | Appends a `:8443` site with the chart cert (at `/tls`) that proxies to your `:8080` site. With your own `:8443` site or `config.existingConfigMap`, use `tls /tls/tls.crt /tls/tls.key` yourself. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `service.adminPort`           | `2019`                             | admin API (named `admin`); in-cluster only.                                               |
 | `autoscaling.enabled`         | `false`                            | Optional CPU HPA (`minReplicas`/`maxReplicas`).                                           |
 | `networkPolicy.enabled`       | `true`                             | Ingress to 8080/8443 (admin always namespace-only).                                       |
