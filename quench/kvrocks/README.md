@@ -24,6 +24,11 @@ Connect any Redis client to `kv-kvrocks.<namespace>.svc:6666` with that password
 | `persistence.enabled` | `true` | a PVC for `/var/lib/kvrocks` |
 | `persistence.size` | `8Gi` | PVC size |
 | `service.port` | `6666` | Redis-protocol port |
+| `service.tlsPort` | `6667` | Redis protocol over TLS, only with `tls.enabled` |
+| `tls.enabled` | `false` | a TLS listener beside plain 6666 (cert at `/tls`, no client certificates) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 The chart runs one instance. Pods run with a read-only root filesystem and all
 capabilities dropped; the image logs to stdout.

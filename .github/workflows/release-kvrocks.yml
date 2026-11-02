@@ -70,6 +70,17 @@ jobs:
           kubectl rollout status statefulset/rtest-kvrocks --timeout=300s
           for i in $(seq 1 30); do [ "$(cli -a "$PW" --no-auth-warning PING 2>/dev/null | tr -d '\r')" = PONG ] && break; sleep 2; done
           test "$(cli -a "$PW" --no-auth-warning GET gate | tr -d '\r')" = quench
+          # native TLS: a client pod with the chart Secret mounted verifies the Service name
+          # against its CA on the TLS port and reads the key back
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-kvrocks --timeout=300s
+          ov='{"spec":{"volumes":[{"name":"tls","secret":{"secretName":"rtest-kvrocks-tls"}}],"containers":[{"name":"kvtls","image":"ghcr.io/quenchworks/images/valkey:9.1.2","command":["valkey-cli","--tls","--cacert","/tls/ca.crt","-h","rtest-kvrocks","-p","6667","-a","'"$PW"'","--no-auth-warning","GET","gate"],"volumeMounts":[{"name":"tls","mountPath":"/tls"}]}]}}'
+          kubectl run kvtls --restart=Never --image=ghcr.io/quenchworks/images/valkey:9.1.2 --overrides="$ov" >/dev/null
+          for _ in $(seq 1 60); do
+            ph="$(kubectl get pod kvtls -o jsonpath='{.status.phase}')"
+            [ "$ph" = Succeeded ] || [ "$ph" = Failed ] && break; sleep 2
+          done
+          test "$(kubectl logs kvtls | tr -d '\r')" = quench
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

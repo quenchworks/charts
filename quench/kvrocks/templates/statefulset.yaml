@@ -37,12 +37,29 @@ spec:
           args:
             - --requirepass
             - $(KVROCKS_PASSWORD)
+            {{- if include "quench-common.tls.enabled" . }}
+            # TLS on service.tlsPort beside plain 6666; no client certificates required
+            - --tls-port
+            - {{ .Values.service.tlsPort | quote }}
+            - --tls-cert-file
+            - /tls/tls.crt
+            - --tls-key-file
+            - /tls/tls.key
+            - --tls-ca-cert-file
+            - /tls/ca.crt
+            - --tls-auth-clients
+            - "no"
+            {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
             {{- end }}
           ports:
             - name: redis
               containerPort: 6666
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: redis-tls
+              containerPort: {{ .Values.service.tlsPort }}
+            {{- end }}
           readinessProbe:
             tcpSocket:
               port: redis
@@ -62,6 +79,7 @@ spec:
               mountPath: /var/lib/kvrocks
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -77,6 +95,7 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- if not .Values.persistence.enabled }}
         - name: data
           emptyDir: {}
