@@ -42,6 +42,10 @@ upgrade because SQLite and the local store sit on one ReadWriteOnce volume.
 | `storage.resolver` | `local` | `local`, `proxy`, `s3`, `gcs` or `azure` |
 | `database.type` | `sqlite` | `sqlite`, `postgresql` or `mysql` |
 | `persistence.size` | `5Gi` | SQLite and the local store |
+| `tls.enabled` | `false` | The port serves HTTPS only (cert at `/tls`); probes follow; set `url` to the https address |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 Pods run with a read-only root filesystem and all capabilities dropped.
 
