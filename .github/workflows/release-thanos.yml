@@ -56,6 +56,16 @@ jobs:
           curl -fsS http://127.0.0.1:10902/-/ready >/dev/null
           # PromQL API answers end to end (empty result is fine)
           curl -fsS 'http://127.0.0.1:10902/api/v1/query?query=up' | >/dev/null grep '"status":"success"'
+          # native TLS: query turns HTTPS-only (probes follow); PromQL over it verifies the chart
+          # CA and the query Service name the certificate carries
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 6m
+          kubectl rollout status deployment/rtest-thanos-query --timeout=300s
+          kubectl get secret rtest-thanos-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/thanos-ca.crt
+          kubectl port-forward svc/rtest-thanos-query 10902:10902 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/thanos-ca.crt --resolve rtest-thanos-query:10902:127.0.0.1 \
+            'https://rtest-thanos-query:10902/api/v1/query?query=up' | >/dev/null grep '"status":"success"'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

@@ -71,6 +71,10 @@ its own block.
 | `query.stores` | `[]` | Static stores to also query (each becomes `--endpoint`). |
 | `query.extraEndpoints` | `[]` | Extra `--endpoint`/`--endpoint-group` targets. |
 | `query.extraArgs` | `[]` | Extra flags. |
+| `tls.enabled` | `false` | Query UI and API serve HTTPS only via `--http.config` (cert at `/tls`, names the query Service); Store API gRPC and remote-write stay plain |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `query.service.httpPort` | `10902` | PromQL UI/API. |
 | `query.service.grpcPort` | `10901` | Store API. |
 | `query.podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |

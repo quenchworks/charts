@@ -1,0 +1,22 @@
+{{- if include "quench-common.tls.enabled" . }}
+{{- /* Clients dial the query Service, not the release fullname: add it to the certificate. */ -}}
+{{- $q := include "thanos.componentFullname" (dict "ctx" . "component" "query") }}
+{{- $names := list $q (printf "%s.%s.svc" $q .Release.Namespace) (printf "%s.%s.svc.cluster.local" $q .Release.Namespace) }}
+{{- $cm := .Values.tls.certManager | default dict }}
+{{- $_ := set .Values.tls "certManager" (merge (dict "dnsNames" (concat ($cm.dnsNames | default list) $names)) $cm) }}
+---
+# Thanos web config (--http.config): the query HTTP UI/API serves HTTPS with the chart certificate.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $q }}-web
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  web.yaml: |
+    tls_server_config:
+      cert_file: /tls/tls.crt
+      key_file: /tls/tls.key
+---
+{{- end }}
+{{ include "quench-common.tls.resources" . }}

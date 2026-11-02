@@ -9,8 +9,9 @@ receive — that connection IS the integration test.
 Probes: HTTP /-/healthy (liveness) and /-/ready (readiness) on 10902. /-/ready
 returns 200 once query has loaded its endpoints and is serving the API.
 */}}
-{{- $liveness := dict "httpGet" (dict "path" "/-/healthy" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/-/ready" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq (include "quench-common.tls.enabled" .) "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/-/healthy" "port" "http" "scheme" $scheme) "initialDelaySeconds" 10 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/-/ready" "port" "http" "scheme" $scheme) "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -53,6 +54,9 @@ spec:
             - --http-address=0.0.0.0:10902
             - --grpc-address=0.0.0.0:10901
             - --query.replica-label=receive_replica
+            {{- if include "quench-common.tls.enabled" . }}
+            - --http.config=/etc/thanos-web/web.yaml
+            {{- end }}
             {{- if .Values.receive.enabled }}
             - --endpoint={{ include "thanos.receiveEndpoint" . }}
             {{- end }}
@@ -88,10 +92,22 @@ spec:
             # Read-only rootfs: query is stateless but wants a writable /tmp.
             - name: tmp
               mountPath: /tmp
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: web-config
+              mountPath: /etc/thanos-web
+              readOnly: true
+            {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if include "quench-common.tls.enabled" . }}
+        - name: web-config
+          configMap:
+            name: {{ include "thanos.componentFullname" (dict "ctx" . "component" "query") }}-web
+        {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
 {{- end }}
