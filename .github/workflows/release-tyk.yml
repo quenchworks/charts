@@ -66,6 +66,17 @@ jobs:
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # /hello returns 200 with a JSON status document once the gateway is up
           curl -fsS http://127.0.0.1:8080/hello | >/dev/null grep '"status"'
+          # native TLS: the gateway turns HTTPS-only (probes follow); /hello over it verifies the
+          # chart CA and the Service name
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set serviceAccount.create=false --set serviceAccount.name=tyk-puller \
+            --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-tyk --timeout=300s
+          kubectl get secret rtest-tyk-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/tyk-ca.crt
+          kubectl port-forward svc/rtest-tyk 8443:80 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/tyk-ca.crt --resolve rtest-tyk:8443:127.0.0.1 https://rtest-tyk:8443/hello | >/dev/null grep '"status":"pass"'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

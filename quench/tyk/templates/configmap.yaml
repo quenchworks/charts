@@ -27,6 +27,10 @@ credentials are ever written to this ConfigMap.
     "secret" ""
     "node_secret" ""
 -}}
+{{- if include "quench-common.tls.enabled" . }}
+{{- /* the gateway port serves HTTPS only, with the chart certificate for every host */}}
+{{- $_ := set $conf "http_server_options" (dict "use_ssl" true "certificates" (list (dict "domain_name" "*" "cert_file" "/tls/tls.crt" "key_file" "/tls/tls.key"))) }}
+{{- end }}
 {{- $conf = mergeOverwrite $conf (deepCopy .Values.extraConfig) -}}
 apiVersion: v1
 kind: ConfigMap

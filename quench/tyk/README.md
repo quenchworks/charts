@@ -119,6 +119,10 @@ gh attestation verify oci://ghcr.io/quenchworks/images/tyk \
 | `gateway.nodeSecret`          | `""`                             | `node_secret`. Random+persisted if empty.                                                 |
 | `gateway.existingSecret`      | `""`                             | Supply both secrets via your own Secret.                                                  |
 | `extraConfig`                 | `{}`                             | Extra `tyk.conf` keys merged over the baseline (your keys win).                           |
+| `tls.enabled` | `false` | The gateway serves HTTPS only (`http_server_options.use_ssl`, cert at `/tls`); probes follow |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `redis.enabled`               | `true`                           | Bundled hardened Redis subchart.                                                          |
 | `redis.auth.enabled`          | `true`                           |                                                                                           |
 | `redis.auth.password`         | `tyk-redis`                      | **Shared with the gateway's `storage.password`; override for production.**                |
