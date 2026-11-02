@@ -52,6 +52,10 @@ extraEnvVarsSecret: osd-credentials   # a Secret with an OSD_PASSWORD key
 | `extraConfig` | `{}` | Merged into `opensearch_dashboards.yml` |
 | `replicaCount` | `1` | Stateless, scale freely |
 | `service.port` | `5601` | Service port |
+| `tls.enabled` | `false` | 5601 serves https (`server.ssl.*`, cert at `/tls`); point an Ingress at it with an HTTPS backend. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `networkPolicy.enabled` | `true` | Ingress from the release namespace, egress DNS + `opensearchPort` |
 | `networkPolicy.allowExternal` | `false` | Allow ingress from anywhere |
 | `networkPolicy.opensearchPort` | `9200` | Egress port to the cluster |

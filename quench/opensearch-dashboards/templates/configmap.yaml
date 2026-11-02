@@ -9,4 +9,8 @@ data:
     {{- /* hosts go through tpl so an umbrella can name its own release's Service */}}
     {{- $hosts := tpl (toYaml .Values.opensearch.hosts) . | fromYamlArray }}
     {{- $cfg := dict "server.host" "0.0.0.0" "opensearch.hosts" $hosts }}
+    {{- if include "quench-common.tls.enabled" . }}
+    {{- /* native TLS: 5601 itself serves https */}}
+    {{- $_ := merge $cfg (dict "server.ssl.enabled" true "server.ssl.certificate" "/tls/tls.crt" "server.ssl.key" "/tls/tls.key") }}
+    {{- end }}
     {{- toYaml (merge (deepCopy .Values.extraConfig) $cfg) | nindent 4 }}

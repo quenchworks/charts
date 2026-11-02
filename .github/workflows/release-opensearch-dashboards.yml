@@ -95,6 +95,18 @@ jobs:
           # the saved object survived the new pod: it lives in OpenSearch
           curl -fsS http://127.0.0.1:5601/api/saved_objects/index-pattern/quench-gate >/dev/null
           echo "dashboards green against OpenSearch; saved object round-trip; extraConfig applied"
+          # native TLS: 5601 switches to https; /api/status must be green over a session that
+          # verifies the Service name against the chart CA, and plain http must stop answering
+          kill $pf
+          helm upgrade rtest "${CHART_DIR}" -n site -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set 'imagePullSecrets[0]=ghcr-pull' --set tls.enabled=true --wait --timeout 8m
+          kubectl get secret -n site rtest-opensearch-dashboards-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/osd-ca.crt
+          kubectl port-forward -n site svc/rtest-opensearch-dashboards 5601:5601 >/tmp/pf5601.log 2>&1 &
+          pf=$!; sleep 5
+          st="$(curl -fsS --cacert /tmp/osd-ca.crt --resolve rtest-opensearch-dashboards:5601:127.0.0.1 https://rtest-opensearch-dashboards:5601/api/status)"
+          [ "$(jq -r .status.overall.state <<<"$st")" = green ] || { jq -c .status.overall <<<"$st"; exit 1; }
+          ! curl -fsS -m 5 http://127.0.0.1:5601/api/status >/dev/null 2>&1
+          echo "dashboards green over TLS"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

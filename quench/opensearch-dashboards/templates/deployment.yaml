@@ -1,7 +1,7 @@
 {{- /* Readiness waits for /api/status, which answers 503 until the cluster is reachable;
 liveness only checks the port, so an OpenSearch outage does not restart the UI. */ -}}
 {{- $liveness := dict "tcpSocket" (dict "port" "http") "initialDelaySeconds" 60 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
-{{- $readiness := dict "httpGet" (dict "path" (printf "%s/api/status" (trimSuffix "/" (get .Values.extraConfig "server.basePath" | default ""))) "port" "http") "initialDelaySeconds" 20 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" (printf "%s/api/status" (trimSuffix "/" (get .Values.extraConfig "server.basePath" | default ""))) "port" "http" "scheme" (ternary "HTTPS" "HTTP" (eq (include "quench-common.tls.enabled" .) "true"))) "initialDelaySeconds" 20 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 6 -}}
 {{- $fullname := include "quench-common.fullname" . -}}
 apiVersion: apps/v1
 kind: Deployment
@@ -73,6 +73,7 @@ spec:
               mountPath: /usr/share/opensearch-dashboards/data
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -83,4 +84,5 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
