@@ -11,7 +11,8 @@ ServiceAccount, i.e. unauthenticated callers get its permissions.
 The server writes its session/temp files under /tmp, so the read-only rootfs is
 kept and /tmp is an emptyDir.
 */}}
-{{- $scheme := ternary "HTTPS" "HTTP" .Values.server.secure -}}
+{{- $tls := eq (include "quench-common.tls.enabled" .) "true" -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (or .Values.server.secure $tls) -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -51,7 +52,11 @@ spec:
             - "server"
             - "--configmap={{ include "argo-workflows.configMapName" . }}"
             - "--port=2746"
-            - "--secure={{ .Values.server.secure }}"
+            - "--secure={{ or .Values.server.secure $tls }}"
+            {{- if $tls }}
+            # argo-server reads the certificate from the Secret through the API (its role can get Secrets)
+            - "--tls-certificate-secret-name={{ include "quench-common.tls.secretName" . }}"
+            {{- end }}
             - "--base-href={{ .Values.server.baseHref }}"
             - "--loglevel={{ .Values.controller.logLevel }}"
             {{- range .Values.server.authModes }}

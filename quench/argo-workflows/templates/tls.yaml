@@ -1,0 +1,8 @@
+{{- if include "quench-common.tls.enabled" . }}
+{{- /* Clients dial the argo-server Service, not the release fullname: add it to the certificate. */ -}}
+{{- $s := include "argo-workflows.serverName" . }}
+{{- $names := list $s (printf "%s.%s.svc" $s .Release.Namespace) (printf "%s.%s.svc.cluster.local" $s .Release.Namespace) }}
+{{- $cm := .Values.tls.certManager | default dict }}
+{{- $_ := set .Values.tls "certManager" (merge (dict "dnsNames" (concat ($cm.dnsNames | default list) $names)) $cm) }}
+{{- end }}
+{{- include "quench-common.tls.resources" . }}

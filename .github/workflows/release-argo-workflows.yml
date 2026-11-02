@@ -98,6 +98,17 @@ jobs:
           grep -q '{' /tmp/info.json
           curl -fsS http://127.0.0.1:2746/api/v1/workflows/default | >/dev/null grep '"name":"smoke"'
 
+          # native TLS: argo-server turns HTTPS with the chart certificate from its Secret; the
+          # workflow list over it verifies the chart CA and the server Service name
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 6m
+          kubectl rollout status deployment/rtest-argo-workflows-server --timeout=300s
+          kubectl get secret rtest-argo-workflows-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/argo-ca.crt
+          kubectl port-forward svc/rtest-argo-workflows-server 2746:2746 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/argo-ca.crt --resolve rtest-argo-workflows-server:2746:127.0.0.1 \
+            https://rtest-argo-workflows-server:2746/api/v1/workflows/default | >/dev/null grep '"name":"smoke"'
+
           # nothing crash-looped
           test -z "$(kubectl get pods -o jsonpath='{range .items[*]}{range .status.containerStatuses[*]}{.restartCount}{"\n"}{end}{end}' | grep -v '^0$')"
 

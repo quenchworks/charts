@@ -159,6 +159,10 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/argo-workflows --ow
 | `server.resources` | `cpu 50m-500m / mem 128Mi-512Mi` | |
 | `server.service.type` | `ClusterIP` | |
 | `server.service.port` | `2746` | API + UI. |
+| `tls.enabled` | `false` | argo-server serves HTTPS with the chart certificate (implies `server.secure`; probes follow); the certificate names the server Service |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `serviceAccount.create` | `true` | One ServiceAccount per component. |
 | `serviceAccount.controllerName` / `.serverName` | `""` | Override the derived names. |
 | `rbac.create` | `true` | Required: the controller manages pods cluster-wide. |
