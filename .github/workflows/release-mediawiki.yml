@@ -70,7 +70,8 @@ jobs:
           }
 
           # --- 1. SQLite (the default) -------------------------------------------
-          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          # tls.enabled: HTTPS on 8443 beside HTTP on 8080, so the checks below still run on 8080
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
           uid="$(kubectl get pod -l app.kubernetes.io/instance=rtest -o jsonpath='{.items[0].spec.securityContext.runAsUser}')"
           test "$uid" = "1001"
           for c in uploads data; do
@@ -96,6 +97,12 @@ jobs:
           grep -q "$marker" <<<"$(curl -fsS 'http://127.0.0.1:8080/index.php?title=QuenchGate&action=render')" \
             || { echo "the page did not survive a pod restart"; exit 1; }
           echo "  restart: schema kept, update ran, page still served"
+          kill $pf
+          # native TLS: the whole smoke (API, login, edit, render) over 8443 with the chart CA
+          kubectl get secret rtest-mediawiki-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/mw-ca.crt
+          kubectl port-forward svc/rtest-mediawiki 8443:8443 >/tmp/pf.log 2>&1 &
+          pf=$!; sleep 5
+          CURL_CA_BUNDLE=/tmp/mw-ca.crt smoke https://localhost:8443 ci-Quench-wiki-2026 >/dev/null
           kill $pf
 
           # --- 2. External MySQL (the quench mysql chart) -------------------------

@@ -83,6 +83,23 @@ resources:
 service:
   type: ClusterIP
   port: 8080
+  # HTTPS (the pod's 8443), only with tls.enabled
+  httpsPort: 8443
+
+# Native TLS: nginx also serves the site over HTTPS on 8443 (Service service.httpsPort) beside
+# plain HTTP on 8080, with the certificate mounted at /tls (a drop-in in the image's server
+# block). It comes from the first source set: existingSecret, then a cert-manager Certificate,
+# else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # --- Uploads volume (PVC) ---
 # Uploaded files and generated thumbnails live under /var/www/html/images, the
