@@ -23,5 +23,8 @@ container port cannot drift; everything else comes from .Values.config.
 */}}
 {{- define "krakend.config" -}}
 {{- $conf := mergeOverwrite (deepCopy .Values.config) (dict "port" (int .Values.containerPort)) -}}
+{{- if include "quench-common.tls.enabled" . -}}
+{{- $_ := set $conf "tls" (dict "keys" (list (dict "public_key" "/tls/tls.crt" "private_key" "/tls/tls.key"))) -}}
+{{- end -}}
 {{- $conf | toPrettyJson -}}
 {{- end -}}

@@ -108,6 +108,10 @@ Deployment yourself after editing the ConfigMap.
 | `existingConfigMapKey` | `krakend.json` | Key in that ConfigMap; projected as `krakend.json`. |
 | `service.type` | `ClusterIP` | |
 | `service.port` | `80` | Service port -> container `http` (8080). |
+| `tls.enabled` | `false` | The gateway serves HTTPS only (cert at `/tls`, `tls.keys` added to the rendered config); probes follow. Replace the sample endpoint, which calls plain loopback HTTP |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `autoscaling.enabled` | `false` | Optional CPU HPA (`minReplicas`/`maxReplicas`). |
 | `networkPolicy.enabled` | `true` | Ingress to the `http` port. |
 | `networkPolicy.allowExternal` | `false` | Set `true` when clients live outside the namespace. |

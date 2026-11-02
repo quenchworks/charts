@@ -57,6 +57,17 @@ jobs:
           # nothing crash-looped on the way to Ready
           test -z "$(kubectl get pods -l app.kubernetes.io/name=krakend \
             -o jsonpath='{range .items[*]}{.status.containerStatuses[*].restartCount}{"\n"}{end}' | grep -v '^0$')"
+          # native TLS: the gateway turns HTTPS-only (probes follow); verify the chart CA and
+          # the Service name, and that the router still answers
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 5m
+          kubectl rollout status deployment/rtest-krakend --timeout=300s
+          kubectl get secret rtest-krakend-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/krakend-ca.crt
+          kubectl port-forward svc/rtest-krakend 8443:80 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          tc=(--cacert /tmp/krakend-ca.crt --resolve rtest-krakend:8443:127.0.0.1)
+          curl -fsS "${tc[@]}" https://rtest-krakend:8443/__health | >/dev/null grep '"status":"ok"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' "${tc[@]}" https://rtest-krakend:8443/no-such-route)" = 404
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

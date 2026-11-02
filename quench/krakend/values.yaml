@@ -53,6 +53,23 @@ config:
           url_pattern: /__health
           encoding: json
 
+# Native TLS: the gateway port serves HTTPS only (the probes follow), with the certificate
+# mounted at /tls; the chart adds tls.keys to the rendered krakend.json (with
+# existingConfigMap, add it yourself). The sample endpoint above calls the gateway over plain
+# http://127.0.0.1, so replace it when you turn TLS on. The certificate comes from the first
+# source set: existingSecret, then a cert-manager Certificate, else a Helm-generated CA +
+# certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
 # Escape hatch: serve krakend.json from an externally-managed ConfigMap instead
 # of the inline `config` above. When set, `config` is not rendered at all and no
 # ConfigMap is created by this chart.
