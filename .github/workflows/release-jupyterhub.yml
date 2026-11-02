@@ -73,6 +73,20 @@ jobs:
           ptok="$(kubectl get secret rtest-jupyterhub-secrets -o jsonpath='{.data.proxy-token}' | base64 -d)"
           curl -fsS -H "Authorization: token $ptok" http://127.0.0.1:8001/api/routes | tee /tmp/routes.json; echo
           grep -q '"hub": *true' /tmp/routes.json
+          # 4. Native TLS: the public proxy port turns HTTPS-only; an admin login over it verifies
+          #    the chart CA and the proxy-public Service name.
+          kill $p1 $p2; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-jupyterhub-proxy --timeout=300s
+          kubectl get secret rtest-jupyterhub-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/jh-ca.crt
+          kubectl port-forward svc/rtest-jupyterhub-proxy-public 8443:80 >/tmp/pf1.log 2>&1 &
+          p1=$!; trap 'kill $p1' EXIT; sleep 6
+          tc=(--cacert /tmp/jh-ca.crt --resolve rtest-jupyterhub-proxy-public:8443:127.0.0.1); B=https://rtest-jupyterhub-proxy-public:8443
+          jar="$(mktemp)"; curl -fsS "${tc[@]}" -c "$jar" "$B/hub/login" >/dev/null
+          x="$(awk '$6 == "_xsrf" { print $7 }' "$jar")"
+          code="$(curl -s "${tc[@]}" -o /dev/null -w '%{http_code}' -b "$jar" -c "$jar" --data-urlencode username=admin \
+            --data-urlencode "password=$ADMINPW" --data-urlencode "_xsrf=$x" "$B/hub/login")"
+          [ "$code" = 302 ] || { echo "admin login over HTTPS answered $code"; exit 1; }
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

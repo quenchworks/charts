@@ -38,20 +38,32 @@ spec:
             - --api-port=8001
             - --default-target=http://{{ $fullname }}-hub:8081
             - --error-target=http://{{ $fullname }}-hub:8081/hub/error
+            {{- if include "quench-common.tls.enabled" . }}
+            # the public port serves HTTPS only; the API port and the hub stay plain in-cluster
+            - --ssl-cert=/tls/tls.crt
+            - --ssl-key=/tls/tls.key
+            {{- end }}
           env:
             - name: CONFIGPROXY_AUTH_TOKEN
               valueFrom: { secretKeyRef: { name: {{ include "jh.secretName" . }}, key: proxy-token } }
           ports:
             - { name: http, containerPort: 8000, protocol: TCP }
             - { name: api, containerPort: 8001, protocol: TCP }
+          {{- $scheme := ternary "HTTPS" "HTTP" (eq (include "quench-common.tls.enabled" .) "true") }}
           livenessProbe:
-            httpGet: { path: /_chp_healthz, port: http }
+            httpGet: { path: /_chp_healthz, port: http, scheme: {{ $scheme }} }
             periodSeconds: 20
           readinessProbe:
-            httpGet: { path: /_chp_healthz, port: http }
+            httpGet: { path: /_chp_healthz, port: http, scheme: {{ $scheme }} }
             periodSeconds: 10
           resources:
             {{- toYaml .Values.proxy.resources | nindent 12 }}
+          {{- if include "quench-common.tls.enabled" . }}
+          volumeMounts:
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+      volumes:
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+          {{- end }}
 ---
 apiVersion: v1
 kind: Service

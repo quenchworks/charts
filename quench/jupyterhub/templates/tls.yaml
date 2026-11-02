@@ -1,0 +1,8 @@
+{{- if include "quench-common.tls.enabled" . }}
+{{- /* Users reach the hub through the proxy-public Service: add it to the certificate. */ -}}
+{{- $p := printf "%s-proxy-public" (include "quench-common.fullname" .) }}
+{{- $names := list $p (printf "%s.%s.svc" $p .Release.Namespace) (printf "%s.%s.svc.cluster.local" $p .Release.Namespace) }}
+{{- $cm := .Values.tls.certManager | default dict }}
+{{- $_ := set .Values.tls "certManager" (merge (dict "dnsNames" (concat ($cm.dnsNames | default list) $names)) $cm) }}
+{{- end }}
+{{- include "quench-common.tls.resources" . }}

@@ -49,6 +49,10 @@ admin panel.
 | `hub.persistence.enabled` | `true` | the hub database volume |
 | `extraConfig` | `""` | Python appended to `jupyterhub_config.py` |
 | `proxy.service.type` | `ClusterIP` | how users reach the proxy |
+| `tls.enabled` | `false` | The public proxy port serves HTTPS only (cert at `/tls`, names `proxy-public`); proxy API and hub stay plain in-cluster |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 ## Release gate
 
