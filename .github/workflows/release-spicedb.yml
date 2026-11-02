@@ -72,6 +72,22 @@ jobs:
           curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:9090/metrics | >/dev/null grep '^200$'
           # gRPC port accepts a TCP connection.
           python3 -c "import socket; s=socket.socket(); s.settimeout(5); s.connect(('127.0.0.1',50051)); s.close(); print('grpc :50051 reachable')"
+          # native TLS: gRPC serves TLS; a client verifying the Service name against the chart CA
+          # completes an h2 handshake
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set serviceAccount.create=false --set serviceAccount.name=spicedb-puller --set tls.enabled=true --wait --timeout 5m
+          kubectl rollout status deployment/rtest-spicedb --timeout=180s
+          kubectl get secret rtest-spicedb-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/spicedb-ca.crt
+          kubectl port-forward svc/rtest-spicedb 50052:50051 >/tmp/pf-grpc-tls.log 2>&1 &
+          sleep 5
+          python3 - <<'PY'
+          import socket, ssl
+          ctx = ssl.create_default_context(cafile="/tmp/spicedb-ca.crt")
+          ctx.set_alpn_protocols(["h2"])
+          t = ctx.wrap_socket(socket.create_connection(("127.0.0.1", 50052), 10), server_hostname="rtest-spicedb")
+          assert t.selected_alpn_protocol() == "h2", t.selected_alpn_protocol()
+          print("gRPC over TLS ok:", t.version())
+          PY
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

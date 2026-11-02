@@ -77,6 +77,10 @@ gh attestation verify oci://ghcr.io/quenchworks/images/spicedb \
 | `networkPolicy.enabled` | `true` | Ingress to the gRPC + metrics ports. |
 | `networkPolicy.allowExternal` | `true` | Set `false` to restrict ingress to the release namespace. |
 | `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| `tls.enabled` | `false` | gRPC (50051) and the HTTP gateway serve TLS only (cert at `/tls`); metrics stay plain. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
 containers, extra env/volumes, security contexts, update strategy).
