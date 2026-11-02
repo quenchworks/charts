@@ -62,6 +62,23 @@ jobs:
           kubectl port-forward svc/rtest-mediamtx 8554:8554 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           timeout 5 bash -c 'exec 3<>/dev/tcp/127.0.0.1/8554' && echo "RTSP :8554 reachable"
+          # native TLS: HLS over HTTPS (404 = served, no stream yet) and the RTSPS/RTMPS
+          # handshakes, each verifying the chart CA and the Service name
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set serviceAccount.create=false --set serviceAccount.name=mediamtx-puller \
+            --set tls.enabled=true --wait --timeout 5m
+          kubectl rollout status deployment/rtest-mediamtx --timeout=300s
+          kubectl get secret rtest-mediamtx-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/mtx-ca.crt
+          kubectl port-forward svc/rtest-mediamtx 8888:8888 8322:8322 1936:1936 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --cacert /tmp/mtx-ca.crt --resolve rtest-mediamtx:8888:127.0.0.1 https://rtest-mediamtx:8888/)"
+          [ "$code" = 404 ] || { echo "::error::HLS over HTTPS answered $code"; exit 1; }
+          for p in 8322 1936; do
+            out="$(echo | timeout 10 openssl s_client -connect 127.0.0.1:$p -servername rtest-mediamtx \
+                    -verify_hostname rtest-mediamtx -CAfile /tmp/mtx-ca.crt -verify_return_error 2>&1)" || true
+            grep -q 'Verify return code: 0 (ok)' <<<"$out" || { echo "::error::TLS handshake on $p failed"; echo "$out" | tail -5; exit 1; }
+          done
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

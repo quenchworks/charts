@@ -47,9 +47,20 @@ spec:
           {{- if $hasConfig }}
           command: ["/usr/bin/mediamtx", "/config/mediamtx.yml"]
           {{- end }}
-          {{- with .Values.extraEnvVars }}
+          {{- if or .Values.extraEnvVars (include "quench-common.tls.enabled" .) }}
           env:
-            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+            {{- if include "quench-common.tls.enabled" . }}
+            {{- /* HLS and WebRTC turn HTTPS on their ports; RTSPS and RTMPS open beside RTSP and RTMP */}}
+            {{- range $p, $mode := dict "HLS" "yes" "WEBRTC" "yes" "RTSP" "optional" "RTMP" "optional" }}
+            - name: MTX_{{ $p }}ENCRYPTION
+              value: {{ $mode | quote }}
+            - name: MTX_{{ $p }}SERVERKEY
+              value: /tls/tls.key
+            - name: MTX_{{ $p }}SERVERCERT
+              value: /tls/tls.crt
+            {{- end }}
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- end }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
@@ -65,6 +76,14 @@ spec:
             - name: webrtc
               containerPort: {{ .Values.service.ports.webrtc }}
               protocol: TCP
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: rtsps
+              containerPort: {{ .Values.service.ports.rtsps }}
+              protocol: TCP
+            - name: rtmps
+              containerPort: {{ .Values.service.ports.rtmps }}
+              protocol: TCP
+            {{- end }}
             {{- if .Values.api.enabled }}
             - name: api
               containerPort: {{ .Values.api.port }}
@@ -87,6 +106,7 @@ spec:
               mountPath: /config
               readOnly: true
             {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -97,4 +117,5 @@ spec:
           configMap:
             name: {{ include "mediamtx.mountedConfigMap" . }}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

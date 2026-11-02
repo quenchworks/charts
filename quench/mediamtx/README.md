@@ -49,6 +49,11 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/mediamtx --owner qu
 | `service.ports.rtmp` | `1935` | RTMP listen port. |
 | `service.ports.hls` | `8888` | HLS listen port. |
 | `service.ports.webrtc` | `8889` | WebRTC listen port. |
+| `service.ports.rtsps`, `service.ports.rtmps` | `8322`, `1936` | RTSPS and RTMPS, only with `tls.enabled` |
+| `tls.enabled` | `false` | HLS and WebRTC serve HTTPS; RTSPS and RTMPS open beside RTSP and RTMP (cert at `/tls`) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `autoscaling.enabled` | `false` | HPA on CPU. |
 | `autoscaling.minReplicas` | `1` | |
 | `autoscaling.maxReplicas` | `5` | |
