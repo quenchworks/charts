@@ -49,6 +49,16 @@ jobs:
           kubectl exec rtest-etcd-0 -- etcdctl endpoint health
           kubectl exec rtest-etcd-0 -- etcdctl put qw hello >/dev/null
           kubectl exec rtest-etcd-0 -- etcdctl get qw --print-value-only | >/dev/null grep hello
+          # native TLS (a fresh release: ci values run on emptyDir, where a rolling restart
+          # re-bootstraps a member): every member must answer https under its advertised name,
+          # verified against the chart CA, and the plaintext client listener must be gone
+          helm install rtls "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 5m
+          kubectl rollout status statefulset/rtls-etcd --timeout=120s
+          e="--endpoints=https://rtls-etcd:2379 --cacert=/tls/ca.crt"
+          kubectl exec rtls-etcd-0 -- etcdctl $e endpoint health --cluster
+          kubectl exec rtls-etcd-0 -- etcdctl $e put qw hello >/dev/null
+          kubectl exec rtls-etcd-0 -- etcdctl $e get qw --print-value-only | >/dev/null grep hello
+          ! kubectl exec rtls-etcd-0 -- etcdctl --endpoints=http://localhost:2379 --dial-timeout=2s endpoint health
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

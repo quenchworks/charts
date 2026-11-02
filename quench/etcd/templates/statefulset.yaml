@@ -1,10 +1,14 @@
 {{- $liveness := dict "tcpSocket" (dict "port" "client") "initialDelaySeconds" 15 "periodSeconds" 15 -}}
 {{- $readiness := dict "exec" (dict "command" (list "etcdctl" "endpoint" "health")) "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+{{- if include "quench-common.tls.enabled" . -}}
+{{- $readiness = dict "exec" (dict "command" (list "etcdctl" (printf "--endpoints=https://localhost:%v" .Values.service.clientPort) "--cacert=/tls/ca.crt" "endpoint" "health")) "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+{{- end -}}
 {{/* Static peer list for Raft bootstrap: every ordinal's stable headless DNS name. */}}
 {{- $fullname := include "quench-common.fullname" . -}}
 {{- $headless := include "etcd.headlessName" . -}}
 {{- $peerPort := .Values.service.peerPort -}}
 {{- $peers := list -}}
+{{- $client := ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") -}}
 {{- range $i := until (int .Values.replicaCount) -}}
 {{- $peers = append $peers (printf "%s-%d=http://%s-%d.%s:%v" $fullname $i $fullname $i $headless $peerPort) -}}
 {{- end -}}
@@ -70,9 +74,9 @@ spec:
             - name: ETCD_DATA_DIR
               value: /data
             - name: ETCD_LISTEN_CLIENT_URLS
-              value: "http://0.0.0.0:{{ .Values.service.clientPort }}"
+              value: "{{ $client }}://0.0.0.0:{{ .Values.service.clientPort }}"
             - name: ETCD_ADVERTISE_CLIENT_URLS
-              value: "http://$(POD_NAME).{{ include "etcd.headlessName" . }}:{{ .Values.service.clientPort }}"
+              value: "{{ $client }}://$(POD_NAME).{{ include "etcd.headlessName" . }}{{ if eq $client "https" }}.{{ .Release.Namespace }}.svc{{ end }}:{{ .Values.service.clientPort }}"
             - name: ETCD_LISTEN_PEER_URLS
               value: "http://0.0.0.0:{{ .Values.service.peerPort }}"
             - name: ETCD_INITIAL_ADVERTISE_PEER_URLS
@@ -83,6 +87,15 @@ spec:
               value: {{ .Values.initialClusterState | quote }}
             - name: ETCD_INITIAL_CLUSTER_TOKEN
               value: {{ include "quench-common.fullname" . | quote }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # native TLS on the client port (peers stay on http: switching a live cluster's peer
+            # scheme needs member updates). No trusted CA on purpose: etcd then demands client
+            # certificates. No ETCDCTL_* env either: etcdctl dies when a flag shadows one.
+            - name: ETCD_CERT_FILE
+              value: /tls/tls.crt
+            - name: ETCD_KEY_FILE
+              value: /tls/tls.key
+            {{- end }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
@@ -102,9 +115,10 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
-      {{- if or (and .Values.persistence.enabled .Values.persistence.existingClaim) (not .Values.persistence.enabled) .Values.extraVolumes }}
+      {{- if or (and .Values.persistence.enabled .Values.persistence.existingClaim) (not .Values.persistence.enabled) .Values.extraVolumes (include "quench-common.tls.enabled" .) }}
       volumes:
         {{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
         - name: data
@@ -114,6 +128,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
       {{- end }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}

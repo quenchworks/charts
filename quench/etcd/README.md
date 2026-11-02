@@ -103,6 +103,10 @@ gh attestation verify oci://ghcr.io/quenchworks/images/etcd \
 | `persistence.enabled` | `true` | 8Gi PVC per member at `/data`. |
 | `service.clientPort` | `2379` | Client Service across all ready members. |
 | `service.peerPort` | `2380` | Peer traffic over the headless Service. |
+| `tls.enabled` | `false` | Native TLS on the client port (https URLs, cert at `/tls`); peers stay http. Members advertise `<pod>.<headless>.<ns>.svc`. Use `etcdctl --endpoints=https://... --cacert=/tls/ca.crt`. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `metrics.serviceMonitor.enabled` | `false` | etcd serves `/metrics` natively on the client port. |
 | `serviceAccount.create` | `true` | Token automount is off. |
 | `rbac.create` | `false` | Minimal Role/RoleBinding. |
