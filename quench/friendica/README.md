@@ -34,6 +34,11 @@ the node administrator. Without an ingress, `kubectl port-forward svc/<release>-
 | `friendica.siteName` / `timezone` / `language` | `Quench Friendica` / `UTC` / `en` | Site defaults |
 | `mariadb.enabled` | `true` | Bundled MariaDB; false uses `externalDatabase.*` (MySQL or MariaDB) |
 | `configPersistence.*` | 128Mi PVC | `local.config.php`; kept on uninstall |
+| `service.httpsPort` | `8443` | HTTPS (pod 8443), only with `tls.enabled` |
+| `tls.enabled` | `false` | nginx also serves the site over HTTPS on 8443 beside HTTP (cert at `/tls`) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `networkPolicy.allowExternal` | `false` | Must be true for other servers to reach the node |
 
 ## Storage and state

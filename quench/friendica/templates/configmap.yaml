@@ -31,3 +31,11 @@ data:
       --url "$FRIENDICA_URL" --admin "$FRIENDICA_ADMIN_MAIL" \
       --tz "$FRIENDICA_TZ" --lang "$FRIENDICA_LANG"
     test -s /var/friendica/config/local.config.php
+  {{- if include "quench-common.tls.enabled" . }}
+  # Drop-in for the image's nginx server block (include /etc/friendica/conf.d/*.conf): the same
+  # site also answers HTTPS on 8443 with the chart certificate.
+  tls.conf: |
+    listen 8443 ssl;
+    ssl_certificate     /tls/tls.crt;
+    ssl_certificate_key /tls/tls.key;
+  {{- end }}
