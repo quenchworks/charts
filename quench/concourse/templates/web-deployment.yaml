@@ -1,4 +1,6 @@
-{{- $probe := dict "httpGet" (dict "path" "/api/v1/info" "port" "http") "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $get := dict "path" "/api/v1/info" "port" "http" -}}
+{{- if include "quench-common.tls.enabled" . }}{{- $get = dict "path" "/api/v1/info" "port" "https" "scheme" "HTTPS" }}{{- end -}}
+{{- $probe := dict "httpGet" $get "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 6 -}}
 {{- $liveness := merge (dict "initialDelaySeconds" 30) $probe -}}
 {{- $readiness := merge (dict "initialDelaySeconds" 5) (deepCopy $probe) -}}
 {{- $fullname := include "quench-common.fullname" . -}}
@@ -71,6 +73,15 @@ spec:
               value: /keys/tsa_host_key
             - name: CONCOURSE_TSA_AUTHORIZED_KEYS
               value: /keys/worker_key.pub
+            {{- if include "quench-common.tls.enabled" . }}
+            # HTTPS on 8443 beside plain HTTP on 8080 (set externalUrl to the https address)
+            - name: CONCOURSE_TLS_BIND_PORT
+              value: "8443"
+            - name: CONCOURSE_TLS_CERT
+              value: /tls/tls.crt
+            - name: CONCOURSE_TLS_KEY
+              value: /tls/tls.key
+            {{- end }}
             {{- with .Values.web.env }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -83,6 +94,11 @@ spec:
             - name: tsa
               containerPort: 2222
               protocol: TCP
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+            {{- end }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}
@@ -98,6 +114,7 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -110,4 +127,5 @@ spec:
               - { key: worker_key.pub, path: worker_key.pub }
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

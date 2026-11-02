@@ -88,6 +88,24 @@ service:
   type: ClusterIP
   port: 8080
   tsaPort: 2222
+  # HTTPS for the web node (the pod's 8443), only with tls.enabled
+  httpsPort: 8443
+
+# Native TLS: the web node serves the UI and API over HTTPS on 8443 (Service service.httpsPort)
+# beside plain HTTP on 8080; the probes move to HTTPS. Set web.externalUrl to the https
+# address. Workers keep registering over the TSA (SSH). The certificate is mounted at
+# /tls and comes from the first source set: existingSecret, then a cert-manager Certificate,
+# else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # Web node pod settings through quench-common (the worker's are fixed: root, privileged).
 podLabels: {}

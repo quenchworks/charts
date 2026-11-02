@@ -55,6 +55,11 @@ resource_types:
 | `worker.workDir.persistence` | `false` | PVC per worker instead of an emptyDir |
 | `worker.dnsProxy` | `true` | Task containers resolve through the worker's resolver (cluster DNS) |
 | `postgresql.enabled` | `true` | Bundled PostgreSQL; false uses `externalDatabase.*` |
+| `service.httpsPort` | `8443` | HTTPS for the web node, only with `tls.enabled` |
+| `tls.enabled` | `false` | The web node serves HTTPS on 8443 beside HTTP (cert at `/tls`); probes move to HTTPS; set `web.externalUrl` to https |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 ## Node requirement: unprivileged user namespaces
 

@@ -132,6 +132,18 @@ jobs:
           done
           echo "time check (requested build $bid): $st"
           test "$st" = succeeded || { curl -sS -H "$AUTH" "$B/api/v1/builds/$bid/events" --max-time 5 | grep -a "^data:" | tail -20; exit 1; }
+          # native TLS: the web node also serves HTTPS on 8443 with the chart certificate; a login
+          # and the worker list over it verify the chart CA and the Service name
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -n ci -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true \
+            --set web.externalUrl=https://rtest-concourse:8443 --wait --timeout 12m
+          kubectl -n ci rollout status deployment/rtest-concourse-web --timeout=300s
+          kubectl get secret -n ci rtest-concourse-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/concourse-ca.crt
+          kubectl port-forward -n ci svc/rtest-concourse 8443:8443 >/tmp/pf8443.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          tc=(--cacert /tmp/concourse-ca.crt --resolve rtest-concourse:8443:127.0.0.1); TB=https://rtest-concourse:8443
+          tok="$(curl -fsS "${tc[@]}" -u fly:Zmx5 -d 'grant_type=password&username=admin&password=ci-admin-password&scope=openid+profile+email+federated:id+groups' "$TB/sky/issuer/token")"
+          curl -fsS "${tc[@]}" -H "Authorization: Bearer $(jq -r .access_token <<<"$tok")" "$TB/api/v1/workers" | jq -e 'length >= 1' >/dev/null
           curl -fsS -H "$AUTH" "$B/api/v1/teams/main/pipelines/smoke/resources/tick/versions" | jq -e 'length > 0' >/dev/null
           # Upgrades keep the keys: the keygen Job leaves an existing Secret alone.
           before="$(kubectl -n ci get secret rtest-concourse-keys -o jsonpath='{.data.worker_key\.pub}')"
