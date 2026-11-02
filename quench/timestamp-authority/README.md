@@ -32,5 +32,10 @@ settings through `extraArgs`.
 | `signer.file.existingSecret` | `""` | Secret with `key.pem`, `chain.pem`, `password` |
 | `ntpMonitoring` | `true` | refuse to sign when the clock drifts; needs outbound UDP 123 |
 | `replicaCount` | `1` | scale only with a shared signer (not `memory`) |
+| `service.httpsPort` | `3443` | https listener, only with `tls.enabled`. |
+| `tls.enabled` | `false` | An https listener beside plain http (cert at `/tls`). |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 
 Clients: `cosign sign --timestamp-server-url http://<service>:3000/api/v1/timestamp`.

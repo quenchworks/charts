@@ -39,6 +39,15 @@ spec:
             {{- if not .Values.ntpMonitoring }}
             - --disable-ntp-monitoring
             {{- end }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # an https listener beside the plain one (both schemes, go-swagger server flags)
+            - --scheme=http
+            - --scheme=https
+            - --tls-host=0.0.0.0
+            - --tls-port={{ .Values.service.httpsPort }}
+            - --tls-certificate=/tls/tls.crt
+            - --tls-key=/tls/tls.key
+            {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -54,19 +63,30 @@ spec:
             - name: http
               containerPort: 3000
               protocol: TCP
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: https
+              containerPort: {{ .Values.service.httpsPort }}
+              protocol: TCP
+            {{- end }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- if eq .Values.signer.type "file" }}
+          {{- if or (eq .Values.signer.type "file") (include "quench-common.tls.enabled" .) }}
           volumeMounts:
+            {{- if eq .Values.signer.type "file" }}
             - name: signer
               mountPath: /etc/tsa
               readOnly: true
+            {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
           {{- end }}
-      {{- if eq .Values.signer.type "file" }}
+      {{- if or (eq .Values.signer.type "file") (include "quench-common.tls.enabled" .) }}
       volumes:
+        {{- if eq .Values.signer.type "file" }}
         - name: signer
           secret:
             secretName: {{ .Values.signer.file.existingSecret }}
+        {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
       {{- end }}

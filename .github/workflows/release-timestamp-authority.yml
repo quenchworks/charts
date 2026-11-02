@@ -57,6 +57,18 @@ jobs:
           echo "timestamp request: HTTP $code"
           status="$(openssl ts -reply -in /tmp/reply.tsr -text | grep -m1 '^Status:')"
           echo "$status"; grep -q Granted <<<"$status"
+          # native TLS: a timestamp granted over the https listener, verifying the Service name
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-timestamp-authority --timeout=300s
+          kubectl get secret rtest-timestamp-authority-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/tsa-ca.crt
+          kubectl port-forward svc/rtest-timestamp-authority 13443:3443 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/tsa-ca.crt --resolve rtest-timestamp-authority:13443:127.0.0.1 -o /tmp/reply-tls.tsr \
+            -H 'Content-Type: application/json' \
+            -d "{\"artifactHash\":\"$hash\",\"hashAlgorithm\":\"sha256\",\"certificates\":true}" \
+            https://rtest-timestamp-authority:13443/api/v1/timestamp
+          openssl ts -reply -in /tmp/reply-tls.tsr -text | grep -m1 '^Status:' | grep -q Granted
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
