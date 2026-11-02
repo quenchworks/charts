@@ -76,6 +76,10 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/coolify-realtime --
 | `networkPolicy.enabled` | `true` | Restricts ingress to the two ports. |
 | `networkPolicy.allowExternal` | `true` | Set `false` to restrict ingress to the release namespace. |
 | `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| `tls.enabled` | `false` | soketi serves HTTPS/WSS on its port (cert at `/tls`); probes follow; the terminal port stays plain |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
 containers, extra env/volumes, security contexts, update strategy).

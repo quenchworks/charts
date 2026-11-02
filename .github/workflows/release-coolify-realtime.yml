@@ -51,6 +51,16 @@ jobs:
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           curl -fsS http://127.0.0.1:6001/ready >/dev/null
           curl -fsS http://127.0.0.1:6001/ | >/dev/null grep -i OK
+          # native TLS: soketi turns HTTPS/WSS on 6001 (probes follow); OK over verified HTTPS, and
+          # the port no longer answers plain HTTP
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-coolify-realtime --timeout=300s
+          kubectl get secret rtest-coolify-realtime-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/realtime-ca.crt
+          kubectl port-forward svc/rtest-coolify-realtime 6001:6001 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/realtime-ca.crt --resolve rtest-coolify-realtime:6001:127.0.0.1 https://rtest-coolify-realtime:6001/ | >/dev/null grep -i OK
+          ! curl -fsS -m 5 http://127.0.0.1:6001/ >/dev/null 2>&1 || { echo "plain HTTP still served on 6001"; exit 1; }
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

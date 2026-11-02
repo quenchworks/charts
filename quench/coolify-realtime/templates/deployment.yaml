@@ -5,8 +5,9 @@ quench-common default) on a read-only rootfs; the shell entrypoint writes log FI
 under /tmp and node-pty spawns its PTY with cwd=$HOME (/home/coolify), so /tmp + HOME
 are the only writable surfaces. soketi's HTTP server answers GET /ready -> 200 and
 GET / -> 200 once up. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/" "port" "soketi") "initialDelaySeconds" 15 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/ready" "port" "soketi") "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 12 -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq (include "quench-common.tls.enabled" .) "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/" "port" "soketi" "scheme" $scheme) "initialDelaySeconds" 15 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/ready" "port" "soketi" "scheme" $scheme) "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 12 -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -57,6 +58,13 @@ spec:
             - name: SOKETI_DEFAULT_APP_SECRET
               value: {{ . | quote }}
             {{- end }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # soketi serves HTTPS/WSS on its port; the terminal port stays plain
+            - name: SOKETI_SSL_CERT
+              value: /tls/tls.crt
+            - name: SOKETI_SSL_KEY
+              value: /tls/tls.key
+            {{- end }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
@@ -80,6 +88,7 @@ spec:
               mountPath: /tmp
             - name: home
               mountPath: /home/coolify
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -87,4 +96,5 @@ spec:
           emptyDir: {}
         - name: home
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
