@@ -41,11 +41,16 @@ spec:
           securityContext:
             {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
           command: ["/usr/bin/jaeger"]
-          {{- if or $hasConfig .Values.extraArgs }}
+          {{- if or $hasConfig .Values.extraArgs (include "quench-common.tls.enabled" .) }}
           args:
             {{- if $hasConfig }}
             - "--config"
             - "/etc/jaeger/config.yaml"
+            {{- end }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # the query UI/API (extension jaeger_query) serves HTTPS only; the OTLP receivers stay plain
+            - "--set=extensions.jaeger_query.http.tls.cert_file=/tls/tls.crt"
+            - "--set=extensions.jaeger_query.http.tls.key_file=/tls/tls.key"
             {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
@@ -89,6 +94,7 @@ spec:
               mountPath: /etc/jaeger
               readOnly: true
             {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -100,4 +106,5 @@ spec:
           configMap:
             name: {{ include "jaeger.mountedConfigMap" . }}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

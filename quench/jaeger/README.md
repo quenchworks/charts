@@ -55,6 +55,10 @@ gh attestation verify oci://ghcr.io/quenchworks/images/jaeger --owner quenchwork
 | `service.ports.query` | `16686` | Query UI + HTTP API. |
 | `service.ports.otlpGrpc` | `4317` | OTLP gRPC receiver. |
 | `service.ports.otlpHttp` | `4318` | OTLP HTTP receiver. |
+| `tls.enabled` | `false` | Query UI and API serve HTTPS only (cert at `/tls`); OTLP receivers stay plain |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `serviceAccount.create` | `true` | Token automount is off. |
 | `serviceAccount.name` | `""` | Use an existing ServiceAccount if set. |
 | `rbac.create` | `false` | Minimal Role/RoleBinding. |

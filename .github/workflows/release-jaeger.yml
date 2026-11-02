@@ -62,6 +62,16 @@ jobs:
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # the query UI serves 200 on / once the all-in-one is up
           curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:16686/ | >/dev/null grep 200
+          # native TLS: the query UI turns HTTPS-only; verify the chart CA and the Service name
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set serviceAccount.create=false --set serviceAccount.name=jaeger-puller \
+            --set tls.enabled=true --wait --timeout 5m
+          kubectl rollout status deployment/rtest-jaeger --timeout=300s
+          kubectl get secret rtest-jaeger-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/jaeger-ca.crt
+          kubectl port-forward svc/rtest-jaeger 16686:16686 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS -o /dev/null --cacert /tmp/jaeger-ca.crt --resolve rtest-jaeger:16686:127.0.0.1 https://rtest-jaeger:16686/
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
