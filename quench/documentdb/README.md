@@ -54,6 +54,10 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/documentdb --owner 
 | `service.port` | `10260` | MongoDB wire-protocol port. PostgreSQL (9712) is never exposed. |
 | `networkPolicy.enabled` | `true` | Restricts ingress to the release namespace, port 10260. |
 | `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| `tls.enabled` | `false` | The gateway serves the chart certificate (verifiable) instead of its self-signed one |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
 env/volumes, security contexts).

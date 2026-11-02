@@ -88,6 +88,37 @@ jobs:
           print("MongoDB wire-protocol roundtrip OK:", doc)
           PY
 
+          # native TLS: the gateway serves the chart certificate instead of its self-signed one;
+          # a client that verifies the chart CA (localhost is a SAN) reads the document back
+          kill "$pf" 2>/dev/null || true
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-documentdb --timeout=420s
+          kubectl get secret rtest-documentdb-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/documentdb-ca.crt
+          kubectl port-forward statefulset/rtest-documentdb 10260:10260 >/tmp/pf.log 2>&1 &
+          pf=$!
+          for i in $(seq 1 30); do
+            (exec 3<>/dev/tcp/127.0.0.1/10260) 2>/dev/null && { exec 3>&- 3<&-; break; }
+            sleep 2
+          done
+          PW=gatepw python3 - <<'PY'
+          import os, sys, time
+          from pymongo import MongoClient
+          uri = ("mongodb://default_user:%s@localhost:10260/?tls=true&tlsCAFile=/tmp/documentdb-ca.crt"
+                 "&authMechanism=SCRAM-SHA-256&directConnection=true" % os.environ["PW"])
+          last = None
+          for _ in range(30):
+              try:
+                  c = MongoClient(uri, serverSelectionTimeoutMS=3000)
+                  doc = c["gate"]["c"].find_one({"_id": 1})
+                  break
+              except Exception as e:
+                  last = e; time.sleep(3)
+          else:
+              print("verified-TLS connect failed:", last); sys.exit(1)
+          assert doc and doc.get("k") == "v", "document not read back over TLS: %r" % doc
+          print("verified TLS roundtrip OK:", doc)
+          PY
+
       # A push that edits this workflow re-runs the whole release, including for a
       # chart whose version is already published (one bulk edit once fired 161
       # releases). The gate above still runs, which is what a workflow edit needs;
