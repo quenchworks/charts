@@ -69,7 +69,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/valkey \
 | `config` | appendonly + save | Rendered into a ConfigMap as `valkey.conf`. |
 | `existingConfigmap` | `""` | Use your own ConfigMap instead. |
 | `extraFlags` | `[]` | Extra server flags. |
-| `tls.enabled` | `false` | In-transit TLS from `tls.existingSecret`. |
+| `tls.enabled` | `false` | Native TLS on 6379 (plaintext off); replicas sync over TLS. Certificate mounted at `/tls`. Not with `sentinel.enabled` yet: its master discovery is plaintext. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
+| `tls.authClients` | `true` | Require client certificates (`tls-auth-clients`). |
 | `primary.replicaCount` | `1` | |
 | `primary.persistence.enabled` | `true` | 8Gi PVC by default. |
 | `replica.replicaCount` | `2` | Only when `architecture=replication`. |
@@ -111,7 +115,7 @@ replica to master (typically within ~10s of `downAfterMilliseconds`). Surviving 
 re-sync from the new master, and the old primary rejoins as a replica when it restarts. Quorum
 (majority) loss is deliberately *not* auto-rebuilt — that needs a human, to avoid split-brain.
 Per-pod PVCs, soft pod anti-affinity, and a Sentinel PodDisruptionBudget (`minAvailable: quorum`)
-back the topology. Auth (`requirepass`/`masterauth`) and TLS are carried through to Sentinel.
+back the topology. Auth (`requirepass`/`masterauth`) is carried through to Sentinel; TLS is refused with Sentinel for now (see `tls.enabled`).
 
 The valkey and valkey-sentinel containers stay **shell-free**: the rewritable Sentinel config and
 the boot-time master discovery run in init containers on the hardened `busybox` helper image
