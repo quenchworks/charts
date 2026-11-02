@@ -73,6 +73,18 @@ jobs:
           out="$(curl -fsS "http://127.0.0.1:8123/?${AUTH}" --data-binary 'SELECT name FROM gate WHERE id = 42')"
           echo "roundtrip: $out"
           test "$out" = "quench"
+          # native TLS: HTTPS answers a query and the native TLS port completes a handshake,
+          # both verifying the Service name against the chart CA
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-clickhouse --timeout=300s
+          kubectl get secret rtest-clickhouse-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ch-ca.crt
+          kubectl port-forward svc/rtest-clickhouse 8443:8443 9440:9440 >/tmp/pf-tls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          one="$(curl -fsS --cacert /tmp/ch-ca.crt --resolve rtest-clickhouse:8443:127.0.0.1 \
+            "https://rtest-clickhouse:8443/?${AUTH}" --data-binary 'SELECT 1')"
+          test "$one" = 1
+          python3 -c 'import socket, ssl; t = ssl.create_default_context(cafile="/tmp/ch-ca.crt").wrap_socket(socket.create_connection(("127.0.0.1", 9440), 10), server_hostname="rtest-clickhouse"); print("native TLS ok:", t.version())'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

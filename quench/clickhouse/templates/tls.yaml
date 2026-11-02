@@ -1,0 +1,25 @@
+{{- include "quench-common.tls.resources" . }}
+{{- if include "quench-common.tls.enabled" . }}
+---
+# HTTPS and native-protocol TLS ports beside the plain ones, as a config.d drop-in.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-tls
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  tls.xml: |
+    <clickhouse>
+        <https_port>{{ .Values.service.httpsPort }}</https_port>
+        <tcp_port_secure>{{ .Values.service.nativeTlsPort }}</tcp_port_secure>
+        <openSSL>
+            <server>
+                <certificateFile>/tls/tls.crt</certificateFile>
+                <privateKeyFile>/tls/tls.key</privateKeyFile>
+                <verificationMode>none</verificationMode>
+                <disableProtocols>sslv2,sslv3,tlsv1,tlsv1_1</disableProtocols>
+            </server>
+        </openSSL>
+    </clickhouse>
+{{- end }}

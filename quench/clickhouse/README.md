@@ -63,6 +63,12 @@ gh attestation verify oci://ghcr.io/quenchworks/images/clickhouse \
 | `persistence.enabled`          | `true`                                  | 8Gi PVC at `/var/lib/clickhouse`.                                                         |
 | `service.httpPort`             | `8123`                                  | HTTP API (primary client/service port).                                                   |
 | `service.nativePort`           | `9000`                                  | Native TCP protocol.                                                                      |
+| `service.httpsPort` | `8443` | HTTPS, only with `tls.enabled`. |
+| `service.nativeTlsPort` | `9440` | Native protocol over TLS, only with `tls.enabled`. |
+| `tls.enabled` | `false` | HTTPS and native TLS beside the plain ports (a `config.d` drop-in copied by an initContainer; cert at `/tls`). |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `networkPolicy.enabled`        | `true`                                  | Restricts ingress to the release namespace.                                               |
 | `podDisruptionBudget.enabled`  | `true`                                  | `minAvailable: 1`.                                                                        |
 | `ingress.enabled`              | `false`                                 | Create an Ingress for this chart. HTTP only.                                              |

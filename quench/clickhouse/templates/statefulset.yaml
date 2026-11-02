@@ -30,7 +30,28 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
-      {{- include "quench-common.initContainers" . | nindent 6 }}
+      {{- if or .Values.initContainers (include "quench-common.tls.enabled" .) }}
+      initContainers:
+        {{- if include "quench-common.tls.enabled" . }}
+        # Copy the TLS drop-in into config.d as the app user: a subPath mount there would make
+        # the kubelet create config.d root-owned, and the entrypoint could no longer write to it.
+        - name: tls-config
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/bin/bash", "-c", "mkdir -p /etc/clickhouse-server/config.d && cp /tls-conf/tls.xml /etc/clickhouse-server/config.d/tls.xml"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/clickhouse-server
+            - name: tls-conf
+              mountPath: /tls-conf
+              readOnly: true
+        {{- end }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
       containers:
         - name: clickhouse
           image: {{ include "quench-common.image" . }}
@@ -62,6 +83,12 @@ spec:
               containerPort: {{ .Values.service.httpPort }}
             - name: native
               containerPort: {{ .Values.service.nativePort }}
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: https
+              containerPort: {{ .Values.service.httpsPort }}
+            - name: native-tls
+              containerPort: {{ .Values.service.nativeTlsPort }}
+            {{- end }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}
@@ -83,6 +110,7 @@ spec:
               mountPath: /var/log/clickhouse-server
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -100,6 +128,12 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- if include "quench-common.tls.enabled" . }}
+        - name: tls-conf
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-tls
+        {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
   volumeClaimTemplates:
