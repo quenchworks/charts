@@ -82,6 +82,19 @@ jobs:
           curl -fsS -u "$USER:$PASS" "$H/gate/_design/d/_view/by_name" | tee /tmp/view.json
           grep -q '"key":"ci"' /tmp/view.json
           grep -q '"value":42' /tmp/view.json
+          # native TLS: HTTPS on 6984 over a session that verifies the Service name
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-couchdb --timeout=420s
+          kubectl get secret rtest-couchdb-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/couch-ca.crt
+          kubectl port-forward svc/rtest-couchdb 6984:6984 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          # ci values run on emptyDir, so the upgraded pod starts empty: write, then read, over TLS
+          T="curl -fsS --cacert /tmp/couch-ca.crt --resolve rtest-couchdb:6984:127.0.0.1 -u $USER:$PASS"
+          for i in $(seq 1 30); do $T https://rtest-couchdb:6984/_up 2>/dev/null | >/dev/null grep '"status":"ok"' && break; sleep 3; done
+          $T -X PUT https://rtest-couchdb:6984/gatetls | >/dev/null grep '"ok":true'
+          $T -X PUT https://rtest-couchdb:6984/gatetls/doc1 -H 'Content-Type: application/json' -d '{"n":42}' | >/dev/null grep '"ok":true'
+          $T https://rtest-couchdb:6984/gatetls/doc1 | >/dev/null grep '"n":42'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

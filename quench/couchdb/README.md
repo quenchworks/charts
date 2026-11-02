@@ -74,6 +74,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/couchdb \
 | `systemDatabases.image.*`     | `curlimages/curl:8.11.1`             | Stock curl image for the init Job (runtime image has no HTTP client).                     |
 | `persistence.enabled`         | `true`                               | 8Gi PVC at `/var/lib/couchdb`.                                                            |
 | `service.port`                | `5984`                               | Clustered HTTP API.                                                                       |
+| `service.httpsPort` | `6984` | HTTPS API, only with `tls.enabled`. |
+| `tls.enabled` | `false` | HTTPS on `httpsPort` beside plain HTTP (`[ssl]` drop-in, cert at `/tls`). |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `networkPolicy.enabled`       | `true`                               | Restricts HTTP ingress to the release namespace.                                          |
 | `podDisruptionBudget.enabled` | `true`                               | `minAvailable: 1`.                                                                        |
 | `ingress.enabled`             | `false`                              | Create an Ingress for this chart. HTTP only.                                              |

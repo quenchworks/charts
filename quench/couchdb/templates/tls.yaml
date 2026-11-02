@@ -1,0 +1,19 @@
+{{- include "quench-common.tls.resources" . }}
+{{- if include "quench-common.tls.enabled" . }}
+---
+# HTTPS on service.httpsPort beside plain HTTP, dropped into /opt/couchdb/etc/local.d (part of the
+# image's ini chain).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-tls
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  tls.ini: |
+    [ssl]
+    enable = true
+    port = {{ .Values.service.httpsPort }}
+    cert_file = /tls/tls.crt
+    key_file = /tls/tls.key
+{{- end }}
