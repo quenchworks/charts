@@ -78,6 +78,13 @@ default_pool_size = {{ .Values.pgbouncer.defaultPoolSize }}
 min_pool_size = {{ .Values.pgbouncer.minPoolSize }}
 reserve_pool_size = {{ .Values.pgbouncer.reservePoolSize }}
 ignore_startup_parameters = {{ .Values.pgbouncer.ignoreStartupParameters }}
+{{- if include "quench-common.tls.enabled" . }}
+; native TLS toward clients: offered, not required (sslmode=require on the client insists)
+client_tls_sslmode = allow
+client_tls_cert_file = /tls/tls.crt
+client_tls_key_file = /tls/tls.key
+client_tls_ca_file = /tls/ca.crt
+{{- end }}
 {{- with .Values.pgbouncer.extraConfig }}
 {{ . }}
 {{- end }}

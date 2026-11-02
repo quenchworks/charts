@@ -137,6 +137,10 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/pgbouncer --owner q
 | `userlist.existingSecret` | `""` | Provide your own `userlist.txt` Secret. |
 | `userlist.extraUsers` | `{}` | Extra `{user: password}` entries appended to the generated list. |
 | `service.port` | `6432` | Pooler listener. |
+| `tls.enabled` | `false` | Offers TLS to clients on `service.port` (`client_tls_sslmode = allow`, cert at `/tls`); clients insist with `sslmode=require`. Not applied to `pgbouncer.raw`. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `networkPolicy.enabled` | `true` | Ingress 6432 (in-namespace), egress to DB + DNS. |
 | `networkPolicy.allowExternal` | `false` | Set true to accept connections from outside the namespace. |
 | `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
