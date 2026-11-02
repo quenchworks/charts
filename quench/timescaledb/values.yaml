@@ -4,7 +4,7 @@
 # timescaledb on first init, so the chart does not have to.
 image:
   repository: ghcr.io/quenchworks/images/timescaledb
-  digest: "sha256:ec5018fd8639c89b54506680844d9db8d5184ff716e8987d1e007852f49e1e84"
+  digest: "sha256:69651c240e39cec2cb563ff1f1b99e43c2808ef870553dd68541ebd8ca9f8104"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -97,6 +97,22 @@ sidecars: []
 lifecycleHooks: {}
 command: []
 args: []
+# Native TLS on 5432 (ssl=on; plaintext still accepted, require it with hostssl in pg_hba or
+# sslmode=require on clients). The certificate comes from the first source set: existingSecret,
+# then a cert-manager Certificate, else a Helm-generated CA + certificate. Its default names are
+# the Service and headless pods; add <release>-timescaledb-primary/-replica to
+# tls.certManager.dnsNames for sslmode=verify-full through the HA Services.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
 # Security contexts merge over the hardened quench-common defaults (your keys win).
 podSecurityContext: {}
 containerSecurityContext: {}

@@ -104,6 +104,11 @@ psql ... -tAc "SELECT extversion FROM pg_extension WHERE extname='timescaledb'"
 | `primary.persistence.enabled` | `true` | 8Gi PVC; PGDATA lives in a subdir of it. |
 | `primary.shmVolume.enabled` | `true` | Memory-backed `/dev/shm` for parallel queries. |
 | `service.port` | `5432` | |
+| `tls.enabled` | `false` | Native TLS on 5432 (`ssl=on`, cert at `/tls`); HA replicas stream over it. Plaintext is still accepted: set `sslmode=require` (or `hostssl` rules) to insist. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.certManager.dnsNames` | `[]` | Extra SANs (also for the self-signed cert); add the `-primary` / `-replica` Service names for `verify-full` through them. |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `metrics.enabled` | `false` | Hardened postgres_exporter sidecar (works against TimescaleDB). |
 | `serviceAccount.create` | `true` | Token automount is off. |
 | `rbac.create` | `false` | Minimal Role/RoleBinding. |
