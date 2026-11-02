@@ -73,6 +73,17 @@ jobs:
           pf
           curl -fsS -H "Authorization: token $tok" "$URL/api/v1/repos/gogs-admin/gate/raw/master/pushed.txt" | >/dev/null grep -x quench
           kill $PF
+          # native TLS: the same release serves https on 3000; health and the pushed file must
+          # come back over a session that verifies the Service name against the chart CA
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-gogs --timeout=300s
+          kubectl get secret rtest-gogs-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/gogs-ca.crt
+          kubectl port-forward svc/rtest-gogs 3000:3000 >/dev/null 2>&1 & PF=$!
+          tc="--cacert /tmp/gogs-ca.crt --resolve rtest-gogs:3000:127.0.0.1"
+          for i in $(seq 1 30); do curl -fsS $tc https://rtest-gogs:3000/healthcheck >/dev/null 2>&1 && break; sleep 1; done
+          curl -fsS $tc https://rtest-gogs:3000/healthcheck | >/dev/null grep 'Database connection: OK'
+          curl -fsS $tc -H "Authorization: token $tok" https://rtest-gogs:3000/api/v1/repos/gogs-admin/gate/raw/master/pushed.txt | >/dev/null grep -x quench
+          kill $PF
           ! kubectl logs rtest-gogs-0 | grep -E '\[ERROR\]|\[FATAL\]|panic:' || exit 1
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

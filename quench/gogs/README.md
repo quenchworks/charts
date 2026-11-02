@@ -38,6 +38,10 @@ TCP route) to reach it from outside.
 |---|---|---|
 | `externalURL` | `http://gogs.local/` | public URL for links and clone URLs |
 | `sshDomain` | `gogs.local` | host in SSH clone URLs |
+| `tls.enabled` | `false` | port 3000 serves https (`PROTOCOL = https`, cert at `/tls`); set `externalURL` to the https URL |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `admin.username` / `admin.email` | `gogs-admin` | first administrator |
 | `admin.password` | generated | or `admin.existingSecret` (key `admin-password`) |
 | `database.type` | `sqlite3` | `sqlite3`, `postgres` or `mysql` |

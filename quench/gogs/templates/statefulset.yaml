@@ -85,6 +85,9 @@ spec:
             httpGet:
               path: /healthcheck
               port: http
+              {{- if include "quench-common.tls.enabled" . }}
+              scheme: HTTPS
+              {{- end }}
             periodSeconds: 10
           livenessProbe:
             tcpSocket:
@@ -103,6 +106,7 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -121,6 +125,7 @@ spec:
             name: {{ include "quench-common.fullname" . }}
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
   volumeClaimTemplates:
     - metadata:
         name: data
