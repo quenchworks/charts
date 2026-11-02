@@ -6,8 +6,9 @@
      boot runs the migrate initContainer against a fresh DB, so the readiness
      window is generous. The kubelet performs the GET; the image ships no shell
      HTTP client. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/health/alive" "port" "admin") "initialDelaySeconds" 10 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/health/ready" "port" "admin") "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq (include "quench-common.tls.enabled" .) "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/health/alive" "port" "admin" "scheme" $scheme) "initialDelaySeconds" 10 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/health/ready" "port" "admin" "scheme" $scheme) "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -76,6 +77,17 @@ spec:
           {{- include "quench-common.args" . | nindent 10 }}
           env:
             {{- include "kratos.dsnEnv" . | nindent 12 }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # native TLS on both the public and the admin API
+            - name: SERVE_PUBLIC_TLS_CERT_PATH
+              value: /tls/tls.crt
+            - name: SERVE_PUBLIC_TLS_KEY_PATH
+              value: /tls/tls.key
+            - name: SERVE_ADMIN_TLS_CERT_PATH
+              value: /tls/tls.crt
+            - name: SERVE_ADMIN_TLS_KEY_PATH
+              value: /tls/tls.key
+            {{- end }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
@@ -98,6 +110,7 @@ spec:
             - name: config
               mountPath: /etc/config
               readOnly: true
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- with (include "quench-common.extraVolumeMounts" .) }}
             {{- . | nindent 12 }}
             {{- end }}
@@ -106,6 +119,7 @@ spec:
         - name: config
           configMap:
             name: {{ include "kratos.configMapName" . }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- with (include "quench-common.extraVolumes" .) }}
         {{- . | nindent 8 }}
         {{- end }}

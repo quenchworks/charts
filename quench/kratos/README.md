@@ -57,6 +57,13 @@ externalDatabase:
   password: "..."          # or existingSecret / existingSecretDsnKey
 ```
 
+## TLS
+
+`tls.enabled=true` makes the public (4433) and admin (4434) APIs serve https with a certificate
+mounted at `/tls`, from the first source set: `tls.existingSecret` (a `kubernetes.io/tls`
+Secret), a cert-manager `Certificate` (`tls.certManager.enabled` + `issuerRef`), or a
+Helm-generated CA + certificate (`tls.selfSigned.validityDays`, kept across upgrades).
+
 ## Values
 
 See [`values.yaml`](./values.yaml) for the full set of options, and
