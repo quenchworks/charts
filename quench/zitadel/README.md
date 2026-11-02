@@ -107,6 +107,10 @@ gh attestation verify oci://ghcr.io/quenchworks/images/postgresql --owner quench
 | `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
 | `command` | `["/usr/bin/zitadel"]` | Image entrypoint; Kubernetes replaces it, so it names the binary. |
 | `args` | `["start-from-init", "--masterkeyFromEnv", "--tlsMode", "disabled"]` | Cold-start subcommand and flags. |
+| `tls.enabled` | `false` | The listener serves https (`--tlsMode enabled` is set for you; cert at `/tls`). Set `externalSecure=true`. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 
 Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 `nodeSelector`, `affinity`, `tolerations`, `topologySpreadConstraints`,

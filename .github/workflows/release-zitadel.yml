@@ -70,6 +70,14 @@ jobs:
           echo "discovery HTTP status: $ocode"
           test "$ocode" = "200"
           grep -q '"issuer"' /tmp/oidc.json
+          # --- native TLS: the same release serves https; ready over a verified session ---
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -n zt -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status deployment/rtest-zitadel -n zt --timeout=540s
+          kubectl get secret -n zt rtest-zitadel-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/zt-ca.crt
+          kubectl port-forward -n zt svc/rtest-zitadel 8080:8080 >/tmp/pf8080.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/zt-ca.crt https://localhost:8080/debug/ready
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
