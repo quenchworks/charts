@@ -69,6 +69,11 @@ over it with `extraVolumeMounts`.
 | `image.digest`                | (CI-written)                       | Required. Charts pin by digest, never a tag.                                              |
 | `replicaCount`                | `1`                                | Stateless; scale freely (ignored when autoscaling is on).                                 |
 | `service.port`                | `8080`                             | http (named `http`).                                                                      |
+| `service.httpsPort` | `443` | HTTPS (pod 8443), only with `tls.enabled`. |
+| `tls.enabled` | `false` | A mod_ssl virtual host on 8443 over the default doc root (cert at `/tls`, config in `/etc/httpd/conf.d`). |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `autoscaling.enabled`         | `false`                            | Optional CPU HPA (`minReplicas`/`maxReplicas`).                                           |
 | `networkPolicy.enabled`       | `true`                             | Ingress to port 8080.                                                                     |
 | `networkPolicy.allowExternal` | `true`                             | A web server usually wants external ingress; set `false` to restrict to the namespace.    |

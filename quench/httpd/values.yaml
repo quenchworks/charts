@@ -18,6 +18,8 @@ resources:
 service:
   type: ClusterIP
   port: 8080
+  # HTTPS (the pod's 8443), only with tls.enabled
+  httpsPort: 443
 
 # Optional horizontal autoscaling on CPU (a stateless web server scales out well).
 autoscaling:
@@ -40,6 +42,21 @@ updateStrategy: {}
 extraEnvVars: []
 extraEnvVarsCM: ""
 extraEnvVarsSecret: ""
+# Native TLS: a mod_ssl virtual host on 8443 (published as service.httpsPort) over the default
+# doc root, configured through /etc/httpd/conf.d with the certificate mounted at /tls. The
+# certificate comes from the first source set: existingSecret, then a cert-manager Certificate,
+# else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
 extraVolumes: []
 extraVolumeMounts: []
 initContainers: []
