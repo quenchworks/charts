@@ -21,7 +21,12 @@ spec:
       {{- include "quench-common.selectorLabels" . | nindent 6 }}
   template:
     metadata:
-      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      annotations:
+        # nginx does not reload on its own: a server-block or TLS change rolls the pods
+        checksum/config: {{ printf "%s|%s|%s" .Values.config.serverBlock .Values.config.extraConfigMap (include "quench-common.tls.enabled" .) | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       labels:
         {{- include "quench-common.selectorLabels" . | nindent 8 }}
         {{- include "quench-common.podLabels" . | nindent 8 }}
@@ -45,6 +50,10 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: https
+              containerPort: 8443
+            {{- end }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}
@@ -58,20 +67,31 @@ spec:
             # read-only rootfs: nginx writes its pid and all temp paths under /tmp.
             - name: tmp
               mountPath: /tmp
-            {{- if $cm }}
+            {{- if or $cm (include "quench-common.tls.enabled" .) }}
             # custom server block(s) dropped into the included conf.d directory.
             - name: nginx-config
               mountPath: /etc/nginx/conf.d
               readOnly: true
             {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         - name: tmp
           emptyDir: {}
-        {{- if $cm }}
+        {{- if or $cm (include "quench-common.tls.enabled" .) }}
+        # one projected conf.d: the custom server blocks and the chart's TLS server
         - name: nginx-config
-          configMap:
-            name: {{ $cm }}
+          projected:
+            sources:
+              {{- if $cm }}
+              - configMap:
+                  name: {{ $cm }}
+              {{- end }}
+              {{- if include "quench-common.tls.enabled" . }}
+              - configMap:
+                  name: {{ include "quench-common.fullname" . }}-tls
+              {{- end }}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

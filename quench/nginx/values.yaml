@@ -34,6 +34,23 @@ resources:
 service:
   type: ClusterIP
   port: 8080
+  # HTTPS (the pod's 8443), only with tls.enabled
+  httpsPort: 443
+
+# Native TLS: the default site also on 8443 (published as service.httpsPort) with the
+# certificate mounted at /tls; custom server blocks can `listen 8443 ssl` with the same paths.
+# The certificate comes from the first source set: existingSecret, then a cert-manager
+# Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # Optional horizontal autoscaling on CPU (a stateless web server scales out well).
 autoscaling:

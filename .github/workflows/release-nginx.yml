@@ -54,6 +54,20 @@ jobs:
           curl -fsS http://127.0.0.1:8080/ | >/dev/null grep 'Quenchworks nginx'
           # stub_status liveness endpoint returns 200
           curl -fsS http://127.0.0.1:8080/stub_status | >/dev/null grep 'Active connections'
+          # native TLS, with a custom server block too: both conf.d sources are projected
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true \
+            --set-string 'config.serverBlock=server { listen 8081; location / { return 200 custom; } }' \
+            --wait --timeout 5m
+          kubectl rollout status deployment/rtest-nginx --timeout=300s
+          kubectl get secret rtest-nginx-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/nginx-ca.crt
+          kubectl port-forward svc/rtest-nginx 8443:443 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/nginx-ca.crt --resolve rtest-nginx:8443:127.0.0.1 https://rtest-nginx:8443/ | >/dev/null grep 'Quenchworks nginx'
+          kubectl port-forward deployment/rtest-nginx 8081:8081 >/tmp/pf2.log 2>&1 &
+          pf2=$!; sleep 4
+          curl -fsS http://127.0.0.1:8081/ | >/dev/null grep -x custom
+          kill $pf2
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

@@ -70,6 +70,11 @@ over it with `extraVolumeMounts`.
 | `config.serverBlock`          | `""`                               | Inline server block(s); mounted into `conf.d`. Empty -> built-in page.                    |
 | `config.extraConfigMap`       | `""`                               | Existing ConfigMap of `*.conf` drop-ins; takes precedence over `serverBlock`.             |
 | `service.port`                | `8080`                             | http (named `http`).                                                                      |
+| `service.httpsPort` | `443` | HTTPS (pod 8443), only with `tls.enabled`. |
+| `tls.enabled` | `false` | The default site also on 8443 with TLS (cert at `/tls`); custom server blocks can `listen 8443 ssl` with `/tls/tls.crt` + `/tls/tls.key`. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `autoscaling.enabled`         | `false`                            | Optional CPU HPA (`minReplicas`/`maxReplicas`).                                           |
 | `networkPolicy.enabled`       | `true`                             | Ingress to port 8080.                                                                     |
 | `networkPolicy.allowExternal` | `true`                             | A web server usually wants external ingress; set `false` to restrict to the namespace.    |
