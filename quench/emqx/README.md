@@ -52,6 +52,10 @@ curl http://127.0.0.1:18083/status      # node health
 | `persistence.existingClaim` | `""` | reuse a pre-created PVC |
 | `service.type` | `ClusterIP` | |
 | `service.ports.*` | 1883/8883/8083/8084/18083 | listeners + dashboard |
+| `tls.enabled` | `false` | The MQTT/SSL (8883) and WSS (8084) listeners serve this cert (at `/tls`) instead of the built-in demo one. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 
 ### Production notes
 

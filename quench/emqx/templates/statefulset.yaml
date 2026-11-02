@@ -53,6 +53,22 @@ spec:
                 secretKeyRef:
                   name: {{ include "emqx.secretName" . }}
                   key: {{ include "emqx.secretPasswordKey" . }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # the SSL (8883) and WSS (8084) listeners serve the chart certificate instead of
+            # the image's built-in demo one
+            - name: EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CERTFILE
+              value: /tls/tls.crt
+            - name: EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__KEYFILE
+              value: /tls/tls.key
+            - name: EMQX_LISTENERS__SSL__DEFAULT__SSL_OPTIONS__CACERTFILE
+              value: /tls/ca.crt
+            - name: EMQX_LISTENERS__WSS__DEFAULT__SSL_OPTIONS__CERTFILE
+              value: /tls/tls.crt
+            - name: EMQX_LISTENERS__WSS__DEFAULT__SSL_OPTIONS__KEYFILE
+              value: /tls/tls.key
+            - name: EMQX_LISTENERS__WSS__DEFAULT__SSL_OPTIONS__CACERTFILE
+              value: /tls/ca.crt
+            {{- end }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
@@ -83,6 +99,7 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /opt/emqx/data
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -94,6 +111,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
   volumeClaimTemplates:
