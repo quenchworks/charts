@@ -66,6 +66,16 @@ jobs:
           if kubectl logs deploy/rtest-openresty | >/dev/null grep -iE '\[emerg\]|\[alert\]|read-only file system'; then
             kubectl logs deploy/rtest-openresty | tail -30; exit 1
           fi
+          # native TLS: the chart's 8443 server is projected beside the custom block; it must answer
+          # over a session that verifies the Service name, and the Lua block must still serve 8080
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 5m
+          kubectl rollout status deployment/rtest-openresty --timeout=300s
+          kubectl get secret rtest-openresty-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/or-ca.crt
+          kubectl port-forward svc/rtest-openresty 8443:443 8080:8080 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          grep -q 'Active connections' <<<"$(curl -fsS --cacert /tmp/or-ca.crt --resolve rtest-openresty:8443:127.0.0.1 https://rtest-openresty:8443/stub_status)"
+          grep -q '^quench openresty' <<<"$(curl -fsS http://127.0.0.1:8080/)"
           echo "install gate OK: Lua served from the chart config, resty.sha256 correct, appVersion ${appver}"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",

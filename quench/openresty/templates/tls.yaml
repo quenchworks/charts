@@ -1,0 +1,29 @@
+{{- include "quench-common.tls.resources" . }}
+{{- if include "quench-common.tls.enabled" . }}
+---
+# The image's default site, also on 8443 with TLS. Without custom config it is mounted next to
+# the image's own conf.d/default.conf; with custom server blocks it is projected beside them,
+# and those can add their own `listen 8443 ssl` with the same /tls paths.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-tls
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  tls-quench.conf: |
+    server {
+        listen      8443 ssl;
+        server_name _;
+        ssl_certificate     /tls/tls.crt;
+        ssl_certificate_key /tls/tls.key;
+
+        location / {
+            root  /usr/local/openresty/nginx/html;
+            index index.html;
+        }
+        location = /stub_status {
+            stub_status;
+        }
+    }
+{{- end }}
