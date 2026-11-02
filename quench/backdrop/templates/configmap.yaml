@@ -33,3 +33,11 @@ data:
       --account-mail "$BACKDROP_ADMIN_EMAIL" \
       --account-pass "$(cat /etc/backdrop/secrets/admin-password)"
     test -s files/config/active/system.core.json
+  {{- if include "quench-common.tls.enabled" . }}
+  # Drop-in for the image's nginx server block (include /etc/backdrop/conf.d/*.conf): the same
+  # site also answers HTTPS on 8443 with the chart certificate.
+  tls.conf: |
+    listen 8443 ssl;
+    ssl_certificate     /tls/tls.crt;
+    ssl_certificate_key /tls/tls.key;
+  {{- end }}

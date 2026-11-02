@@ -32,6 +32,11 @@ kubectl get secret site-backdrop -o jsonpath='{.data.admin-password}' | base64 -
 | `database.prefix` | empty | Optional table prefix |
 | `mysql.enabled` | `true` | Bundled MySQL; false uses `externalDatabase.*` (MySQL or MariaDB) |
 | `persistence.*` | 10Gi PVC | `files/`: uploads, active and staging config, backups |
+| `service.httpsPort` | `8443` | HTTPS (pod 8443), only with `tls.enabled` |
+| `tls.enabled` | `false` | nginx also serves the site over HTTPS on 8443 beside HTTP (cert at `/tls`) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 ## Storage and state
 
