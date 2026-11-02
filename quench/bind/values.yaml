@@ -41,6 +41,23 @@ resources:
 service:
   type: ClusterIP
   port: 53
+  # DNS over TLS (the pod's 8853), only with tls.enabled
+  tlsPort: 853
+
+# Native TLS: DNS over TLS on 8853 (published as service.tlsPort) beside plain DNS, with the
+# certificate mounted at /tls. The chart adds a `tls` statement and a `listen-on port 8853 tls`
+# line at the top of config's options block. The certificate comes from the first source set:
+# existingSecret, then a cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # --- Common production knobs, wired through quench-common (all optional) ---
 podLabels: {}

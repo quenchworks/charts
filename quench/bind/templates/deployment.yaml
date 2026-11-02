@@ -52,6 +52,11 @@ spec:
             - name: dns-tcp
               containerPort: 5353
               protocol: TCP
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: dns-tls
+              containerPort: 8853
+              protocol: TCP
+            {{- end }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}
@@ -75,6 +80,7 @@ spec:
             # managed keys, the cache dump and other state named writes
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -83,4 +89,5 @@ spec:
             name: {{ include "quench-common.fullname" . }}
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

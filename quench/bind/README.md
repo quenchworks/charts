@@ -55,6 +55,11 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/bind --owner quench
 | `zones` | `{}` | Zone files by name, at `/etc/named/zones/<name>`. |
 | `replicaCount` | `2` | Identical servers behind the Service. |
 | `service.type`, `service.port` | `ClusterIP`, `53` | UDP and TCP. |
+| `service.tlsPort` | `853` | DNS over TLS (pod 8853), only with `tls.enabled` |
+| `tls.enabled` | `false` | DNS over TLS on 8853 beside plain DNS (cert at `/tls`); the chart adds the `tls` statement and a `listen-on port 8853 tls` line to `config`'s options block |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 Zones are served from the ConfigMap, so every replica is a primary with the same
 data. Dynamic updates and zone transfers to secondaries need a writable zone

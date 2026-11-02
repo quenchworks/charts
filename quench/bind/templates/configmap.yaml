@@ -6,7 +6,14 @@ metadata:
     {{- include "quench-common.labels" . | nindent 4 }}
 data:
   named.conf: |
+    {{- if include "quench-common.tls.enabled" . }}
+    # DNS over TLS on 8853 with the chart certificate (tls.enabled): the tls statement
+    # below, and a listen-on line the chart adds at the top of the options block
+    tls quench-tls { key-file "/tls/tls.key"; cert-file "/tls/tls.crt"; };
+    {{- regexReplaceAll "options\\s*\\{" .Values.config "options {\n    listen-on port 8853 tls quench-tls { any; };" | nindent 4 }}
+    {{- else }}
     {{- .Values.config | nindent 4 }}
+    {{- end }}
   {{- range $file, $body := .Values.zones }}
   {{ $file }}: |
     {{- $body | nindent 4 }}
