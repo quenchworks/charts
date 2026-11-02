@@ -39,6 +39,17 @@ spec:
           args:
             - --initial-password
             - $(RETHINKDB_PASSWORD)
+            {{- if include "quench-common.tls.enabled" . }}
+            # the driver port and the web UI serve TLS only
+            - --driver-tls-key
+            - /tls/tls.key
+            - --driver-tls-cert
+            - /tls/tls.crt
+            - --http-tls-key
+            - /tls/tls.key
+            - --http-tls-cert
+            - /tls/tls.crt
+            {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -58,6 +69,9 @@ spec:
             httpGet:
               path: /
               port: http
+              {{- if include "quench-common.tls.enabled" . }}
+              scheme: HTTPS
+              {{- end }}
             initialDelaySeconds: 20
             periodSeconds: 20
           resources:
@@ -69,6 +83,7 @@ spec:
               mountPath: /data
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -84,6 +99,7 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- if not .Values.persistence.enabled }}
         - name: data
           emptyDir: {}

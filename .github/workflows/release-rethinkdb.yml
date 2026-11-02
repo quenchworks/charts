@@ -78,6 +78,27 @@ jobs:
           print("after restart:", doc)
           PYEOF
           kill $PF
+          # native TLS: the driver port is TLS-only; the document must come back over a session
+          # that verifies the certificate (localhost is in its names)
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-rethinkdb --timeout=300s
+          kubectl get secret rtest-rethinkdb-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/rdb-ca.crt
+          PF=$(pf); sleep 5
+          RDB_PW="$PW" /tmp/rdb/bin/python - <<'PYEOF'
+          import os
+          from rethinkdb import r
+          c = r.connect(host="localhost", port=28015, user="admin", password=os.environ["RDB_PW"],
+                        ssl={"ca_certs": "/tmp/rdb-ca.crt"})
+          doc = r.db("gate").table("t").get(1).run(c)
+          assert doc == {"id": 1, "name": "quench"}, doc
+          print("over TLS:", doc)
+          try:
+              r.connect(host="localhost", port=28015, user="admin", password=os.environ["RDB_PW"], timeout=5)
+              raise SystemExit("plaintext driver connection accepted")
+          except Exception as e:
+              print("plaintext refused:", type(e).__name__)
+          PYEOF
+          kill $PF
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not
