@@ -56,6 +56,15 @@ jobs:
           # ...and with it lists the model from the mounted config
           curl -fsS -H "Authorization: Bearer $key" http://127.0.0.1:4000/v1/models | tee /tmp/models.json
           grep -q '"ci-model"' /tmp/models.json
+          # native TLS: the proxy serves https; the same authenticated call over a verified session
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-litellm --timeout=300s
+          kubectl get secret rtest-litellm-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/litellm-ca.crt
+          kubectl port-forward deployment/rtest-litellm 4000:4000 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/litellm-ca.crt https://localhost:4000/health/liveliness
+          curl -fsS --cacert /tmp/litellm-ca.crt -H "Authorization: Bearer $key" https://localhost:4000/v1/models >/dev/null
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

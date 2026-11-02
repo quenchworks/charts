@@ -49,6 +49,10 @@ curl -H "Authorization: Bearer $KEY" http://127.0.0.1:4000/v1/models
 | `extraEnvVarsSecret` | `""` | provider API keys, referenced in the config as `os.environ/NAME` |
 | `numWorkers` | `""` | uvicorn workers per pod |
 | `service.port` | `4000` | API port |
+| `tls.enabled` | `false` | The proxy serves https on its port (cert at `/tls`). |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 
 The pod runs with a read-only root filesystem, all capabilities dropped, and emptyDir
 volumes for `/tmp` and the home directory. Config changes roll the Deployment.

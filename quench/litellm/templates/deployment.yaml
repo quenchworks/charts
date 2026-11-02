@@ -1,7 +1,8 @@
 {{/* /health/liveliness answers once the ASGI app is up; /health/readiness also reports
      the database and cache connections when they are configured. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/health/liveliness" "port" "http") "initialDelaySeconds" 20 "periodSeconds" 20 "timeoutSeconds" 5 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/health/readiness" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq (include "quench-common.tls.enabled" .) "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/health/liveliness" "port" "http" "scheme" $scheme) "initialDelaySeconds" 20 "periodSeconds" 20 "timeoutSeconds" 5 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/health/readiness" "port" "http" "scheme" $scheme) "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -48,6 +49,13 @@ spec:
             - "4000"
             - "--config"
             - "/config/config.yaml"
+            {{- if include "quench-common.tls.enabled" . }}
+            # native TLS: the proxy serves https on the same port
+            - "--ssl_keyfile_path"
+            - "/tls/tls.key"
+            - "--ssl_certfile_path"
+            - "/tls/tls.crt"
+            {{- end }}
             {{- if .Values.numWorkers }}
             - "--num_workers"
             - {{ .Values.numWorkers | quote }}
@@ -91,6 +99,7 @@ spec:
               mountPath: /tmp
             - name: home
               mountPath: /home/litellm
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -101,4 +110,5 @@ spec:
           emptyDir: {}
         - name: home
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
