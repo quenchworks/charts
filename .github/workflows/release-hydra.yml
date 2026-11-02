@@ -70,6 +70,17 @@ jobs:
           kubectl port-forward "pod/${pod}" 4444:4444 >>/tmp/pf.log 2>&1 &
           pf2=$!; trap 'kill $pf $pf2' EXIT; sleep 5
           curl -fsS http://127.0.0.1:4444/.well-known/openid-configuration >/dev/null
+          # native TLS: both APIs over https, verifying the certificate (localhost is in its names)
+          kill $pf $pf2; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set serviceAccount.create=false --set serviceAccount.name=hydra-puller --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-hydra --timeout=300s
+          kubectl get secret rtest-hydra-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/hydra-ca.crt
+          pod="$(kubectl get pod -l "app.kubernetes.io/name=hydra,app.kubernetes.io/instance=rtest" --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')"
+          kubectl port-forward "pod/${pod}" 4444:4444 4445:4445 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/hydra-ca.crt https://localhost:4445/health/ready >/dev/null
+          curl -fsS --cacert /tmp/hydra-ca.crt https://localhost:4444/.well-known/openid-configuration >/dev/null
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
