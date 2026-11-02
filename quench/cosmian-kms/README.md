@@ -59,9 +59,12 @@ everything this service returns is key material, so decide deliberately:
 
 ```yaml
 tls:
-  enabled: true
-  existingSecret: kms-tls        # kubernetes.io/tls with tls.crt + tls.key
+  enabled: true                  # Helm generates a CA + certificate (Secret <fullname>-tls, key ca.crt)
+  # existingSecret: kms-tls      # or bring a kubernetes.io/tls Secret
+  # certManager: { enabled: true, issuerRef: { name: my-issuer, kind: ClusterIssuer } }
 ```
+
+With TLS on, port 9998 serves HTTPS only and the probes switch to HTTPS.
 
 ## Values
 
@@ -75,7 +78,10 @@ tls:
 | `database.type` | `sqlite` | `sqlite` \| `postgresql` \| `mysql` \| `redis-findex`. |
 | `database.existingSecret` | `""` | Required for non-sqlite; holds the connection URL. |
 | `persistence.enabled` | `true` | 8Gi PVC at `/var/lib/cosmian`. |
-| `tls.enabled` | `false` | Terminate TLS in the server itself. |
+| `tls.enabled` | `false` | Terminate TLS in the server itself (HTTPS only on `server.port`, cert at `/tls`). |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `extraConfig` | `{}` | Any other Cosmian env var, applied last so it wins. |
 | `networkPolicy.allowExternal` | `false` | Closed by default — it is a KMS. |
 | `ingress.enabled` | `false` | |

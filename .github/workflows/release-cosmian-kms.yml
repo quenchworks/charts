@@ -81,6 +81,21 @@ jobs:
             404|000) echo "FAIL: KMIP endpoint not reachable"; exit 1 ;;
           esac
 
+          # native TLS: the port turns HTTPS-only (probes follow); verify the chart CA and the
+          # Service name, then reach KMIP over it
+          kill $pf 2>/dev/null || true; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 6m
+          kubectl rollout status statefulset/rtest-cosmian-kms --timeout=300s
+          kubectl get secret rtest-cosmian-kms-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/kms-ca.crt
+          kubectl port-forward svc/rtest-cosmian-kms 9998:9998 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf 2>/dev/null || true' EXIT; sleep 5
+          tc=(--cacert /tmp/kms-ca.crt --resolve rtest-cosmian-kms:9998:127.0.0.1)
+          curl -fsS "${tc[@]}" https://rtest-cosmian-kms:9998/version
+          kcode="$(curl -s -o /dev/null -w '%{http_code}' "${tc[@]}" -X POST -H 'Content-Type: application/json' \
+                    --data '{"tag":"Query","type":"Structure","value":[]}' https://rtest-cosmian-kms:9998/kmip/2_1)" || true
+          echo "TLS POST /kmip/2_1: $kcode"
+          case "$kcode" in 404|000) echo "FAIL: KMIP endpoint not reachable over TLS"; exit 1 ;; esac
+
           helm uninstall rtest --wait
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",

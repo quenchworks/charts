@@ -81,12 +81,19 @@ persistence:
 # The server can terminate TLS itself. Off by default: in-cluster traffic is
 # normally fronted by the Ingress or a mesh. A KMS handing out key material over
 # plaintext beyond the pod boundary is worth thinking about before you ship it.
+# With tls.enabled the HTTP port serves HTTPS only (the probes follow), with the certificate
+# mounted at /tls. It comes from the first source set: existingSecret, then a cert-manager
+# Certificate, else a Helm-generated CA + certificate.
 tls:
   enabled: false
-  # Secret with tls.crt and tls.key (a standard kubernetes.io/tls secret).
   existingSecret: ""
-  # PKCS#12 password if the secret holds a .p12 instead.
-  p12Password: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # Any other Cosmian setting, passed as environment variables verbatim. Applied
 # last so it wins over the chart's own values -- you are never blocked by a knob

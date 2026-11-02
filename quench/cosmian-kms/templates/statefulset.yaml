@@ -90,13 +90,12 @@ spec:
             - name: KMS_CLEAR_DATABASE
               value: "true"
             {{- end }}
-            {{- if .Values.tls.enabled }}
-            - name: KMS_HTTPS_P12_FILE
-              value: /etc/cosmian/tls/tls.p12
-            {{- with .Values.tls.p12Password }}
-            - name: KMS_HTTPS_P12_PASSWORD
-              value: {{ . | quote }}
-            {{- end }}
+            {{- if include "quench-common.tls.enabled" . }}
+            {{/* both files set: the HTTP port (and the KMIP socket, if enabled) serve TLS only */}}
+            - name: KMS_TLS_CERT_FILE
+              value: /tls/tls.crt
+            - name: KMS_TLS_KEY_FILE
+              value: /tls/tls.key
             {{- end }}
             {{- range $k, $v := .Values.extraConfig }}
             - name: {{ $k }}
@@ -112,7 +111,9 @@ spec:
             rather than merely listening: it is served by the same actix app as the KMIP
             routes, so a 200 here means the whole stack came up.
           */}}
-          {{- $h := dict "httpGet" (dict "path" "/version" "port" "http") }}
+          {{- $get := dict "path" "/version" "port" "http" }}
+          {{- if include "quench-common.tls.enabled" . }}{{- $_ := set $get "scheme" "HTTPS" }}{{- end }}
+          {{- $h := dict "httpGet" $get }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "startup" "default" (merge (dict "failureThreshold" 30 "periodSeconds" 3) $h)) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" (merge (dict "periodSeconds" 10 "timeoutSeconds" 3) $h)) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" (merge (dict "periodSeconds" 15 "timeoutSeconds" 3) $h)) | nindent 10 }}
@@ -123,21 +124,13 @@ spec:
               mountPath: /var/lib/cosmian
             - name: tmp
               mountPath: /tmp
-            {{- if .Values.tls.enabled }}
-            - name: tls
-              mountPath: /etc/cosmian/tls
-              readOnly: true
-            {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         - name: tmp
           emptyDir: {}
-        {{- if .Values.tls.enabled }}
-        - name: tls
-          secret:
-            secretName: {{ required "tls.existingSecret is required when tls.enabled=true" .Values.tls.existingSecret }}
-        {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- if or (not .Values.persistence.enabled) .Values.persistence.existingClaim }}
         - name: data
           {{- if .Values.persistence.existingClaim }}
