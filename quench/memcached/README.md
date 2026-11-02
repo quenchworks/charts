@@ -60,6 +60,10 @@ gh attestation verify oci://ghcr.io/quenchworks/images/memcached \
 | `memcached.threads` | `4` | `-t`: worker threads. |
 | `memcached.extraArgs` | `[]` | Any extra `memcached` flags. |
 | `service.port` | `11211` | Cache port. |
+| `tls.enabled` | `false` | Native TLS on the cache port (`-Z`, cert at `/tls`); every client must use TLS. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `autoscaling.enabled` | `false` | HPA on CPU when true. |
 | `networkPolicy.enabled` | `true` | Restricts ingress to the release namespace. |
 | `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |

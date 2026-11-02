@@ -49,6 +49,12 @@ spec:
             - {{ .Values.memcached.maxConnections | quote }}
             - "-t"
             - {{ .Values.memcached.threads | quote }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # native TLS on the cache port (memcached is built with --enable-tls); clients must use TLS
+            - "-Z"
+            - "-o"
+            - "ssl_chain_cert=/tls/tls.crt,ssl_key=/tls/tls.key,ssl_ca_cert=/tls/ca.crt"
+            {{- end }}
             {{- range .Values.memcached.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -69,12 +75,14 @@ spec:
           {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- if .Values.extraVolumeMounts }}
+          {{- if or .Values.extraVolumeMounts (include "quench-common.tls.enabled" .) }}
           volumeMounts:
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
           {{- end }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
-      {{- with .Values.extraVolumes }}
+      {{- if or .Values.extraVolumes (include "quench-common.tls.enabled" .) }}
       volumes:
-        {{- include "quench-common.extraVolumes" $ | nindent 8 }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
       {{- end }}
