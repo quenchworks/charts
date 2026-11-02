@@ -143,6 +143,10 @@ Widen it with `networkPolicy.extraFrom`, not by disabling the policy.
 | `autoscaling.enabled` | `false` | Safe here — pods share no state in DB-less mode. |
 | `networkPolicy.allowExternal` | `true` | Opens the proxy ports only. |
 | `ingress.enabled` | `false` | Fronts the proxy port by default. |
+| `tls.enabled` | `false` | The proxy's ssl listener serves this cert (at `/tls`) instead of Kong's self-signed one. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 
 Plus the shared `quench-common` knobs: scheduling, affinity, tolerations, probes,
 sidecars, init containers, extra env/volumes, security contexts.

@@ -123,6 +123,13 @@ spec:
                     node's CPUs, not the container limit, and OOMKills Kong on big nodes. */}}
             - name: KONG_NGINX_WORKER_PROCESSES
               value: {{ .Values.workerProcesses | quote }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # the proxy's ssl listener serves the chart certificate instead of Kong's self-signed one
+            - name: KONG_SSL_CERT
+              value: /tls/tls.crt
+            - name: KONG_SSL_CERT_KEY
+              value: /tls/tls.key
+            {{- end }}
             {{- range $k, $v := .Values.extraConfig }}
             - name: KONG_{{ $k | upper | replace "-" "_" }}
               value: {{ $v | quote }}
@@ -172,6 +179,7 @@ spec:
               mountPath: /etc/secrets/cluster
               readOnly: true
             {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -192,4 +200,5 @@ spec:
             secretName: {{ required "cluster.certSecret is required in hybrid mode (role != traditional)" .Values.cluster.certSecret }}
             defaultMode: 0444
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

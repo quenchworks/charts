@@ -82,6 +82,19 @@ jobs:
           done
           test "$pcode" = "200" || { echo "request did not traverse the proxy"; kubectl logs deployment/rtest-kong --tail=40; exit 1; }
 
+          # native TLS: the same route over the proxy's ssl listener, verifying the chart cert
+          kill $pf1 $pf2 $pf3 2>/dev/null || true; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 5m
+          kubectl rollout status deployment/rtest-kong --timeout=300s
+          kubectl get secret rtest-kong-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/kong-ca.crt
+          kubectl port-forward deployment/rtest-kong 8443:8443 >/tmp/pf-tls.log 2>&1 &
+          pf4=$!; trap 'kill $pf4 2>/dev/null || true' EXIT; sleep 5
+          for i in $(seq 1 20); do
+            tcode="$(curl -s --cacert /tmp/kong-ca.crt --resolve rtest-kong:8443:127.0.0.1 -o /dev/null -w '%{http_code}' https://rtest-kong:8443/selftest)" || true
+            [ "$tcode" = "200" ] && break; sleep 3
+          done
+          test "$tcode" = "200" || { echo "TLS request did not traverse the proxy: $tcode"; exit 1; }
+
           helm uninstall rtest --wait
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
