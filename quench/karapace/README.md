@@ -48,6 +48,10 @@ Neither service authenticates by default; keep them internal or configure Karapa
 | `registry.compatibility` | `BACKWARD` | default compatibility level |
 | `restProxy.enabled` | `false` | run the REST proxy |
 | `config` | `{}` | other `KARAPACE_*` settings |
+| `tls.enabled` | `false` | registry and REST proxy serve https (cert at `/tls`, naming both Services); the proxy verifies the registry. Needs `registry.replicas=1` for now |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 Pods run with a read-only root filesystem and all capabilities dropped.
 

@@ -41,6 +41,17 @@ spec:
               value: {{ printf "%s-registry" (include "quench-common.fullname" .) | quote }}
             - name: KARAPACE_REGISTRY_PORT
               value: {{ .Values.service.registryPort | quote }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # native TLS: this server serves https on its port
+            - name: KARAPACE_SERVER_TLS_CERTFILE
+              value: /tls/tls.crt
+            - name: KARAPACE_SERVER_TLS_KEYFILE
+              value: /tls/tls.key
+            - name: KARAPACE_REGISTRY_SCHEME
+              value: https
+            - name: KARAPACE_REGISTRY_CA
+              value: /tls/ca.crt
+            {{- end }}
             {{- include "karapace.env" . | nindent 12 }}
           {{- include "karapace.envFrom" . | nindent 10 }}
           ports:
@@ -50,6 +61,9 @@ spec:
             httpGet:
               path: /topics
               port: http
+              {{- if include "quench-common.tls.enabled" . }}
+              scheme: HTTPS
+              {{- end }}
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
@@ -64,6 +78,7 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -75,6 +90,7 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
 ---
 apiVersion: v1
 kind: Service

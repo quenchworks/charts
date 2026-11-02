@@ -1,0 +1,17 @@
+{{- if include "quench-common.tls.enabled" . }}
+{{- /* Registry followers forward writes to the primary by pod IP, which no certificate name covers. */ -}}
+{{- if gt (int .Values.registry.replicas) 1 }}
+{{- fail "tls.enabled supports registry.replicas=1 for now: followers forward writes to the primary by pod IP, which the certificate cannot name" }}
+{{- end }}
+{{- /* The rest proxy dials the registry Service by name: add both Services to the certificate. */ -}}
+{{- $fn := include "quench-common.fullname" . }}
+{{- $names := list }}
+{{- range $svc := list "registry" "rest-proxy" }}
+{{- $names = append $names (printf "%s-%s" $fn $svc) }}
+{{- $names = append $names (printf "%s-%s.%s.svc" $fn $svc $.Release.Namespace) }}
+{{- $names = append $names (printf "%s-%s.%s.svc.cluster.local" $fn $svc $.Release.Namespace) }}
+{{- end }}
+{{- $cm := .Values.tls.certManager | default dict }}
+{{- $_ := set .Values.tls "certManager" (merge (dict "dnsNames" (concat ($cm.dnsNames | default list) $names)) $cm) }}
+{{- end }}
+{{- include "quench-common.tls.resources" . }}

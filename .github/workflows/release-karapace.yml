@@ -70,6 +70,23 @@ jobs:
           curl -fsS http://127.0.0.1:8082/topics | tee /tmp/topics.json; echo
           grep -q '_schemas' /tmp/topics.json
           grep -q 'quench-gate' /tmp/topics.json
+          # native TLS: both servers on https; an Avro produce through the proxy makes it register the
+          # schema with the registry over TLS (verified against the chart CA by Service name)
+          kill $p1 $p2; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          for d in registry rest-proxy; do kubectl rollout status deployment/rtest-karapace-$d --timeout=300s; done
+          kubectl get secret rtest-karapace-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/kp-ca.crt
+          kubectl port-forward svc/rtest-karapace-registry 8081:8081 >/tmp/pf1.log 2>&1 &
+          p1=$!
+          kubectl port-forward svc/rtest-karapace-rest-proxy 8082:8082 >/tmp/pf2.log 2>&1 &
+          p2=$!; trap 'kill $p1 $p2' EXIT; sleep 5
+          tc="--cacert /tmp/kp-ca.crt --resolve rtest-karapace-registry:8081:127.0.0.1 --resolve rtest-karapace-rest-proxy:8082:127.0.0.1"
+          curl -fsS $tc https://rtest-karapace-registry:8081/subjects | >/dev/null grep orders-value
+          # an inline value_schema makes the proxy register it with the registry (over TLS)
+          body='{"value_schema": "{\"type\":\"record\",\"name\":\"Gate\",\"fields\":[{\"name\":\"id\",\"type\":\"string\"}]}", "records": [{"value": {"id": "tls"}}]}'
+          out="$(curl -fsS $tc -X POST -H 'Content-Type: application/vnd.kafka.avro.v2+json' -d "$body" \
+            https://rtest-karapace-rest-proxy:8082/topics/quench-gate)"
+          echo "$out"; jq -e '.value_schema_id != null and .offsets[0].error == null' <<<"$out"
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not
