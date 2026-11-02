@@ -60,6 +60,20 @@ jobs:
           # authenticated ping prints "mysqld is alive"; an unauthenticated ping only proves the server is up
           kubectl exec rtest-mariadb-0 -- mariadb-admin --socket=/run/mysqld/mysqld.sock -uroot -p"$pw" ping | >/dev/null grep "mysqld is alive"
           kubectl exec rtest-mariadb-0 -- mariadb --socket=/run/mysqld/mysqld.sock -uroot -p"$pw" qwapp -e "select 1" | >/dev/null grep 1
+          # native TLS: roll the running cluster onto the chart certificate; every node must
+          # rejoin and serve a verified TLS session through the Service name
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status statefulset/rtest-mariadb --timeout=600s
+          q='select concat((select variable_value from information_schema.session_status where variable_name="Ssl_version"), " ", (select variable_value from information_schema.global_status where variable_name="wsrep_cluster_size"))'
+          for p in 0 1 2; do
+            out="$(kubectl exec rtest-mariadb-$p -c mariadb -- mariadb -h rtest-mariadb -uroot -p"$pw" --ssl --ssl-ca=/tls/ca.crt --ssl-verify-server-cert -N -B -e "$q")"
+            grep -qE '^TLSv1\.[23] 3$' <<<"$out" || { echo "node $p: $out"; exit 1; }
+          done
+          helm install rsa "${CHART_DIR}" --set primary.persistence.enabled=false --set tls.enabled=true --wait --timeout 5m
+          pwa=$(kubectl get secret rsa-mariadb -o jsonpath='{.data.mariadb-root-password}' | base64 -d)
+          out="$(kubectl exec rsa-mariadb-0 -c mariadb -- mariadb -h rsa-mariadb -uroot -p"$pwa" --ssl --ssl-ca=/tls/ca.crt --ssl-verify-server-cert -N -B -e "$q")"
+          grep -qE '^TLSv1\.[23] ' <<<"$out" || { echo "standalone: $out"; exit 1; }
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
