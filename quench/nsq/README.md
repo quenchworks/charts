@@ -47,6 +47,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/nsq \
 | `httpPort`                    | `4151`                           | nsqd HTTP API port (`/ping`, `/pub`, `/stats`).                                           |
 | `service.tcpPort`             | `4150`                           | Service port forwarding to the container's `tcp` port.                                    |
 | `service.httpPort`            | `4151`                           | Service port forwarding to the container's `http` port.                                   |
+| `service.httpsPort` | `4152` | HTTPS API, only with `tls.enabled`. |
+| `tls.enabled` | `false` | HTTPS API on `httpsPort` plus TLS upgrade on the TCP protocol (cert at `/tls`); applies to the default args. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `persistence.enabled`         | `true`                           | 8Gi PVC mounted at `/data` (nsqd `--data-path`).                                          |
 | `persistence.size`            | `8Gi`                            |                                                                                           |
 | `persistence.existingClaim`   | `""`                             | Bind an existing PVC instead of provisioning one.                                         |

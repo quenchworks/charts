@@ -45,6 +45,12 @@ spec:
           args:
             - --data-path=/data
             - --broadcast-address=$(POD_NAME)
+            {{- if include "quench-common.tls.enabled" . }}
+            # HTTPS API on httpsPort plus TLS upgrade on the TCP protocol (clients opt in)
+            - --tls-cert=/tls/tls.crt
+            - --tls-key=/tls/tls.key
+            - --https-address=0.0.0.0:{{ .Values.httpsPort }}
+            {{- end }}
           {{- end }}
           env:
             - name: POD_NAME
@@ -60,6 +66,11 @@ spec:
             - name: http
               containerPort: {{ .Values.httpPort }}
               protocol: TCP
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: https
+              containerPort: {{ .Values.httpsPort }}
+              protocol: TCP
+            {{- end }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}
@@ -72,9 +83,10 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
-      {{- if or (and .Values.persistence.enabled .Values.persistence.existingClaim) (not .Values.persistence.enabled) .Values.extraVolumes }}
+      {{- if or (and .Values.persistence.enabled .Values.persistence.existingClaim) (not .Values.persistence.enabled) .Values.extraVolumes (include "quench-common.tls.enabled" .) }}
       volumes:
         {{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
         - name: data
@@ -84,6 +96,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
       {{- end }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
