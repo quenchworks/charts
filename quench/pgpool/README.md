@@ -185,6 +185,10 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/pgpool --owner quen
 | `poolPasswd.extraUsers` | `{}` | Extra `{user: password}` entries appended to the list. |
 | `pcp.users` | `{}` | `{user: md5-of-password}` for the PCP admin protocol. |
 | `service.port` | `9999` | Client listener. |
+| `tls.enabled` | `false` | Offers TLS to clients on `service.port` (`ssl = on`, cert at `/tls`); clients insist with `sslmode=require`. Not applied to `pgpool.raw`. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `service.pcpPort` | `9898` | PCP admin listener. |
 | `networkPolicy.enabled` | `true` | Ingress 9999/9898 (in-namespace), egress to backends + DNS. |
 | `networkPolicy.allowExternal` | `false` | Set true to accept connections from outside the namespace. |

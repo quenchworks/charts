@@ -80,6 +80,18 @@ jobs:
           grep -q 'rtest-postgresql' /tmp/nodes.out
           grep -q 'up' /tmp/nodes.out
 
+          # --- native TLS: the same release offers TLS; a client that demands it
+          # (sslmode=require) must get through Pgpool-II to the backend ---
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-pgpool --timeout=540s
+          kubectl delete pod pgtls --ignore-not-found --now >/dev/null 2>&1 || true
+          kubectl run pgtls --restart=Never --image=ghcr.io/quenchworks/images/postgresql:18.4 \
+            --env="PGPASSWORD=${PW}" --command -- \
+            psql "host=rtest-pgpool port=9999 user=appuser dbname=appdb sslmode=require" -tAc 'SELECT 1;'
+          kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/pgtls --timeout=120s \
+            || { kubectl logs pgtls || true; kubectl logs deployment/rtest-pgpool || true; exit 1; }
+          kubectl logs pgtls | grep -qx '1'
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

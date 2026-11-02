@@ -84,6 +84,14 @@ unix_socket_directories = '/var/run/pgpool'
 pcp_listen_addresses = '*'
 pcp_port = {{ .Values.service.pcpPort }}
 pcp_socket_dir = '/var/run/pgpool'
+{{- if include "quench-common.tls.enabled" . }}
+
+# native TLS toward clients: offered, not required (sslmode=require on the client insists)
+ssl = on
+ssl_cert = '/tls/tls.crt'
+ssl_key = '/tls/tls.key'
+ssl_ca_cert = '/tls/ca.crt'
+{{- end }}
 
 pid_file_name = '/var/run/pgpool/pgpool.pid'
 log_destination = 'stderr'
