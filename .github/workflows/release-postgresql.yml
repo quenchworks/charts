@@ -56,6 +56,27 @@ jobs:
           kubectl exec rtest-postgresql-0 -- patronictl list | >/dev/null grep -i 'Leader'
           # a replica is actually streaming from the leader (real replication, not just membership)
           kubectl exec rtest-postgresql-0 -- patronictl list | >/dev/null grep 'streaming'
+          # native TLS on the same HA release: replicas must stream over TLS and a client must
+          # pass sslmode=verify-full against the chart CA through the Service name
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-postgresql --timeout=300s
+          # the rolling restart may move the leader; read whoever leads now
+          for i in $(seq 1 45); do
+            leader="$(kubectl exec rtest-postgresql-0 -- patronictl list -f json 2>/dev/null | jq -r '.[] | select(.Role == "Leader") | .Member' || true)"
+            n="$( [ -n "$leader" ] && kubectl exec "$leader" -- sh -c "psql -h /var/run/postgresql -U postgres -tAc \"select count(*) from pg_stat_ssl join pg_stat_activity using (pid) where backend_type = 'walsender' and ssl\"" 2>/dev/null || true)"
+            [ "${n:-0}" -ge 2 ] && break
+            sleep 4
+          done
+          kubectl exec rtest-postgresql-0 -- patronictl list
+          test "${n:-0}" -ge 2
+          ssl="$(kubectl exec "$leader" -- sh -c 'PGPASSWORD=$PATRONI_SUPERUSER_PASSWORD psql "host=rtest-postgresql user=postgres dbname=postgres sslmode=verify-full sslrootcert=/tls/ca.crt" -tAc "select ssl from pg_stat_ssl where pid = pg_backend_pid()"')"
+          test "$ssl" = t
+          # standalone takes the same flags as server args (the image passes them through)
+          helm install rsa "${CHART_DIR}" --set architecture=standalone --set primary.persistence.enabled=false \
+            --set auth.database=qwapp --set tls.enabled=true --wait --timeout 5m
+          ssl="$(kubectl exec rsa-postgresql-0 -- sh -c 'PGPASSWORD=$POSTGRES_PASSWORD psql "host=rsa-postgresql user=postgres dbname=qwapp sslmode=verify-full sslrootcert=/tls/ca.crt" -tAc "select ssl from pg_stat_ssl where pid = pg_backend_pid()"')"
+          test "$ssl" = t
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

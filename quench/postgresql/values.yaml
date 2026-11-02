@@ -2,7 +2,7 @@
 # manifests/postgresql.json after every green image build. It is never a tag.
 image:
   repository: ghcr.io/quenchworks/images/postgresql
-  digest: "sha256:8e58d8c785a093fe5ad70264f4df02eea9b0567d3a3da4cb8a97f46f75979856"
+  digest: "sha256:beda4af6174e30ad6ed2d9ca9a8962e2d2cb59af2ffd98a9b846b1edc41a0636"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -93,6 +93,22 @@ sidecars: []
 lifecycleHooks: {}
 command: []
 args: []
+# Native TLS on 5432 (ssl=on; plaintext still accepted, require it with hostssl in pg_hba or
+# sslmode=require on clients). The certificate comes from the first source set: existingSecret,
+# then a cert-manager Certificate, else a Helm-generated CA + certificate. Its default names are
+# the Service and headless pods; add <release>-postgresql-primary/-replica to dnsNames for
+# sslmode=verify-full through the HA Services.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
 # Security contexts merge over the hardened quench-common defaults (your keys win).
 podSecurityContext: {}
 containerSecurityContext: {}
