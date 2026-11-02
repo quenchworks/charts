@@ -63,6 +63,11 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/ferretdb --owner qu
 | `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
 | `service.port` | `27017` | MongoDB wire protocol. |
 | `service.debugPort` | `8088` | HTTP metrics + `/debug/livez`, `/debug/readyz` (probes). |
+| `service.tlsPort` | `27018` | MongoDB wire protocol over TLS, only with `tls.enabled`. |
+| `tls.enabled` | `false` | Adds a TLS listener (cert at `/tls`) beside the plain one. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `autoscaling.enabled` | `false` | HPA on CPU (the proxy is stateless). |
 | `autoscaling.minReplicas` | `1` | |
 | `autoscaling.maxReplicas` | `5` | |
