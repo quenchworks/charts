@@ -49,7 +49,11 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/nats --owner quench
 | `nameOverride` | `""` | Override the chart name in resource names. |
 | `replicaCount` | `1` | Single combined server; clustering is a follow-up. |
 | `nats.jetstream.enabled` | `true` | Enable JetStream; the store lives on the data volume. |
-| `nats.extraArgs` | `[]` | Any extra `nats-server` flags (auth, TLS, limits). |
+| `nats.extraArgs` | `[]` | Any extra `nats-server` flags (auth, limits). |
+| `tls.enabled` | `false` | Native TLS on 4222 (`--tls`, cert at `/tls`); clients must use TLS. Monitoring on 8222 stays HTTP. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `persistence.enabled` | `true` | 8Gi PVC at `/data` for the JetStream store. |
 | `persistence.size` | `8Gi` | Requested volume size. |
 | `persistence.accessModes` | `["ReadWriteOnce"]` | PVC access modes. |

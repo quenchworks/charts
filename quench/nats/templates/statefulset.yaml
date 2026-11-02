@@ -49,6 +49,16 @@ spec:
             - "--store_dir"
             - "/data"
             {{- end }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # native TLS on the client port (the monitor port stays HTTP for the probes)
+            - "--tls"
+            - "--tlscert"
+            - "/tls/tls.crt"
+            - "--tlskey"
+            - "/tls/tls.key"
+            - "--tlscacert"
+            - "/tls/ca.crt"
+            {{- end }}
             {{- range .Values.nats.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -78,9 +88,10 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
-      {{- if or (and .Values.persistence.enabled .Values.persistence.existingClaim) (not .Values.persistence.enabled) .Values.extraVolumes }}
+      {{- if or (and .Values.persistence.enabled .Values.persistence.existingClaim) (not .Values.persistence.enabled) .Values.extraVolumes (include "quench-common.tls.enabled" .) }}
       volumes:
         {{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
         - name: data
@@ -90,6 +101,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
       {{- end }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}

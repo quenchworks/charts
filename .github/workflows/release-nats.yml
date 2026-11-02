@@ -53,6 +53,24 @@ jobs:
           pf=$!; trap 'kill $pf' EXIT; sleep 4
           curl -sf 'http://127.0.0.1:8222/healthz' | >/dev/null grep '"status":"ok"'
           curl -sf 'http://127.0.0.1:8222/healthz?js-enabled-only=true' | >/dev/null grep '"status":"ok"'
+          # native TLS: the same release with tls.enabled must demand TLS on 4222 and complete a
+          # client handshake that verifies the Service name against the chart CA, then PONG
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 5m
+          kubectl rollout status statefulset/rtest-nats --timeout=120s
+          kubectl get secret rtest-nats-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/nats-ca.crt
+          kubectl port-forward rtest-nats-0 8222:8222 4222:4222 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 4
+          curl -sf 'http://127.0.0.1:8222/varz' | >/dev/null grep '"tls_required": true'
+          python3 - <<'PY'
+          import socket, ssl
+          s = socket.create_connection(("127.0.0.1", 4222), 10)
+          assert s.recv(4096).startswith(b"INFO ")
+          t = ssl.create_default_context(cafile="/tmp/nats-ca.crt").wrap_socket(s, server_hostname="rtest-nats")
+          t.sendall(b'CONNECT {"verbose":false}\r\nPING\r\n')
+          assert t.recv(64).startswith(b"PONG"), "no PONG over TLS"
+          print("nats TLS ok:", t.version())
+          PY
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
