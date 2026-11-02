@@ -64,6 +64,15 @@ jobs:
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # /ready returns 200 once metastore + ingester are up
           curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:4040/ready | >/dev/null grep 200
+          # native TLS: /ready over https, verifying the Service name against the chart CA
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set serviceAccount.create=false --set serviceAccount.name=pyroscope-puller --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-pyroscope --timeout=300s
+          kubectl get secret rtest-pyroscope-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/pyro-ca.crt
+          kubectl port-forward svc/rtest-pyroscope 4040:4040 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/pyro-ca.crt --resolve rtest-pyroscope:4040:127.0.0.1 https://rtest-pyroscope:4040/ready
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
