@@ -77,10 +77,17 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
-          {{- with .Values.extraArgs }}
+          {{- if or .Values.extraArgs (include "quench-common.tls.enabled" .) }}
           args:
             - server
+            {{- if include "quench-common.tls.enabled" . }}
+            # a second puma bind: HTTPS on 3443 beside plain HTTP on 3000 (the probes stay on 3000)
+            - -b
+            - "ssl://0.0.0.0:3443?key=/tls/tls.key&cert=/tls/tls.crt"
+            {{- end }}
+            {{- with .Values.extraArgs }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
           env:
             {{- include "redmine.env" . | nindent 12 }}
@@ -92,6 +99,11 @@ spec:
             - name: http
               containerPort: 3000
               protocol: TCP
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: https
+              containerPort: 3443
+              protocol: TCP
+            {{- end }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           startupProbe:
@@ -111,6 +123,7 @@ spec:
             {{- if .Values.configurationYml }}
             - { name: init, mountPath: /opt/redmine/config/configuration.yml, subPath: configuration.yml, readOnly: true }
             {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -126,4 +139,5 @@ spec:
         - name: init
           configMap:
             name: {{ include "quench-common.fullname" . }}-init
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

@@ -84,6 +84,18 @@ jobs:
           for i in $(seq 1 30); do grep -q 'Forwarding from 127.0.0.1:3000' /tmp/pf.log && break; sleep 1; done
           curl -fsS -m 30 -u "admin:$PW" $B/users/current.json | >/dev/null grep '"login":"admin"'
           echo "install gate OK: schema migrated, admin password set once, restart keeps the database"
+          # native TLS: a second puma bind serves HTTPS on 3443; the admin API over it verifies the
+          # chart CA and the Service name
+          kill $pf 2>/dev/null || true
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status deployment/rtest-redmine --timeout=600s
+          kubectl get secret rtest-redmine-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/redmine-ca.crt
+          kubectl port-forward svc/rtest-redmine 3443:3443 >/tmp/pf.log 2>&1 &
+          pf=$!
+          for i in $(seq 1 30); do grep -q 'Forwarding from 127.0.0.1:3443' /tmp/pf.log && break; sleep 1; done
+          curl -fsS -m 30 --cacert /tmp/redmine-ca.crt --resolve rtest-redmine:3443:127.0.0.1 -u "admin:$PW" \
+            https://rtest-redmine:3443/users/current.json | >/dev/null grep '"login":"admin"'
+          kill $pf
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

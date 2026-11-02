@@ -37,6 +37,11 @@ Log in at http://127.0.0.1:3000 as `admin` with that password.
 | `configurationYml` | `""` | contents of `config/configuration.yml` (email delivery, attachments, SCM) |
 | `postgresql.enabled` | `true` | the bundled PostgreSQL; `false` uses `externalDatabase.*` |
 | `persistence.*` | `8Gi` PVC | attachments under `/data/files` |
+| `service.httpsPort` | `3443` | HTTPS (pod 3443), only with `tls.enabled` |
+| `tls.enabled` | `false` | puma adds an HTTPS bind on 3443 beside HTTP on 3000 (cert at `/tls`) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 Email needs `configurationYml`: Redmine reads delivery settings only from that file, and
 upstream ships none. Thumbnails of image attachments need ImageMagick, which the image
