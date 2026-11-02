@@ -34,6 +34,13 @@ spec:
             - --signer-filepath=/etc/rekor/signer/{{ .Values.signer.key }}
             - --checkpoint-interval={{ .Values.checkpointInterval }}
             - --log-level={{ .Values.logLevel }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # native TLS on the write API (HTTP) and gRPC
+            - --http-tls-cert-file=/tls/tls.crt
+            - --http-tls-key-file=/tls/tls.key
+            - --grpc-tls-cert-file=/tls/tls.crt
+            - --grpc-tls-key-file=/tls/tls.key
+            {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -48,12 +55,18 @@ spec:
             httpGet:
               path: /healthz
               port: http
+              {{- if include "quench-common.tls.enabled" . }}
+              scheme: HTTPS
+              {{- end }}
             initialDelaySeconds: 3
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /healthz
               port: http
+              {{- if include "quench-common.tls.enabled" . }}
+              scheme: HTTPS
+              {{- end }}
             initialDelaySeconds: 10
             periodSeconds: 20
           resources:
@@ -66,6 +79,7 @@ spec:
             - name: signer
               mountPath: /etc/rekor/signer
               readOnly: true
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
         {{- if .Values.readServer.enabled }}
         # The read API: checkpoint, tiles and entry bundles are static files in
         # the log directory, served as they are by Caddy.
@@ -118,6 +132,7 @@ spec:
           secret:
             secretName: {{ include "rekor-tiles.secretName" . }}
             defaultMode: 0440
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- if not .Values.persistence.enabled }}
         - name: data
           emptyDir: {}

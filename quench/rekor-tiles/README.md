@@ -28,6 +28,10 @@ kubectl logs statefulset/rekor-rekor-tiles -c rekor | grep "Loaded signing key"
 | `extraArgs` | `[]` | extra rekor-server flags (`--witness-policy-path`, ...) |
 | `readServer.enabled` | `true` | Caddy serving the log directory read-only on 8080 |
 | `persistence.enabled` | `true` | a PVC mounted at `/var/lib/rekor` |
+| `tls.enabled` | `false` | the write API (3000) and gRPC (3001) serve TLS (cert at `/tls`); the read server stays plain HTTP |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 ## Notes
 

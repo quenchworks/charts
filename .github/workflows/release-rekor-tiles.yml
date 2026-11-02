@@ -81,6 +81,13 @@ jobs:
           checkpoint 2
           echo "log survived a restart"
           kill $PF
+          # native TLS: the write API serves https after the upgrade (verified Service name)
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-rekor-tiles --timeout=300s
+          kubectl get secret rtest-rekor-tiles-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/rekor-ca.crt
+          PF=$(pf); sleep 5
+          curl -fsS --cacert /tmp/rekor-ca.crt --resolve rtest-rekor-tiles:3000:127.0.0.1 https://rtest-rekor-tiles:3000/healthz | grep -F '"status":"SERVING"'
+          kill $PF
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not
