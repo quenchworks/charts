@@ -2,8 +2,9 @@
      connected to Postgres and is serving. The runtime image ships no shell HTTP
      client; the kubelet does the GET. First boot runs migrations against Postgres,
      so the readiness window is generous. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/api/healthz" "port" "http") "initialDelaySeconds" 30 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/api/healthz" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq (include "quench-common.tls.enabled" .) "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/api/healthz" "port" "http" "scheme" $scheme) "initialDelaySeconds" 30 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/api/healthz" "port" "http" "scheme" $scheme) "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
 {{- $secretName := include "gitea.secretName" . -}}
 {{- $dbSecretName := include "gitea.db.secretName" . -}}
 {{- $dbSecretKey := include "gitea.db.secretPasswordKey" . -}}
@@ -168,6 +169,7 @@ spec:
               mountPath: /data
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -186,6 +188,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
   volumeClaimTemplates:

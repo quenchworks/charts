@@ -65,6 +65,19 @@ jobs:
           grep -q "\"login\":\"${ADMIN_USER}\"" /tmp/user.json
           grep -q '"is_admin":true' /tmp/user.json
           echo "admin API auth OK"
+          # native TLS: the same release serves https on 3000; health and the admin API must
+          # answer over a session that verifies the Service name against the chart CA
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status statefulset/rtest-gitea --timeout=540s
+          kubectl get secret rtest-gitea-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/gitea-ca.crt
+          kubectl port-forward svc/rtest-gitea 3000:3000 >/tmp/pf3000.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          tc="--cacert /tmp/gitea-ca.crt --resolve rtest-gitea:3000:127.0.0.1"
+          curl -fsS $tc https://rtest-gitea:3000/api/healthz | >/dev/null grep '"status"'
+          code="$(curl -s $tc -o /dev/null -w '%{http_code}' -u "${ADMIN_USER}:${ADMIN_PASS}" https://rtest-gitea:3000/api/v1/user)"
+          test "$code" = "200"
+          echo "gitea over TLS OK"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

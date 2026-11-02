@@ -90,6 +90,14 @@ externalDatabase:
   password: ""            # or use existingSecret + existingSecretPasswordKey
 ```
 
+## TLS
+
+`tls.enabled=true` makes Gitea serve https on `service.port` (`PROTOCOL = https`) with a
+certificate mounted at `/tls`, taken from the first source set: `tls.existingSecret` (a
+`kubernetes.io/tls` Secret), a cert-manager `Certificate` (`tls.certManager.enabled` +
+`issuerRef`), or else a Helm-generated CA + certificate (`tls.selfSigned.validityDays`, kept
+across upgrades). Set `server.rootUrl` to the https URL users reach.
+
 ## Persistence
 
 `persistence.enabled=true` (default) provisions a PVC for `/data` (repositories, LFS,
