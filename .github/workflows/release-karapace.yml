@@ -81,11 +81,19 @@ jobs:
           kubectl port-forward svc/rtest-karapace-rest-proxy 8082:8082 >/tmp/pf2.log 2>&1 &
           p2=$!; trap 'kill $p1 $p2' EXIT; sleep 5
           tc="--cacert /tmp/kp-ca.crt --resolve rtest-karapace-registry:8081:127.0.0.1 --resolve rtest-karapace-rest-proxy:8082:127.0.0.1"
+          # a restarted registry answers 500 until it has re-read _schemas; wait for it
+          for i in $(seq 1 60); do
+            curl -fsS $tc https://rtest-karapace-registry:8081/subjects 2>/dev/null | >/dev/null grep orders-value && break
+            sleep 3
+          done
           curl -fsS $tc https://rtest-karapace-registry:8081/subjects | >/dev/null grep orders-value
           # an inline value_schema makes the proxy register it with the registry (over TLS)
           body='{"value_schema": "{\"type\":\"record\",\"name\":\"Gate\",\"fields\":[{\"name\":\"id\",\"type\":\"string\"}]}", "records": [{"value": {"id": "tls"}}]}'
-          out="$(curl -fsS $tc -X POST -H 'Content-Type: application/vnd.kafka.avro.v2+json' -d "$body" \
-            https://rtest-karapace-rest-proxy:8082/topics/quench-gate)"
+          for i in $(seq 1 30); do
+            out="$(curl -fsS $tc -X POST -H 'Content-Type: application/vnd.kafka.avro.v2+json' -d "$body" \
+              https://rtest-karapace-rest-proxy:8082/topics/quench-gate 2>/dev/null || true)"
+            grep -q '"value_schema_id"' <<<"$out" && break; sleep 3
+          done
           echo "$out"; jq -e '.value_schema_id != null and .offsets[0].error == null' <<<"$out"
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
