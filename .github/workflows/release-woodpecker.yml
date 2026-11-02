@@ -65,6 +65,19 @@ jobs:
           # /healthz returns 204 (No Content) once the server is up
           code="$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/healthz)"
           test "$code" = "204"
+          # native TLS: HTTPS on 8443 (Service 443) verifying the chart CA and the Service name;
+          # the plain port turns into a redirect to it
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set serviceAccount.create=false --set serviceAccount.name=woodpecker-puller \
+            --set tls.enabled=true --wait --timeout 5m
+          kubectl rollout status statefulset/rtest-woodpecker --timeout=300s
+          kubectl get secret rtest-woodpecker-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/wp-ca.crt
+          kubectl port-forward svc/rtest-woodpecker 8443:443 8000:80 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --cacert /tmp/wp-ca.crt --resolve rtest-woodpecker:8443:127.0.0.1 https://rtest-woodpecker:8443/healthz)"
+          test "$code" = "204"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/healthz)" = 301
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

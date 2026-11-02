@@ -1,8 +1,11 @@
-{{/* Woodpecker serves /healthz -> 204 once the server, DB and forge wiring are up. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/healthz" "port" "http") "initialDelaySeconds" 15 "periodSeconds" 15 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/healthz" "port" "http") "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+{{/* Woodpecker serves /healthz -> 204 once the server, DB and forge wiring are up. With TLS the
+     plain port only redirects, so the probes move to the https port. */}}
+{{- $get := dict "path" "/healthz" "port" "http" -}}
+{{- if include "quench-common.tls.enabled" . }}{{- $get = dict "path" "/healthz" "port" "https" "scheme" "HTTPS" }}{{- end -}}
+{{- $liveness := dict "httpGet" $get "initialDelaySeconds" 15 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" $get "initialDelaySeconds" 5 "periodSeconds" 10 -}}
 {{/* First boot runs schema migrations, so allow a generous startup window. */}}
-{{- $startup := dict "httpGet" (dict "path" "/healthz" "port" "http") "periodSeconds" 5 "failureThreshold" 60 -}}
+{{- $startup := dict "httpGet" $get "periodSeconds" 5 "failureThreshold" 60 -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -61,6 +64,15 @@ spec:
                   name: {{ include "woodpecker.agentSecretName" . }}
                   key: {{ include "woodpecker.agentSecretKey" . }}
             {{- end }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # HTTPS on httpsPort; the plain port then redirects to it. gRPC stays plain.
+            - name: WOODPECKER_SERVER_CERT
+              value: /tls/tls.crt
+            - name: WOODPECKER_SERVER_KEY
+              value: /tls/tls.key
+            - name: WOODPECKER_SERVER_ADDR_TLS
+              value: {{ printf ":%d" (int .Values.httpsPort) | quote }}
+            {{- end }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
@@ -70,6 +82,11 @@ spec:
             - name: grpc
               containerPort: {{ .Values.grpcPort }}
               protocol: TCP
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: https
+              containerPort: {{ .Values.httpsPort }}
+              protocol: TCP
+            {{- end }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- if .Values.customStartupProbe }}
@@ -88,6 +105,7 @@ spec:
             # Read-only rootfs: give the server a writable scratch dir.
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -101,6 +119,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
   volumeClaimTemplates:

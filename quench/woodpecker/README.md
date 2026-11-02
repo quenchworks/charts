@@ -75,6 +75,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/woodpecker \
 | `service.type`                     | `ClusterIP`                             | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
 | `service.port`                     | `80`                                    | HTTP Service port -> container `http`.                                                    |
 | `service.grpcPort`                 | `9000`                                  | gRPC Service port -> container `grpc`.                                                    |
+| `httpsPort`, `service.httpsPort` | `8443`, `443` | HTTPS for the web UI and API, only with `tls.enabled` |
+| `tls.enabled` | `false` | HTTPS on `httpsPort` (cert at `/tls`); the plain port redirects to `host`, probes move to HTTPS, agent gRPC stays plain |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `resources.requests`               | `100m / 128Mi`                          | CPU / memory requests.                                                                    |
 | `resources.limits`                 | `1 / 512Mi`                             | CPU / memory limits.                                                                      |
 | `extraEnvVars`                     | `[]`                                    | Extra `WOODPECKER_*` env; put the forge config here.                                      |
