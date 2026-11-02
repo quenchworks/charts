@@ -122,6 +122,10 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/mongodb --owner que
 | `auth.existingSecret` | `""` | Use an existing Secret instead. |
 | `primary.persistence.enabled` | `true` | 8Gi PVC mounted at `/data` (dbpath `/data/db`, logs/socket `/data/log`). |
 | `service.port` | `27017` | MongoDB wire protocol. |
+| `tls.enabled` | `false` | Native TLS on 27017 (`--tlsMode preferTLS`, cert at `/tls`): TLS offered, plaintext still accepted; replica-set members talk TLS to each other. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `networkPolicy.enabled` | `true` | Restricts ingress to the release namespace, port 27017. |
 | `metrics.enabled` | `false` | mongodb_exporter sidecar (our hardened image) in every mongod pod. |
 | `metrics.port` | `9216` | Scrape port; a `<release>-mongodb-metrics` Service fronts it. |

@@ -117,7 +117,33 @@ jobs:
             exit 1
           fi
           echo "HA replica-set write/read OK: $out"
+          # native TLS: roll the persistent set onto the chart certificate (preferTLS); every
+          # member must come back healthy and answer a TLS client that verifies the Service name
+          helm upgrade rtestha "${CHART_DIR}" -f "${CHART_DIR}/ci/replicaset-values.yaml" --set tls.enabled=true --wait --timeout 12m
+          kubectl rollout status statefulset/rtestha-mongodb --timeout=600s
+          for p in 0 1 2; do
+            for i in $(seq 1 30); do
+              out="$(kubectl exec rtestha-mongodb-$p -- env HOME=/tmp mongosh --quiet \
+                "mongodb://root:${PW}@rtestha-mongodb:27017/admin?tls=true&tlsCAFile=/tls/ca.crt&directConnection=true" \
+                --eval 'print(db.adminCommand({getParameter: 1, tlsMode: 1}).tlsMode, rs.status().members.filter(m => m.health == 1).length)' 2>/dev/null | tr -d '\r' | tail -1 || true)"
+              [ "$out" = "preferTLS 3" ] && break; sleep 5
+            done
+            [ "$out" = "preferTLS 3" ] || { echo "::error::member $p over TLS: [$out]"; exit 1; }
+          done
+          echo "replica set serves TLS on every member"
           helm uninstall rtestha --wait || true
+          # standalone: the image entrypoint joins the PEM itself (MONGO_TLS_DIR)
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-mongodb --timeout=420s
+          PW="$(kubectl get secret rtest-mongodb -o jsonpath='{.data.mongodb-root-password}' | base64 -d)"
+          for i in $(seq 1 30); do
+            out="$(kubectl exec rtest-mongodb-0 -- env HOME=/tmp mongosh --quiet \
+              "mongodb://root:${PW}@rtest-mongodb:27017/admin?tls=true&tlsCAFile=/tls/ca.crt" \
+              --eval 'print(db.adminCommand({getParameter: 1, tlsMode: 1}).tlsMode)' 2>/dev/null | tr -d '\r' | tail -1 || true)"
+            [ "$out" = preferTLS ] && break; sleep 5
+          done
+          [ "$out" = preferTLS ] || { echo "::error::standalone over TLS: [$out]"; exit 1; }
+          echo "standalone serves TLS"
 
       # A push that edits this workflow re-runs the whole release, including for a
       # chart whose version is already published (one bulk edit once fired 161

@@ -74,6 +74,11 @@ spec:
             - name: MONGO_INITDB_DATABASE
               value: {{ .Values.auth.database | quote }}
             {{- end }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # the entrypoint joins /tls/tls.crt + tls.key and starts mongod with preferTLS
+            - name: MONGO_TLS_DIR
+              value: /tls
+            {{- end }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
@@ -93,6 +98,7 @@ spec:
             # Single writable mount: dbpath (/data/db) + log/socket/HOME (/data/log).
             - name: data
               mountPath: /data
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- if .Values.metrics.enabled }}
         {{- include "mongodb.metricsContainer" (dict "root" .) | nindent 8 }}
@@ -107,6 +113,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.primary.persistence.enabled (not .Values.primary.persistence.existingClaim) }}
   volumeClaimTemplates:

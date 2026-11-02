@@ -41,6 +41,16 @@ data:
     cp /secrets/mongodb-keyfile "$KEYFILE"
     chmod 0600 "$KEYFILE"
 
+    # Optional native TLS (MONGO_TLS_DIR=/tls when tls.enabled): mongod wants certificate and
+    # key in one file, so join them in the writable log dir. preferTLS keeps the plain
+    # mongosh calls below (and members not yet rolled) working while every member serves TLS.
+    TLS_ARGS=()
+    if [ -n "${MONGO_TLS_DIR:-}" ]; then
+      ( umask 077; cat "$MONGO_TLS_DIR/tls.crt" "$MONGO_TLS_DIR/tls.key" > "$LOGDIR/tls.pem" )
+      TLS_ARGS=(--tlsMode preferTLS --tlsCertificateKeyFile "$LOGDIR/tls.pem"
+        --tlsCAFile "$MONGO_TLS_DIR/ca.crt" --tlsAllowConnectionsWithoutCertificates)
+    fi
+
     m() { mongosh --quiet --host 127.0.0.1 --port "$PORT" "$@"; }
 
     # Start mongod in the background so the ordinal-0 pod can initiate the set while
@@ -48,7 +58,7 @@ data:
     mongod --dbpath "$DBPATH" --bind_ip_all --port "$PORT" \
       --replSet {{ .Values.ha.replicaSetName | quote }} --keyFile "$KEYFILE" \
       --unixSocketPrefix "$LOGDIR" \
-      --logpath "$LOGDIR/mongod.log" --logappend &
+      --logpath "$LOGDIR/mongod.log" --logappend "${TLS_ARGS[@]}" &
     MONGO_PID=$!
     trap 'echo "[ha] SIGTERM -> mongod"; kill -TERM "$MONGO_PID" 2>/dev/null || true' TERM INT
 
