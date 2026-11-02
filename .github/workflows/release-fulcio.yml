@@ -54,6 +54,23 @@ jobs:
           conf="$(curl -fsS http://127.0.0.1:18080/api/v2/configuration)"
           echo "configuration: ${conf:0:300}"
           grep -q "oauth2.sigstore.dev/auth" <<<"$conf"
+          # native TLS on gRPC: the HTTP gateway still answers, and gRPC completes an h2
+          # handshake that verifies the Service name against the chart CA
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-fulcio --timeout=300s
+          kubectl get secret rtest-fulcio-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/fulcio-ca.crt
+          kubectl port-forward svc/rtest-fulcio 18080:8080 18081:8081 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS http://127.0.0.1:18080/api/v2/configuration | >/dev/null grep "oauth2.sigstore.dev/auth"
+          python3 - <<'PY'
+          import socket, ssl
+          ctx = ssl.create_default_context(cafile="/tmp/fulcio-ca.crt")
+          ctx.set_alpn_protocols(["h2"])
+          t = ctx.wrap_socket(socket.create_connection(("127.0.0.1", 18081), 10), server_hostname="rtest-fulcio")
+          assert t.selected_alpn_protocol() == "h2", t.selected_alpn_protocol()
+          print("fulcio gRPC over TLS ok:", t.version())
+          PY
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

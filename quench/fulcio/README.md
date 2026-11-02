@@ -31,5 +31,9 @@ KMS, Tink and Google CA Service backends take their settings through
 | `ca.file.existingSecret` | `""` | Secret with `cert.pem`, `key.pem`, `password` |
 | `ctLogUrl` | `""` | CT log URL; empty turns Certificate Transparency off |
 | `config` | public Sigstore issuer | Fulcio `config.yaml`: the OIDC issuers it trusts |
+| `tls.enabled` | `false` | Native TLS on the gRPC port 8081 (cert at `/tls`); fulcio's HTTP API stays plain. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 
 Clients: `cosign sign --fulcio-url http://<service>:8080`.

@@ -40,6 +40,11 @@ spec:
             - --fileca-key=/etc/fulcio-ca/{{ .Values.ca.file.keyKey }}
             - --fileca-key-passwd=$(FILECA_KEY_PASSWORD)
             {{- end }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # native TLS on the gRPC port (fulcio's TLS flags apply to gRPC only)
+            - --grpc-tls-certificate=/tls/tls.crt
+            - --grpc-tls-key=/tls/tls.key
+            {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -71,6 +76,7 @@ spec:
               mountPath: /etc/fulcio-ca
               readOnly: true
             {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
       volumes:
         - name: config
           configMap:
@@ -80,3 +86,4 @@ spec:
           secret:
             secretName: {{ .Values.ca.file.existingSecret }}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
