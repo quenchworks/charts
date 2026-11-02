@@ -89,7 +89,8 @@ jobs:
           PY
 
           # native TLS: the gateway serves the chart certificate instead of its self-signed one;
-          # a client that verifies the chart CA (localhost is a SAN) reads the document back
+          # a client that verifies the chart CA (localhost is a SAN) writes and reads a document
+          # (the gate runs on an emptyDir, so the upgrade starts from an empty database)
           kill "$pf" 2>/dev/null || true
           helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
           kubectl rollout status statefulset/rtest-documentdb --timeout=420s
@@ -109,13 +110,14 @@ jobs:
           for _ in range(30):
               try:
                   c = MongoClient(uri, serverSelectionTimeoutMS=3000)
+                  c["gate"]["c"].insert_one({"_id": 1, "k": "v"})
                   doc = c["gate"]["c"].find_one({"_id": 1})
                   break
               except Exception as e:
                   last = e; time.sleep(3)
           else:
               print("verified-TLS connect failed:", last); sys.exit(1)
-          assert doc and doc.get("k") == "v", "document not read back over TLS: %r" % doc
+          assert doc and doc.get("k") == "v", "document not read back over verified TLS: %r" % doc
           print("verified TLS roundtrip OK:", doc)
           PY
 

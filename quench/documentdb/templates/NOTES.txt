@@ -9,8 +9,13 @@ Connect from inside the cluster:
   User: {{ .Values.auth.username }}
   Auth: SCRAM-SHA-256
 
+{{- if include "quench-common.tls.enabled" . }}
+The gateway enforces TLS with the chart certificate. Verify it with the CA in Secret
+{{ include "quench-common.tls.secretName" . }} (key ca.crt): pass tls=true&tlsCAFile=<ca.crt>.
+{{- else }}
 The gateway enforces TLS with an auto-generated self-signed cert, so clients MUST
-pass tls=true&tlsAllowInvalidCertificates=true.
+pass tls=true&tlsAllowInvalidCertificates=true (tls.enabled gives it a verifiable one).
+{{- end }}
 
 {{- if .Values.auth.enabled }}
 
