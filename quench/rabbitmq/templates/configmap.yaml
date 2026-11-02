@@ -25,6 +25,15 @@ data:
     default_queue_type = quorum
     {{- end }}
     listeners.tcp.default = {{ .Values.service.port }}
+    {{- if include "quench-common.tls.enabled" . }}
+    # AMQPS next to plain AMQP (clients choose); server-side TLS only, no client certs
+    listeners.ssl.default = {{ .Values.service.tlsPort }}
+    ssl_options.cacertfile = /tls/ca.crt
+    ssl_options.certfile = /tls/tls.crt
+    ssl_options.keyfile = /tls/tls.key
+    ssl_options.verify = verify_none
+    ssl_options.fail_if_no_peer_cert = false
+    {{- end }}
     {{- if .Values.management.enabled }}
     management.tcp.port = {{ .Values.service.managementPort }}
     management.tcp.ip = 0.0.0.0

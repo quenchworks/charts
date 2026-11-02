@@ -75,6 +75,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/rabbitmq \
 | `primary.persistence.enabled` | `true` | 8Gi PVC at `/var/lib/rabbitmq`. |
 | `service.port` | `5672` | AMQP. |
 | `service.managementPort` | `15672` | Management API/UI. |
+| `service.tlsPort` | `5671` | AMQPS, only with `tls.enabled`. |
+| `tls.enabled` | `false` | Adds an AMQPS listener (cert at `/tls`) beside plain AMQP; the management UI stays HTTP. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `serviceAccount.create` | `true` | Token automount is off. |
 | `rbac.create` | `false` | Minimal Role/RoleBinding. |
 | `networkPolicy.enabled` | `true` | Restricts ingress to the release namespace. |

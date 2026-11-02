@@ -87,6 +87,10 @@ spec:
           ports:
             - name: amqp
               containerPort: 5672
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: amqps
+              containerPort: {{ .Values.service.tlsPort }}
+            {{- end }}
             - name: epmd
               containerPort: 4369
             - name: dist
@@ -113,6 +117,7 @@ spec:
               mountPath: /etc/rabbitmq
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -129,6 +134,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.primary.persistence.enabled (not .Values.primary.persistence.existingClaim) }}
   volumeClaimTemplates:

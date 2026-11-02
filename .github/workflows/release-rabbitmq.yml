@@ -51,6 +51,24 @@ jobs:
           # authenticate_user exits 0 only if the default user + password were seeded
           pw=$(kubectl get secret rtest-rabbitmq -o jsonpath='{.data.rabbitmq-password}' | base64 -d)
           kubectl exec rtest-rabbitmq-0 -- rabbitmqctl authenticate_user user "$pw"
+          # native TLS: roll the cluster onto an AMQPS listener; every node must list it and a
+          # client must reach Connection.Start over TLS, verifying the Service name
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status statefulset/rtest-rabbitmq --timeout=600s
+          for p in 0 1 2; do
+            kubectl exec rtest-rabbitmq-$p -- rabbitmq-diagnostics -q listeners | >/dev/null grep 'port: 5671, protocol: amqp/ssl'
+          done
+          kubectl get secret rtest-rabbitmq-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/rmq-ca.crt
+          kubectl port-forward svc/rtest-rabbitmq 5671:5671 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 4
+          python3 - <<'PY'
+          import socket, ssl
+          t = ssl.create_default_context(cafile="/tmp/rmq-ca.crt").wrap_socket(
+              socket.create_connection(("127.0.0.1", 5671), 10), server_hostname="rtest-rabbitmq")
+          t.sendall(b"AMQP\x00\x00\x09\x01")
+          assert t.recv(64)[:1] == b"\x01", "no Connection.Start over TLS"
+          print("rabbitmq AMQPS ok:", t.version())
+          PY
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
