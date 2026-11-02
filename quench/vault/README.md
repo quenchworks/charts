@@ -105,6 +105,10 @@ Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them 
 | `dev.enabled`                 | `false`                            | `true` = auto-unsealed in-memory server (testing only).                                                    |
 | `dev.rootToken`               | `""`                               | Dev root token; random into a Secret if unset.                                                             |
 | `server.config`               | `file` storage, TLS off, mlock off | The whole `vault.hcl`, rendered into a ConfigMap. Replace it to change storage, add `seal`, or enable TLS. |
+| `tls.enabled` | `false` | Native TLS on 8200: the listener's `tls_disable = true` (default `server.config` and HA) becomes the chart cert at `/tls`; raft peers join over https; `kubectl exec ... vault` uses `VAULT_CACERT`. Not with `dev.enabled`. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `persistence.enabled`         | `true`                             | 8Gi PVC mounted at `/vault/data` (file storage).                                                           |
 | `service.apiPort`             | `8200`                             | HTTP API / CLI.                                                                                            |
 | `service.clusterPort`         | `8201`                             | Vault cluster port on the headless service. Carries raft traffic when `ha.enabled=true`.                   |

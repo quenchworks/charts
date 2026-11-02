@@ -42,19 +42,34 @@ data:
            that points at itself, and a uniform list means ANY pod can be the one you
            initialise -- no special-casing pod 0. */}}
       retry_join {
+        {{- if include "quench-common.tls.enabled" $ }}
+        leader_api_addr     = "https://{{ $full }}-{{ $i }}.{{ $headless }}.{{ $.Release.Namespace }}.svc:{{ $port }}"
+        leader_ca_cert_file = "/tls/ca.crt"
+        {{- else }}
         leader_api_addr = "http://{{ $full }}-{{ $i }}.{{ $headless }}:{{ $port }}"
+        {{- end }}
       }
     {{- end }}
     }
 
     listener "tcp" {
       address     = "0.0.0.0:{{ .Values.service.apiPort }}"
+      {{- if include "quench-common.tls.enabled" . }}
+      tls_cert_file = "/tls/tls.crt"
+      tls_key_file  = "/tls/tls.key"
+      {{- else }}
       tls_disable = true
+      {{- end }}
     }
     {{- with .Values.ha.extraConfig }}
     {{ . | nindent 4 | trim }}
     {{- end }}
     {{- else }}
-    {{- .Values.server.config | nindent 4 }}
+    {{- $cfg := .Values.server.config }}
+    {{- if include "quench-common.tls.enabled" . }}
+    {{- /* the default listener's `tls_disable = true` becomes the chart certificate */}}
+    {{- $cfg = $cfg | replace "tls_disable = true" "tls_cert_file = \"/tls/tls.crt\"\n  tls_key_file  = \"/tls/tls.key\"" }}
+    {{- end }}
+    {{- $cfg | nindent 4 }}
     {{- end }}
 {{- end }}

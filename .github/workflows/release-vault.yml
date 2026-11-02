@@ -213,6 +213,35 @@ jobs:
           echo "UI served: $(wc -c </tmp/ui.html) bytes, Ember bundle referenced"
 
           helm uninstall hatest --wait
+          kubectl delete pvc --all --ignore-not-found
+
+          # native TLS: the same raft cluster on the chart certificate. Peers join over https
+          # (leader_ca_cert_file), and the in-pod CLI reaches https://localhost with VAULT_CACERT.
+          helm install hatls "${CHART_DIR}" \
+            --set dev.enabled=false --set ha.enabled=true --set ha.replicas=3 \
+            --set persistence.size=1Gi --set tls.enabled=true
+          for i in $(seq 1 60); do
+            n="$(kubectl get pods -l app.kubernetes.io/instance=hatls --no-headers | grep -c Running || true)"
+            [ "${n:-0}" -ge 3 ] && break; sleep 5
+          done
+          for i in $(seq 1 30); do
+            init="$(kubectl exec hatls-vault-0 -- vault operator init -key-shares=1 -key-threshold=1 -format=json 2>/dev/null)" && break
+            sleep 4
+          done
+          key="$(jq -r '.unseal_keys_b64[0]' <<<"$init")"
+          for p in 0 1 2; do
+            for i in $(seq 1 30); do
+              kubectl exec hatls-vault-$p -- vault operator unseal "$key" >/dev/null 2>&1 && break; sleep 4
+            done
+          done
+          for i in $(seq 1 30); do
+            # vault status exits 2 while sealed: keep that from ending the step
+            modes="$(for p in 0 1 2; do kubectl exec hatls-vault-$p -- vault status 2>/dev/null | awk '/^HA Mode/{print $3}' || true; done | sort | tr '\n' ' ')"
+            [ "$modes" = "active standby standby " ] && break; sleep 4
+          done
+          echo "TLS raft modes: [$modes]"
+          test "$modes" = "active standby standby "
+          helm uninstall hatls --wait
 
       # A push that edits this workflow re-runs the whole release, including for a
       # chart whose version is already published (one bulk edit once fired 161
