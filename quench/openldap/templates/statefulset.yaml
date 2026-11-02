@@ -84,7 +84,7 @@ spec:
           # containerd's default (1073741816) makes it allocate ~56 GB and get OOM-killed
           # before it listens. slapd is exec'ed, so it is still PID 1 and gets signals.
           args:
-            - "ulimit -n {{ .Values.ldap.maxOpenFiles }}; exec /usr/bin/slapd -h ldap://0.0.0.0:{{ $port }}/ -f {{ $cfg }} -d {{ .Values.ldap.logLevel }}"
+            - "ulimit -n {{ .Values.ldap.maxOpenFiles }}; exec /usr/bin/slapd -h 'ldap://0.0.0.0:{{ $port }}/{{ if include "quench-common.tls.enabled" . }} ldaps://0.0.0.0:{{ .Values.service.tlsPort }}/{{ end }}' -f {{ $cfg }} -d {{ .Values.ldap.logLevel }}"
           {{- end }}
           env:
             - name: LDAP_BASE_DN
@@ -96,6 +96,10 @@ spec:
           ports:
             - name: ldap
               containerPort: {{ $port }}
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: ldaps
+              containerPort: {{ .Values.service.tlsPort }}
+            {{- end }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}
@@ -110,6 +114,7 @@ spec:
               mountPath: /var/lib/openldap
             - name: config
               mountPath: /opt/quench/openldap
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -128,6 +133,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
   volumeClaimTemplates:

@@ -158,6 +158,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/openldap \
 | `auth.existingSecret` | `""` | Use your own `Secret` instead. |
 | `persistence.enabled` | `true` | 8Gi PVC at `/var/lib/openldap`. |
 | `service.port` | `1389` | Unprivileged LDAP port. |
+| `service.tlsPort` | `1636` | LDAPS, only with `tls.enabled`. |
+| `tls.enabled` | `false` | LDAPS on `service.tlsPort` plus StartTLS on the plain port (cert at `/tls`). |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `serviceAccount.create` | `true` | Token automount is off. |
 | `rbac.create` | `false` | Minimal Role/RoleBinding. |
 | `networkPolicy.enabled` | `true` | Ingress on `ldap` from the namespace. |
