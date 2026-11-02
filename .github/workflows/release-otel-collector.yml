@@ -80,6 +80,20 @@ jobs:
           test "$code" = "200"
           echo ":4318/v1/traces -> 200 (OTLP span accepted)"
 
+          # native TLS: the OTLP receivers serve TLS; a span over verified HTTPS is accepted and
+          # the same port refuses plain HTTP (no silent downgrade)
+          kill $pfh $pfm $pfo; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 5m
+          kubectl rollout status deploy/rtest-otel-collector --timeout=300s
+          kubectl get secret rtest-otel-collector-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/otel-ca.crt
+          kubectl port-forward svc/rtest-otel-collector 4318:4318 >/tmp/pf-otlp.log 2>&1 &
+          pfo=$!; trap 'kill $pfo' EXIT; sleep 5
+          code="$(curl -sS -o /dev/null -w '%{http_code}' --cacert /tmp/otel-ca.crt --resolve rtest-otel-collector:4318:127.0.0.1 \
+            -X POST https://rtest-otel-collector:4318/v1/traces -H 'Content-Type: application/json' -d "$SPAN")"
+          test "$code" = "200"
+          plain="$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:4318/v1/traces -H 'Content-Type: application/json' -d "$SPAN" || true)"
+          test "$plain" != "200" || { echo "plain HTTP still accepted spans on 4318"; exit 1; }
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

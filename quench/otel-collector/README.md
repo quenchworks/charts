@@ -113,6 +113,10 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/otel-collector --ow
 | `service.exposeHealth` | `false` | Publish `:13133` on the Service. |
 | `networkPolicy.enabled` | `true` | Restricts ingress to the release namespace. |
 | `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| `tls.enabled` | `false` | OTLP gRPC and HTTP receivers serve TLS (cert at `/tls`); health and metrics stay plain |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
 env/volumes, security contexts).

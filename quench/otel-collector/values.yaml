@@ -96,6 +96,21 @@ resources:
   requests: { cpu: 100m, memory: 128Mi }
   limits: { cpu: "1", memory: 512Mi }
 
+# Native TLS: the OTLP receivers in config (gRPC 4317, HTTP 4318) serve TLS with the chart
+# certificate mounted at /tls; senders then need the CA. The health check and metrics stay
+# plain. It comes from the first source set: existingSecret, then a cert-manager Certificate,
+# else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
 # --- Common production knobs, wired through quench-common (all optional) ---
 podLabels: {}
 podAnnotations: {}

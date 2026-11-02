@@ -9,5 +9,15 @@ data:
   # The image ships no default config, so this is the entire configuration. Edit
   # `config` in your values and `helm upgrade`; the pod checksum annotation rolls
   # the Deployment.
+  {{- $cfg := deepCopy .Values.config }}
+  {{- if include "quench-common.tls.enabled" . }}
+  {{- /* tls.enabled: the OTLP receivers (gRPC and HTTP) serve TLS with the chart certificate */}}
+  {{- $otlp := dig "receivers" "otlp" "protocols" dict $cfg }}
+  {{- range $p := list "grpc" "http" }}
+  {{- if hasKey $otlp $p }}
+  {{- $_ := set (index $otlp $p | default dict) "tls" (dict "cert_file" "/tls/tls.crt" "key_file" "/tls/tls.key") }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
   config.yaml: |-
-    {{- toYaml .Values.config | nindent 4 }}
+    {{- toYaml $cfg | nindent 4 }}
