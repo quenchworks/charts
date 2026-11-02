@@ -42,20 +42,22 @@ jobs:
       - name: Install gate (kind)
         run: |
           set -o pipefail
-          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          # tls.enabled: the coordinator adds HTTPS on 8443 beside HTTP on 8080, where the checks run
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
           kubectl rollout status deployment/rtest-trino-coordinator --timeout=300s
           kubectl rollout status deployment/rtest-trino-worker --timeout=300s
           kubectl port-forward svc/rtest-trino 8080:8080 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           # Runs one statement over the client REST protocol, printing each data page.
+          QB=http://127.0.0.1:8080; QC=()
           query() {
             local r n
-            r="$(curl -fsS -X POST -H 'X-Trino-User: ci' --data "$1" http://127.0.0.1:8080/v1/statement)"
+            r="$(curl -fsS "${QC[@]}" -X POST -H 'X-Trino-User: ci' --data "$1" "$QB/v1/statement")"
             while :; do
               python3 -c 'import json,sys; j=json.loads(sys.argv[1]); e=j.get("error"); sys.exit("query failed: "+e["message"]) if e else None; d=j.get("data"); print(json.dumps(d)) if d else None' "$r"
               n="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("nextUri",""))' "$r")"
               [ -z "$n" ] && return 0
-              r="$(curl -fsS -H 'X-Trino-User: ci' "$n")"
+              r="$(curl -fsS "${QC[@]}" -H 'X-Trino-User: ci' "$n")"
             done
           }
           # 1. Discovery: the worker registered with the coordinator.
@@ -73,6 +75,15 @@ jobs:
           query 'CREATE TABLE memory.default.ci AS SELECT 42 AS x' >/dev/null
           out="$(query 'SELECT x FROM memory.default.ci')"
           [ "$out" = "[[42]]" ] || { echo "memory round trip returned: $out"; exit 1; }
+          # 4. Native TLS: the same join over the coordinator's HTTPS port, verifying the chart CA
+          #    and the Service name (nextUri stays on https).
+          kubectl get secret rtest-trino-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/trino-ca.crt
+          kubectl port-forward svc/rtest-trino 8443:8443 >/tmp/pf2.log 2>&1 &
+          pf2=$!; sleep 5
+          QB=https://rtest-trino:8443; QC=(--cacert /tmp/trino-ca.crt --resolve rtest-trino:8443:127.0.0.1)
+          out="$(query 'SELECT count(*) FROM tpch.tiny.customer c JOIN tpch.tiny.nation n ON c.nationkey = n.nationkey')"
+          kill $pf2
+          [ "$out" = "[[1500]]" ] || { echo "tpch join over HTTPS returned: $out"; exit 1; }
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

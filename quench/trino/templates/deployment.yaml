@@ -34,7 +34,26 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" $ | nindent 8 }}
       {{- include "quench-common.podSpecFields" $ | nindent 6 }}
+      {{- $tls := and (eq $role "coordinator") (eq (include "quench-common.tls.enabled" $) "true") }}
+      {{- if $tls }}
+      initContainers:
+        # Trino reads one PEM file holding the key and the chain; the image has no shell
+        - name: tls-pem
+          image: "{{ $.Values.busybox.repository }}@{{ $.Values.busybox.digest }}"
+          imagePullPolicy: {{ $.Values.busybox.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" $ | nindent 12 }}
+          command: ["/bin/sh", "-c", "cat /tls/tls.key /tls/tls.crt > /tls-pem/server.pem"]
+          volumeMounts:
+            {{- include "quench-common.tls.volumeMount" $ | nindent 12 }}
+            - name: tls-pem
+              mountPath: /tls-pem
+        {{- with $.Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- else }}
       {{- include "quench-common.initContainers" $ | nindent 6 }}
+      {{- end }}
       containers:
         - name: trino
           image: {{ include "quench-common.image" $ }}
@@ -50,6 +69,11 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+            {{- if $tls }}
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+            {{- end }}
           {{- include "quench-common.probe" (dict "ctx" $ "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" $ "name" "readiness" "default" $readiness) | nindent 10 }}
           resources:
@@ -64,6 +88,11 @@ spec:
               mountPath: /data/trino
             - name: tmp
               mountPath: /tmp
+            {{- if $tls }}
+            - name: tls-pem
+              mountPath: /tls-pem
+              readOnly: true
+            {{- end }}
             {{- include "quench-common.extraVolumeMounts" $ | nindent 12 }}
         {{- include "quench-common.sidecars" $ | nindent 8 }}
       volumes:
@@ -85,6 +114,11 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        {{- if $tls }}
+        {{- include "quench-common.tls.volume" $ | nindent 8 }}
+        - name: tls-pem
+          emptyDir: { medium: Memory }
+        {{- end }}
         {{- include "quench-common.extraVolumes" $ | nindent 8 }}
 {{- end }}
 {{- end }}

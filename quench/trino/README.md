@@ -64,6 +64,11 @@ password file, or OAUTH2) together with TLS.
 | `config` | `{}` | extra config.properties entries on every node |
 | `catalogs` | tpch, memory | catalog files |
 | `logLevels` | `{}` | log.properties |
+| `service.httpsPort` | `8443` | HTTPS on the coordinator, only with `tls.enabled` |
+| `tls.enabled` | `false` | The coordinator also serves HTTPS on 8443 beside HTTP (busybox joins key + cert into the PEM Trino reads) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `networkPolicy.allowExternal` | `true` | admit clients from other namespaces |
 
 ## Release gate
