@@ -69,6 +69,15 @@ jobs:
           kill $PF
           # the RocksDB native library loaded from the read-only root, no stack traces
           ! kubectl logs deployment/rtest-nessie | grep -E ' ERROR |Exception' || exit 1
+          # native TLS: the https listener serves the same branches over a verified session
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-nessie --timeout=300s
+          kubectl get secret rtest-nessie-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/nessie-ca.crt
+          kubectl port-forward svc/rtest-nessie 8443:8443 >/dev/null 2>&1 & PF=$!
+          tc="--cacert /tmp/nessie-ca.crt --resolve rtest-nessie:8443:127.0.0.1"
+          for i in $(seq 1 30); do curl -fsS $tc https://rtest-nessie:8443/api/v2/config >/dev/null 2>&1 && break; sleep 1; done
+          curl -fsS $tc https://rtest-nessie:8443/api/v2/trees | >/dev/null grep '"name" *: *"gate"'
+          kill $PF
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

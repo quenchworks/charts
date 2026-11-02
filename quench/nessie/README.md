@@ -45,6 +45,11 @@ branches and commit. Keep the Service internal, or enable OIDC through `extraEnv
 | `javaOpts` | `-XX:MaxRAMPercentage=75` | JVM flags |
 | `extraEnvVars` | `[]` | any other Nessie or Quarkus setting as an env var |
 | `service.port` | `19120` | API port |
+| `service.httpsPort` | `8443` | Quarkus https listener, only with `tls.enabled` |
+| `tls.enabled` | `false` | an https listener beside plain http (cert at `/tls`) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 Pods run with a read-only root filesystem and all capabilities dropped. Health and
 metrics are on 9000 (`/q/health`, `/q/metrics`), which the probes use.
