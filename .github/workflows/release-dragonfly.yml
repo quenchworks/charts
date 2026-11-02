@@ -72,6 +72,29 @@ jobs:
           echo "replica GET gate -> ${out}"
           echo "${out}" | >/dev/null grep quench || { echo "::error::Dragonfly replication round-trip failed (expected 'quench')"; exit 1; }
 
+          # native TLS: plain replication (no Sentinel) on the chart certificate. A client with the
+          # chart CA writes to the primary and reads it back off the replica, all over TLS.
+          helm install rtls "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set sentinel.enabled=false --set replica.replicaCount=1 --set tls.enabled=true --wait --timeout 6m
+          PWT="$(kubectl get secret rtls-dragonfly -o jsonpath='{.data.dragonfly-password}' | base64 -d)"
+          rct() {
+            local p="rct$RANDOM"
+            local ov
+            ov="$(jq -nc --arg pw "$PWT" '{spec: {volumes: [{name: "tls", secret: {secretName: "rtls-dragonfly-tls"}}], containers: [{name: "c", image: "redis:7-alpine", command: (["redis-cli", "--tls", "--cacert", "/tls/ca.crt", "--no-auth-warning", "-a", $pw] + $ARGS.positional), volumeMounts: [{name: "tls", mountPath: "/tls"}]}]}}' --args -- "$@")"
+            kubectl run "$p" --restart=Never --image=redis:7-alpine --overrides="$ov" >/dev/null
+            for _ in $(seq 1 60); do
+              ph="$(kubectl get pod "$p" -o jsonpath='{.status.phase}')"
+              [ "$ph" = Succeeded ] || [ "$ph" = Failed ] && break; sleep 2
+            done
+            kubectl logs "$p"; kubectl delete pod "$p" --wait=false >/dev/null
+          }
+          rct -h rtls-dragonfly SET gate quench-tls
+          for i in $(seq 1 20); do
+            out="$(rct -h rtls-dragonfly-replica-0.rtls-dragonfly-replica-headless GET gate)"
+            grep -qx quench-tls <<<"$out" && break; sleep 3
+          done
+          grep -qx quench-tls <<<"$out" || { echo "::error::TLS replication round-trip failed: $out"; exit 1; }
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

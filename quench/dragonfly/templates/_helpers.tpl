@@ -158,6 +158,16 @@ container wrote; without Sentinel, a static --replicaof points at the bootstrap 
     {{- end }}
     - "--proactor_threads={{ $.Values.config.threads }}"
     - "--maxmemory={{ $.Values.config.maxmemory }}"
+    {{- if include "quench-common.tls.enabled" $ }}
+    # native TLS on 6379 (no CA file: Dragonfly would then demand client certificates)
+    - "--tls"
+    - "--tls_cert_file=/tls/tls.crt"
+    - "--tls_key_file=/tls/tls.key"
+    {{- end }}
+    {{- if and (include "quench-common.tls.enabled" $) (or $ha .replicaof) }}
+    # a replica dials its master over TLS too
+    - "--tls_replication"
+    {{- end }}
     {{- if $.Values.auth.enabled }}
     - "--requirepass=$(DRAGONFLY_REQUIREPASS)"
     - "--masterauth=$(DRAGONFLY_REQUIREPASS)"
@@ -173,13 +183,17 @@ container wrote; without Sentinel, a static --replicaof points at the bootstrap 
     {{- range $.Values.extraFlags }}
     - {{ . | quote }}
     {{- end }}
-  {{- else }}
-  {{- with $.Values.extraFlags }}
+  {{- else if or $.Values.extraFlags (include "quench-common.tls.enabled" $) }}
   args:
-    {{- range . }}
+    {{- if include "quench-common.tls.enabled" $ }}
+    # native TLS on 6379 (no CA file: Dragonfly would then demand client certificates)
+    - "--tls"
+    - "--tls_cert_file=/tls/tls.crt"
+    - "--tls_key_file=/tls/tls.key"
+    {{- end }}
+    {{- range $.Values.extraFlags }}
     - {{ . | quote }}
     {{- end }}
-  {{- end }}
   {{- end }}
   ports:
     - name: redis
@@ -204,6 +218,7 @@ container wrote; without Sentinel, a static --replicaof points at the bootstrap 
       mountPath: /etc/dragonfly
       readOnly: true
     {{- end }}
+    {{- include "quench-common.tls.volumeMount" $ | nindent 4 }}
     {{- include "quench-common.extraVolumeMounts" $ | nindent 4 }}
 {{- end -}}
 
@@ -229,6 +244,7 @@ container wrote; without Sentinel, a static --replicaof points at the bootstrap 
 - name: data
   emptyDir: {}
 {{- end }}
+{{- include "quench-common.tls.volume" $ | nindent 0 }}
 {{- include "quench-common.extraVolumes" $ | nindent 0 }}
 {{- end -}}
 

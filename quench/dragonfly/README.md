@@ -131,6 +131,10 @@ under nonroot/kind/seccomp.
 | `config.maxmemory` | `512mb` | `--maxmemory`. MUST be >= threads*256MiB. |
 | `config.forceEpoll` | `true` | Keep epoll on (io_uring restricted under nonroot/kind). |
 | `extraFlags` | `[]` | Extra dragonfly server flags (applied in `replication` mode; see note). |
+| `tls.enabled` | `false` | Native TLS on 6379 (cert at `/tls`); replicas sync over it. Not with `sentinel.enabled` yet: its master discovery is plaintext. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `architecture` | `standalone` | `standalone` or `replication`. |
 | `sentinel.enabled` | `false` | With `replication`, adds a Sentinel quorum for automatic failover. |
 | `sentinel.replicaCount` | `3` | Sentinel count. |
