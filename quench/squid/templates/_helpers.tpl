@@ -48,6 +48,10 @@ http_access allow localhost
 http_access deny all
 
 http_port 3128
+{{- if include "quench-common.tls.enabled" . }}
+# tls.enabled: the proxy itself also over TLS (clients use an https:// proxy URL)
+https_port {{ .Values.service.tlsPort }} tls-cert=/tls/tls.crt tls-key=/tls/tls.key
+{{- end }}
 
 cache_mem {{ .Values.cacheMem }}
 # squid sizes its descriptor tables from the fd limit, and containerd's is

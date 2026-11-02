@@ -78,6 +78,17 @@ jobs:
             cat /tmp/squid.log; exit 1
           fi
 
+          # 4. native TLS: the proxy itself over TLS (an https:// proxy URL), verified against
+          #    the chart CA, still tunnels to the API server
+          kill $pf 2>/dev/null || true; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 5m
+          kubectl rollout status deployment/rtest-squid --timeout=300s
+          kubectl get secret rtest-squid-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/squid-ca.crt
+          kubectl port-forward deployment/rtest-squid 3129:3129 >/tmp/pf-tls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS -k -m 30 --proxy-cacert /tmp/squid-ca.crt --resolve rtest-squid:3129:127.0.0.1 \
+            -x https://rtest-squid:3129 https://kubernetes.default.svc.cluster.local/livez | grep -qx ok
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

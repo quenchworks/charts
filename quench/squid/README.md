@@ -56,6 +56,11 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/squid --owner quenc
 | `config.existingConfigMap` | `""` | ConfigMap with a `squid.conf` key |
 | `replicaCount` | `1` | Replicas; each keeps its own cache |
 | `service.port` | `3128` | Service port |
+| `service.tlsPort` | `3129` | TLS proxy port (`https_port`), only with `tls.enabled`. |
+| `tls.enabled` | `false` | Clients reach the proxy itself over TLS on `service.tlsPort` (an `https://` proxy URL; cert at `/tls`). Not applied to `config.raw`. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `networkPolicy.enabled` | `true` | Ingress policy on the proxy port; egress is open |
 | `networkPolicy.allowExternal` | `true` | Allow clients from other namespaces |
 | `podDisruptionBudget.enabled` | `true` | PDB with `minAvailable: 1` |
