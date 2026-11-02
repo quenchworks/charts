@@ -79,6 +79,17 @@ jobs:
           ecode="$(curl -s -o /tmp/exp.json -w '%{http_code}' 'http://127.0.0.1:5000/api/2.0/mlflow/experiments/search?max_results=10')"
           echo "experiments HTTP status: $ecode"; cat /tmp/exp.json
           test "$ecode" = "200"
+          # --- native TLS: uvicorn serves https; health + experiments over a verified session ---
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -n ml -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status deployment/rtest-mlflow -n ml --timeout=540s
+          kubectl get secret -n ml rtest-mlflow-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/mlflow-ca.crt
+          kubectl port-forward -n ml svc/rtest-mlflow 5000:5000 >/tmp/pf5000.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          # localhost: it is in the certificate's names and mlflow's default allowed hosts
+          tc="--cacert /tmp/mlflow-ca.crt"
+          curl -fsS $tc https://localhost:5000/health >/dev/null
+          curl -fsS $tc 'https://localhost:5000/api/2.0/mlflow/experiments/search?max_results=10' >/dev/null
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
