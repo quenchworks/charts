@@ -66,6 +66,10 @@ gh attestation verify oci://ghcr.io/quenchworks/images/rustfs \
 | `resources.limits` | `2 / 2Gi` | CPU / memory limits. |
 | `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
 | `service.port` | `9000` | The S3 API (service port name `s3`). |
+| `tls.enabled` | `false` | S3 API and console serve HTTPS only (cert at `/tls`); probes follow |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `serviceAccount.create` | `true` | Token automount is off. |
 | `serviceAccount.name` | `""` | Use an existing ServiceAccount if set. |
 | `rbac.create` | `false` | Minimal Role/RoleBinding. |

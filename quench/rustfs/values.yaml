@@ -47,6 +47,21 @@ service:
   type: ClusterIP
   port: 9000                   # the S3 API
 
+# Native TLS: the S3 API and the console serve HTTPS only (the probes follow), with the
+# certificate mounted at /tls as RustFS's rustfs_cert.pem / rustfs_key.pem. It comes from the
+# first source set: existingSecret, then a cert-manager Certificate, else a Helm-generated CA +
+# certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
 # --- Common production knobs, wired through quench-common (all optional) ---
 podLabels: {}
 podAnnotations: {}

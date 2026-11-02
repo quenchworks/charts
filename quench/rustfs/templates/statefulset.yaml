@@ -1,6 +1,8 @@
 {{/* httpGet probes: /health on the S3 port is unauthenticated and returns 200 (verified). */}}
-{{- $liveness := dict "httpGet" (dict "path" "/health" "port" "s3") "initialDelaySeconds" 20 "periodSeconds" 20 "timeoutSeconds" 5 "failureThreshold" 6 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/health" "port" "s3") "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+{{- $get := dict "path" "/health" "port" "s3" -}}
+{{- if include "quench-common.tls.enabled" . }}{{- $_ := set $get "scheme" "HTTPS" }}{{- end -}}
+{{- $liveness := dict "httpGet" $get "initialDelaySeconds" 20 "periodSeconds" 20 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" $get "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -65,6 +67,11 @@ spec:
                   name: {{ include "rustfs.secretName" . }}
                   key: {{ include "rustfs.secretSecretKeyKey" . }}
             {{- end }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # the S3 API and the console both serve HTTPS only
+            - name: RUSTFS_TLS_PATH
+              value: /tls
+            {{- end }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
@@ -89,6 +96,7 @@ spec:
               mountPath: /data
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -101,6 +109,16 @@ spec:
         {{- else if not .Values.persistence.enabled }}
         - name: data
           emptyDir: {}
+        {{- end }}
+        {{- if include "quench-common.tls.enabled" . }}
+        # RustFS reads fixed file names from RUSTFS_TLS_PATH
+        - name: tls
+          secret:
+            secretName: {{ include "quench-common.tls.secretName" . }}
+            defaultMode: 0440
+            items:
+              - { key: tls.crt, path: rustfs_cert.pem }
+              - { key: tls.key, path: rustfs_key.pem }
         {{- end }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}

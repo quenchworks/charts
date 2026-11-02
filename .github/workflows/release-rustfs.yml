@@ -72,6 +72,19 @@ jobs:
               test \"\$got\" = quench
             " | tee /tmp/s3.log
           grep -q 'roundtrip got: quench' /tmp/s3.log
+          # native TLS: the S3 API turns HTTPS-only (probes follow); a signed S3 roundtrip over
+          # it verifies the chart CA and the Service name
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-rustfs --timeout=420s
+          kubectl get secret rtest-rustfs-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/rustfs-ca.crt
+          kubectl port-forward svc/rtest-rustfs 9000:9000 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          s3=(--cacert /tmp/rustfs-ca.crt --resolve rtest-rustfs:9000:127.0.0.1 --aws-sigv4 aws:amz:us-east-1:s3
+              --user "$ACCESS_KEY:$SECRET_KEY" -H 'x-amz-content-sha256: UNSIGNED-PAYLOAD')
+          curl -fsS "${s3[@]}" -X PUT https://rtest-rustfs:9000/tlsgate
+          curl -fsS "${s3[@]}" -X PUT --data-binary quench https://rtest-rustfs:9000/tlsgate/o
+          test "$(curl -fsS "${s3[@]}" https://rtest-rustfs:9000/tlsgate/o)" = quench
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
