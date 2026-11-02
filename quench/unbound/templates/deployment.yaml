@@ -14,7 +14,7 @@ spec:
       labels:
         {{- include "quench-common.selectorLabels" . | nindent 8 }}
       annotations:
-        checksum/config: {{ .Values.config | sha256sum }}
+        checksum/config: {{ printf "%s|%s" .Values.config (include "quench-common.tls.enabled" .) | sha256sum }}
     spec:
       serviceAccountName: {{ include "unbound.serviceAccountName" . }}
       securityContext:
@@ -36,6 +36,11 @@ spec:
             - name: dns-tcp
               containerPort: 5053
               protocol: TCP
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: dns-tls
+              containerPort: 8853
+              protocol: TCP
+            {{- end }}
           readinessProbe:
             tcpSocket:
               port: dns-tcp
@@ -53,11 +58,12 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
-            {{- if .Values.config }}
+            {{- if or .Values.config (include "quench-common.tls.enabled" .) }}
             - name: config
               mountPath: /etc/unbound/conf.d
               readOnly: true
             {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -73,8 +79,9 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
-        {{- if .Values.config }}
+        {{- if or .Values.config (include "quench-common.tls.enabled" .) }}
         - name: config
           configMap:
             name: {{ include "quench-common.fullname" . }}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}

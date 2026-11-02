@@ -1,4 +1,4 @@
-{{- if .Values.config }}
+{{- if or .Values.config (include "quench-common.tls.enabled" .) }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,6 +6,17 @@ metadata:
   labels:
     {{- include "quench-common.labels" . | nindent 4 }}
 data:
+  {{- with .Values.config }}
   chart.conf: |
-    {{- .Values.config | nindent 4 }}
+    {{- . | nindent 4 }}
+  {{- end }}
+  {{- if include "quench-common.tls.enabled" . }}
+  # DNS over TLS on 8853 beside plain DNS on 5053
+  tls.conf: |
+    server:
+      interface: 0.0.0.0@8853
+      tls-port: 8853
+      tls-service-key: "/tls/tls.key"
+      tls-service-pem: "/tls/tls.crt"
+  {{- end }}
 {{- end }}

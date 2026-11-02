@@ -41,6 +41,11 @@ A config change rolls the pods.
 | `config` | `""` | extra `unbound.conf` clauses |
 | `service.port` | `53` | DNS port on the Service (UDP and TCP) |
 | `service.clusterIP` | `""` | a fixed Service address |
+| `service.tlsPort` | `853` | DNS over TLS (pod 8853), only with `tls.enabled` |
+| `tls.enabled` | `false` | DNS over TLS on 8853 beside plain DNS (cert at `/tls`) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 Pods run with a read-only root filesystem and all capabilities dropped.
 
