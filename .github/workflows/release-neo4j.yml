@@ -62,6 +62,29 @@ jobs:
             "MATCH (t:Thing) RETURN t.name" 2>&1)"
           echo "$out"
           echo "$out" | >/dev/null grep quench || { echo "::error::Cypher roundtrip did not return the expected value"; exit 1; }
+          # native TLS: HTTPS on 7473 and Bolt over TLS on 7687, both verifying the Service name
+          # against the chart CA, then a Cypher write and read over bolt+s
+          kill $pf 2>/dev/null || true; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status statefulset/rtest-neo4j --timeout=600s
+          kubectl get secret rtest-neo4j-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/neo-ca.crt
+          kubectl port-forward svc/rtest-neo4j 7473:7473 7687:7687 >/tmp/pf-tls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/neo-ca.crt --resolve rtest-neo4j:7473:127.0.0.1 https://rtest-neo4j:7473/ | >/dev/null grep bolt_routing
+          python3 - <<'PY'
+          import socket, ssl
+          t = ssl.create_default_context(cafile="/tmp/neo-ca.crt").wrap_socket(
+              socket.create_connection(("127.0.0.1", 7687), 10), server_hostname="rtest-neo4j")
+          t.sendall(b"\x60\x60\xb0\x17" + b"\x00\x00\x04\x05" + b"\x00" * 12)
+          assert t.recv(4) != b"\x00\x00\x00\x00", "no Bolt version agreed over TLS"
+          print("bolt over TLS ok:", t.version())
+          PY
+          # ci values run on emptyDir, so the upgraded pod starts empty: write, then read, over TLS
+          kubectl exec rtest-neo4j-0 -- cypher-shell -a neo4j+ssc://localhost:7687 -u neo4j -p "$PW" \
+            "CREATE (:Thing {name:'quench-tls'}) RETURN 1"
+          out="$(kubectl exec rtest-neo4j-0 -- cypher-shell -a neo4j+ssc://localhost:7687 -u neo4j -p "$PW" \
+            "MATCH (t:Thing) RETURN t.name" 2>&1)"
+          echo "$out" | >/dev/null grep quench-tls
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

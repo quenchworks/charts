@@ -61,6 +61,22 @@ service:
   type: ClusterIP
   httpPort: 7474               # HTTP API + Neo4j Browser
   boltPort: 7687               # Bolt protocol (drivers / cypher-shell)
+  httpsPort: 7473              # HTTPS API + Browser, only with tls.enabled
+
+# Native TLS: Bolt offers TLS on 7687 (server.bolt.tls_level OPTIONAL; drivers use
+# neo4j+s:// or bolt+s://) and HTTPS listens on httpsPort, with the certificate mounted at /tls.
+# It comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # --- Common production knobs, wired through quench-common (all optional) ---
 podLabels: {}

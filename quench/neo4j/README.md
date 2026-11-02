@@ -73,6 +73,11 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/neo4j --owner quenc
 | `persistence.enabled`         | `true`                             | 8Gi PVC at `/data`.                                                                       |
 | `service.httpPort`            | `7474`                             | HTTP API + Browser.                                                                       |
 | `service.boltPort`            | `7687`                             | Bolt protocol.                                                                            |
+| `service.httpsPort` | `7473` | HTTPS API + Browser, only with `tls.enabled`. |
+| `tls.enabled` | `false` | Bolt offers TLS on 7687 (`neo4j+s://`, `bolt+s://`) and HTTPS on `httpsPort`; cert at `/tls`. Plain Bolt and HTTP stay open. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `networkPolicy.enabled`       | `true`                             | Restricts ingress (7474 + 7687) to the namespace.                                         |
 | `podDisruptionBudget.enabled` | `true`                             | `minAvailable: 1`.                                                                        |
 | `ingress.enabled`             | `false`                            | Create an Ingress for this chart. HTTP only.                                              |

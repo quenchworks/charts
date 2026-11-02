@@ -62,6 +62,21 @@ spec:
               value: {{ .Values.heap.max | quote }}
             - name: NEO4J_PAGECACHE
               value: {{ .Values.heap.pagecache | quote }}
+            {{- if include "quench-common.tls.enabled" . }}
+            {{- /* native TLS: Bolt offers TLS (OPTIONAL) and HTTPS listens on service.httpsPort */}}
+            {{- $tlsCfg := dict "server.bolt.tls_level" "OPTIONAL" "server.https.enabled" "true" "server.https.listen_address" (printf ":%v" .Values.service.httpsPort) }}
+            {{- range $p := list "bolt" "https" }}
+            {{- $_ := set $tlsCfg (printf "dbms.ssl.policy.%s.enabled" $p) "true" }}
+            {{- $_ := set $tlsCfg (printf "dbms.ssl.policy.%s.base_directory" $p) "/tls" }}
+            {{- $_ := set $tlsCfg (printf "dbms.ssl.policy.%s.private_key" $p) "tls.key" }}
+            {{- $_ := set $tlsCfg (printf "dbms.ssl.policy.%s.public_certificate" $p) "tls.crt" }}
+            {{- $_ := set $tlsCfg (printf "dbms.ssl.policy.%s.client_auth" $p) "NONE" }}
+            {{- end }}
+            {{- range $k, $v := $tlsCfg }}
+            - name: {{ printf "NEO4J_%s" ($k | replace "_" "__" | replace "." "_") }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- end }}
             {{- range $k, $v := .Values.extraConfig }}
             # extraConfig.{{ $k }} -> neo4j.conf via NEO4J_<setting> (`.`->`_`, `_`->`__`)
             - name: {{ printf "NEO4J_%s" ($k | replace "_" "__" | replace "." "_") }}
@@ -74,6 +89,10 @@ spec:
               containerPort: {{ .Values.service.httpPort }}
             - name: bolt
               containerPort: {{ .Values.service.boltPort }}
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: https
+              containerPort: {{ .Values.service.httpsPort }}
+            {{- end }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}
@@ -95,6 +114,7 @@ spec:
               mountPath: /logs
             - name: run
               mountPath: /var/run/neo4j
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -112,6 +132,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
   volumeClaimTemplates:
