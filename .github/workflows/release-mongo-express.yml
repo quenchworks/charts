@@ -102,6 +102,17 @@ jobs:
           [ "$(kubectl get secret -n site rtest-mongo-express -o jsonpath='{.data.basic-auth-password}' | base64 -d)" = "$pw" ]
           [ "$(kubectl get secret -n site rtest-mongo-express -o jsonpath='{.data.session-secret}')" = "$sess" ]
           echo "mongo-express reads FerretDB behind generated basic auth; secrets survive an upgrade"
+          # native TLS: 8081 turns HTTPS-only (probes follow); the document over it verifies the
+          # chart CA and the Service name
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -n site -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set mongodb.url="$url" --set 'imagePullSecrets[0]=ghcr-pull' --set tls.enabled=true --wait --timeout 4m
+          kubectl rollout status -n site deployment/rtest-mongo-express --timeout=300s
+          kubectl get secret -n site rtest-mongo-express-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/me-ca.crt
+          kubectl port-forward -n site svc/rtest-mongo-express 8081:8081 >/tmp/pf8081.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          page="$(curl -fsS --cacert /tmp/me-ca.crt --resolve rtest-mongo-express:8081:127.0.0.1 -u "admin:$pw" https://rtest-mongo-express:8081/db/quench/items)"
+          grep -q 'quench-gate-doc' <<<"$page" || { echo "document not shown over HTTPS"; exit 1; }
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

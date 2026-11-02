@@ -1,5 +1,7 @@
-{{- $liveness := dict "httpGet" (dict "path" (printf "%sstatus" (trimSuffix "/" .Values.baseUrl | printf "%s/")) "port" "http") "initialDelaySeconds" 15 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
-{{- $readiness := dict "httpGet" (dict "path" (printf "%sstatus" (trimSuffix "/" .Values.baseUrl | printf "%s/")) "port" "http") "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $get := dict "path" (printf "%sstatus" (trimSuffix "/" .Values.baseUrl | printf "%s/")) "port" "http" -}}
+{{- if include "quench-common.tls.enabled" . }}{{- $_ := set $get "scheme" "HTTPS" }}{{- end -}}
+{{- $liveness := dict "httpGet" $get "initialDelaySeconds" 15 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness := dict "httpGet" $get "initialDelaySeconds" 5 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 6 -}}
 {{- $fullname := include "quench-common.fullname" . -}}
 apiVersion: apps/v1
 kind: Deployment
@@ -77,6 +79,12 @@ spec:
                   name: {{ include "mongo-express.auth.secretName" . }}
                   key: {{ include "mongo-express.auth.secretKey" . }}
             {{- end }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # 8081 serves HTTPS only
+            - { name: ME_CONFIG_SITE_SSL_ENABLED, value: "true" }
+            - { name: ME_CONFIG_SITE_SSL_CRT_PATH, value: /tls/tls.crt }
+            - { name: ME_CONFIG_SITE_SSL_KEY_PATH, value: /tls/tls.key }
+            {{- end }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
@@ -95,9 +103,11 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

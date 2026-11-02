@@ -59,6 +59,10 @@ gh attestation verify oci://ghcr.io/quenchworks/images/mongo-express --owner que
 | `sessionSecret`, `cookieSecret` | generated | Set both for several replicas without sticky sessions. |
 | `networkPolicy.mongodbPort` | `27017` | The only egress port besides DNS. |
 | `ingress.enabled` | `false` | |
+| `tls.enabled` | `false` | 8081 serves HTTPS only (cert at `/tls`); probes follow |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 The common pod knobs from quench-common (`resources`, `nodeSelector`, `affinity`,
 `tolerations`, `extraEnvVars` for any other `ME_CONFIG_*` setting, `extraVolumes`,
