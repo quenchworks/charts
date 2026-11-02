@@ -70,6 +70,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/coroot \
 | `service.type`                     | `ClusterIP`                         | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
 | `service.httpPort`                 | `8080`                              | UI + JSON API port.                                                                       |
 | `service.otlpPort`                 | `4317`                              | Built-in OTLP gRPC collector (telemetry ingest).                                          |
+| `service.httpsPort` | `8443` | HTTPS for the UI and API, only with `tls.enabled` |
+| `tls.enabled` | `false` | HTTPS on 8443 beside plain HTTP (cert at `/tls`) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `resources.requests`               | `200m / 256Mi`                      | CPU / memory requests.                                                                    |
 | `resources.limits`                 | `1 / 1Gi`                           | CPU / memory limits.                                                                      |
 | `command`                          | `[]`                                | Override the entrypoint. Empty uses the baked-in `/usr/bin/coroot`.                       |
