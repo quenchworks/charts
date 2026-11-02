@@ -50,8 +50,9 @@ podAntiAffinity:
 {{- if .Values.serviceAccount.create -}}{{ default (include "quench-common.fullname" .) .Values.serviceAccount.name }}{{- else -}}{{ default "default" .Values.serviceAccount.name }}{{- end -}}
 {{- end -}}
 
+{{/* existingSecret, else the cert-manager / self-signed Secret templates/tls.yaml makes. */}}
 {{- define "redis.tls.secretName" -}}
-{{- .Values.tls.existingSecret -}}
+{{- include "quench-common.tls.secretName" . -}}
 {{- end -}}
 
 {{/* Hardened busybox helper image (init containers only), pinned by digest. */}}
@@ -159,13 +160,18 @@ keeps its role and a restarted old primary rejoins as a replica.
     - "--tls-port"
     - "6379"
     - "--tls-cert-file"
-    - "/etc/redis/tls/{{ $.Values.tls.certFilename }}"
+    - "/tls/{{ $.Values.tls.certFilename }}"
     - "--tls-key-file"
-    - "/etc/redis/tls/{{ $.Values.tls.keyFilename }}"
+    - "/tls/{{ $.Values.tls.keyFilename }}"
     - "--tls-ca-cert-file"
-    - "/etc/redis/tls/{{ $.Values.tls.caFilename }}"
+    - "/tls/{{ $.Values.tls.caFilename }}"
     - "--tls-auth-clients"
     - {{ ternary "yes" "no" $.Values.tls.authClients | quote }}
+    {{- if or .replicaof $ha }}
+    # a replica dials its master over TLS too (the plaintext port is 0)
+    - "--tls-replication"
+    - "yes"
+    {{- end }}
     {{- end }}
     {{- range $.Values.extraFlags }}
     - {{ . | quote }}
@@ -199,7 +205,7 @@ keeps its role and a restarted old primary rejoins as a replica.
     {{- end }}
     {{- if $.Values.tls.enabled }}
     - name: tls
-      mountPath: /etc/redis/tls
+      mountPath: /tls
       readOnly: true
     {{- end }}
     {{- include "quench-common.extraVolumeMounts" $ | nindent 4 }}

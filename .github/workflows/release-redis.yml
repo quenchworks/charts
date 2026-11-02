@@ -53,6 +53,18 @@ jobs:
           kubectl rollout status statefulset/rtest-redis-sentinel --timeout=120s
           # liveness: PONG (no auth) or NOAUTH (auth on) both prove redis is answering
           kubectl exec rtest-redis-primary-0 -c redis -- redis-cli ping 2>&1 | >/dev/null grep -E 'PONG|NOAUTH'
+          # native TLS: plain replication with a Helm-generated certificate; the replica must
+          # sync from its master over TLS (tls-replication) and answer a TLS ping
+          helm install rtls "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set sentinel.enabled=false --set replica.replicaCount=1 --set tls.enabled=true \
+            --set tls.authClients=false --wait --timeout 5m
+          tc="--tls --cacert /tls/ca.crt"
+          kubectl exec rtls-redis-primary-0 -c redis -- redis-cli $tc ping 2>&1 | >/dev/null grep -E 'PONG|NOAUTH'
+          for i in $(seq 30); do
+            info="$(kubectl exec rtls-redis-replica-0 -c redis -- redis-cli $tc info replication 2>&1 || true)"
+            grep -q 'master_link_status:up' <<<"$info" && break; sleep 4
+          done
+          grep -q 'master_link_status:up' <<<"$info" || { echo "$info"; exit 1; }
           # HA signal: Sentinel reports a master for the monitored set
           kubectl exec rtest-redis-sentinel-0 -c sentinel -- \
             redis-cli -p 26379 sentinel get-master-addr-by-name mymaster | >/dev/null grep -E '[0-9]'
