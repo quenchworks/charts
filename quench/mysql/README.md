@@ -47,6 +47,10 @@ gh attestation verify oci://ghcr.io/quenchworks/images/mysql \
 | `auth.existingSecret` | `""` | Use an existing Secret instead. |
 | `primary.persistence.enabled` | `true` | 8Gi PVC at `/var/lib/mysql`. |
 | `service.port` | `3306` | |
+| `tls.enabled` | `false` | Clients on 3306 get the chart certificate (at `/tls`) instead of MySQL's auto-generated one; standalone and Group Replication. Plaintext still accepted unless an account `REQUIRE SSL`; GR traffic is not covered. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `serviceAccount.create` | `true` | Token automount is off. |
 | `metrics.enabled` | `false` | mysqld_exporter sidecar (our hardened image) in every server pod. |
 | `metrics.port` | `9104` | Scrape port; a `<release>-mysql-metrics` Service fronts it. |

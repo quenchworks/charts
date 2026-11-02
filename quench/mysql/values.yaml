@@ -2,7 +2,7 @@
 # image-published dispatch after every green image build. It is never a tag.
 image:
   repository: ghcr.io/quenchworks/images/mysql
-  digest: "sha256:103b1302ed40539a04d1b6992ad029b10c374d15cad1f56081cd81dde5318e78"
+  digest: "sha256:01b3b990b3bf99f1a9bf78dd05e3dad9be2042d2fac29f9a65a510b0558b6d90"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -79,6 +79,21 @@ sidecars: []
 lifecycleHooks: {}
 command: []
 args: []
+
+# Native TLS for clients on 3306 with the chart certificate (--ssl-cert/--ssl-key/--ssl-ca)
+# instead of MySQL's auto-generated one; plaintext still accepted unless the account REQUIREs
+# SSL. Group Replication traffic is not covered. The certificate comes from the first source
+# set: existingSecret, then a cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 # Security contexts merge over the hardened quench-common defaults (your keys win).
 podSecurityContext: {}
 containerSecurityContext: {}

@@ -67,6 +67,24 @@ jobs:
           # authenticated ping + a write on the primary Service
           kubectl exec rtest-mysql-0 -- mysqladmin --socket=/run/mysqld/mysqld.sock -uroot -p"$pw" ping | >/dev/null grep "mysqld is alive"
           kubectl exec rtest-mysql-0 -- mysql --socket=/run/mysqld/mysqld.sock -uroot -p"$pw" qwapp -e "select 1" | >/dev/null grep 1
+          # native TLS: roll the group onto the chart certificate; every member must rejoin ONLINE
+          # and serve a TLS session that verifies the Service name against the chart CA
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set tls.enabled=true --wait --timeout 12m
+          kubectl rollout status statefulset/rtest-mysql --timeout=600s
+          q='select concat((select variable_value from performance_schema.session_status where variable_name="Ssl_version"), " ", (select count(*) from performance_schema.replication_group_members where member_state="ONLINE"))'
+          for p in 0 1 2; do
+            for i in $(seq 1 30); do
+              out="$(kubectl exec rtest-mysql-$p -c mysql -- mysql -h rtest-mysql -uroot -p"$pw" --ssl-mode=VERIFY_IDENTITY --ssl-ca=/tls/ca.crt -N -B -e "$q" 2>/dev/null || true)"
+              grep -qE '^TLSv1\.[23] 3$' <<<"$out" && break; sleep 4
+            done
+            grep -qE '^TLSv1\.[23] 3$' <<<"$out" || { echo "member $p: $out"; exit 1; }
+          done
+          # standalone gets the same flags as server args (the image passes them through)
+          helm install rsa "${CHART_DIR}" --set primary.persistence.enabled=false --set tls.enabled=true --wait --timeout 5m
+          pwa=$(kubectl get secret rsa-mysql -o jsonpath='{.data.mysql-root-password}' | base64 -d)
+          out="$(kubectl exec rsa-mysql-0 -c mysql -- mysql -h rsa-mysql -uroot -p"$pwa" --ssl-mode=VERIFY_IDENTITY --ssl-ca=/tls/ca.crt -N -B -e "$q")"
+          grep -qE '^TLSv1\.[23] ' <<<"$out" || { echo "standalone: $out"; exit 1; }
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
