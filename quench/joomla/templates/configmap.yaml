@@ -37,3 +37,11 @@ data:
       --db-prefix="$JOOMLA_DB_PREFIX" \
       --db-encryption=0
     test -s "$JOOMLA_CONFIG_DIR/configuration.php"
+  {{- if include "quench-common.tls.enabled" . }}
+  # Drop-in for the image's nginx server block (include /etc/joomla/conf.d/*.conf): the same
+  # site also answers HTTPS on 8443 with the chart certificate.
+  tls.conf: |
+    listen 8443 ssl;
+    ssl_certificate     /tls/tls.crt;
+    ssl_certificate_key /tls/tls.key;
+  {{- end }}
