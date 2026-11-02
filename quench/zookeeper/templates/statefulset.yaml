@@ -66,11 +66,22 @@ spec:
               value: {{ .Values.config.syncLimit | quote }}
             - name: ZOO_MAX_CLIENT_CNXNS
               value: {{ .Values.config.maxClientCnxns | quote }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # the entrypoint adds a Netty secure client port and joins the PEM key store
+            - name: ZOO_TLS_DIR
+              value: /tls
+            - name: ZOO_SECURE_CLIENT_PORT
+              value: {{ .Values.service.secureClientPort | quote }}
+            {{- end }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
             - name: client
               containerPort: {{ .Values.service.clientPort }}
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: client-tls
+              containerPort: {{ .Values.service.secureClientPort }}
+            {{- end }}
             - name: peer
               containerPort: {{ .Values.service.peerPort }}
             - name: election
@@ -87,9 +98,10 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
-      {{- if or (and .Values.persistence.enabled .Values.persistence.existingClaim) (not .Values.persistence.enabled) .Values.extraVolumes }}
+      {{- if or (and .Values.persistence.enabled .Values.persistence.existingClaim) (not .Values.persistence.enabled) .Values.extraVolumes (include "quench-common.tls.enabled" .) }}
       volumes:
         {{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
         - name: data
@@ -99,6 +111,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
       {{- end }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}

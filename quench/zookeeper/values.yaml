@@ -2,7 +2,7 @@
 # manifests/zookeeper.json after every green image build. It is never a tag.
 image:
   repository: ghcr.io/quenchworks/images/zookeeper
-  digest: "sha256:b6c08b6a3102de718202f356d7883953b2d7df48da2ae4ce4103e2ffcb8f544b"
+  digest: "sha256:05a0d8e1f4f89e6855aabcf069218b25a181bdd755e31b88e4a59ff1fdcfd079"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -39,6 +39,23 @@ service:
   clientPort: 2181
   peerPort: 2888
   electionPort: 3888
+  # TLS client port (Netty), only with tls.enabled
+  secureClientPort: 2281
+
+# Native TLS: a secure client port beside the plain one (Netty, PEM key store built by the
+# image from the certificate mounted at /tls; no client certificates). Quorum traffic stays
+# plain. The certificate comes from the first source set: existingSecret, then a cert-manager
+# Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # --- Common production knobs, wired through quench-common (all optional) ---
 podLabels: {}

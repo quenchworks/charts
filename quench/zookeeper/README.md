@@ -47,6 +47,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/zookeeper \
 | `config.maxClientCnxns` | `60` | Per-IP client connection limit. |
 | `persistence.enabled` | `true` | 8Gi PVC at `/data`. |
 | `service.clientPort` | `2181` | Client connections. |
+| `service.secureClientPort` | `2281` | TLS client port (Netty), only with `tls.enabled`. |
+| `tls.enabled` | `false` | A secure client port beside the plain one (cert at `/tls`, joined into a PEM key store by the image); quorum traffic stays plain. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `service.peerPort` | `2888` | Ensemble peer (headless). |
 | `service.electionPort` | `3888` | Leader election (headless). |
 | `networkPolicy.enabled` | `true` | Restricts ingress to the release namespace. |

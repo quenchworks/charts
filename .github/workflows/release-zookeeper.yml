@@ -55,6 +55,15 @@ jobs:
           # 4lw health check: ruok answers imok when the server is serving.
           kubectl exec rtest-zookeeper-0 -- bash -ec \
             'exec 3<>/dev/tcp/127.0.0.1/2181 && printf ruok >&3 && IFS= read -r -t 3 -n 4 resp <&3 && [ "$resp" = imok ]'
+          # native TLS: zkCli over the Netty secure port, verifying the certificate (localhost is
+          # in its names) against the chart CA
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 5m
+          kubectl rollout status statefulset/rtest-zookeeper --timeout=180s
+          for i in $(seq 1 20); do
+            out="$(kubectl exec rtest-zookeeper-0 -- bash -c 'CLIENT_JVMFLAGS="-Dzookeeper.clientCnxnSocket=org.apache.zookeeper.ClientCnxnSocketNetty -Dzookeeper.client.secure=true -Dzookeeper.ssl.trustStore.location=/tls/ca.crt -Dzookeeper.ssl.trustStore.type=PEM" zkCli.sh -server localhost:2281 create /rtls ok; CLIENT_JVMFLAGS="-Dzookeeper.clientCnxnSocket=org.apache.zookeeper.ClientCnxnSocketNetty -Dzookeeper.client.secure=true -Dzookeeper.ssl.trustStore.location=/tls/ca.crt -Dzookeeper.ssl.trustStore.type=PEM" zkCli.sh -server localhost:2281 get /rtls' 2>&1 || true)"
+            grep -qx ok <<<"$out" && break; sleep 3
+          done
+          grep -qx ok <<<"$out" || { echo "$out" | tail -20; exit 1; }
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
