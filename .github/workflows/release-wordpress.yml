@@ -78,6 +78,17 @@ jobs:
             200|301|302) echo "wordpress is serving (HTTP $code)";;
             *) echo "unexpected HTTP status $code"; head -c 500 /tmp/home.txt; exit 1;;
           esac
+          # native TLS: nginx also serves 8443 with the chart certificate; the site over it
+          # verifies the chart CA and the Service name, and WordPress keeps https:// in redirects
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -n blog -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status deployment/rtest-wordpress -n blog --timeout=540s
+          kubectl get secret -n blog rtest-wordpress-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/wp-ca.crt
+          kubectl port-forward -n blog svc/rtest-wordpress 8443:8443 >/tmp/pf8443.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          out="$(curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' --cacert /tmp/wp-ca.crt --resolve rtest-wordpress:8443:127.0.0.1 https://rtest-wordpress:8443/)"
+          echo "GET / over HTTPS: $out"
+          case "$out" in 200*|30[12]\ https://*) ;; *) echo "unexpected HTTPS answer"; exit 1;; esac
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

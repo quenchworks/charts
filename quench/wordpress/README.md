@@ -69,6 +69,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/wordpress \
 | `resources.limits`                           | `2 / 1Gi`                              | CPU / memory limits.                                                                      |
 | `service.type`                               | `ClusterIP`                            | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
 | `service.port`                               | `8080`                                 | Public site + `/wp-admin` (nginx `http` port).                                            |
+| `service.httpsPort` | `8443` | HTTPS (pod 8443), only with `tls.enabled` |
+| `tls.enabled` | `false` | nginx also serves the site over HTTPS on 8443 beside HTTP (cert at `/tls`) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `persistence.enabled`                        | `true`                                 | Provision the uploads PVC. When `false`, uses an `emptyDir` (uploads lost on restart).    |
 | `persistence.size`                           | `10Gi`                                 | Uploads PVC size.                                                                         |
 | `persistence.mountPath`                      | `/var/www/html/wp-content/uploads`     | Uploads mount path.                                                                       |
