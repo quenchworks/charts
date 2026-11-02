@@ -2,7 +2,7 @@
 # manifests/postgres-documentdb.json after every green image build. It is never a tag.
 image:
   repository: ghcr.io/quenchworks/images/postgres-documentdb
-  digest: "sha256:983cb002b4bc89a17a1720c10be8b393823d282dd9ce28691dfc8f780dcf9919"
+  digest: "sha256:23f125e423be7fb9015e72081c1c53146b1bc4e0ca99ec59ce9e1362f680e674"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -58,6 +58,20 @@ sidecars: []
 lifecycleHooks: {}
 command: []
 args: []
+# Native TLS on 5432 (ssl=on; plaintext still accepted, require it with sslmode=require on
+# clients). The certificate comes from the first source set: existingSecret, then a cert-manager
+# Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
 # Security contexts merge over the hardened quench-common defaults (your keys win).
 podSecurityContext: {}
 containerSecurityContext: {}

@@ -74,6 +74,10 @@ gh attestation verify oci://ghcr.io/quenchworks/images/postgres-documentdb \
 | `primary.resources.limits` | `cpu 1 / mem 1Gi` | |
 | `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
 | `service.port` | `5432` | PostgreSQL wire protocol port. |
+| `tls.enabled` | `false` | Native TLS on 5432 (`ssl=on`, cert at `/tls`). Plaintext is still accepted: clients insist with `sslmode=require`. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `metrics.enabled` | `false` | Hardened `postgres-exporter` sidecar. |
 | `metrics.image.repository` | `ghcr.io/quenchworks/images/postgres-exporter` | |
 | `metrics.image.digest` | (CI-written) | Required when metrics are on. Pinned by digest. |

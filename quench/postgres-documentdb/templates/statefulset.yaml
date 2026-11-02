@@ -38,7 +38,14 @@ spec:
           securityContext:
             {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
           {{- include "quench-common.command" . | nindent 10 }}
-          {{- include "quench-common.args" . | nindent 10 }}
+          {{- $args := .Values.args | default list }}
+          {{- if include "quench-common.tls.enabled" . }}
+          {{- $args = concat $args (list "-c" "ssl=on" "-c" "ssl_cert_file=/tls/tls.crt" "-c" "ssl_key_file=/tls/tls.key" "-c" "ssl_ca_file=/tls/ca.crt") }}
+          {{- end }}
+          {{- with $args }}
+          args:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           env:
             # PGDATA is a subdir of the mounted volume so initdb owns a clean directory
             # (avoids lost+found and mount-point ownership issues).
@@ -87,6 +94,7 @@ spec:
             - name: dshm
               mountPath: /dev/shm
             {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- if .Values.metrics.enabled }}
         - name: metrics
@@ -130,6 +138,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.primary.persistence.enabled (not .Values.primary.persistence.existingClaim) }}
   volumeClaimTemplates:
