@@ -27,6 +27,10 @@ spec:
         - name: pgadmin
           image: {{ include "quench-common.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if include "quench-common.tls.enabled" . }}
+          # appended to the image's gunicorn command: 5050 serves HTTPS only
+          args: ["--certfile=/tls/tls.crt", "--keyfile=/tls/tls.key"]
+          {{- end }}
           env:
             - { name: PGADMIN_SETUP_EMAIL, value: {{ .Values.admin.email | quote }} }
             - name: PGADMIN_SETUP_PASSWORD
@@ -50,16 +54,17 @@ spec:
           ports:
             - name: http
               containerPort: 5050
+          {{- $scheme := ternary "HTTPS" "HTTP" (eq (include "quench-common.tls.enabled" .) "true") }}
           # the first start creates the config database and the admin
           startupProbe:
-            httpGet: { path: /misc/ping, port: http }
+            httpGet: { path: /misc/ping, port: http, scheme: {{ $scheme }} }
             periodSeconds: 5
             failureThreshold: 60
           readinessProbe:
-            httpGet: { path: /misc/ping, port: http }
+            httpGet: { path: /misc/ping, port: http, scheme: {{ $scheme }} }
             periodSeconds: 10
           livenessProbe:
-            httpGet: { path: /misc/ping, port: http }
+            httpGet: { path: /misc/ping, port: http, scheme: {{ $scheme }} }
             periodSeconds: 20
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
@@ -68,6 +73,7 @@ spec:
           volumeMounts:
             - { name: data, mountPath: /var/lib/pgadmin }
             - { name: tmp, mountPath: /tmp }
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -83,6 +89,7 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
   volumeClaimTemplates:
     - metadata:
         name: data

@@ -77,6 +77,17 @@ jobs:
           curl -fsS "${H[@]}" "$B/browser/server/nodes/1/" | jq -e '[(.result // .data)[].label] | index("gate") != null' >/dev/null
           kill $PF
           ! kubectl logs rtest-pgadmin-0 | grep -E 'Traceback|CRITICAL' || exit 1
+          # native TLS: gunicorn serves 5050 over HTTPS only (probes follow); ping and the login
+          # page over it verify the chart CA and the Service name
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 6m
+          kubectl rollout status statefulset/rtest-pgadmin --timeout=300s
+          kubectl get secret rtest-pgadmin-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/pgadmin-ca.crt
+          kubectl port-forward svc/rtest-pgadmin 5050:5050 >/dev/null 2>&1 & PF=$!
+          tc=(--cacert /tmp/pgadmin-ca.crt --resolve rtest-pgadmin:5050:127.0.0.1)
+          for i in $(seq 1 30); do [ "$(curl -fsS "${tc[@]}" https://rtest-pgadmin:5050/misc/ping 2>/dev/null)" = PING ] && break; sleep 1; done
+          test "$(curl -fsS "${tc[@]}" https://rtest-pgadmin:5050/misc/ping)" = PING
+          curl -fsS "${tc[@]}" https://rtest-pgadmin:5050/login | >/dev/null grep -i csrf
+          kill $PF
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

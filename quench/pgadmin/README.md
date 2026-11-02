@@ -33,6 +33,10 @@ config:
 | `admin.password` | generated | or `admin.existingSecret` (key `admin-password`) |
 | `config` | `{}` | `config.py` keys (strings, numbers, booleans, lists) |
 | `persistence.size` | `2Gi` | the pgAdmin data directory |
+| `tls.enabled` | `false` | gunicorn serves 5050 over HTTPS only (cert at `/tls`); probes follow |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 One replica: pgAdmin keeps its accounts and sessions in SQLite on a ReadWriteOnce volume.
 Pods run with a read-only root filesystem and all capabilities dropped.
