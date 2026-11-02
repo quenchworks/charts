@@ -98,3 +98,7 @@ setting not surfaced as a value (TLS, proxies, channel namespaces, Redis tuning)
 | `ingress.servicePort`        | `null`                                  | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
 | `ingress.hosts`              | `[]`                                    | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
 | `ingress.tls`                | `[]`                                    | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
+| `tls.enabled` | `false` | The HTTP server (API, websocket, health) serves https on the same port (cert at `/tls`). |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |

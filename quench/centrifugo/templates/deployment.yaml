@@ -1,7 +1,8 @@
 {{/* Centrifugo serves /health once health.enabled is on (this chart forces it on).
      It returns 200 as soon as the HTTP server is listening. Used for both probes. */}}
-{{- $liveness := dict "httpGet" (dict "path" "/health" "port" "http") "initialDelaySeconds" 5 "periodSeconds" 15 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/health" "port" "http") "initialDelaySeconds" 2 "periodSeconds" 10 -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq (include "quench-common.tls.enabled" .) "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/health" "port" "http" "scheme" $scheme) "initialDelaySeconds" 5 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/health" "port" "http" "scheme" $scheme) "initialDelaySeconds" 2 "periodSeconds" 10 -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -77,6 +78,15 @@ spec:
                   name: {{ include "centrifugo.secretName" . }}
                   key: {{ include "centrifugo.adminSecretKey" . }}
             {{- end }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # native TLS: the HTTP server (API, websocket, health) serves https on the same port
+            - name: CENTRIFUGO_HTTP_SERVER_TLS_ENABLED
+              value: "true"
+            - name: CENTRIFUGO_HTTP_SERVER_TLS_CERT_PEM
+              value: /tls/tls.crt
+            - name: CENTRIFUGO_HTTP_SERVER_TLS_KEY_PEM
+              value: /tls/tls.key
+            {{- end }}
             {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
@@ -96,9 +106,11 @@ spec:
             # Read-only rootfs: give Centrifugo a writable scratch dir.
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

@@ -67,6 +67,18 @@ jobs:
           # server HTTP API accepts the CI api key
           curl -fsS -X POST http://127.0.0.1:8000/api/info \
             -H "X-API-Key: ci-http-api-key" -H "Content-Type: application/json" -d '{}'
+          # native TLS: health and the server API over https, verifying the Service name
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set serviceAccount.create=false --set serviceAccount.name=centrifugo-puller --set tls.enabled=true --wait --timeout 5m
+          kubectl rollout status deployment/rtest-centrifugo --timeout=300s
+          kubectl get secret rtest-centrifugo-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/cf-ca.crt
+          kubectl port-forward svc/rtest-centrifugo 8000:8000 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          tc="--cacert /tmp/cf-ca.crt --resolve rtest-centrifugo:8000:127.0.0.1"
+          curl -fsS $tc https://rtest-centrifugo:8000/health
+          curl -fsS $tc -X POST https://rtest-centrifugo:8000/api/info \
+            -H "X-API-Key: ci-http-api-key" -H "Content-Type: application/json" -d '{}'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
