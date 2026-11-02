@@ -48,6 +48,15 @@ spec:
             {{- end }}
           env:
             {{- include "ory-hydra.env" . | nindent 12 }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # native TLS on both the public and the admin API (enabled must be set explicitly)
+            - name: SERVE_TLS_ENABLED
+              value: "true"
+            - name: SERVE_TLS_CERT_PATH
+              value: /tls/tls.crt
+            - name: SERVE_TLS_KEY_PATH
+              value: /tls/tls.key
+            {{- end }}
           ports:
             - name: public
               containerPort: 4444
@@ -57,12 +66,18 @@ spec:
             httpGet:
               path: /health/ready
               port: admin
+              {{- if include "quench-common.tls.enabled" . }}
+              scheme: HTTPS
+              {{- end }}
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health/alive
               port: admin
+              {{- if include "quench-common.tls.enabled" . }}
+              scheme: HTTPS
+              {{- end }}
             initialDelaySeconds: 15
             periodSeconds: 20
           resources:
@@ -72,6 +87,7 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -83,3 +99,4 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}

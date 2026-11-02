@@ -47,6 +47,10 @@ unreadable. Bring your own with `hydra.existingSecret`.
 | `hydra.dev` | `false` | `--dev`: disables the TLS and HTTPS-issuer checks, local testing only |
 | `hydra.config` | `{}` | extra Hydra settings as env vars, e.g. `TTL_ACCESS_TOKEN: 1h` |
 | `replicas` | `1` | Hydra is stateless; scale out freely |
+| `tls.enabled` | `false` | The public and admin APIs serve https on their ports (cert at `/tls`); set the issuer URL to https and add the `-public`/`-admin` Service names to `tls.certManager.dnsNames` |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 Pods run with a read-only root filesystem and all capabilities dropped.
 

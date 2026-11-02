@@ -64,6 +64,19 @@ jobs:
           test -n "$at" && test "$at" != null
           curl -fsS -d "token=$at" http://127.0.0.1:4445/admin/oauth2/introspect | tee /tmp/intro.json; echo
           jq -e '.active == true and .client_id == "gate"' /tmp/intro.json
+          # native TLS: both APIs over https with the chart certificate (verified as localhost,
+          # which is in its names); the client registered above still mints a token
+          kill $p1 $p2; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-ory-hydra --timeout=300s
+          kubectl get secret rtest-ory-hydra-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/hydra-ca.crt
+          kubectl port-forward svc/rtest-ory-hydra-public 4444:4444 >/tmp/pf1.log 2>&1 &
+          p1=$!
+          kubectl port-forward svc/rtest-ory-hydra-admin 4445:4445 >/tmp/pf2.log 2>&1 &
+          p2=$!; trap 'kill $p1 $p2' EXIT; sleep 5
+          curl -fsS --cacert /tmp/hydra-ca.crt https://localhost:4445/health/ready
+          tok="$(curl -fsS --cacert /tmp/hydra-ca.crt -u gate:gate-secret-0123456789 -d grant_type=client_credentials https://localhost:4444/oauth2/token)"
+          test "$(echo "$tok" | jq -r .access_token)" != null
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not
