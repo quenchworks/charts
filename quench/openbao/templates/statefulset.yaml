@@ -7,9 +7,14 @@ the pod is "up and reachable" even before init/unseal. In dev mode the node auto
 and the same endpoint returns 200 anyway. Liveness is a cheap tcpSocket on the API port.
 */}}
 {{- $healthPath := "/v1/sys/health?standbyok=true&sealedcode=200&uninitcode=200" -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- if and $tls .Values.dev.enabled -}}
+{{- fail "tls.enabled does not apply to dev mode (dev runs its own plain listener); set dev.enabled=false" -}}
+{{- end -}}
+{{- $probeScheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
 {{- $liveness := dict "tcpSocket" (dict "port" "http") "initialDelaySeconds" 15 "periodSeconds" 15 -}}
-{{- $readiness := dict "httpGet" (dict "path" $healthPath "port" "http") "initialDelaySeconds" 5 "periodSeconds" 10 -}}
-{{- $startup := dict "httpGet" (dict "path" $healthPath "port" "http") "initialDelaySeconds" 5 "periodSeconds" 5 "failureThreshold" 30 -}}
+{{- $readiness := dict "httpGet" (dict "path" $healthPath "port" "http" "scheme" $probeScheme) "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+{{- $startup := dict "httpGet" (dict "path" $healthPath "port" "http" "scheme" $probeScheme) "initialDelaySeconds" 5 "periodSeconds" 5 "failureThreshold" 30 -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -62,9 +67,20 @@ spec:
             - name: BAO_NODE_ID
               value: "$(POD_NAME)"
             - name: BAO_API_ADDR
-              value: "http://$(POD_NAME).{{ include "openbao.headlessName" . }}:{{ .Values.service.apiPort }}"
+              value: "{{ if $tls }}https://$(POD_NAME).{{ include "openbao.headlessName" . }}.{{ .Release.Namespace }}.svc{{ else }}http://$(POD_NAME).{{ include "openbao.headlessName" . }}{{ end }}:{{ .Values.service.apiPort }}"
             - name: BAO_CLUSTER_ADDR
               value: "http://$(POD_NAME).{{ include "openbao.headlessName" . }}:{{ .Values.service.clusterPort }}"
+            {{- if $tls }}
+            # native TLS: the entrypoint writes these into the listener; the in-pod CLI follows
+            - name: BAO_TLS_CERT_FILE
+              value: /tls/tls.crt
+            - name: BAO_TLS_KEY_FILE
+              value: /tls/tls.key
+            - name: BAO_ADDR
+              value: "https://localhost:{{ .Values.service.apiPort }}"
+            - name: BAO_CACERT
+              value: /tls/ca.crt
+            {{- end }}
             {{- if .Values.dev.enabled }}
             # DEV MODE: auto-unsealed, in-memory. NOT for production.
             - name: BAO_DEV
@@ -98,6 +114,7 @@ spec:
             # writable scratch.
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -113,6 +130,7 @@ spec:
         - name: data
           emptyDir: {}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
   {{- if and .Values.persistence.enabled (not .Values.persistence.existingClaim) }}
   volumeClaimTemplates:

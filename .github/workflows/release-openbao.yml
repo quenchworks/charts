@@ -73,6 +73,25 @@ jobs:
             "BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=$TOKEN bao kv get -field=v secret/gate")"
           echo "kv get -> $out"
           echo "$out" | >/dev/null grep '^quench$'   # fail loudly on mismatch
+          # native TLS on a real (non-dev) node: init + unseal through the in-pod CLI (BAO_ADDR
+          # https://localhost, BAO_CACERT), then health over https verifying the Service name
+          kill $pf; trap - EXIT
+          helm install rtls "${CHART_DIR}" --set persistence.size=1Gi --set tls.enabled=true
+          for i in $(seq 1 60); do
+            [ "$(kubectl get pod rtls-openbao-0 -o jsonpath='{.status.phase}' 2>/dev/null)" = Running ] && break; sleep 5
+          done
+          for i in $(seq 1 30); do
+            init="$(kubectl exec rtls-openbao-0 -- bao operator init -key-shares=1 -key-threshold=1 -format=json 2>/dev/null)" && break
+            sleep 4
+          done
+          key="$(jq -r '.unseal_keys_b64[0]' <<<"$init")"
+          kubectl exec rtls-openbao-0 -- bao operator unseal "$key" >/dev/null
+          kubectl wait --for=condition=Ready pod/rtls-openbao-0 --timeout=180s
+          kubectl get secret rtls-openbao-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/bao-ca.crt
+          kubectl port-forward svc/rtls-openbao 8243:8200 >/tmp/pf-tls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -sf --cacert /tmp/bao-ca.crt --resolve rtls-openbao:8243:127.0.0.1 \
+            https://rtls-openbao:8243/v1/sys/health | >/dev/null grep '"sealed":false'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

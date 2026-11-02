@@ -82,6 +82,10 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/openbao --owner que
 | `replicaCount`                | `1`                                  | Single node (HA raft cluster is a follow-up).                                             |
 | `dev.enabled`                 | `false`                              | `true` = auto-unsealed in-memory server (testing only).                                   |
 | `dev.rootToken`               | `""`                                 | Dev root token; random into a Secret if unset.                                            |
+| `tls.enabled` | `false` | Native TLS on 8200 (cert at `/tls`, written into the listener by the image); `kubectl exec ... bao` uses `BAO_CACERT`. Not with `dev.enabled`. |
+| `tls.existingSecret` | `""` | Use this `kubernetes.io/tls` Secret (1st choice). |
+| `tls.certManager.enabled` | `false` | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice). |
+| `tls.selfSigned.validityDays` | `365` | Otherwise Helm generates a CA + certificate, kept across upgrades. |
 | `persistence.enabled`         | `true`                               | 8Gi PVC mounted at `/openbao/data` (raft storage).                                        |
 | `service.apiPort`             | `8200`                               | HTTP API / CLI.                                                                           |
 | `service.clusterPort`         | `8201`                               | Raft cluster (headless service, future HA).                                               |

@@ -2,7 +2,7 @@
 # manifests/openbao.json after every green image build. It is never a tag.
 image:
   repository: ghcr.io/quenchworks/images/openbao
-  digest: "sha256:a113f384c83760ed30287cdccaafdc96c249bcae4a1e8c93c8b5351953c201fe"
+  digest: "sha256:3febb72301592356248e98eb7064d4d73bc072d8d3089755b7ef76160cdaa04f"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -24,6 +24,21 @@ dev:
   enabled: false
   # Root token for dev mode. Empty => a random token is generated into a Secret.
   rootToken: ""
+
+# Native TLS on the API port 8200 (the image writes the cert into its listener), mounted at
+# /tls; the in-pod `bao` CLI gets BAO_ADDR https://localhost + BAO_CACERT. Not for dev mode.
+# The certificate comes from the first source set: existingSecret, then a cert-manager
+# Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 persistence:
   enabled: true
