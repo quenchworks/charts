@@ -171,6 +171,11 @@ spec:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+            {{- end }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}
@@ -193,11 +198,25 @@ spec:
             # supervisord pid/sock, nginx pid + temp, php scratch.
             - name: tmp
               mountPath: /tmp
+            {{- if include "quench-common.tls.enabled" . }}
+            # drop-in for the image's nginx server block (include /etc/nextcloud/conf.d/*.conf)
+            - name: tls-conf
+              mountPath: /etc/nextcloud/conf.d/tls.conf
+              subPath: tls.conf
+              readOnly: true
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- end }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if include "quench-common.tls.enabled" . }}
+        - name: tls-conf
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-tls
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- end }}
         - name: custom-apps
           emptyDir: {}
         - name: data

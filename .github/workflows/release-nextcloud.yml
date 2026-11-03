@@ -83,6 +83,18 @@ jobs:
             200|302|303) echo "nextcloud is serving (HTTP $code)";;
             *) echo "unexpected HTTP status $code"; head -c 500 /tmp/home.html; exit 1;;
           esac
+          # --- TLS: the same site over HTTPS on 8443 with the chart CA; the instance installed
+          # over plain HTTP (config on its PVC) reports installed:true; plain HTTP on 8443 fails ---
+          kill $pf || true
+          helm upgrade rtest "${CHART_DIR}" -n cloud -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status deployment/rtest-nextcloud -n cloud --timeout=540s
+          kubectl get secret -n cloud rtest-nextcloud-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward -n cloud svc/rtest-nextcloud 8443:8443 >/tmp/pftls.log 2>&1 &
+          pf=$!; sleep 5
+          curl -fsS --cacert /tmp/ca.crt -o /tmp/status-tls.json https://localhost:8443/status.php
+          cat /tmp/status-tls.json; echo
+          grep -q '"installed":true' /tmp/status-tls.json || { echo "not installed over HTTPS"; exit 1; }
+          test "$(curl -s -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:8443/status.php || true)" != 200
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

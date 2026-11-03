@@ -2,7 +2,7 @@
 # image-published dispatch after every green image build. It is never a tag.
 image:
   repository: ghcr.io/quenchworks/images/nextcloud
-  digest: "sha256:0c38ff42c0d896afd12aeb226a1001df69f6fd5f8dd06027e88f8c5f9837e208"
+  digest: "sha256:52d2e15c8228f946c4f0343a6de6bef8fe15c23a3188eee1453a812e763a42ff"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -45,6 +45,23 @@ resources:
 service:
   type: ClusterIP
   port: 8080
+  # HTTPS (the pod's 8443), only with tls.enabled
+  httpsPort: 8443
+
+# Native TLS: nginx also serves the site over HTTPS on 8443 (Service service.httpsPort) beside
+# plain HTTP on 8080, with the certificate mounted at /tls (a drop-in in the image's server
+# block). It comes from the first source set: existingSecret, then a cert-manager Certificate,
+# else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # --- Persistence ---
 # Nextcloud keeps a writable config tree and the user-file data dir on a read-only rootfs.

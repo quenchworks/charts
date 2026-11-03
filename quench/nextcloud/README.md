@@ -102,6 +102,11 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/nextcloud --owner q
 | `nextcloud.overwriteProtocol` | `http`                                 | Protocol for generated URLs (`https` behind TLS)                                          |
 | `replicaCount`                | `1`                                    | Replicas (PVCs are ReadWriteOnce)                                                         |
 | `service.port`                | `8080`                                 | HTTP port (image nginx, nonroot)                                                          |
+| `service.httpsPort` | `8443` | HTTPS Service port, only with `tls.enabled` |
+| `tls.enabled` | `false` | nginx also serves the site over HTTPS on 8443 (a drop-in in the image's server block), beside HTTP on 8080 |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `persistence.data.size`       | `10Gi`                                 | User-file PVC size (`/var/www/html/data`)                                                 |
 | `persistence.config.size`     | `1Gi`                                  | Config PVC size (`/var/www/html/config`)                                                  |
 | `mariadb.enabled`             | `true`                                 | Deploy the bundled MariaDB backend                                                        |
