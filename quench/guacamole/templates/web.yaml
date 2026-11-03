@@ -24,6 +24,27 @@ spec:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
       initContainers:
+        {{- if include "quench-common.tls.enabled" . }}
+        # TLS: copy the image's Tomcat conf/ (server.xml matches the shipped Tomcat) and add an
+        # HTTPS connector on 8443 that reads the PEM pair from /tls.
+        - name: tls-conf
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -eu
+              cp -r /opt/tomcat/conf/. /conf/
+              c='<Connector port="8443" protocol="org.apache.coyote.http11.Http11NioProtocol" SSLEnabled="true" maxThreads="150"><SSLHostConfig><Certificate certificateKeyFile="/tls/tls.key" certificateFile="/tls/tls.crt" type="RSA"/></SSLHostConfig></Connector>'
+              sed -i "s#</Service>#$c</Service>#" /conf/server.xml
+              grep -q 'certificateKeyFile="/tls/tls.key"' /conf/server.xml
+          volumeMounts:
+            - name: tomcat-conf
+              mountPath: /conf
+        {{- end }}
         # 1. The schema SQL ships in the guacamole image; hand it to the psql step.
         - name: schema
           image: {{ include "quench-common.image" . }}
@@ -97,6 +118,11 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+            {{- end }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           resources:
@@ -104,11 +130,21 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: tomcat-conf
+              mountPath: /opt/tomcat/conf
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- end }}
       volumes:
         - name: schema
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        {{- if include "quench-common.tls.enabled" . }}
+        - name: tomcat-conf
+          emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -123,5 +159,11 @@ spec:
       port: {{ .Values.service.port }}
       targetPort: http
       protocol: TCP
+    {{- if include "quench-common.tls.enabled" . }}
+    - name: https
+      port: {{ .Values.service.httpsPort }}
+      targetPort: https
+      protocol: TCP
+    {{- end }}
   selector:
     {{- include "guacamole.componentLabels" (dict "ctx" . "component" "web") | nindent 4 }}

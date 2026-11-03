@@ -38,6 +38,24 @@ admin:
 service:
   type: ClusterIP
   port: 8080
+  # HTTPS Service port (to the container's 8443), only with tls.enabled
+  httpsPort: 443
+
+# Native TLS: Guacamole's Tomcat also serves HTTPS on 8443 (Service service.httpsPort) beside
+# HTTP on 8080. An init container copies the image's Tomcat conf/ and adds a PEM connector
+# reading /tls (type RSA, so the key must be RSA). guacd traffic is unchanged. The certificate
+# comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # Extra environment for the web app. Any Guacamole property works as an
 # upper-case variable (enable-environment-properties), e.g.

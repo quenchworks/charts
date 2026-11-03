@@ -50,6 +50,11 @@ PostgreSQL auth extension. RDP runs on FreeRDP 2, as in upstream's own image.
 | `extraEnvVars` | `[]` | extra Guacamole properties as environment variables |
 | `postgresql.primary.persistence.size` | `8Gi` | database volume |
 | `networkPolicy.enabled` | `true` | restrict guacd to the web app |
+| `service.httpsPort` | `443` | HTTPS Service port (to 8443), only with `tls.enabled` |
+| `tls.enabled` | `false` | Tomcat also serves HTTPS on 8443 beside HTTP (an init container adds a PEM connector to the image's server.xml; RSA key) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 ## Release gate
 
