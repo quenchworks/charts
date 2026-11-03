@@ -53,6 +53,24 @@ jobs:
             cqlsh rtest-cassandra 9042 -e "CREATE KEYSPACE IF NOT EXISTS gate WITH replication={'class':'SimpleStrategy','replication_factor':1}; CREATE TABLE IF NOT EXISTS gate.t(id int PRIMARY KEY, v text); INSERT INTO gate.t(id,v) VALUES (1,'quench'); SELECT v FROM gate.t WHERE id=1;" 2>&1)"
           echo "$out"
           echo "$out" | >/dev/null grep quench || { echo "::error::CQL roundtrip did not return the expected value"; exit 1; }
+          # TLS: CQL on 9042 requires TLS. The chart CA verifies the listener (openssl via a
+          # port-forward), a cqlsh --ssl roundtrip works, and a plain cqlsh is refused.
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-cassandra --timeout=420s
+          kubectl get secret rtest-cassandra-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward pod/rtest-cassandra-0 19042:9042 >/tmp/pftls.log 2>&1 &
+          pf=$!; sleep 5
+          v="$(openssl s_client -connect 127.0.0.1:19042 -servername localhost -CAfile /tmp/ca.crt </dev/null 2>&1 || true)"
+          kill $pf
+          grep -q 'Verify return code: 0 (ok)' <<<"$v"
+          out="$(kubectl run cqltls --rm -i --restart=Never --image=cassandra:5.0 --env=SSL_VALIDATE=false --command -- \
+            cqlsh --ssl rtest-cassandra 9042 -e "CREATE KEYSPACE IF NOT EXISTS gate WITH replication={'class':'SimpleStrategy','replication_factor':1}; CREATE TABLE IF NOT EXISTS gate.t(id int PRIMARY KEY, v text); INSERT INTO gate.t(id,v) VALUES (2,'tls'); SELECT v FROM gate.t WHERE id=2;" 2>&1)"
+          echo "$out"
+          grep -q tls <<<"$out" || { echo "::error::CQL over TLS did not return the expected value"; exit 1; }
+          if kubectl run cqlplain --rm -i --restart=Never --image=cassandra:5.0 --command -- \
+               cqlsh --connect-timeout=20 rtest-cassandra 9042 -e "SELECT now() FROM system.local;" >/tmp/plain.log 2>&1; then
+            cat /tmp/plain.log; echo "::error::a plain CQL client connected"; exit 1
+          fi
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

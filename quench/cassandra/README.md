@@ -94,6 +94,11 @@ and `config.dc` / `config.rack` (written to `cassandra-rackdc.properties`).
 | `service.internodePort` | `7000` | Gossip/storage (headless only). |
 | `networkPolicy.enabled` | `true` | Ingress to internode (own pods) + CQL (clients). |
 | `podDisruptionBudget.enabled` | `true` | `minAvailable: 1`. |
+| `tls.enabled` | `false` | CQL on 9042 requires TLS (client_encryption_options, optional: false; PKCS12 from an openssl init container); internode unchanged |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `openssl.digest` | (pinned) | init container that builds the PKCS12 keystore |
 
 Plus the shared `quench-common` knobs (scheduling, probes, sidecars, extra
 env/volumes, security contexts).

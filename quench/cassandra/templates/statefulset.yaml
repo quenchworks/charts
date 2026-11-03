@@ -32,7 +32,13 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
-      {{- include "quench-common.initContainers" . | nindent 6 }}
+      {{- if or .Values.initContainers (include "quench-common.tls.enabled" .) }}
+      initContainers:
+        {{- include "quench-common.tls.pkcs12InitContainer" (dict "ctx" . "image" (printf "%s@%s" .Values.openssl.repository .Values.openssl.digest) "password" "changeit") | nindent 8 }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
       containers:
         - name: cassandra
           image: {{ include "quench-common.image" . }}
@@ -81,7 +87,15 @@ spec:
               value: {{ .Values.config.maxHeapSize | quote }}
             - name: HEAP_NEWSIZE
               value: {{ .Values.config.heapNewSize | quote }}
-            {{- with .Values.config.yamlExtra }}
+            {{- $tlsYaml := "" }}
+            {{- if include "quench-common.tls.enabled" . }}
+            {{- /* CQL clients must use TLS (optional: false). The entrypoint appends this after the
+                   dist's disabled block, and the later key wins. The keystore password guards
+                   nothing extra: the PEM key it comes from is in the same pod. */}}
+            {{- $tlsYaml = "client_encryption_options:\n  enabled: true\n  optional: false\n  keystore: /tls-pkcs12/keystore.p12\n  keystore_password: changeit\n  store_type: PKCS12\n" }}
+            {{- end }}
+            {{- $extra := printf "%s%s" $tlsYaml (.Values.config.yamlExtra | default "") }}
+            {{- with $extra }}
             - name: CASSANDRA_YAML_EXTRA
               value: {{ . | quote }}
             {{- end }}
@@ -111,6 +125,7 @@ spec:
               mountPath: /conf
             - name: logs
               mountPath: /var/log/cassandra
+            {{- include "quench-common.tls.pkcs12VolumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -118,6 +133,8 @@ spec:
           emptyDir: {}
         - name: logs
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.tls.pkcs12Volume" . | nindent 8 }}
         {{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
         - name: data
           persistentVolumeClaim:
