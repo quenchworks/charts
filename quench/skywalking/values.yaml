@@ -2,7 +2,7 @@
 # image-published dispatch after every green image build. It is never a tag.
 image:
   repository: ghcr.io/quenchworks/images/skywalking
-  digest: "sha256:e121da140fd87b2b0a7a89923f202d6169b561a78155b5cd1a72a21b6c3ce59d"
+  digest: "sha256:34c309ce330862490e421371281c6ff2f39d7a104ba905066f2d868d117b1406"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -77,6 +77,28 @@ service:
   type: ClusterIP
   grpcPort: 11800
   restPort: 12800
+
+# Native TLS: the query port (REST 12800) and the agent port (gRPC 11800) serve TLS only,
+# with no plaintext left on either. Agents and the UI then dial OAP with TLS and trust ca.crt
+# from the TLS Secret. A busybox init container writes the PKCS#8 key OAP needs. The
+# certificate comes from the first source set: existingSecret, then a cert-manager
+# Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# Helper image for the TLS init container. Pinned by digest, never a tag.
+busybox:
+  repository: ghcr.io/quenchworks/images/busybox
+  digest: "sha256:ca51f41cf97009e6913c4ea272879cffa6f8333a691839a3fa40eb7d16945d3a"
+  pullPolicy: IfNotPresent
 
 # --- Common production knobs, wired through quench-common (all optional) ---
 podLabels: {}

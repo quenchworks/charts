@@ -35,6 +35,12 @@ NOTE: OAP's first boot connects to storage and creates/verifies all indices befo
 port opens (60-180s on a fresh store); a startup probe gates liveness/readiness until
 it is actually up.
 
+{{- if include "quench-common.tls.enabled" . }}
+TLS is on: the query port {{ .Values.service.restPort }} serves HTTPS and the agent port
+{{ .Values.service.grpcPort }} gRPC over TLS. Point agents and the UI at OAP with TLS and trust
+ca.crt from the Secret {{ include "quench-common.tls.secretName" . }}.
+
+{{ end -}}
 The image is pinned by digest and signed. Verify it:
 
   cosign verify {{ .Values.image.repository }} \

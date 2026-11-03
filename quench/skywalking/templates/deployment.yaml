@@ -44,7 +44,13 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
-      {{- include "quench-common.initContainers" . | nindent 6 }}
+      {{- if or .Values.initContainers (include "quench-common.tls.enabled" .) }}
+      initContainers:
+        {{- include "quench-common.tls.pkcs8InitContainer" (dict "ctx" . "image" (printf "%s@%s" .Values.busybox.repository .Values.busybox.digest)) | nindent 8 }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
       containers:
         - name: skywalking-oap
           image: {{ include "quench-common.image" . }}
@@ -84,6 +90,24 @@ spec:
             # OAP writes log4j2 files here (read-only rootfs -> writable emptyDir).
             - name: OAP_LOG_DIR
               value: /var/lib/skywalking/logs
+            {{- if include "quench-common.tls.enabled" . }}
+            # TLS on the query (REST) and agent (gRPC) ports. Netty and Armeria read PEM keys
+            # only as PKCS#8, so both use the init container's /tls-pkcs8 copy.
+            - name: SW_CORE_REST_SSL_ENABLED
+              value: "true"
+            - name: SW_CORE_REST_SSL_KEY_PATH
+              value: /tls-pkcs8/tls.key
+            - name: SW_CORE_REST_SSL_CERT_CHAIN_PATH
+              value: /tls-pkcs8/tls.crt
+            - name: SW_CORE_GRPC_SSL_ENABLED
+              value: "true"
+            - name: SW_CORE_GRPC_SSL_KEY_PATH
+              value: /tls-pkcs8/tls.key
+            - name: SW_CORE_GRPC_SSL_CERT_CHAIN_PATH
+              value: /tls-pkcs8/tls.crt
+            - name: SW_CORE_GRPC_SSL_TRUSTED_CA_PATH
+              value: /tls-pkcs8/ca.crt
+            {{- end }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
@@ -108,6 +132,7 @@ spec:
               mountPath: /var/lib/skywalking
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.pkcs8VolumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -115,4 +140,6 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.tls.pkcs8Volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

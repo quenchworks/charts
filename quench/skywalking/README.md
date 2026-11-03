@@ -87,6 +87,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/skywalking \
 | `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
 | `service.grpcPort` | `11800` | Agent data (gRPC) port. |
 | `service.restPort` | `12800` | GraphQL query + health port. |
+| `tls.enabled` | `false` | TLS on the query (REST) and agent (gRPC) ports, no plaintext left. Agents and the UI dial OAP with TLS and trust `ca.crt` |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use, with `ca.crt` (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `busybox.digest` | (pinned) | init container that writes the PKCS#8 key OAP reads |
 | `serviceAccount.create` | `true` | Token automount is off. |
 | `rbac.create` | `false` | Minimal Role/RoleBinding. |
 | `networkPolicy.enabled` | `true` | Ingress to the agent + query ports. |

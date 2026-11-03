@@ -88,6 +88,20 @@ jobs:
             200) echo "OAP query API is serving (HTTP 200)";;
             *) echo "unexpected HTTP status $code"; head -c 500 /tmp/gql.txt; exit 1;;
           esac
+          # --- TLS: query and agent ports switch to TLS; plain HTTP on 12800 must then fail ---
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -n skywalking -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 15m
+          kubectl rollout status deployment/rtest-skywalking -n skywalking --timeout=780s
+          kubectl get secret -n skywalking rtest-skywalking-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward -n skywalking svc/rtest-skywalking 12800:12800 11800:11800 >/tmp/pftls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          code="$(curl -s --cacert /tmp/ca.crt -o /tmp/gql.txt -w '%{http_code}' -X POST https://localhost:12800/graphql -H 'Content-Type: application/json' -d '{"query":"{ getAllServices(duration:{start:\"2020-01-01 0000\",end:\"2020-01-01 0001\",step:MINUTE}){ name } }"}')"
+          echo "POST https /graphql HTTP status: $code"
+          test "$code" = 200
+          if curl -s -m 10 -o /dev/null http://127.0.0.1:12800/graphql; then echo "plain HTTP still answers on 12800"; exit 1; fi
+          out="$(openssl s_client -connect 127.0.0.1:11800 -servername localhost -CAfile /tmp/ca.crt -alpn h2 </dev/null 2>&1 || true)"
+          grep -q 'Verify return code: 0 (ok)' <<<"$out"
+          echo "gRPC port 11800 serves TLS with the chart certificate"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
