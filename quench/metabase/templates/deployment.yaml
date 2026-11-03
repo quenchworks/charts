@@ -33,8 +33,9 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
-      {{- if or .Values.waitForDatabase.enabled .Values.initContainers }}
+      {{- if or .Values.waitForDatabase.enabled .Values.initContainers (include "quench-common.tls.enabled" .) }}
       initContainers:
+        {{- include "quench-common.tls.pkcs12InitContainer" (dict "ctx" . "image" (printf "%s@%s" .Values.openssl.repository .Values.openssl.digest) "password" "changeit") | nindent 8 }}
         {{- if .Values.waitForDatabase.enabled }}
         - name: wait-for-database
           image: "{{ .Values.waitForDatabase.image.repository }}@{{ .Values.waitForDatabase.image.digest }}"
@@ -77,6 +78,15 @@ spec:
             {{- with .Values.siteUrl }}
             - { name: MB_SITE_URL, value: {{ . | quote }} }
             {{- end }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # Jetty serves HTTPS on 8443 from the init container's PKCS12 beside HTTP on 3000
+            # (the probes keep 3000). The keystore password guards nothing extra: the PEM key
+            # it comes from is in the same pod.
+            - { name: MB_JETTY_SSL, value: "true" }
+            - { name: MB_JETTY_SSL_PORT, value: "8443" }
+            - { name: MB_JETTY_SSL_KEYSTORE, value: /tls-pkcs12/keystore.p12 }
+            - { name: MB_JETTY_SSL_KEYSTORE_PASSWORD, value: changeit }
+            {{- end }}
             - name: JAVA_TOOL_OPTIONS
               value: "-Djava.io.tmpdir=/tmp -XX:MaxRAMPercentage={{ .Values.javaMaxRamPercentage }}"
             {{- with .Values.extraEnvVars }}
@@ -87,6 +97,11 @@ spec:
             - name: http
               containerPort: 3000
               protocol: TCP
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+            {{- end }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           startupProbe:
@@ -105,6 +120,7 @@ spec:
             # must allow exec (emptyDir does).
             - { name: data, mountPath: /data }
             - { name: tmp, mountPath: /tmp }
+            {{- include "quench-common.tls.pkcs12VolumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -112,4 +128,6 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.tls.pkcs12Volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

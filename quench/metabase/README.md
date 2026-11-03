@@ -63,3 +63,9 @@ cosign verify ghcr.io/quenchworks/images/metabase \
 | `waitForDatabase.enabled` | `true` | Init container that waits for PostgreSQL |
 | `ingress.enabled` | `false` | Ingress |
 | `service.port` | `3000` | Service port |
+| `service.httpsPort` | `443` | HTTPS Service port (to 8443), only with `tls.enabled` |
+| `tls.enabled` | `false` | Jetty also serves HTTPS on 8443 beside HTTP (an openssl init container builds the PKCS12 keystore) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `openssl.digest` | (pinned) | init container that builds the PKCS12 keystore |

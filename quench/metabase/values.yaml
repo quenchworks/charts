@@ -67,6 +67,30 @@ resources:
 service:
   type: ClusterIP
   port: 3000
+  # HTTPS Service port (to the container's 8443), only with tls.enabled
+  httpsPort: 443
+
+# Native TLS: Metabase's Jetty also serves HTTPS on 8443 (Service service.httpsPort) beside
+# HTTP on 3000, which the probes keep. Jetty reads only a keystore, so an init container on
+# the openssl image builds a PKCS12. The certificate comes from the first source set:
+# existingSecret, then a cert-manager Certificate, else a Helm-generated CA + certificate.
+# Point siteUrl at the https address.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# Helper image for the TLS init container. Pinned by digest, never a tag.
+openssl:
+  repository: ghcr.io/quenchworks/images/openssl
+  digest: "sha256:81d39521803214393629df2c8c08860b371414b46c2228af9598e0e23ff70f0c"
+  pullPolicy: IfNotPresent
 
 ingress:
   enabled: false
