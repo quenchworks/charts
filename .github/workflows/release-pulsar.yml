@@ -63,6 +63,22 @@ jobs:
             -s sub -n 1 -p Earliest persistent://public/default/gate 2>&1 | tee /tmp/consume.log
           # assert the produced payload comes back through the subscription
           grep -q 'quench' /tmp/consume.log
+          # TLS: pulsar+ssl on 6651 and HTTPS on 8443; the plain ports close. Health over HTTPS
+          # and a produce/consume over pulsar+ssl pass with the chart CA, plain HTTP must fail.
+          kill $pf || true
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 12m
+          kubectl rollout status statefulset/rtest-pulsar --timeout=600s
+          kubectl get secret rtest-pulsar-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward rtest-pulsar-0 8443:8443 >/tmp/pftls.log 2>&1 &
+          pf=$!; sleep 5
+          curl -fsS --cacert /tmp/ca.crt 'https://localhost:8443/admin/v2/brokers/health' | >/dev/null grep 'ok'
+          PC="/opt/pulsar/bin/pulsar-client --url pulsar+ssl://localhost:6651 --tlsTrustCertsFilePath /tls-pkcs8/ca.crt"
+          kubectl exec rtest-pulsar-0 -- $PC produce -m quench-tls -n 1 persistent://public/default/tlsgate
+          kubectl exec rtest-pulsar-0 -- $PC consume -s sub -n 1 -p Earliest persistent://public/default/tlsgate 2>&1 | tee /tmp/consume-tls.log
+          grep -q 'quench-tls' /tmp/consume-tls.log
+          if curl -fsS -m 10 -o /dev/null http://127.0.0.1:8443/admin/v2/brokers/health; then
+            echo "::error::plain HTTP still served on 8443"; exit 1
+          fi
 
       # Data must survive a pod restart, which in Kubernetes means a NEW pod IP. Pulsar
       # 4.2 standalone bound its bookie ID to the pod IP, so its ledgers became

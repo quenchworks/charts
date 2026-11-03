@@ -5,6 +5,11 @@
 */}}
 {{- $liveness := dict "httpGet" (dict "path" "/admin/v2/brokers/health" "port" "http") "initialDelaySeconds" 60 "periodSeconds" 20 "timeoutSeconds" 5 "failureThreshold" 10 -}}
 {{- $readiness := dict "httpGet" (dict "path" "/admin/v2/brokers/health" "port" "http") "initialDelaySeconds" 40 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- if $tls }}
+{{- $_ := set $liveness "httpGet" (dict "path" "/admin/v2/brokers/health" "port" "https" "scheme" "HTTPS") }}
+{{- $_ := set $readiness "httpGet" (dict "path" "/admin/v2/brokers/health" "port" "https" "scheme" "HTTPS") }}
+{{- end }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -32,7 +37,48 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if $tls }}
+      initContainers:
+        {{- include "quench-common.tls.pkcs8InitContainer" (dict "ctx" . "image" (printf "%s@%s" .Values.busybox.repository .Values.busybox.digest)) | nindent 8 }}
+        # a TLS copy of standalone.conf in an emptyDir (PULSAR_STANDALONE_CONF), so the
+        # conf on the data volume stays as it was and turning TLS off leaves nothing behind.
+        # Plain ports are blanked: Java Properties keep the last value of a key.
+        - name: tls-config
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command:
+            - /bin/bash
+            - -ec
+            - |
+              src=/pulsar/conf/standalone.conf
+              [ -f "$src" ] || src=/opt/pulsar/conf/standalone.conf
+              { cat "$src"; cat <<'EOF'
+              # --- QuenchWorks chart: tls.enabled ---
+              brokerServicePort=
+              webServicePort=
+              brokerServicePortTls={{ .Values.service.pulsarTlsPort }}
+              webServicePortTls={{ .Values.service.httpsPort }}
+              tlsCertificateFilePath=/tls-pkcs8/tls.crt
+              tlsKeyFilePath=/tls-pkcs8/tls.key
+              tlsTrustCertsFilePath=/tls-pkcs8/ca.crt
+              brokerClientTlsEnabled=true
+              brokerClientTrustCertsFilePath=/tls-pkcs8/ca.crt
+              EOF
+              } > /pulsar-tls-conf/standalone.conf
+          volumeMounts:
+            - name: data
+              mountPath: /pulsar
+              readOnly: true
+            - name: tls-conf
+              mountPath: /pulsar-tls-conf
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- else }}
       {{- include "quench-common.initContainers" . | nindent 6 }}
+      {{- end }}
       containers:
         - name: pulsar
           image: {{ include "quench-common.image" . }}
@@ -63,6 +109,10 @@ spec:
               value: {{ ternary "1" "0" .Values.config.functionsWorker | quote }}
             - name: PULSAR_STREAM_STORAGE
               value: {{ ternary "1" "0" .Values.config.streamStorage | quote }}
+            {{- if $tls }}
+            - name: PULSAR_STANDALONE_CONF
+              value: /pulsar-tls-conf/standalone.conf
+            {{- end }}
             {{- with .Values.config.extraOpts }}
             - name: PULSAR_EXTRA_OPTS
               value: {{ . | quote }}
@@ -70,10 +120,17 @@ spec:
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
+            {{- if $tls }}
+            - name: pulsar-tls
+              containerPort: {{ .Values.service.pulsarTlsPort }}
+            - name: https
+              containerPort: {{ .Values.service.httpsPort }}
+            {{- else }}
             - name: pulsar
               containerPort: {{ .Values.service.pulsarPort }}
             - name: http
               containerPort: {{ .Values.service.httpPort }}
+            {{- end }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}
@@ -87,9 +144,15 @@ spec:
             # one writable mount covers data + logs + conf + tmp (uid 1001); exec-capable
             - name: data
               mountPath: /pulsar
+            {{- if $tls }}
+            - name: tls-conf
+              mountPath: /pulsar-tls-conf
+              readOnly: true
+            {{- include "quench-common.tls.pkcs8VolumeMount" . | nindent 12 }}
+            {{- end }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
-      {{- if or (and .Values.persistence.enabled .Values.persistence.existingClaim) (not .Values.persistence.enabled) .Values.extraVolumes }}
+      {{- if or (and .Values.persistence.enabled .Values.persistence.existingClaim) (not .Values.persistence.enabled) .Values.extraVolumes $tls }}
       volumes:
         {{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
         - name: data
@@ -98,6 +161,12 @@ spec:
         {{- else if not .Values.persistence.enabled }}
         - name: data
           emptyDir: {}
+        {{- end }}
+        {{- if $tls }}
+        - name: tls-conf
+          emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.tls.pkcs8Volume" . | nindent 8 }}
         {{- end }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}
       {{- end }}

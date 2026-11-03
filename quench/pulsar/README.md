@@ -110,6 +110,12 @@ There is no Secret. Do not expose Pulsar externally without an authenticating pr
 | `service.type`                     | `ClusterIP`                                      |                                                                                           |
 | `service.pulsarPort`               | `6650`                                           | Binary protocol (`pulsar://`) for clients.                                                |
 | `service.httpPort`                 | `8080`                                           | HTTP admin / REST API.                                                                    |
+| `service.pulsarTlsPort`, `service.httpsPort` | `6651`, `8443` | with `tls.enabled` they replace the plain ports (pulsar+ssl:// and HTTPS) |
+| `tls.enabled` | `false` | broker on pulsar+ssl:// 6651 and admin/REST over HTTPS 8443, plain ports closed; key converted to PKCS#8 |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `busybox.digest` | pinned | helper image for the PKCS#8 init container |
 | `networkPolicy.enabled`            | `true`                                           | The security boundary (Pulsar has no auth).                                               |
 | `networkPolicy.allowExternal`      | `false`                                          | Restrict ingress to in-cluster pods.                                                      |
 | `podDisruptionBudget.enabled`      | `true`                                           |                                                                                           |

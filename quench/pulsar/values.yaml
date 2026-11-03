@@ -46,6 +46,31 @@ service:
   pulsarPort: 6650
   # HTTP admin / REST API
   httpPort: 8080
+  # with tls.enabled these replace pulsarPort/httpPort (pulsar+ssl:// and HTTPS)
+  pulsarTlsPort: 6651
+  httpsPort: 8443
+
+# Native TLS: the broker takes pulsar+ssl:// on 6651 and the admin/REST API serves HTTPS on
+# 8443; the plain ports close. The key is converted to PKCS#8 for Pulsar, and an init
+# container writes a TLS copy of standalone.conf to an emptyDir. The certificate comes from
+# the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# Helper image for the TLS init container. Pinned by digest, never a tag.
+busybox:
+  repository: ghcr.io/quenchworks/images/busybox
+  digest: "sha256:ca51f41cf97009e6913c4ea272879cffa6f8333a691839a3fa40eb7d16945d3a"
+  pullPolicy: IfNotPresent
 
 # --- Common production knobs, wired through quench-common (all optional) ---
 podLabels: {}
