@@ -60,6 +60,15 @@ jobs:
           curl -fsS -o /dev/null http://127.0.0.1:8080/ui
           curl -fsS 'http://127.0.0.1:8080/api/gate/topic?show=ALL' | tee /tmp/topics.json | head -c 400; echo
           grep -q '"name":"quench-gate"' /tmp/topics.json
+          # TLS: the topic API over HTTPS on 8443 with the chart CA; plain HTTP on 8443 must fail
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-akhq --timeout=300s
+          kubectl get secret rtest-akhq-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward deploy/rtest-akhq 8443:8443 >/tmp/pftls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/ca.crt 'https://localhost:8443/api/gate/topic?show=ALL' | >/dev/null grep '"name":"quench-gate"'
+          if curl -s -m 10 -o /dev/null http://127.0.0.1:8443/ui; then echo "plain HTTP answered on 8443"; exit 1; fi
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

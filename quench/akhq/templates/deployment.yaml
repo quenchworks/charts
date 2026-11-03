@@ -23,6 +23,10 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if include "quench-common.tls.enabled" . }}
+      initContainers:
+        {{- include "quench-common.tls.pkcs12InitContainer" (dict "ctx" . "image" (printf "%s@%s" .Values.openssl.repository .Values.openssl.digest) "password" "changeit") | nindent 8 }}
+      {{- end }}
       containers:
         - name: akhq
           image: {{ include "quench-common.image" . }}
@@ -30,6 +34,16 @@ spec:
           env:
             - name: JAVA_TOOL_OPTIONS
               value: {{ .Values.javaOpts | quote }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # Micronaut dual protocol: HTTPS on 8443 from the init container's PKCS12 beside
+            # HTTP on 8080. The password guards nothing extra: the PEM key is in the same pod.
+            - { name: MICRONAUT_SERVER_DUAL_PROTOCOL, value: "true" }
+            - { name: MICRONAUT_SERVER_SSL_ENABLED, value: "true" }
+            - { name: MICRONAUT_SERVER_SSL_PORT, value: "8443" }
+            - { name: MICRONAUT_SERVER_SSL_KEY_STORE_PATH, value: "file:/tls-pkcs12/keystore.p12" }
+            - { name: MICRONAUT_SERVER_SSL_KEY_STORE_TYPE, value: PKCS12 }
+            - { name: MICRONAUT_SERVER_SSL_KEY_STORE_PASSWORD, value: changeit }
+            {{- end }}
             {{- with .Values.extraEnvVars }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -38,6 +52,10 @@ spec:
               containerPort: 8080
             - name: management
               containerPort: 28081
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: https
+              containerPort: 8443
+            {{- end }}
           # /health reports DOWN while no cluster is configured, which is a config
           # problem, not a dead process; liveness only asks that the server answers.
           readinessProbe:
@@ -62,6 +80,7 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.pkcs12VolumeMount" . | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -80,3 +99,5 @@ spec:
             secretName: {{ include "akhq.secretName" . }}
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.tls.pkcs12Volume" . | nindent 8 }}
