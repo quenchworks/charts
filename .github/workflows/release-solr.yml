@@ -61,6 +61,19 @@ jobs:
             -H 'Content-Type: application/json' -d '[{"id":"1","title_s":"quench"}]' >/dev/null
           # query it back and assert the indexed value comes through
           curl -fsS 'http://127.0.0.1:8983/solr/gate/select?q=id:1' | >/dev/null grep 'quench'
+          # TLS: the port turns HTTPS; index and query a document over HTTPS with the chart CA
+          # (the CI emptyDir loses the earlier one), and plain HTTP on 8983 must fail
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-solr --timeout=420s
+          kubectl get secret rtest-solr-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward rtest-solr-0 8983:8983 >/tmp/pftls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/ca.crt 'https://localhost:8983/solr/admin/info/health' | >/dev/null grep '"status":"OK"'
+          curl -fsS --cacert /tmp/ca.crt -XPOST 'https://localhost:8983/solr/gate/update?commit=true' \
+            -H 'Content-Type: application/json' -d '[{"id":"2","title_s":"quench-tls"}]' >/dev/null
+          curl -fsS --cacert /tmp/ca.crt 'https://localhost:8983/solr/gate/select?q=id:2' | >/dev/null grep 'quench-tls'
+          if curl -s -m 10 -o /dev/null http://127.0.0.1:8983/solr/admin/info/health; then echo "plain HTTP answered on 8983"; exit 1; fi
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

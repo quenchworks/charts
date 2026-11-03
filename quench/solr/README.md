@@ -64,6 +64,11 @@ Do not expose Solr externally without an authenticating proxy in front of it.
 | `resources.limits`                 | `cpu 2 / mem 1536Mi`              |                                                                                           |
 | `service.type`                     | `ClusterIP`                       |                                                                                           |
 | `service.httpPort`                 | `8983`                            | The only Solr port.                                                                       |
+| `tls.enabled` | `false` | the port serves HTTPS only (bin/solr SSL with a PKCS12 keystore from an openssl init container); probes move to HTTPS. SolrCloud also needs urlScheme=https |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `openssl.digest` | (pinned) | init container that builds the PKCS12 keystores |
 | `networkPolicy.enabled`            | `true`                            | The security boundary (Solr has no auth).                                                 |
 | `networkPolicy.allowExternal`      | `false`                           | Restrict ingress to in-cluster pods.                                                      |
 | `podDisruptionBudget.enabled`      | `true`                            |                                                                                           |
