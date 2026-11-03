@@ -50,6 +50,12 @@ and an unknown context to return 404.
 | `image.digest`                | (CI-written)                        | Required. Charts pin by digest, never a tag.                                              |
 | `replicaCount`                | `1`                                 | Stateless; scale freely (ignored when autoscaling is on).                                 |
 | `service.port`                | `8080`                              | http (named `http`).                                                                      |
+| `service.httpsPort` | `443` | HTTPS Service port (to 8443), only with `tls.enabled` |
+| `tls.enabled` | `false` | Jetty also serves HTTPS on 8443 beside HTTP (ssl + https modules; an openssl init container builds the PKCS12 keystore) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `openssl.digest` | (pinned) | init container that builds the PKCS12 keystore |
 | `autoscaling.enabled`         | `false`                             | Optional CPU HPA (`minReplicas`/`maxReplicas`).                                           |
 | `networkPolicy.enabled`       | `true`                              | Ingress to port 8080.                                                                     |
 | `networkPolicy.allowExternal` | `true`                              | A web server usually wants external ingress; set `false` to restrict to the namespace.    |
