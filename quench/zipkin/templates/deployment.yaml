@@ -21,15 +21,45 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if include "quench-common.tls.enabled" . }}
+      initContainers:
+        {{- include "quench-common.tls.pkcs12InitContainer" (dict "ctx" . "image" (printf "%s@%s" .Values.openssl.repository .Values.openssl.digest) "password" "changeit") | nindent 8 }}
+      {{- end }}
       containers:
         - name: zipkin
           image: {{ include "quench-common.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           env:
             {{- include "zipkin.env" . | nindent 12 }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # A second Armeria port serves HTTPS on 8443 from the init container's PKCS12;
+            # 9411 stays HTTP for the probes and existing span senders. The keystore password
+            # guards nothing extra: the PEM key it comes from is in the same pod.
+            - name: ARMERIA_SSL_ENABLED
+              value: "true"
+            - name: ARMERIA_SSL_KEY_STORE
+              value: file:/tls-pkcs12/keystore.p12
+            - name: ARMERIA_SSL_KEY_STORE_TYPE
+              value: PKCS12
+            - name: ARMERIA_SSL_KEY_STORE_PASSWORD
+              value: changeit
+            # Spring takes a list from one source only, so both ports come from env.
+            - name: ARMERIA_PORTS_0_PORT
+              value: "9411"
+            - name: ARMERIA_PORTS_0_PROTOCOLS
+              value: http
+            - name: ARMERIA_PORTS_1_PORT
+              value: "8443"
+            - name: ARMERIA_PORTS_1_PROTOCOLS
+              value: https
+            {{- end }}
           ports:
             - name: http
               containerPort: 9411
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: https
+              containerPort: 8443
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /health
@@ -50,6 +80,7 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.pkcs12VolumeMount" . | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -65,3 +96,5 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.tls.pkcs12Volume" . | nindent 8 }}

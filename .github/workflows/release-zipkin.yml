@@ -59,6 +59,21 @@ jobs:
           curl -fsS "$z/api/v2/services" | >/dev/null grep quench-gate
           curl -fsS "$z/api/v2/trace/5af7183fb1d4cf5f" | >/dev/null grep '"id":"6b221d5bc9e6496c"'
           curl -fsS "$z/zipkin/" | >/dev/null grep -i '<html'
+          # TLS: post and read back a span over HTTPS on 8443 with the chart CA (mem storage is
+          # wiped by the upgrade, so write then read here); plain HTTP on 8443 must fail
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-zipkin --timeout=300s
+          kubectl get secret rtest-zipkin-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-zipkin 18443:443 >/tmp/pftls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          t=https://localhost:18443
+          for i in $(seq 1 30); do curl -fsS --cacert /tmp/ca.crt "$t/health" >/dev/null 2>&1 && break; sleep 2; done
+          test "$(curl -s --cacert /tmp/ca.crt -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' "$t/api/v2/spans" \
+            -d '[{"traceId":"7af7183fb1d4cf5f","id":"7b221d5bc9e6496c","name":"get /tls","timestamp":1790000000000000,"duration":2000,"localEndpoint":{"serviceName":"quench-tls"}}]')" = 202
+          for i in $(seq 1 20); do curl -fsS --cacert /tmp/ca.crt "$t/api/v2/services" | >/dev/null grep quench-tls && break; sleep 2; done
+          curl -fsS --cacert /tmp/ca.crt "$t/api/v2/trace/7af7183fb1d4cf5f" | >/dev/null grep '"id":"7b221d5bc9e6496c"'
+          if curl -s -m 10 -o /dev/null http://127.0.0.1:18443/health; then echo "plain HTTP answered on 8443"; exit 1; fi
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not
