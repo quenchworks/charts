@@ -25,6 +25,10 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if include "quench-common.tls.enabled" . }}
+      initContainers:
+        {{- include "quench-common.tls.pkcs12InitContainer" (dict "ctx" . "image" (printf "%s@%s" .Values.openssl.repository .Values.openssl.digest) "password" "changeit") | nindent 8 }}
+      {{- end }}
       containers:
         - name: firefox
           image: {{ printf "%s@%s" .Values.firefox.image.repository .Values.firefox.image.digest }}
@@ -38,11 +42,15 @@ spec:
             - --config
             - /etc/selenium/config.toml
             - --hub
-            - {{ printf "http://%s:%v" $hub .Values.service.port | quote }}
+            - {{ printf "%s://%s:%v" (ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true")) $hub .Values.service.port | quote }}
             - --host
             - $(POD_IP)
             - --port
             - "5555"
+            {{- if include "quench-common.tls.enabled" . }}
+            - --registration-secret
+            - $(SE_REGISTRATION_SECRET)
+            {{- end }}
             {{- range .Values.firefox.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -50,6 +58,16 @@ spec:
             - name: POD_IP
               valueFrom:
                 fieldRef: { fieldPath: status.podIP }
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: SE_REGISTRATION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "quench-common.fullname" . }}-registration
+                  key: secret
+            # trust the chart CA for the hub's HTTPS (extraEnvVars below can override)
+            - name: JAVA_TOOL_OPTIONS
+              value: "-Djavax.net.ssl.trustStore=/tls-pkcs12/truststore.p12 -Djavax.net.ssl.trustStoreType=PKCS12 -Djavax.net.ssl.trustStorePassword=changeit"
+            {{- end }}
             {{- with .Values.firefox.extraEnvVars }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -68,6 +86,9 @@ spec:
             - { name: tmp, mountPath: /tmp }
             - { name: home, mountPath: /home/nonroot }
             - { name: dshm, mountPath: /dev/shm }
+            {{- if include "quench-common.tls.enabled" . }}
+            {{- include "quench-common.tls.pkcs12VolumeMount" . | nindent 12 }}
+            {{- end }}
       volumes:
         - { name: tmp, emptyDir: {} }
         - { name: home, emptyDir: {} }
@@ -75,4 +96,8 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: {{ .Values.firefox.shmSize }}
+        {{- if include "quench-common.tls.enabled" . }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.tls.pkcs12Volume" . | nindent 8 }}
+        {{- end }}
 {{- end }}

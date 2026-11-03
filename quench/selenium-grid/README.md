@@ -46,6 +46,11 @@ with every capability dropped.
 | `hub.extraArgs` / `hub.extraEnvVars` | `[]` | Extra hub flags and env (`JAVA_TOOL_OPTIONS` for JVM flags) |
 | `hub.resources` | 100m/512Mi, 1/1Gi | Hub requests and limits |
 | `service.type` / `service.port` | `ClusterIP` / `4444` | Hub Service (4442/4443 are always exposed for the event bus) |
+| `tls.enabled` | `false` | the hub's 4444 serves HTTPS only (PKCS#8 key); nodes register over https and trust the chart CA; event bus and 5555 stay plain in the release |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice); it must name the hub Service |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice); the hub Service names are added |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `openssl.digest` | pinned | helper image for the PKCS#8 key and the node truststore |
 | `firefox.enabled` | `true` | Deploy Firefox nodes |
 | `firefox.image.repository` / `firefox.image.digest` | QuenchWorks selenium-node-firefox | Node image, pinned by digest |
 | `firefox.replicas` | `1` | Node pods, one Firefox session each |

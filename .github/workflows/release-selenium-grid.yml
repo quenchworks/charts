@@ -74,6 +74,34 @@ jobs:
           echo "graphql: $gql"
           grep -q '"sessionCount": *0' <<<"$gql"
           grep -q '"totalSlots": *1' <<<"$gql"
+          # TLS: the hub serves HTTPS only and the node re-registers over https with the chart
+          # CA in its truststore. A Firefox session runs over HTTPS; plain HTTP must fail.
+          kill $pf || true
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 15m
+          kubectl rollout status deployment/rtest-selenium-grid-hub --timeout=300s
+          kubectl rollout status deployment/rtest-selenium-grid-node-firefox --timeout=300s
+          kubectl get secret rtest-selenium-grid-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-selenium-grid-hub 4444:4444 >/tmp/pftls.log 2>&1 &
+          pf=$!; sleep 5
+          G=https://localhost:4444
+          C="curl --cacert /tmp/ca.crt"
+          status=""
+          for _ in $(seq 1 90); do
+            status="$($C -fsS "$G/status" 2>/dev/null || true)"
+            grep -q '"ready": *true' <<<"$status" && break
+            sleep 2
+          done
+          echo "status over TLS: $(head -c 300 <<<"$status")"
+          grep -q '"ready": *true' <<<"$status"
+          new="$($C -sS -H "$J" -d '{"capabilities":{"alwaysMatch":{"browserName":"firefox"}}}' "$G/session")"
+          sid="$(sed -n 's/.*"sessionId": *"\([^"]*\)".*/\1/p' <<<"$new" | head -1)"
+          test -n "$sid" || { echo "new session over TLS: $(head -c 400 <<<"$new")"; exit 1; }
+          $C -fsS -H "$J" -d '{"url":"data:text/html,<title>quench-tls</title>"}' "$G/session/$sid/url" >/dev/null
+          grep -q '"value": *"quench-tls"' <<<"$($C -fsS "$G/session/$sid/title")"
+          $C -fsS -X DELETE "$G/session/$sid" >/dev/null
+          if curl -fsS -m 10 -o /dev/null http://127.0.0.1:4444/status; then
+            echo "::error::plain HTTP still served on 4444"; exit 1
+          fi
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

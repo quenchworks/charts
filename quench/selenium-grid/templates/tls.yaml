@@ -1,0 +1,25 @@
+{{- if include "quench-common.tls.enabled" . }}
+{{- /* Nodes and clients reach the hub by its Service name, which the default certificate
+     names do not cover: add it (cert-manager and the Helm-made certificate both read
+     tls.certManager.dnsNames). */}}
+{{- $hub := include "selenium-grid.hubName" . }}
+{{- $names := list $hub (printf "%s.%s" $hub .Release.Namespace) (printf "%s.%s.svc" $hub .Release.Namespace) (printf "%s.%s.svc.cluster.local" $hub .Release.Namespace) }}
+{{- $_ := set .Values.tls.certManager "dnsNames" (concat (.Values.tls.certManager.dnsNames | default list) $names | uniq) }}
+{{- end }}
+{{- include "quench-common.tls.resources" . }}
+{{- if include "quench-common.tls.enabled" . }}
+{{- /* With HTTPS the hub derives its registration secret from its certificate, which the
+     nodes do not have, so it rejects them. Both sides get this one instead. */}}
+{{- $name := printf "%s-registration" (include "quench-common.fullname" .) }}
+{{- $old := lookup "v1" "Secret" .Release.Namespace $name }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+type: Opaque
+data:
+  secret: {{ if $old }}{{ index $old.data "secret" }}{{ else }}{{ randAlphaNum 32 | b64enc }}{{ end }}
+{{- end }}

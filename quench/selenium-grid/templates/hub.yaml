@@ -23,6 +23,10 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if include "quench-common.tls.enabled" . }}
+      initContainers:
+        {{- include "quench-common.tls.pkcs8InitContainer" (dict "ctx" . "image" (printf "%s@%s" .Values.openssl.repository .Values.openssl.digest)) | nindent 8 }}
+      {{- end }}
       containers:
         - name: hub
           image: {{ include "quench-common.image" . }}
@@ -33,12 +37,30 @@ spec:
             - hub
             - --session-request-timeout
             - {{ .Values.hub.sessionRequestTimeout | quote }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # 4444 serves HTTPS only; Selenium wants a PKCS#8 key
+            - --https-certificate
+            - /tls-pkcs8/tls.crt
+            - --https-private-key
+            - /tls-pkcs8/tls.key
+            - --registration-secret
+            - $(SE_REGISTRATION_SECRET)
+            {{- end }}
             {{- range .Values.hub.extraArgs }}
             - {{ . | quote }}
             {{- end }}
-          {{- with .Values.hub.extraEnvVars }}
+          {{- if or .Values.hub.extraEnvVars (include "quench-common.tls.enabled" .) }}
           env:
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: SE_REGISTRATION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "quench-common.fullname" . }}-registration
+                  key: secret
+            {{- end }}
+            {{- with .Values.hub.extraEnvVars }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
           ports:
             - { name: http, containerPort: 4444, protocol: TCP }
@@ -52,16 +74,19 @@ spec:
             tcpSocket: { port: http }
             periodSeconds: 20
           readinessProbe:
-            httpGet: { path: /status, port: http }
+            httpGet: { path: /status, port: http{{ if include "quench-common.tls.enabled" . }}, scheme: HTTPS{{ end }} }
             periodSeconds: 10
           resources:
             {{- toYaml .Values.hub.resources | nindent 12 }}
           volumeMounts:
             - { name: tmp, mountPath: /tmp }
             - { name: home, mountPath: /home/nonroot }
+            {{- include "quench-common.tls.pkcs8VolumeMount" . | nindent 12 }}
       volumes:
         - { name: tmp, emptyDir: {} }
         - { name: home, emptyDir: {} }
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.tls.pkcs8Volume" . | nindent 8 }}
 ---
 apiVersion: v1
 kind: Service
