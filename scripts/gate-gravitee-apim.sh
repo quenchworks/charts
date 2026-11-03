@@ -107,3 +107,25 @@ done
 echo "gateway reply: $body"
 grep -q "$WORD" <<<"$body" || { echo "the gateway never proxied to the backend"; kubectl logs -n "$NS" -l app.kubernetes.io/component=gateway --tail=80; exit 1; }
 echo "gate passed: login, create, plan, start, deploy, and the gateway returned the backend reply"
+
+# TLS: the gateway serves HTTPS only. The API deployed above (stored in MongoDB) proxies over
+# HTTPS with the chart CA after the switch, and plain HTTP on the gateway port must fail.
+kill $pf2 2>/dev/null || true
+helm upgrade "$REL" "$C" -n "$NS" -f "$C/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 15m
+kubectl rollout status -n "$NS" "deploy/$REL-gravitee-apim-gateway" --timeout=10m
+kubectl get secret -n "$NS" "$REL-gravitee-apim-tls" -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/apim-ca.crt
+kubectl port-forward -n "$NS" "svc/$REL-gravitee-apim-gateway" 28443:8082 >/tmp/pf-apim-tls.log 2>&1 &
+pf2=$!
+sleep 5
+body=""
+for i in $(seq 1 40); do
+  body="$(curl -sS --max-time 5 --cacert /tmp/apim-ca.crt https://localhost:28443/quench-echo/ 2>/dev/null || true)"
+  grep -q "$WORD" <<<"$body" && break
+  sleep 3
+done
+echo "gateway reply over HTTPS: $body"
+grep -q "$WORD" <<<"$body" || { echo "the gateway never proxied over HTTPS"; kubectl logs -n "$NS" -l app.kubernetes.io/component=gateway --tail=80; exit 1; }
+if curl -fsS --max-time 10 -o /dev/null http://127.0.0.1:28443/quench-echo/; then
+  echo "plain HTTP still served on the gateway port"; exit 1
+fi
+echo "TLS gate passed: the gateway proxied over HTTPS with the chart CA and refused plain HTTP"

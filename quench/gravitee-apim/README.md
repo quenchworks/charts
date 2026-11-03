@@ -44,6 +44,10 @@ APIs you deploy are served by the gateway Service on port 8082.
 | `gateway.replicaCount` | `1` | gateway replicas; they share state through MongoDB |
 | `gateway.javaOpts`, `api.javaOpts` | `""` | extra JVM flags (`JAVA_TOOL_OPTIONS`); the heap is 70% of the memory limit |
 | `gateway.extraEnv`, `api.extraEnv` | `[]` | any Gravitee setting as a `gravitee_<path>` env var |
+| `tls.enabled` | `false` | the gateway (8082) serves HTTPS only from the PEM pair at `/tls`; management API and console stay HTTP in the release. The generated certificate names the release fullname and `localhost`; add `<release>-gravitee-apim-gateway` and your hosts with `tls.certManager.dnsNames` (also applied to the Helm-generated certificate) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `console.enabled` | `true` | the admin UI |
 | `ingress.*` | off | one Ingress with a console host and a gateway host |
 

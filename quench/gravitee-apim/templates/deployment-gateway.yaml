@@ -43,6 +43,17 @@ spec:
             - name: gravitee_reporters_elasticsearch_enabled
               value: "false"
             {{- include "gravitee.commonEnv" . | nindent 12 }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # tls.enabled: the gateway port serves HTTPS only, from the PEM pair at /tls
+            - name: gravitee_http_secured
+              value: "true"
+            - name: gravitee_http_ssl_keystore_type
+              value: pem
+            - name: gravitee_http_ssl_keystore_certificates_0_cert
+              value: /tls/tls.crt
+            - name: gravitee_http_ssl_keystore_certificates_0_key
+              value: /tls/tls.key
+            {{- end }}
             {{- with .Values.gateway.javaOpts }}
             - name: JAVA_TOOL_OPTIONS
               value: {{ . | quote }}
@@ -69,6 +80,8 @@ spec:
           volumeMounts:
             # plugins unpack into /tmp/gravitee/plugins at boot; also the JVM tmpdir
             - { name: tmp, mountPath: /tmp }
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
