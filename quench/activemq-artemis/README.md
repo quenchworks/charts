@@ -33,6 +33,11 @@ it with `kubectl port-forward mq-activemq-artemis-0 8161`.
 | `auth.existingSecret` | `""` | a Secret with `artemis-users.properties` and `artemis-roles.properties` |
 | `connectors.amqp` / `.stomp` / `.mqtt` | `false` | add the protocol ports 5672, 61613, 1883 to the Service |
 | `persistence.*` | `8Gi` PVC | journal, paging, large messages and logs under `/data` |
+| `tls.enabled` | `false` | every acceptor (61616 and the protocol ports) speaks SSL, none stays plain; clients add `sslEnabled=true&trustStoreType=PEM&trustStorePath=<ca.crt>` |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `busybox.digest` | (pinned) | init container that writes the PKCS#8 PEM keystore |
 
 The chart mounts only the users and roles files over the image's `etc/`; the broker
 configuration is the one `artemis create` wrote. It runs one broker; clustering and

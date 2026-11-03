@@ -68,6 +68,22 @@ jobs:
           out="$(cli consumer --user admin --password "$PW" --message-count 5 --receive-timeout 30000)"
           grep -q "Consumed: 5 messages" <<<"$out" || { echo "$out" | tail -15; exit 1; }
           echo "install gate OK: auth enforced, 5 messages kept across a pod restart"
+          # 4. TLS: every acceptor turns SSL; a TLS client produces and consumes, a plain one fails
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-activemq-artemis --timeout=300s
+          kubectl wait pod/rtest-activemq-artemis-0 --for=condition=Ready --timeout=300s
+          tcli() { kubectl exec rtest-activemq-artemis-0 -- /usr/lib/jvm/java-21-openjdk/bin/java \
+            -Dartemis.home=/opt/artemis -Dartemis.instance=/opt/artemis-instance -Djava.io.tmpdir=/tmp \
+            -classpath /opt/artemis/lib/artemis-boot.jar org.apache.activemq.artemis.boot.Artemis \
+            "$@" --destination queue://tlsgate 2>&1 || true; }
+          TURL='tcp://localhost:61616?sslEnabled=true&trustStoreType=PEM&trustStorePath=/tls-pkcs8/ca.crt'
+          out="$(tcli producer --url "$TURL" --user admin --password "$PW" --message-count 3)"
+          grep -q "Produced: 3 messages" <<<"$out" || { echo "$out" | tail -15; exit 1; }
+          out="$(tcli consumer --url "$TURL" --user admin --password "$PW" --message-count 3 --receive-timeout 30000)"
+          grep -q "Consumed: 3 messages" <<<"$out" || { echo "$out" | tail -15; exit 1; }
+          out="$(tcli producer --url tcp://localhost:61616 --user admin --password "$PW" --message-count 1)"
+          if grep -q "Produced: 1 messages" <<<"$out"; then echo "plain client produced on the TLS acceptor"; exit 1; fi
+          echo "TLS gate OK: SSL round trip, plaintext refused"
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

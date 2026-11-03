@@ -25,13 +25,31 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if include "quench-common.tls.enabled" . }}
+      initContainers:
+        {{- include "quench-common.tls.pkcs8InitContainer" (dict "ctx" . "image" (printf "%s@%s" .Values.busybox.repository .Values.busybox.digest)) | nindent 8 }}
+      {{- end }}
       containers:
         - name: artemis
           image: {{ include "quench-common.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
-          {{- with .Values.extraEnv }}
+          {{- if or .Values.extraEnv (include "quench-common.tls.enabled" .) }}
           env:
+            {{- if include "quench-common.tls.enabled" . }}
+            # broker.xml is baked into the image; brokerconfig.* system properties override its
+            # acceptors. Every acceptor (61616, 5672, 61613, 5445, 1883) turns SSL, so the pod
+            # keeps no plaintext listener. The bundled pem-keystore reads the PKCS#8 PEM.
+            - name: JAVA_TOOL_OPTIONS
+              value: >-
+                {{- range list "artemis" "amqp" "stomp" "hornetq" "mqtt" }}
+                -Dbrokerconfig.acceptorConfigurations.{{ . }}.params.sslEnabled=true
+                -Dbrokerconfig.acceptorConfigurations.{{ . }}.params.keyStoreType=PEM
+                -Dbrokerconfig.acceptorConfigurations.{{ . }}.params.keyStorePath=/tls-pkcs8/tls-keystore.pem
+                {{- end }}
+            {{- end }}
+            {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
+            {{- end }}
           {{- end }}
           ports:
             - name: artemis
@@ -75,6 +93,7 @@ spec:
               mountPath: /data
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.pkcs8VolumeMount" . | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -93,6 +112,8 @@ spec:
             secretName: {{ include "activemq-artemis.secretName" . }}
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.tls.pkcs8Volume" . | nindent 8 }}
         {{- if not .Values.persistence.enabled }}
         - name: data
           emptyDir: {}

@@ -46,6 +46,28 @@ affinity: {}
 service:
   type: ClusterIP
 
+# Native TLS: every acceptor (61616 and the protocol ports) speaks SSL, none stays plain.
+# Clients add sslEnabled=true and trust ca.crt from the TLS Secret, e.g.
+# tcp://host:61616?sslEnabled=true&trustStoreType=PEM&trustStorePath=/path/ca.crt. A busybox
+# init container writes the PKCS#8 PEM keystore. The certificate comes from the first source
+# set: existingSecret, then a cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# Helper image for the TLS init container. Pinned by digest, never a tag.
+busybox:
+  repository: ghcr.io/quenchworks/images/busybox
+  digest: "sha256:ca51f41cf97009e6913c4ea272879cffa6f8333a691839a3fa40eb7d16945d3a"
+  pullPolicy: IfNotPresent
+
 serviceAccount:
   create: true
   name: ""

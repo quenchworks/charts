@@ -1,9 +1,14 @@
 Quenchworks Apache Artemis {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }}.
 
-  broker:   tcp://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc:61616 (CORE, AMQP, STOMP, MQTT, OpenWire)
+  broker:   tcp://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc:61616{{ if include "quench-common.tls.enabled" . }}?sslEnabled=true{{ end }} (CORE, AMQP, STOMP, MQTT, OpenWire)
   user:     {{ .Values.auth.username }}
   password: kubectl get secret {{ include "activemq-artemis.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
 
+{{- if include "quench-common.tls.enabled" . }}
+TLS is on for every acceptor. Clients trust ca.crt from the Secret
+{{ include "quench-common.tls.secretName" . }}: add trustStoreType=PEM&trustStorePath=<ca.crt> to the URL.
+
+{{ end -}}
 The web console accepts loopback clients only; reach it with a port-forward and log in
 with the same user:
 
