@@ -29,6 +29,12 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if include "quench-common.tls.enabled" . }}
+      # REST (UI and API, 8081) turns HTTPS from this PKCS12; the keystore password guards
+      # nothing extra, the PEM key it comes from is in the same pod.
+      initContainers:
+        {{- include "quench-common.tls.pkcs12InitContainer" (dict "ctx" . "image" (printf "%s@%s" .Values.openssl.repository .Values.openssl.digest) "password" "changeit") | nindent 8 }}
+      {{- end }}
       containers:
         - name: jobmanager
           image: {{ include "quench-common.image" . }}
@@ -54,6 +60,9 @@ spec:
             httpGet:
               path: /overview
               port: http
+              {{- if include "quench-common.tls.enabled" . }}
+              scheme: HTTPS
+              {{- end }}
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
@@ -69,6 +78,7 @@ spec:
             # read-only root filesystem: the config copy, logs and blob/tmp dirs go here
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.pkcs12VolumeMount" . | nindent 12 }}
       {{- with $jm.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -84,6 +94,8 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.tls.pkcs12Volume" . | nindent 8 }}
 ---
 apiVersion: v1
 kind: Service

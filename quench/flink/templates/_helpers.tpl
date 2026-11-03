@@ -18,6 +18,13 @@ app.kubernetes.io/component: {{ .component }}
 {{- $v := .ctx.Values -}}
 {{- if eq $role "jobmanager" }}
 jobmanager.memory.process.size: {{ $v.jobmanager.memoryProcessSize }}
+{{- if include "quench-common.tls.enabled" .ctx }}
+security.ssl.rest.enabled: true
+security.ssl.rest.keystore: /tls-pkcs12/keystore.p12
+security.ssl.rest.keystore-type: PKCS12
+security.ssl.rest.keystore-password: changeit
+security.ssl.rest.key-password: changeit
+{{- end }}
 {{- else }}
 taskmanager.memory.process.size: {{ $v.taskmanager.memoryProcessSize }}
 taskmanager.numberOfTaskSlots: {{ $v.taskmanager.numberOfTaskSlots }}

@@ -58,6 +58,21 @@ jobs:
           echo "$out" | >/dev/null grep '"taskmanagers":2'
           echo "$out" | >/dev/null grep '"slots-total":4'
           echo "$out" | >/dev/null grep '"flink-version":"2.3.0"'
+          # TLS: REST turns HTTPS; both taskmanagers re-register (RPC unchanged) and the overview
+          # answers over HTTPS with the chart CA; plain HTTP must not get the page (Flink redirects)
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-flink-jobmanager --timeout=300s
+          kubectl get secret rtest-flink-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-flink-jobmanager 8081:8081 >/tmp/pftls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          for i in $(seq 1 60); do
+            out="$(curl -fsS --cacert /tmp/ca.crt https://localhost:8081/overview || true)"
+            grep -q '"taskmanagers":2' <<<"$out" && break
+            sleep 3
+          done
+          grep -q '"taskmanagers":2' <<<"$out"
+          test "$(curl -s -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/overview || true)" != 200
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

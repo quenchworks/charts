@@ -32,6 +32,11 @@ flinkProperties:
 | `jobmanager.memoryProcessSize` | `1600m` | `jobmanager.memory.process.size` |
 | `flinkProperties` | `{}` | any other Flink option |
 | `service.port` | `8081` | REST API / web UI |
+| `tls.enabled` | `false` | JobManager REST (UI and API) serves HTTPS, plain HTTP gets a redirect (PKCS12 from an openssl init container); RPC unchanged |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `openssl.digest` | (pinned) | init container that builds the PKCS12 keystore |
 
 Keep each `memoryProcessSize` under that role's container memory limit. There is one
 jobmanager and no HA backend configured; for HA, set Flink's Kubernetes or ZooKeeper HA
