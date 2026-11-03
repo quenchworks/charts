@@ -67,6 +67,22 @@ jobs:
           done
           [ "$body" = "quench-42" ] || { echo "the mounted WAR did not answer quench-42 (got '$body')"; exit 1; }
           echo "install gate OK: WildFly ${appver} booted clean, mounted WAR deployed and compiled its JSP"
+          # TLS: the WAR over HTTPS verified with the chart CA (not the self-signed fallback);
+          # plain HTTP on 8443 must fail
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-wildfly --timeout=300s
+          kubectl get secret rtest-wildfly-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-wildfly 8443:443 >/tmp/pftls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          body=""
+          for i in $(seq 1 30); do
+            body="$(curl -fsS --cacert /tmp/ca.crt https://localhost:8443/quench/ 2>/dev/null || true)"
+            [ "$body" = "quench-42" ] && break; sleep 2
+          done
+          [ "$body" = "quench-42" ] || { echo "HTTPS did not answer quench-42 (got '$body')"; exit 1; }
+          if curl -s -m 10 -o /dev/null http://127.0.0.1:8443/; then echo "plain HTTP answered on 8443"; exit 1; fi
+          echo "TLS gate OK: the WAR over HTTPS with the chart certificate, plain HTTP refused"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

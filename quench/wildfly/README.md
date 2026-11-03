@@ -46,6 +46,12 @@ or EAR there:
 | `javaOpts` | `""` | `JAVA_OPTS`; empty keeps standalone.conf's defaults, set it and you replace them (include heap size) |
 | `extraArgs` | `[]` | extra server arguments, e.g. `-Dmy.prop=value` |
 | `probePath` | `/` | HTTP path the probes hit on 8080 |
+| `service.httpsPort` | `443` | HTTPS Service port (to 8443), only with `tls.enabled` |
+| `tls.enabled` | `false` | WildFly's https listener on 8443 serves the chart certificate beside HTTP (an openssl init container writes `application.keystore`) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `openssl.digest` | (pinned) | init container that writes the keystore |
 | `replicaCount` / `autoscaling.*` | `1` / off | stateless, scale freely |
 
 To change the server configuration permanently, mount your own file over
