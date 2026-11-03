@@ -1,6 +1,18 @@
 {{/* security off, single-node: liveness on the HTTP port, readiness on cluster health. */}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
 {{- $liveness := dict "tcpSocket" (dict "port" "http") "initialDelaySeconds" 60 "periodSeconds" 20 -}}
 {{- $readiness := dict "httpGet" (dict "path" "/_cluster/health" "port" "http") "initialDelaySeconds" 40 "periodSeconds" 10 "failureThreshold" 40 -}}
+{{- if $tls -}}
+{{/* TLS on: HTTP binds loopback, which the kubelet cannot reach. Liveness checks the
+     transport listener (pod address); readiness goes through the TLS sidecar (by number: a
+     named probe port must belong to the probed container). */}}
+{{- $liveness = dict "tcpSocket" (dict "port" "transport") "initialDelaySeconds" 60 "periodSeconds" 20 -}}
+{{- $readiness = dict "httpGet" (dict "path" "/_cluster/health" "port" 8443 "scheme" "HTTPS") "initialDelaySeconds" 40 "periodSeconds" 10 "failureThreshold" 40 -}}
+{{- end -}}
+{{/* TLS on: plain HTTP answers on loopback only (the sidecar's upstream). */}}
+{{- $extra := list -}}
+{{- if $tls }}{{- $extra = append $extra "http.host: 127.0.0.1" -}}{{- end -}}
+{{- with .Values.config.extraConfig }}{{- $extra = append $extra . -}}{{- end -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -65,9 +77,9 @@ spec:
               value: {{ (not .Values.config.securityDisabled) | quote }}
             - name: ES_JAVA_OPTS
               value: "-Xms{{ .Values.config.heapSize }} -Xmx{{ .Values.config.heapSize }}"
-            {{- with .Values.config.extraConfig }}
+            {{- with $extra }}
             - name: ES_CONFIG_EXTRA
-              value: {{ . | quote }}
+              value: {{ join "\n" . | quote }}
             {{- end }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
@@ -98,6 +110,36 @@ spec:
             - name: tmp
               mountPath: /tmp
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- if $tls }}
+        # TLS terminator: Elasticsearch has HTTPS only with xpack security on.
+        - name: tls-proxy
+          image: "{{ .Values.tlsProxy.image.repository }}@{{ .Values.tlsProxy.image.digest }}"
+          imagePullPolicy: {{ .Values.tlsProxy.image.pullPolicy }}
+          args: ["-c", "/etc/tls-proxy/nginx.conf"]
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - name: https
+              containerPort: 8443
+          readinessProbe:
+            tcpSocket:
+              port: https
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: https
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.tlsProxy.resources | nindent 12 }}
+          volumeMounts:
+            - name: tls-proxy-config
+              mountPath: /etc/tls-proxy
+              readOnly: true
+            - name: tls-proxy-tmp
+              mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+        {{- end }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         - name: conf
@@ -106,6 +148,14 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        {{- if $tls }}
+        - name: tls-proxy-config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-tls-proxy
+        - name: tls-proxy-tmp
+          emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- end }}
         {{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
         - name: data
           persistentVolumeClaim:

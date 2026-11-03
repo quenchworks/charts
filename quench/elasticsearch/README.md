@@ -53,6 +53,12 @@ gh attestation verify oci://ghcr.io/quenchworks/images/elasticsearch \
 | `config.securityDisabled`     | `true`                                     | `xpack.security` off (internal use behind the NetworkPolicy).                             |
 | `config.heapSize`             | `512m`                                     | JVM heap (`-Xms`/`-Xmx`).                                                                 |
 | `config.extraConfig`          | `""`                                       | Raw YAML appended to `elasticsearch.yml` (`ES_CONFIG_EXTRA`).                             |
+| `service.httpsPort` | `443` | HTTPS Service port with `tls.enabled` (the sidecar's 8443); `httpPort` is then not published |
+| `tls.enabled` | `false` | an nginx sidecar serves the API over HTTPS on 8443; Elasticsearch HTTP binds to loopback (plain 9200 unreachable) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `tlsProxy.image.digest` | pinned | the QuenchWorks nginx used as the TLS sidecar |
 | `persistence.enabled`         | `true`                                     | 16Gi PVC at `/data`.                                                                      |
 | `service.httpPort`            | `9200`                                     | REST API.                                                                                 |
 | `service.transportPort`       | `9300`                                     | Node transport (headless).                                                                |

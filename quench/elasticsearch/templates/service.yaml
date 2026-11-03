@@ -7,9 +7,16 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
+    {{- if include "quench-common.tls.enabled" . }}
+    # Elasticsearch listens on loopback only; the nginx sidecar terminates TLS on 8443
+    - port: {{ .Values.service.httpsPort }}
+      targetPort: https
+      name: https
+    {{- else }}
     - port: {{ .Values.service.httpPort }}
       targetPort: http
       name: http
+    {{- end }}
   selector:
     {{- include "quench-common.selectorLabels" . | nindent 4 }}
 ---
@@ -24,9 +31,16 @@ spec:
   clusterIP: None
   publishNotReadyAddresses: true   # nodes must resolve each other before they are ready
   ports:
+    {{- if include "quench-common.tls.enabled" . }}
+    # headless names resolve to pod IPs, so advertise the sidecar's own port
+    - port: 8443
+      targetPort: https
+      name: https
+    {{- else }}
     - port: {{ .Values.service.httpPort }}
       targetPort: http
       name: http
+    {{- end }}
     - port: {{ .Values.service.transportPort }}
       targetPort: transport
       name: transport

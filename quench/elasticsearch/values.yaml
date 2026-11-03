@@ -45,6 +45,35 @@ service:
   type: ClusterIP
   httpPort: 9200
   transportPort: 9300
+  # With tls.enabled the Service publishes this HTTPS port (the TLS sidecar's 8443)
+  # instead of httpPort, and Elasticsearch HTTP binds to loopback only.
+  httpsPort: 443
+
+# HTTPS for the API. Elasticsearch serves HTTPS only with xpack security (and so auth) on,
+# so an nginx sidecar (tlsProxy) terminates TLS on 8443 and proxies to Elasticsearch on
+# 127.0.0.1. Transport (9300) stays plain behind the NetworkPolicy. Off by default. The
+# first source set wins: existingSecret, then certManager, else a Helm-generated
+# self-signed CA + certificate (mounted at /tls).
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# The TLS sidecar (only with tls.enabled): the QuenchWorks hardened nginx, pinned by digest.
+tlsProxy:
+  image:
+    repository: ghcr.io/quenchworks/images/nginx
+    digest: "sha256:b104b20bcc1d2a7e0ee26086c3db8f51c2262cdd4d36fab9991602209ac6a7ce"
+    pullPolicy: IfNotPresent
+  resources:
+    requests: { cpu: 50m, memory: 32Mi }
+    limits: { cpu: 500m, memory: 128Mi }
 
 # --- Common production knobs, wired through quench-common (all optional) ---
 podLabels: {}
