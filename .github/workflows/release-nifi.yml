@@ -75,6 +75,24 @@ jobs:
           curl -fsk -H "Authorization: Bearer $tok" "$U/nifi-api/process-groups/root/processors" | tee /tmp/procs.json | head -c 300; echo
           grep -q '"name":"quench-gate"' /tmp/procs.json
           kill $pf
+          # TLS: the UI verifies against the chart CA (not -k), the flow survives, plain HTTP
+          # on 8443 fails; turning TLS off again restores NiFi's own certificate.
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 15m
+          kubectl rollout status statefulset/rtest-nifi --timeout=600s
+          kubectl wait --for=condition=Ready pod/rtest-nifi-0 --timeout=600s
+          kubectl get secret rtest-nifi-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          forward
+          test "$(curl -s --cacert /tmp/ca.crt -o /dev/null -w '%{http_code}' "$U/nifi/")" = 200
+          tok="$(curl -fs --cacert /tmp/ca.crt -X POST -d 'username=admin&password=quench-ci-pass-1234' "$U/nifi-api/access/token")"; [ -n "$tok" ]
+          curl -fs --cacert /tmp/ca.crt -H "Authorization: Bearer $tok" "$U/nifi-api/process-groups/root/processors" | >/dev/null grep '"name":"quench-gate"'
+          if curl -s -m 10 -o /dev/null http://127.0.0.1:8443/nifi/; then echo "plain HTTP answered on 8443"; exit 1; fi
+          kill $pf
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 15m
+          kubectl rollout status statefulset/rtest-nifi --timeout=600s
+          kubectl wait --for=condition=Ready pod/rtest-nifi-0 --timeout=600s
+          forward
+          if curl -s --cacert /tmp/ca.crt -o /dev/null "$U/nifi/"; then echo "chart certificate still served with TLS off"; exit 1; fi
+          kill $pf
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

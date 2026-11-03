@@ -44,6 +44,11 @@ jackson). The aws NAR runs with wire 6.4.5 in place of 5.2.0.
 | `heap` | `1g` | JVM -Xms/-Xmx |
 | `persistence.size` | `20Gi` | flow and repository volume |
 | `proxyHosts` | `[]` | extra accepted Host headers |
+| `tls.enabled` | `false` | HTTPS on 8443 serves the chart certificate instead of the generated one (an openssl init container builds the PKCS12 keystores) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `openssl.digest` | (pinned) | init container that builds the PKCS12 keystores |
 
 ## Release gate
 

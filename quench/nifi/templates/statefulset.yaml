@@ -28,6 +28,7 @@ spec:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
       initContainers:
+        {{- include "quench-common.tls.pkcs12InitContainer" (dict "ctx" . "image" (printf "%s@%s" .Values.openssl.repository .Values.openssl.digest) "password" "changeit") | nindent 8 }}
         # 1. First start: seed conf/ on the volume from the image's defaults.
         - name: seed-conf
           image: {{ include "quench-common.image" . }}
@@ -61,11 +62,34 @@ spec:
               /opt/nifi/bin/nifi.sh set-single-user-credentials "$NIFI_USERNAME" "$NIFI_PASSWORD"
               sed -i "s|^nifi.web.proxy.host=.*|nifi.web.proxy.host=${PROXY_HOSTS}|" /opt/nifi/conf/nifi.properties
               sed -i -e "s|^java.arg.2=-Xms.*|java.arg.2=-Xms${HEAP}|" -e "s|^java.arg.3=-Xmx.*|java.arg.3=-Xmx${HEAP}|" /opt/nifi/conf/bootstrap.conf
+              # TLS: point the keystore and truststore at the chart certificate (PKCS12 from the
+              # init container). The generated ones' lines are saved once and put back when TLS
+              # is turned off again, since conf/ lives on the volume.
+              P=/opt/nifi/conf/nifi.properties
+              K='^nifi[.]security[.](keystore|keystoreType|keystorePasswd|keyPasswd|truststore|truststoreType|truststorePasswd)='
+              {{- if include "quench-common.tls.enabled" . }}
+              [ -f "$P.pre-tls" ] || grep -E "$K" "$P" > "$P.pre-tls"
+              TS=/tls-pkcs12/truststore.p12; [ -f "$TS" ] || TS=/tls-pkcs12/keystore.p12
+              sed -i -E \
+                -e "s|^nifi[.]security[.]keystore=.*|nifi.security.keystore=/tls-pkcs12/keystore.p12|" \
+                -e "s|^nifi[.]security[.]keystoreType=.*|nifi.security.keystoreType=PKCS12|" \
+                -e "s|^nifi[.]security[.]keystorePasswd=.*|nifi.security.keystorePasswd=changeit|" \
+                -e "s|^nifi[.]security[.]keyPasswd=.*|nifi.security.keyPasswd=changeit|" \
+                -e "s|^nifi[.]security[.]truststore=.*|nifi.security.truststore=$TS|" \
+                -e "s|^nifi[.]security[.]truststoreType=.*|nifi.security.truststoreType=PKCS12|" \
+                -e "s|^nifi[.]security[.]truststorePasswd=.*|nifi.security.truststorePasswd=changeit|" "$P"
+              {{- else }}
+              if [ -f "$P.pre-tls" ]; then
+                while IFS= read -r l; do sed -i "s|^${l%%=*}=.*|$l|" "$P"; done < "$P.pre-tls"
+                rm -f "$P.pre-tls"
+              fi
+              {{- end }}
           volumeMounts:
             - { name: data, mountPath: /opt/nifi/conf, subPath: conf }
             - { name: logs, mountPath: /opt/nifi/logs }
             - { name: run, mountPath: /opt/nifi/run }
             - { name: tmp, mountPath: /tmp }
+            {{- include "quench-common.tls.pkcs12VolumeMount" . | nindent 12 }}
       containers:
         - name: nifi
           image: {{ include "quench-common.image" . }}
@@ -104,12 +128,15 @@ spec:
             - { name: run, mountPath: /opt/nifi/run }
             - { name: diagnostics, mountPath: /opt/nifi/diagnostics }
             - { name: tmp, mountPath: /tmp }
+            {{- include "quench-common.tls.pkcs12VolumeMount" . | nindent 12 }}
       volumes:
         - { name: work, emptyDir: {} }
         - { name: logs, emptyDir: {} }
         - { name: run, emptyDir: {} }
         - { name: diagnostics, emptyDir: {} }
         - { name: tmp, emptyDir: {} }
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.tls.pkcs12Volume" . | nindent 8 }}
         {{- if not .Values.persistence.enabled }}
         - { name: data, emptyDir: {} }
         {{- end }}
