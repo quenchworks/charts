@@ -83,6 +83,26 @@ jobs:
             sleep 5
           done
           echo "install gate OK: user auth over the PostgreSQL protocol, rows kept across a pod restart"
+          # 5. TLS: HTTPS on 4200 with the chart CA; PostgreSQL verifies with the CA (STARTTLS)
+          #    and a password login works only over SSL; plain HTTP on 4200 must fail.
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-cratedb --timeout=300s
+          kubectl wait pod/rtest-cratedb-0 --for=condition=Ready --timeout=300s
+          kubectl get secret rtest-cratedb-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward pod/rtest-cratedb-0 14200:4200 15432:5432 >/tmp/pftls.log 2>&1 &
+          pf=$!; sleep 5
+          for i in $(seq 1 30); do curl -fs --cacert /tmp/ca.crt -o /dev/null https://localhost:14200/ && break; sleep 2; done
+          curl -fsS --cacert /tmp/ca.crt https://localhost:14200/ | grep -q "\"number\" *: *\"$want\""
+          if curl -s -m 10 -o /dev/null http://127.0.0.1:14200/; then echo "plain HTTP answered on 4200"; exit 1; fi
+          out="$(openssl s_client -connect 127.0.0.1:15432 -starttls postgres -servername localhost -CAfile /tmp/ca.crt </dev/null 2>&1 || true)"
+          grep -q 'Verify return code: 0 (ok)' <<<"$out"
+          psqls() { kubectl run "psql-$RANDOM" --rm -i --restart=Never --quiet --image="$pg" --env="PGPASSWORD=gate-pw-quench" \
+            --env="PGSSLMODE=$1" --command -- psql -h rtest-cratedb -p 5432 -U gate -d doc -tAc "$2"; }
+          cnt="$(psqls require 'SELECT count(*) FROM doc.gate_t' 2>&1 | tr -d '\r')"
+          test "$(head -1 <<<"$cnt")" = 2
+          ! psqls disable 'SELECT 1' >/dev/null 2>&1 || { echo "a plain PostgreSQL login was accepted"; exit 1; }
+          kill $pf
+          echo "TLS gate OK: HTTPS on 4200, PostgreSQL over SSL only, plain refused"
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

@@ -41,6 +41,11 @@ set that sysctl, because it would need a privileged container.
 | `extraEnv` | `[]` | e.g. `JDK_JAVA_OPTIONS` to override the heap (default 50% of the limit) |
 | `persistence.*` | `16Gi` PVC per node | data under `/data` |
 | `service.httpPort` / `service.pgPort` | `4200` / `5432` | HTTP SQL and PostgreSQL protocol |
+| `tls.enabled` | `false` | HTTPS only on 4200; PostgreSQL SSL with password logins required to use it (PKCS12 from an openssl init container) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `openssl.digest` | (pinned) | init container that builds the PKCS12 keystore |
 
 Probes are TCP: an HTTP probe from the kubelet is not a local connection and would be
 asked for a password.

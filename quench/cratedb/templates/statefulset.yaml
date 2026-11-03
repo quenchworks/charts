@@ -25,6 +25,10 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if include "quench-common.tls.enabled" . }}
+      initContainers:
+        {{- include "quench-common.tls.pkcs12InitContainer" (dict "ctx" . "image" (printf "%s@%s" .Values.openssl.repository .Values.openssl.digest) "password" "changeit") | nindent 8 }}
+      {{- end }}
       containers:
         - name: cratedb
           image: {{ include "quench-common.image" . }}
@@ -53,6 +57,17 @@ spec:
             - -Ccluster.initial_master_nodes={{ range $i, $e := until (int .Values.replicas) }}{{ if $i }},{{ end }}{{ $full }}-{{ $i }}{{ end }}
             - -Cgateway.expected_data_nodes={{ .Values.replicas }}
             - -Cgateway.recover_after_data_nodes={{ .Values.replicas }}
+            {{- end }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # HTTP (4200) turns HTTPS only; PostgreSQL (5432) offers SSL, and the image's
+            # password entry (99) now demands it, so remote logins cannot fall back to plain.
+            # The local trust entry is unchanged. The keystore password guards nothing extra.
+            - -Cssl.http.enabled=true
+            - -Cssl.psql.enabled=true
+            - -Cssl.keystore_filepath=/tls-pkcs12/keystore.p12
+            - -Cssl.keystore_password=changeit
+            - -Cssl.keystore_key_password=changeit
+            - -Cauth.host_based.config.99.ssl=on
             {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
@@ -86,6 +101,7 @@ spec:
               mountPath: /data
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.pkcs12VolumeMount" . | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -101,6 +117,8 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.tls.pkcs12Volume" . | nindent 8 }}
         {{- if not .Values.persistence.enabled }}
         - name: data
           emptyDir: {}
