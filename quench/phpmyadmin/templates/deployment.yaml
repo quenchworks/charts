@@ -81,6 +81,11 @@ spec:
             - name: http
               containerPort: {{ .Values.service.port }}
               protocol: TCP
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+            {{- end }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}
@@ -99,6 +104,13 @@ spec:
             # The only writable surface: PHP sessions, nginx pid/temp, compiled Twig templates.
             - name: tmp
               mountPath: /tmp
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: config
+              mountPath: /etc/phpmyadmin/conf.d/tls.conf
+              subPath: tls.conf
+              readOnly: true
+            {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -107,4 +119,5 @@ spec:
             name: {{ include "quench-common.fullname" . }}
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

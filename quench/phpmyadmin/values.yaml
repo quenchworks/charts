@@ -6,7 +6,7 @@
 # images CI publishes for 5.2.3 — until then the image cannot be pulled from GHCR.
 image:
   repository: ghcr.io/quenchworks/images/phpmyadmin
-  digest: "sha256:744cd5d701ef6239dee7326bcefbb46d62a2868df2dd4beade78eefe9e946584"
+  digest: "sha256:07cc23684ae921dd2ec048ce1cc73620f50a17be67575de95c76ba8600c48459"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -59,6 +59,23 @@ resources:
 service:
   type: ClusterIP
   port: 8080
+  # HTTPS (the pod's 8443), only with tls.enabled
+  httpsPort: 8443
+
+# Native TLS: nginx also serves the site over HTTPS on 8443 (Service service.httpsPort) beside
+# plain HTTP on 8080, with the certificate mounted at /tls (a drop-in in the image's server
+# block). It comes from the first source set: existingSecret, then a cert-manager Certificate,
+# else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # --- Bundled database (optional) ---
 # mariadb.enabled deploys the QuenchWorks MariaDB subchart and points phpMyAdmin at it, so

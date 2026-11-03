@@ -80,6 +80,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/phpmyadmin \
 | `resources.limits`                     | `1 / 512Mi`                             | CPU / memory limits.                                                                                                |
 | `service.type`                         | `ClusterIP`                             | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                                                         |
 | `service.port`                         | `8080`                                  | The UI (nginx `http` port).                                                                                         |
+| `service.httpsPort` | `8443` | HTTPS (pod 8443), only with `tls.enabled` |
+| `tls.enabled` | `false` | nginx also serves the site over HTTPS on 8443 beside HTTP (cert at `/tls`) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `mariadb.enabled`                      | `false`                                 | Deploy the bundled Quenchworks MariaDB subchart and point phpMyAdmin at it.                                         |
 | `mariadb.auth.rootPassword`            | `""`                                    | Generated into MariaDB's own Secret if empty.                                                                       |
 | `mariadb.auth.database`                | `phpmyadmin`                            | Database created on first init.                                                                                     |

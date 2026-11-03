@@ -79,6 +79,17 @@ jobs:
             echo "current database: ", $row[0], "\n";
             exit($row[0] === "phpmyadmin" ? 0 : 1);' | tee /tmp/db.out
           grep -q 'current database: phpmyadmin' /tmp/db.out
+          # native TLS: nginx also serves 8443 with the chart certificate (drop-in in the image's
+          # server block); the login form over HTTPS with the chart CA, plain HTTP there gets 400
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status deployment/rtest-phpmyadmin --timeout=300s
+          kubectl get secret rtest-phpmyadmin-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-phpmyadmin 8443:8443 >/tmp/pftls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS --cacert /tmp/ca.crt -o /tmp/pma-tls.html https://localhost:8443/
+          grep -q 'name="pma_username"' /tmp/pma-tls.html
+          test "$(curl -s -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:8443/ || true)" != 200
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
