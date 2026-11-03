@@ -1,6 +1,11 @@
 {{/* GET /listDatabases answers 200 without credentials once the HTTP listener is up. */}}
 {{- $liveness := dict "httpGet" (dict "path" "/listDatabases" "port" "http") "initialDelaySeconds" 30 "periodSeconds" 20 "timeoutSeconds" 5 "failureThreshold" 6 -}}
 {{- $readiness := dict "httpGet" (dict "path" "/listDatabases" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- if $tls }}
+{{- $_ := set $liveness.httpGet "scheme" "HTTPS" }}
+{{- $_ := set $readiness.httpGet "scheme" "HTTPS" }}
+{{- end }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -28,7 +33,40 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if $tls }}
+      initContainers:
+        {{- include "quench-common.tls.pkcs12InitContainer" (dict "ctx" . "image" (printf "%s@%s" .Values.openssl.repository .Values.openssl.digest) "password" "changeit") | nindent 8 }}
+        # seed the config the way the entrypoint does, then move both listeners onto the
+        # image's TLS sockets and point those at the PKCS12 keystore
+        - name: tls-config
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              H=/opt/orientdb
+              f=$H/config/orientdb-server-config.xml
+              [ -f "$f" ] || cp -r "$H/config.dist/." "$H/config/"
+              sed -i \
+                -e 's|config/cert/orientdb.ks|/tls-pkcs12/keystore.p12|' \
+                -e 's|value="password" name="network.ssl.keyStorePassword"|value="changeit" name="network.ssl.keyStorePassword"|' \
+                -e 's|value="password" name="network.ssl.trustStorePassword"|value="changeit" name="network.ssl.trustStorePassword"|' \
+                -e 's|port-range="2424-2430" socket="default"|port-range="2424-2430" socket="ssl"|' \
+                -e 's|port-range="2480-2490" socket="default"|port-range="2480-2490" socket="https"|' \
+                "$f"
+              grep -q 'socket="https"' "$f"
+          volumeMounts:
+            - name: config
+              mountPath: /opt/orientdb/config
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- else }}
       {{- include "quench-common.initContainers" . | nindent 6 }}
+      {{- end }}
       containers:
         - name: orientdb
           image: {{ include "quench-common.image" . }}
@@ -75,6 +113,9 @@ spec:
               mountPath: /opt/orientdb/log
             - name: tmp
               mountPath: /tmp
+            {{- if $tls }}
+            {{- include "quench-common.tls.pkcs12VolumeMount" . | nindent 12 }}
+            {{- end }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -84,6 +125,10 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        {{- if $tls }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.tls.pkcs12Volume" . | nindent 8 }}
+        {{- end }}
         {{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
         - name: data
           persistentVolumeClaim:

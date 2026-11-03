@@ -57,6 +57,11 @@ Studio is served at `http://127.0.0.1:2480/studio/index.html`.
 | `service.httpPort` | `2480` | HTTP API and Studio port |
 | `networkPolicy.enabled` | `true` | Allow ingress only from pods in the namespace |
 | `ingress.enabled` | `false` | Ingress for the HTTP API and Studio |
+| `tls.enabled` | `false` | HTTPS only on 2480 and TLS only on the binary port 2424 (the image's `https` and `ssl` sockets), keystore built from the chart certificate |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `openssl.digest` | pinned | helper image that builds the PKCS12 keystore |
 
 ## Verify the image
 

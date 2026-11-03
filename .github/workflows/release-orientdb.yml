@@ -70,6 +70,25 @@ jobs:
           out="$(sql "SELECT name FROM Thing")"
           grep -q '"quench"' <<<"$out" || { echo "::error::record lost across a pod restart"; exit 1; }
           echo "install gate OK: auth enforced, DB created, record kept across a pod restart"
+          # TLS: 2480 serves HTTPS only and 2424 takes TLS only. The record written over plain
+          # HTTP reads back over HTTPS with the chart CA, and plain HTTP must fail.
+          kill $PF || true
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-orientdb --timeout=420s
+          kubectl wait pod/rtest-orientdb-0 --for=condition=Ready --timeout=300s
+          kubectl get secret rtest-orientdb-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+          kubectl port-forward svc/rtest-orientdb 2480:2480 2424:2424 >/tmp/pf.log 2>&1 & PF=$!; sleep 5
+          API=https://rtest-orientdb:2480
+          sql() { curl -fsS --cacert ca.crt --resolve rtest-orientdb:2480:127.0.0.1 -u "root:$PW" -H 'Content-Type: application/json' \
+            -d "{\"command\":\"$1\"}" "$API/command/gate/sql"; }
+          out="$(sql "SELECT name FROM Thing")"
+          grep -q '"quench"' <<<"$out" || { echo "::error::record not readable over HTTPS"; exit 1; }
+          if curl -fsS -m 10 -o /dev/null http://127.0.0.1:2480/listDatabases; then
+            echo "::error::plain HTTP still served on 2480"; exit 1
+          fi
+          out="$(openssl s_client -connect 127.0.0.1:2424 -CAfile ca.crt -verify_return_error -verify_hostname rtest-orientdb </dev/null 2>&1 || true)"
+          grep -q 'Verify return code: 0 (ok)' <<<"$out" || { echo "$out" | tail -20; echo "::error::binary port 2424 did not verify over TLS"; exit 1; }
+          echo "TLS gate OK: HTTPS read with the chart CA, plain HTTP refused, 2424 verified"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
