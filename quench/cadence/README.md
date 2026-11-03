@@ -88,6 +88,10 @@ Service/probe can reach the frontend (no shell/render step). Edit either value a
 | `schemaSetup.enabled` | `true` | Run the schema-bootstrap init containers. |
 | `schemaSetup.replicationFactor` | `1` | RF used by create-Keyspace. |
 | `service.{grpcPort,tchannelPort}` | `7833` / `7933` | Frontend Service ports. |
+| `tls.enabled` | `false` | the frontend gRPC port 7833 takes TLS only (TChannel 7933 has no TLS in Cadence and stays plain) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `networkPolicy.allowExternal` | `false` | Allow frontend ingress from outside the namespace. |
 | `podDisruptionBudget.enabled` | `true` | PDB (`minAvailable: 1`). |
 

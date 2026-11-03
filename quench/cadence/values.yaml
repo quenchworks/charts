@@ -141,6 +141,13 @@ cadenceConfig: |
         grpcPort: 7833
         bindOnIP: "${POD_IP}"
         grpcMaxMsgSize: 33554432
+        {{- if include "quench-common.tls.enabled" . }}
+        # tls.enabled: the frontend gRPC port takes TLS only (Cadence has no TLS for TChannel)
+        tls:
+          enabled: true
+          certFile: /tls/tls.crt
+          keyFile: /tls/tls.key
+        {{- end }}
       pprof:
         port: 7936
     matching:
@@ -176,6 +183,12 @@ cadenceConfig: |
         initialFailoverVersion: 0
         rpcAddress: "${POD_IP}:7833"
         rpcTransport: "grpc"
+        {{- if include "quench-common.tls.enabled" . }}
+        # the in-process worker dials the frontend by pod IP: trust the chart CA
+        tls:
+          enabled: true
+          caFile: /tls/ca.crt
+        {{- end }}
 
   dcRedirectionPolicy:
     policy: "noop"
@@ -216,6 +229,22 @@ service:
   type: ClusterIP
   grpcPort: 7833                  # frontend gRPC — the main client/worker port
   tchannelPort: 7933              # frontend TChannel (legacy CLI / internal)
+
+# Native TLS: the frontend gRPC port (7833) takes TLS only, from the PEM pair at /tls, and the
+# in-process worker trusts the chart CA. Cadence has no TLS for TChannel, so 7933 and the
+# internode ports stay plain behind the NetworkPolicy. The certificate comes from the first
+# source set: existingSecret, then a cert-manager Certificate, else a Helm-generated CA +
+# certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # --- Common production knobs, wired through quench-common (all optional) ---
 podLabels: {}
