@@ -4,6 +4,11 @@
      boot can take a few seconds, so readiness starts a touch later. */}}
 {{- $liveness := dict "httpGet" (dict "path" "/_floci/health" "port" "http") "initialDelaySeconds" 15 "periodSeconds" 15 "timeoutSeconds" 3 "failureThreshold" 6 -}}
 {{- $readiness := dict "httpGet" (dict "path" "/_floci/health" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 3 "failureThreshold" 6 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- if $tls }}
+{{- $_ := set $liveness.httpGet "scheme" "HTTPS" }}
+{{- $_ := set $readiness.httpGet "scheme" "HTTPS" }}
+{{- end }}
 {{- /* Full mode requires explicit floci.full.acknowledgeRisk=true; this fails rendering otherwise. */ -}}
 {{- include "floci.riskGate" . -}}
 apiVersion: apps/v1
@@ -60,6 +65,17 @@ spec:
               value: {{ .Values.floci.storage.mode | quote }}
             - name: FLOCI_STORAGE_PERSISTENT_PATH
               value: {{ .Values.floci.storage.path | quote }}
+            {{- if $tls }}
+            # Quarkus serves HTTPS on the same port and opens no plain listener
+            - name: QUARKUS_HTTP_SSL_PORT
+              value: {{ .Values.floci.port | quote }}
+            - name: QUARKUS_HTTP_INSECURE_REQUESTS
+              value: disabled
+            - name: QUARKUS_HTTP_SSL_CERTIFICATE_FILES
+              value: /tls/tls.crt
+            - name: QUARKUS_HTTP_SSL_CERTIFICATE_KEY_FILES
+              value: /tls/tls.key
+            {{- end }}
             {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
@@ -90,6 +106,7 @@ spec:
             {{- if include "floci.fullMode" . }}
             {{- include "floci.dockerSocketVolumeMount" . | nindent 12 }}
             {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -104,4 +121,5 @@ spec:
         {{- if include "floci.fullMode" . }}
         {{- include "floci.dockerSocketVolume" . | nindent 8 }}
         {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

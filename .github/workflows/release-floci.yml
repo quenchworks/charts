@@ -50,6 +50,21 @@ jobs:
           # /_floci/health returns 200 with JSON {"services":{...}} once the
           # in-process services (S3/DynamoDB/SQS/SNS/IAM) are ready.
           curl -fsS http://127.0.0.1:4566/_floci/health | >/dev/null grep '"services"'
+          # TLS: the edge port serves HTTPS only, with the chart CA; plain HTTP must fail
+          kill $pf || true
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-floci --timeout=300s
+          kubectl get secret rtest-floci-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-floci 4566:4566 >/tmp/pftls.log 2>&1 &
+          pf=$!; sleep 5
+          F="curl -fsS --cacert /tmp/ca.crt --resolve rtest-floci:4566:127.0.0.1"
+          $F https://rtest-floci:4566/_floci/health | >/dev/null grep '"services"'
+          # an S3 bucket created over HTTPS lists back
+          $F -X PUT https://rtest-floci:4566/tlsgate >/dev/null
+          $F https://rtest-floci:4566/ | >/dev/null grep 'tlsgate'
+          if curl -fsS -m 10 -o /dev/null http://127.0.0.1:4566/_floci/health; then
+            echo "::error::plain HTTP still served on 4566"; exit 1
+          fi
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

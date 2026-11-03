@@ -58,6 +58,10 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/floci --owner quenc
 | `resources.limits`            | `cpu 1 / mem 1Gi`                       |                                                                                           |
 | `service.type`                | `ClusterIP`                             | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
 | `service.port`                | `4566`                                  |                                                                                           |
+| `tls.enabled` | `false` | the edge port serves HTTPS only (Quarkus PEM pair at `/tls`), no plain listener |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `autoscaling.enabled`         | `false`                                 | Keep off with in-process storage (each replica keeps its own state).                      |
 | `extraEnvVars`                | `[]`                                    | Extra `FLOCI_*` env (e.g. per-service config).                                            |
 | `serviceAccount.create`       | `true`                                  | Token automount is off.                                                                   |
