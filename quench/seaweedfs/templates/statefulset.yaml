@@ -36,7 +36,19 @@ spec:
           securityContext:
             {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
           {{- include "quench-common.command" . | nindent 10 }}
+          {{- if include "quench-common.tls.enabled" . }}
+          # S3 over HTTPS on service.s3HttpsPort beside plain S3 on service.port; Go reads the PEM
+          # pair from /tls directly. The entrypoint appends these to its `weed server` flags.
+          args:
+            - -s3.port.https={{ .Values.service.s3HttpsPort }}
+            - -s3.cert.file=/tls/tls.crt
+            - -s3.key.file=/tls/tls.key
+            {{- with .Values.args }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- else }}
           {{- include "quench-common.args" . | nindent 10 }}
+          {{- end }}
           env:
             # All state lives under -dir (the PVC); the entrypoint defaults this to /data.
             - name: SEAWEED_DATA_DIR
@@ -63,6 +75,10 @@ spec:
           ports:
             - name: s3
               containerPort: {{ .Values.service.port }}
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: s3-https
+              containerPort: {{ .Values.service.s3HttpsPort }}
+            {{- end }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
           {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
           {{- with .Values.customStartupProbe }}
@@ -78,11 +94,13 @@ spec:
               mountPath: /data
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
         - name: data
           persistentVolumeClaim:

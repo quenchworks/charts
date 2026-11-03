@@ -66,6 +66,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/seaweedfs \
 | `resources.limits` | `cpu 2 / mem 2Gi` | |
 | `service.type` | `ClusterIP` | `ClusterIP`, `NodePort`, or `LoadBalancer`. |
 | `service.port` | `8333` | The S3 API (service port name `s3`). |
+| `service.s3HttpsPort` | `8443` | S3 over HTTPS, only with `tls.enabled` |
+| `tls.enabled` | `false` | the S3 API also listens for HTTPS beside plain S3, reading the PEM pair from /tls |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `serviceAccount.create` | `true` | Token automount is off. |
 | `rbac.create` | `false` | Minimal Role/RoleBinding. |
 | `networkPolicy.enabled` | `true` | Ingress to the S3 port only. |
