@@ -52,6 +52,10 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/envoy --owner quenc
 | `service.type`                               | `ClusterIP`                        | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                                                              |
 | `service.port`                               | `10000`                            | Proxy listener the default bootstrap serves.                                                                             |
 | `service.adminPort`                          | `9901`                             | Admin endpoint (health, stats, config dump).                                                                             |
+| `tls.enabled` | `false` | the built-in :10000 listener takes TLS only; the certificate is mounted at `/tls` for your own listeners (admin has no TLS) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `autoscaling.enabled`                        | `false`                            | HPA on CPU (autoscaling/v2).                                                                                             |
 | `autoscaling.minReplicas`                    | `1`                                |                                                                                                                          |
 | `autoscaling.maxReplicas`                    | `5`                                |                                                                                                                          |

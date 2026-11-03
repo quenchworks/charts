@@ -51,6 +51,17 @@ jobs:
           curl -fsS http://127.0.0.1:9901/ready >/dev/null
           # the default :10000 listener returns a 200 direct_response
           curl -fsS http://127.0.0.1:10000/ >/dev/null
+          # TLS: the built-in listener takes TLS only, with the chart CA; plain HTTP must fail
+          kill $pf || true
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-envoy --timeout=300s
+          kubectl get secret rtest-envoy-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-envoy 10000:10000 >/tmp/pftls.log 2>&1 &
+          pf=$!; sleep 5
+          curl -fsS --cacert /tmp/ca.crt --resolve rtest-envoy:10000:127.0.0.1 https://rtest-envoy:10000/ | grep -q 'Envoy is ready'
+          if curl -fsS -m 10 -o /dev/null http://127.0.0.1:10000/; then
+            echo "::error::plain HTTP still served on 10000"; exit 1
+          fi
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

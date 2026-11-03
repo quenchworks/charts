@@ -37,6 +37,22 @@ service:
   # Envoy's admin endpoint (health, stats, config dump).
   adminPort: 9901
 
+# Native TLS: the built-in listener on :10000 takes TLS only (a DownstreamTlsContext with the
+# certificate at /tls). With your own `config`, the certificate is still mounted at /tls
+# (tls.crt, tls.key, ca.crt) for your listeners' transport_socket. Envoy's admin endpoint has
+# no TLS. The certificate comes from the first source set: existingSecret, then a
+# cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
 # Optional horizontal autoscaling on CPU.
 autoscaling:
   enabled: false

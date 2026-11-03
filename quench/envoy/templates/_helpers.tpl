@@ -55,6 +55,17 @@ static_resources:
                             status: 200
                             body:
                               inline_string: "QuenchWorks Envoy is ready.\n"
+          {{- if include "quench-common.tls.enabled" . }}
+          # tls.enabled: the listener takes TLS only, with the chart certificate at /tls
+          transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              common_tls_context:
+                tls_certificates:
+                  - certificate_chain: { filename: /tls/tls.crt }
+                    private_key: { filename: /tls/tls.key }
+          {{- end }}
 {{- end -}}
 
 {{/* The effective bootstrap: caller-provided config wins, else the default. */}}
