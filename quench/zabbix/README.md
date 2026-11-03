@@ -41,6 +41,11 @@ Each build also ships an SPDX SBOM and SLSA provenance attestation
 | `web.replicaCount` | `1` | Frontend replicas. The server always runs one replica. |
 | `web.serverName` | `""` | Name shown in the frontend title. |
 | `postgresql.primary.persistence.size` | `8Gi` | Database volume. |
+| `web.service.httpsPort` | `8443` | web HTTPS (pod 8443), only with `tls.enabled` |
+| `tls.enabled` | `false` | the web frontend's nginx also serves HTTPS on 8443 beside HTTP (cert at `/tls`); server port unchanged |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 The database Secret (`zabbix-db`) and PostgreSQL (`zabbix-postgresql`) have fixed names,
 so install one release per namespace. SNMP checks are not available: the server image is

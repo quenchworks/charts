@@ -29,10 +29,25 @@ server:
   service:
     type: ClusterIP
 
+# Native TLS: the web frontend's nginx also serves HTTPS on 8443 (web.service.httpsPort) beside
+# HTTP on 8080, with the certificate mounted at /tls (a drop-in in the image's server block). The
+# server's trapper port (10051) is unchanged. The certificate comes from the first source set:
+# existingSecret, then a cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
 web:
   image:
     repository: ghcr.io/quenchworks/images/zabbix-web
-    digest: "sha256:9ef0df0ee16efd5173051e80fa01749500df6f7a7e80c19a8d7e8721ebdd0796"
+    digest: "sha256:732e23ee46761966fbaf356e347c1c67444fd3e09265e5c1999c2b53116eede3"
   replicaCount: 1
   # Shown in the frontend's title bar and tab.
   serverName: ""
@@ -42,6 +57,8 @@ web:
   service:
     type: ClusterIP
     port: 8080
+    # HTTPS (the web pod's 8443), only with tls.enabled
+    httpsPort: 8443
 
 # ---------------------------------------------------------------------------
 # PostgreSQL (subchart). The schema init loads Zabbix's tables on first install;

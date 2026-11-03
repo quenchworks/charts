@@ -65,6 +65,19 @@ jobs:
           kubectl delete pod -l app.kubernetes.io/component=server --wait=true
           kubectl rollout status deployment/rtest-zabbix-server --timeout=300s
           kubectl logs deployment/rtest-zabbix-server -c db-init | >/dev/null grep 'nothing to load'
+          # 6. native TLS: the web frontend's nginx also serves 8443 with the chart certificate; an
+          #    API login over HTTPS with the chart CA, and plain HTTP on 8443 gets 400.
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status deployment/rtest-zabbix-web --timeout=300s
+          kubectl get secret rtest-zabbix-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-zabbix-web 8443:8443 >/tmp/pftls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          login="$(curl -fsS --cacert /tmp/ca.crt -H 'Content-Type: application/json-rpc' \
+            -d '{"jsonrpc":"2.0","method":"user.login","params":{"username":"Admin","password":"ci-admin-pass"},"id":4}' \
+            https://localhost:8443/api_jsonrpc.php)"
+          grep -qE '"result":"[0-9a-f]{32}' <<<"$login" || { echo "HTTPS login failed: $login"; exit 1; }
+          test "$(curl -s -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:8443/ || true)" = 400
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

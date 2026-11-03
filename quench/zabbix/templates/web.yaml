@@ -34,6 +34,11 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+            {{- end }}
           livenessProbe:
             tcpSocket: { port: http }
             initialDelaySeconds: 10
@@ -47,9 +52,23 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if include "quench-common.tls.enabled" . }}
+            # drop-in for the image's nginx server block (include /etc/zabbix/conf.d/*.conf)
+            - name: tls-conf
+              mountPath: /etc/zabbix/conf.d/tls.conf
+              subPath: tls.conf
+              readOnly: true
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if include "quench-common.tls.enabled" . }}
+        - name: tls-conf
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-tls
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -64,5 +83,11 @@ spec:
       port: {{ .Values.web.service.port }}
       targetPort: http
       protocol: TCP
+    {{- if include "quench-common.tls.enabled" . }}
+    - name: https
+      port: {{ .Values.web.service.httpsPort }}
+      targetPort: https
+      protocol: TCP
+    {{- end }}
   selector:
     {{- include "zabbix.componentLabels" (dict "ctx" . "component" "web") | nindent 4 }}
