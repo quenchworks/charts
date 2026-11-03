@@ -89,6 +89,10 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/temporal --owner qu
 | `service.grpcPort`                           | `7233`                                | Frontend gRPC (main client/worker port).                                                  |
 | `service.httpPort`                           | `7243`                                | Frontend HTTP API.                                                                        |
 | `service.metricsPort`                        | `8000`                                | Prometheus metrics (tally).                                                               |
+| `tls.enabled` | `false` | frontend gRPC 7233 and HTTP API 7243 serve TLS only (`global.tls.frontend`); probes fall back to tcpSocket |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `serviceAccount.create`                      | `true`                                | Token automount is off.                                                                   |
 | `serviceAccount.name`                        | `""`                                  | Use an existing ServiceAccount.                                                           |
 | `rbac.create`                                | `false`                               | Minimal Role/RoleBinding.                                                                 |

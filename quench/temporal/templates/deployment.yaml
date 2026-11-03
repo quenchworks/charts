@@ -12,6 +12,11 @@ probes to override (e.g. fall back to tcpSocket on clusters without gRPC probes)
 */}}
 {{- $liveness := dict "grpc" (dict "port" 7233) "initialDelaySeconds" 60 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
 {{- $readiness := dict "grpc" (dict "port" 7233) "initialDelaySeconds" 30 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+{{- if include "quench-common.tls.enabled" . }}
+{{- /* kubelet gRPC probes cannot speak TLS: fall back to the frontend port opening */}}
+{{- $liveness = dict "tcpSocket" (dict "port" 7233) "initialDelaySeconds" 60 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
+{{- $readiness = dict "tcpSocket" (dict "port" 7233) "initialDelaySeconds" 30 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 60 -}}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -164,6 +169,7 @@ spec:
             # Postgres deployment (state lives in PG), but it needs a writable /tmp.
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -178,4 +184,5 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

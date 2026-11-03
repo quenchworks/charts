@@ -82,6 +82,25 @@ jobs:
           kubectl logs deployment/rtest-temporal --tail=400 >/tmp/temporal.log 2>&1
           grep -qiE 'frontend started|Service resources started|Starting to serve' /tmp/temporal.log
 
+          # TLS: frontend gRPC and HTTP API serve TLS only. The health probe and the HTTP API
+          # pass with the chart CA, and a plaintext gRPC probe must fail.
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status deployment/rtest-temporal --timeout=540s
+          kubectl get secret rtest-temporal-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-temporal 7233:7233 7243:7243 >/tmp/pftls.log 2>&1 &
+          pft=$!; sleep 5
+          ok=0
+          for i in $(seq 1 30); do
+            if /tmp/grpc_health_probe -addr=127.0.0.1:7233 -tls -tls-ca-cert=/tmp/ca.crt -tls-server-name=rtest-temporal; then ok=1; break; fi
+            sleep 4
+          done
+          test "$ok" = 1
+          curl -fsS --cacert /tmp/ca.crt --resolve rtest-temporal:7243:127.0.0.1 https://rtest-temporal:7243/api/v1/namespaces | grep -q '"namespaces"'
+          if /tmp/grpc_health_probe -addr=127.0.0.1:7233 -connect-timeout=5s -rpc-timeout=5s; then
+            echo "::error::plaintext gRPC still served on 7233"; exit 1
+          fi
+          kill $pft || true
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

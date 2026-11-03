@@ -128,6 +128,20 @@ temporalConfig: |
           maxConnLifetime: "1h"
 
   global:
+    {{- if include "quench-common.tls.enabled" . }}
+    # tls.enabled: the frontend (gRPC 7233 and HTTP 7243) serves TLS from /tls; the client
+    # side is what the in-process worker uses to dial the frontend by pod IP.
+    tls:
+      frontend:
+        server:
+          certFile: /tls/tls.crt
+          keyFile: /tls/tls.key
+          requireClientAuth: false
+        client:
+          serverName: {{ include "quench-common.fullname" . }}
+          rootCaFiles:
+            - /tls/ca.crt
+    {{- end }}
     membership:
       maxJoinDuration: 30s
       broadcastAddress: "__POD_IP__"
@@ -211,6 +225,22 @@ service:
   grpcPort: 7233                 # frontend gRPC — the main client port
   httpPort: 7243                 # frontend HTTP API
   metricsPort: 8000              # Prometheus metrics (tally)
+
+# Native TLS: the frontend gRPC (7233) and HTTP API (7243) serve TLS only, from the PEM pair at
+# /tls (global.tls.frontend in temporalConfig). Internode ports stay plain behind the
+# NetworkPolicy. Probes fall back to tcpSocket (kubelet gRPC probes cannot speak TLS). The
+# certificate comes from the first source set: existingSecret, then a cert-manager
+# Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # --- Common production knobs, wired through quench-common (all optional) ---
 podLabels: {}
