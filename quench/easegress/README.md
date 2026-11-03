@@ -47,6 +47,10 @@ cluster-internal.
 | `persistence.enabled` | `true` | a PVC for `/data/easegress` (embedded etcd data and WAL) |
 | `persistence.size` | `8Gi` | PVC size |
 | `service.adminPort` | `2381` | admin API port on the ClusterIP Service |
+| `tls.enabled` | `false` | the admin API on 2381 serves HTTPS only (`--tls`, PEM pair at `/tls`); traffic ports take TLS from your HTTPServer objects |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 The chart runs one member. Clustering several members through the embedded etcd is not
 wired up; run more gateways as separate releases, or point members at a standalone etcd

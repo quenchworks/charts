@@ -75,6 +75,18 @@ jobs:
           curl -fsS "$admin/objects/gate-runtime" | >/dev/null grep gate-runtime
           curl -fsS http://127.0.0.1:10080/apis/v2/objects/gate-pipeline | >/dev/null grep gate-pipeline
           echo "install gate OK: seeded objects proxy traffic, a runtime object survived a pod restart"
+          # 4. TLS: the admin API on 2381 turns HTTPS; the stored runtime object reads back over HTTPS
+          #    with the chart CA, and plain HTTP on 2381 must not get it (Go answers 400)
+          kill $pf
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-easegress --timeout=300s
+          kubectl wait pod/rtest-easegress-0 --for=condition=Ready --timeout=300s
+          kubectl get secret rtest-easegress-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-easegress 12381:2381 >/tmp/pftls.log 2>&1 &
+          pf=$!; sleep 5
+          curl -fsS --cacert /tmp/ca.crt https://localhost:12381/apis/v2/objects/gate-runtime | >/dev/null grep gate-runtime
+          test "$(curl -s -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:12381/apis/v2/healthz || true)" != 200
+          echo "TLS gate OK: admin API over HTTPS, plain refused"
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

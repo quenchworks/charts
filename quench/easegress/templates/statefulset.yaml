@@ -43,6 +43,12 @@ spec:
             - --cluster-name={{ include "quench-common.fullname" . }}
             - --api-addr=0.0.0.0:2381
             - --home-dir=/data/easegress
+            {{- if include "quench-common.tls.enabled" . }}
+            # the admin API on 2381 serves HTTPS only, from the PEM pair in /tls
+            - --tls
+            - --cert-file=/tls/tls.crt
+            - --key-file=/tls/tls.key
+            {{- end }}
             {{- range $i, $o := .Values.initialObjects }}
             - --initial-object-config-files=/etc/easegress/objects/{{ printf "%02d-%s.yaml" $i $o.name }}
             {{- end }}
@@ -60,12 +66,18 @@ spec:
             httpGet:
               path: /apis/v2/healthz
               port: admin
+              {{- if include "quench-common.tls.enabled" . }}
+              scheme: HTTPS
+              {{- end }}
             initialDelaySeconds: 5
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /apis/v2/healthz
               port: admin
+              {{- if include "quench-common.tls.enabled" . }}
+              scheme: HTTPS
+              {{- end }}
             initialDelaySeconds: 30
             periodSeconds: 20
           resources:
@@ -77,6 +89,7 @@ spec:
               mountPath: /data/easegress
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- if .Values.initialObjects }}
             - name: objects
               mountPath: /etc/easegress/objects
@@ -97,6 +110,7 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- if .Values.initialObjects }}
         - name: objects
           configMap:
