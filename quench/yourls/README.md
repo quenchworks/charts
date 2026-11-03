@@ -61,6 +61,11 @@ gh attestation verify oci://ghcr.io/quenchworks/images/yourls --owner quenchwork
 | `mariadb.enabled` | `true` | The bundled catalog MariaDB (8Gi PVC). |
 | `externalDatabase.*` | | Used when `mariadb.enabled=false`. |
 | `replicaCount` | `1` | Stateless; scale freely. |
+| `service.httpsPort` | `8443` | HTTPS (pod 8443), only with `tls.enabled` |
+| `tls.enabled` | `false` | nginx also serves the site over HTTPS on 8443 beside HTTP (cert at `/tls`) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `ingress.enabled` | `false` | |
 
 The common pod knobs from quench-common (`resources`, `nodeSelector`, `affinity`,

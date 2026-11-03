@@ -2,7 +2,7 @@
 # image-published dispatch after every green image build. It is never a tag.
 image:
   repository: ghcr.io/quenchworks/images/yourls
-  digest: "sha256:1c59edfd4d9e3c5d7a5ef8b89cfd2cad3be399f4d9d66f597dd20d6e21f0bffd"
+  digest: "sha256:f5b37a1e6b0a0169349364260f5d1e9065fd648ed2b17137c7e55b053a0fb8a8"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -77,6 +77,23 @@ init:
 service:
   type: ClusterIP
   port: 8080
+  # HTTPS (the pod's 8443), only with tls.enabled
+  httpsPort: 8443
+
+# Native TLS: nginx also serves the site over HTTPS on 8443 (Service service.httpsPort) beside
+# plain HTTP on 8080, with the certificate mounted at /tls (a drop-in in the image's server
+# block). Set yourls.site to the https URL. It comes from the first source set: existingSecret,
+# then a cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
 
 # --- Common production knobs, wired through quench-common (all optional) ---
 podLabels: {}

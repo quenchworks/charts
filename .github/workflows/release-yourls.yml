@@ -98,6 +98,19 @@ jobs:
           loc="$(curl -s -o /dev/null -w '%{http_code} %{redirect_url}' http://127.0.0.1:8080/qwgate)"
           [ "$loc" = "301 https://quench-works.com/gate" ]
           echo "yourls installed, shortening, redirecting, and idempotent across restarts"
+          # native TLS: nginx also serves 8443 with the chart certificate; the short link still
+          # redirects over HTTPS with the chart CA, and plain HTTP on 8443 gets 400
+          kill $pf
+          helm upgrade rtest "${CHART_DIR}" -n site -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set 'imagePullSecrets[0]=ghcr-pull' --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status deployment/rtest-yourls -n site --timeout=300s
+          kubectl get secret -n site rtest-yourls-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward -n site svc/rtest-yourls 8443:8443 >/tmp/pf8443.log 2>&1 &
+          pf=$!; sleep 5
+          loc="$(curl -s --cacert /tmp/ca.crt -o /dev/null -w '%{http_code} %{redirect_url}' https://localhost:8443/qwgate)"
+          [ "$loc" = "301 https://quench-works.com/gate" ]
+          test "$(curl -s -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:8443/qwgate || true)" = 400
+          kill $pf
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
