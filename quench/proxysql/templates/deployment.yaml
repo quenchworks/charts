@@ -23,7 +23,7 @@ spec:
         # proxysql.cnf is read once at startup. A checksum of the inputs, not the
         # rendered file, because a generated admin password renders differently
         # each time it is computed.
-        checksum/config: {{ list .Values.admin .Values.monitor .Values.mysqlServers .Values.mysqlUsers .Values.replicationHostgroups .Values.extraConfig .Values.threads .Values.maxConnections | toJson | sha256sum }}
+        checksum/config: {{ list .Values.admin .Values.monitor .Values.mysqlServers .Values.mysqlUsers .Values.replicationHostgroups .Values.extraConfig .Values.threads .Values.maxConnections .Values.tls | toJson | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -75,6 +75,16 @@ spec:
               mountPath: /var/lib/proxysql
             - name: tmp
               mountPath: /tmp
+            {{- if include "quench-common.tls.enabled" . }}
+            # ProxySQL reads its frontend certificate from fixed names in the datadir
+            # (and generates a self-signed one when they are missing)
+            {{- range $src, $dst := dict "ca.crt" "proxysql-ca.pem" "tls.crt" "proxysql-cert.pem" "tls.key" "proxysql-key.pem" }}
+            - name: tls
+              mountPath: /var/lib/proxysql/{{ $dst }}
+              subPath: {{ $src }}
+              readOnly: true
+            {{- end }}
+            {{- end }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -88,4 +98,5 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

@@ -64,6 +64,10 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/proxysql --owner qu
 | `service.port` | `3306` | MySQL Service port |
 | `service.adminPort` | `6032` | Admin Service port |
 | `networkPolicy.allowExternal` | `true` | Allow MySQL clients from other namespaces |
+| `tls.enabled` | `false` | the MySQL port accepts TLS (`have_ssl`) with the chart certificate, mounted as `proxysql-{ca,cert,key}.pem` in the datadir; plain clients still connect |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 The common quench-common knobs (`nodeSelector`, `tolerations`, `extraVolumes`,
 `sidecars`, probes and so on) are available as in every QuenchWorks chart.

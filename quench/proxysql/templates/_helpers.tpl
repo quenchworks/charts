@@ -23,6 +23,9 @@ mysql_variables=
   max_connections={{ $v.maxConnections }}
   interfaces="0.0.0.0:6033"
   default_schema="information_schema"
+{{- if include "quench-common.tls.enabled" .ctx }}
+  have_ssl=true
+{{- end }}
   monitor_username={{ $v.monitor.username | quote }}
   monitor_password={{ $v.monitor.password | quote }}
 }

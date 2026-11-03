@@ -78,6 +78,17 @@ jobs:
           echo "$err"
           grep -q 'ERROR 1045' <<<"$err"
 
+          # 4. TLS: the same release with tls.enabled. A client that verifies the chart CA
+          #    must get through to the backend; MySQL TLS is negotiated in-protocol, so plain
+          #    clients stay allowed (as on the database charts).
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 5m
+          kubectl rollout status deployment/rtest-proxysql --timeout=300s
+          kubectl get secret rtest-proxysql-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > ca.crt
+          kubectl create configmap pca --from-file=ca.crt
+          host="$(kubectl run qtls --rm -i --restart=Never --quiet --image="$CLIENT" --overrides='{"spec":{"volumes":[{"name":"c","configMap":{"name":"pca"}}],"containers":[{"name":"qtls","image":"'"$CLIENT"'","command":["/usr/bin/mariadb","--ssl","--ssl-ca=/c/ca.crt","--ssl-verify-server-cert","-h","rtest-proxysql","-P","3306","-u","app","-papp-gate-pw","-N","-B","-e","SELECT @@hostname"],"volumeMounts":[{"name":"c","mountPath":"/c"}]}]}}')"
+          echo "backend hostname via proxysql over TLS: $host"
+          [[ "$host" == db-mariadb-* ]]
+
           # 4. The generated-password path: an install without admin.password keeps
           #    the same password across an upgrade.
           helm install gen "${CHART_DIR}" --wait --timeout 5m
