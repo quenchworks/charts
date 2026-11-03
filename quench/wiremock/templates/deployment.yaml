@@ -23,6 +23,10 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if include "quench-common.tls.enabled" . }}
+      initContainers:
+        {{- include "quench-common.tls.pkcs12InitContainer" (dict "ctx" . "image" (printf "%s@%s" .Values.openssl.repository .Values.openssl.digest) "password" "changeit") | nindent 8 }}
+      {{- end }}
       containers:
         - name: wiremock
           image: {{ include "quench-common.image" . }}
@@ -32,8 +36,16 @@ spec:
             {{- if .Values.globalResponseTemplating }}
             - --global-response-templating
             {{- end }}
-            {{- if .Values.https.enabled }}
+            {{- if or .Values.https.enabled (include "quench-common.tls.enabled" .) }}
             - --https-port=8443
+            {{- end }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # the chart certificate as PKCS12 from the init container; the password guards
+            # nothing extra, the PEM key it comes from is in the same pod
+            - --https-keystore=/tls-pkcs12/keystore.p12
+            - --keystore-type=PKCS12
+            - --keystore-password=changeit
+            - --key-manager-password=changeit
             {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
@@ -47,7 +59,7 @@ spec:
           ports:
             - name: http
               containerPort: 8080
-            {{- if .Values.https.enabled }}
+            {{- if or .Values.https.enabled (include "quench-common.tls.enabled" .) }}
             - name: https
               containerPort: 8443
             {{- end }}
@@ -73,6 +85,7 @@ spec:
             - { name: files, mountPath: /home/wiremock/__files/{{ $name }}, subPath: {{ $name }}, readOnly: true }
             {{- end }}
             - { name: tmp, mountPath: /tmp }
+            {{- include "quench-common.tls.pkcs12VolumeMount" . | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -92,3 +105,5 @@ spec:
           configMap: { name: {{ include "quench-common.fullname" . }}-files }
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.tls.pkcs12Volume" . | nindent 8 }}

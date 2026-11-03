@@ -42,6 +42,11 @@ environments.
 | `files` | `{}` | response body files |
 | `globalResponseTemplating` | `false` | template every response |
 | `https.enabled` | `false` | HTTPS on 8443 (self-signed; HTTP/2 over TLS) |
+| `tls.enabled` | `false` | HTTPS on 8443 with the chart certificate instead of the self-signed one (an openssl init container builds the PKCS12 keystore) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `openssl.digest` | (pinned) | init container that builds the PKCS12 keystore |
 | `extraArgs` | `[]` | more WireMock flags |
 | `replicas` | `1` | each replica has its own admin stubs and journal |
 
