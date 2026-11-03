@@ -39,6 +39,11 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/tika --owner quench
 | `extraArgs` | `[]` | Appended to the server command line. |
 | `resources` | 200m / 1Gi, limit 3Gi | Large documents need more memory. |
 | `service.type`, `service.port` | `ClusterIP`, `9998` | The REST Service. |
+| `tls.enabled` | `false` | the port serves HTTPS only (Tika 4 `server.tlsConfig`, BETA upstream; PKCS12 from an openssl init container); probes move to HTTPS |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `openssl.digest` | (pinned) | init container that builds the PKCS12 keystore |
 | `networkPolicy.enabled` | `false` | Ingress only on the REST port. |
 
 The root filesystem is read-only; Tika writes its temp files to a `/tmp` emptyDir.

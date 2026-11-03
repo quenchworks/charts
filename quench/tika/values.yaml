@@ -21,6 +21,27 @@ service:
   type: ClusterIP
   port: 9998
 
+# Native TLS: the server port turns HTTPS only, from Tika 4's JSON config (server.tlsConfig,
+# marked BETA upstream) and a PKCS12 an init container on the openssl image builds; the probes
+# move to HTTPS. The certificate comes from the first source set: existingSecret, then a
+# cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# Helper image for the TLS init container. Pinned by digest, never a tag.
+openssl:
+  repository: ghcr.io/quenchworks/images/openssl
+  digest: "sha256:81d39521803214393629df2c8c08860b371414b46c2228af9598e0e23ff70f0c"
+  pullPolicy: IfNotPresent
+
 # --- Common production knobs, wired through quench-common (all optional) ---
 podLabels: {}
 podAnnotations: {}

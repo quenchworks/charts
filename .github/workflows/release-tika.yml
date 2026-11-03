@@ -51,6 +51,15 @@ jobs:
           grep -q 'tika gate marker' <<<"$text" || { echo "::error::/tika did not extract the text: $text"; exit 1; }
           meta="$(curl -fsS -T doc.html -H 'Content-Type: text/html' -H 'Accept: application/json' http://127.0.0.1:9998/meta)"
           grep -q 'Quench gate' <<<"$meta" || { echo "::error::/meta did not return the title: $meta"; exit 1; }
+          # TLS: the port turns HTTPS; extract over HTTPS with the chart CA, and plain HTTP must fail
+          kill $pf; trap - EXIT
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 6m
+          kubectl get secret rtest-tika-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-tika 9998:9998 >/tmp/pftls.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          text="$(curl -fsS --cacert /tmp/ca.crt -T doc.html -H 'Content-Type: text/html' -H 'Accept: text/plain' https://localhost:9998/tika)"
+          grep -q 'tika gate marker' <<<"$text" || { echo "::error::/tika over HTTPS: $text"; exit 1; }
+          if curl -s -m 10 -o /dev/null http://127.0.0.1:9998/version; then echo "plain HTTP answered on 9998"; exit 1; fi
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

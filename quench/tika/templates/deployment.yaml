@@ -1,5 +1,7 @@
-{{- $liveness := dict "httpGet" (dict "path" "/version" "port" "http") "initialDelaySeconds" 20 "periodSeconds" 20 "timeoutSeconds" 5 -}}
-{{- $readiness := dict "httpGet" (dict "path" "/version" "port" "http") "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 -}}
+{{- $get := dict "path" "/version" "port" "http" -}}
+{{- if include "quench-common.tls.enabled" . }}{{- $get = merge (dict "scheme" "HTTPS") $get -}}{{- end }}
+{{- $liveness := dict "httpGet" $get "initialDelaySeconds" 20 "periodSeconds" 20 "timeoutSeconds" 5 -}}
+{{- $readiness := dict "httpGet" $get "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -26,7 +28,13 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
-      {{- include "quench-common.initContainers" . | nindent 6 }}
+      {{- if or .Values.initContainers (include "quench-common.tls.enabled" .) }}
+      initContainers:
+        {{- include "quench-common.tls.pkcs12InitContainer" (dict "ctx" . "image" (printf "%s@%s" .Values.openssl.repository .Values.openssl.digest) "password" "changeit") | nindent 8 }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
       containers:
         - name: tika
           image: {{ include "quench-common.image" . }}
@@ -40,6 +48,11 @@ spec:
             - 0.0.0.0
             - -p
             - "9998"
+            {{- if include "quench-common.tls.enabled" . }}
+            # Tika 4 reads TLS from the JSON config (server.tlsConfig, BETA upstream)
+            - -c
+            - /etc/tika/tika-config.json
+            {{- end }}
             {{- range .Values.extraArgs }}
             - {{ . | quote }}
             {{- end }}
@@ -69,9 +82,22 @@ spec:
             # parse scratch space and the child JVMs' files (read-only root)
             - name: tmp
               mountPath: /tmp
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: tika-config
+              mountPath: /etc/tika
+              readOnly: true
+            {{- include "quench-common.tls.pkcs12VolumeMount" . | nindent 12 }}
+            {{- end }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if include "quench-common.tls.enabled" . }}
+        - name: tika-config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-tls
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.tls.pkcs12Volume" . | nindent 8 }}
+        {{- end }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

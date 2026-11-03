@@ -1,0 +1,17 @@
+{{- include "quench-common.tls.resources" . }}
+{{- if include "quench-common.tls.enabled" . }}
+---
+# The keystore password guards nothing extra: the PEM key the init container converts is in
+# the same pod.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-tls
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  tika-config.json: |
+    {"server": {"tlsConfig": {"active": true,
+      "keyStoreType": "PKCS12", "keyStoreFile": "/tls-pkcs12/keystore.p12", "keyStorePassword": "changeit",
+      "clientAuthenticationWanted": false, "clientAuthenticationRequired": false}}}
+{{- end }}
