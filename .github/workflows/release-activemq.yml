@@ -68,6 +68,24 @@ jobs:
           out="$(cli consumer --user admin --password "$PW" --receiveTimeout 30000)"
           grep -qiE "consumed:? *5|5 messages" <<<"$out" || { echo "$out" | tail -15; exit 1; }
           echo "install gate OK: auth enforced, 5 messages kept across a pod restart"
+          # 4. TLS: every connector turns SSL; produce and consume over ssl:// with the chart CA as the
+          #    truststore, and a plain tcp:// producer must fail
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status statefulset/rtest-activemq --timeout=300s
+          kubectl wait pod/rtest-activemq-0 --for=condition=Ready --timeout=300s
+          tcli() { kubectl exec rtest-activemq-0 -c activemq -- /usr/lib/jvm/java-21-openjdk/bin/java \
+            -Djavax.net.ssl.trustStore=/tls-pkcs12/truststore.p12 -Djavax.net.ssl.trustStorePassword=changeit \
+            -Djavax.net.ssl.trustStoreType=PKCS12 \
+            -Dactivemq.home=/opt/activemq -Dactivemq.base=/opt/activemq -Dactivemq.conf=/opt/activemq/conf \
+            -Dactivemq.data=/tmp/cli -jar /opt/activemq/bin/activemq.jar "$@" \
+            --destination queue://tlsgate --messageCount 3 2>&1 || true; }
+          out="$(tcli producer --brokerUrl ssl://localhost:61616 --user admin --password "$PW")"
+          grep -qiE "produced:? *3|3 messages" <<<"$out" || { echo "$out" | tail -15; exit 1; }
+          out="$(tcli consumer --brokerUrl ssl://localhost:61616 --user admin --password "$PW" --receiveTimeout 30000)"
+          grep -qiE "consumed:? *3|3 messages" <<<"$out" || { echo "$out" | tail -15; exit 1; }
+          out="$(tcli producer --brokerUrl 'tcp://localhost:61616?soTimeout=10000&connectionTimeout=10000' --user admin --password "$PW")"
+          if grep -qiE "produced:? *3|3 messages" <<<"$out"; then echo "plain tcp:// produced on the SSL connector"; exit 1; fi
+          echo "TLS gate OK: ssl:// round trip, plain refused"
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

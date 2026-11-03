@@ -49,16 +49,24 @@ data:
                     <tempUsage><tempUsage limit="{{ .Values.tempLimit }}"/></tempUsage>
                 </systemUsage>
             </systemUsage>
+            {{- $tls := include "quench-common.tls.enabled" . }}
+            {{- if $tls }}
+            {{- /* every connector switches to its +ssl scheme on the same port; the keystore
+                   password guards nothing extra, the PEM key is in the same pod */}}
+            <sslContext>
+                <sslContext keyStore="file:/tls-pkcs12/keystore.p12" keyStorePassword="changeit" keyStoreType="pkcs12"/>
+            </sslContext>
+            {{- end }}
             <transportConnectors>
-                <transportConnector name="openwire" uri="tcp://0.0.0.0:61616?maximumConnections=1000&amp;wireFormat.maxFrameSize=10485760"/>
+                <transportConnector name="openwire" uri="{{ ternary "ssl" "tcp" (eq $tls "true") }}://0.0.0.0:61616?maximumConnections=1000&amp;wireFormat.maxFrameSize=10485760"/>
                 {{- if .Values.connectors.amqp }}
-                <transportConnector name="amqp" uri="amqp://0.0.0.0:5672?maximumConnections=1000&amp;wireFormat.maxFrameSize=10485760"/>
+                <transportConnector name="amqp" uri="{{ ternary "amqp+ssl" "amqp" (eq $tls "true") }}://0.0.0.0:5672?maximumConnections=1000&amp;wireFormat.maxFrameSize=10485760"/>
                 {{- end }}
                 {{- if .Values.connectors.stomp }}
-                <transportConnector name="stomp" uri="stomp://0.0.0.0:61613?maximumConnections=1000&amp;wireFormat.maxFrameSize=10485760"/>
+                <transportConnector name="stomp" uri="{{ ternary "stomp+ssl" "stomp" (eq $tls "true") }}://0.0.0.0:61613?maximumConnections=1000&amp;wireFormat.maxFrameSize=10485760"/>
                 {{- end }}
                 {{- if .Values.connectors.mqtt }}
-                <transportConnector name="mqtt" uri="mqtt://0.0.0.0:1883?maximumConnections=1000&amp;wireFormat.maxFrameSize=10485760"/>
+                <transportConnector name="mqtt" uri="{{ ternary "mqtt+ssl" "mqtt" (eq $tls "true") }}://0.0.0.0:1883?maximumConnections=1000&amp;wireFormat.maxFrameSize=10485760"/>
                 {{- end }}
             </transportConnectors>
             <shutdownHooks>

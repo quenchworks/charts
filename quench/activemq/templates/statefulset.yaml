@@ -25,6 +25,10 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if include "quench-common.tls.enabled" . }}
+      initContainers:
+        {{- include "quench-common.tls.pkcs12InitContainer" (dict "ctx" . "image" (printf "%s@%s" .Values.openssl.repository .Values.openssl.digest) "password" "changeit") | nindent 8 }}
+      {{- end }}
       containers:
         - name: activemq
           image: {{ include "quench-common.image" . }}
@@ -81,6 +85,7 @@ spec:
               mountPath: /data
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.pkcs12VolumeMount" . | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -104,6 +109,8 @@ spec:
         {{- end }}
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.tls.pkcs12Volume" . | nindent 8 }}
         {{- if not .Values.persistence.enabled }}
         - name: data
           emptyDir: {}

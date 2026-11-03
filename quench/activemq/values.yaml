@@ -30,6 +30,29 @@ connectors:
 storeLimit: 6 gb
 tempLimit: 1 gb
 
+# Native TLS: every enabled connector (OpenWire 61616 and the AMQP/STOMP/MQTT ports) switches to
+# its +ssl scheme on the same port, so none stays plain. Clients use ssl://host:61616 and trust
+# ca.crt from the TLS Secret. ActiveMQ reads a keystore, so an init container on the openssl image
+# builds a PKCS12. The web console (loopback 8161) is unchanged. The certificate comes from the
+# first source set: existingSecret, then a cert-manager Certificate, else a Helm-generated CA +
+# certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# Helper image for the TLS init container. Pinned by digest, never a tag.
+openssl:
+  repository: ghcr.io/quenchworks/images/openssl
+  digest: "sha256:81d39521803214393629df2c8c08860b371414b46c2228af9598e0e23ff70f0c"
+  pullPolicy: IfNotPresent
+
 persistence:
   enabled: true
   size: 8Gi

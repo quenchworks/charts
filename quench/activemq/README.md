@@ -35,6 +35,11 @@ it with `kubectl port-forward mq-activemq-0 8161`.
 | `connectors.amqp` / `.stomp` / `.mqtt` | `false` | extra connectors (OpenWire is always on) |
 | `storeLimit` / `tempLimit` | `6 gb` / `1 gb` | KahaDB limits; keep them under `persistence.size` |
 | `persistence.*` | `8Gi` PVC | KahaDB and logs under `/data` |
+| `tls.enabled` | `false` | every connector switches to its +ssl scheme on the same port (clients use `ssl://host:61616`, trust `ca.crt`); PKCS12 from an openssl init container |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `openssl.digest` | (pinned) | init container that builds the PKCS12 keystore |
 
 The chart mounts only `activemq.xml` and the auth files over the image's `conf/`; the rest
 of the upstream configuration stays as shipped. It runs one broker; network-of-brokers and
