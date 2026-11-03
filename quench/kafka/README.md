@@ -119,7 +119,12 @@ gh attestation verify oci://ghcr.io/quenchworks/images/kafka \
 | `kraft.clusterId` | `""` | Fixed cluster id, or generated + stored in a Secret if empty. |
 | `kraft.heapOpts` | `-Xmx1G -Xms1G` | JVM heap per broker. |
 | `primary.persistence.enabled` | `true` | Per-broker 8Gi PVC at `/var/lib/kafka`. |
-| `service.port` | `9092` | PLAINTEXT client listener. |
+| `service.port` | `9092` | Client listener (PLAINTEXT, or SSL with `tls.enabled`). |
+| `tls.enabled` | `false` | SSL on the client listener and the KRaft quorum; no plaintext listener remains. Clients use `security.protocol=SSL` and trust `ca.crt`. Switching a running cluster: upgrade, then restart every broker at once (`kubectl delete pod -l app.kubernetes.io/instance=<release>`); a rolling switch strands the first broker outside the quorum |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use, with `ca.crt` (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `busybox.digest` | (pinned) | init container that writes the PKCS#8 key Kafka's PEM keystore reads |
 | `extraEnvVars` | `[]` | Inject any `KAFKA_*` property the entrypoint maps. |
 | `networkPolicy.enabled` | `true` | Restricts client ingress to the namespace; allows the controller port between brokers. |
 | `podDisruptionBudget.enabled` | `true` | `minAvailable: 2`. |
@@ -136,8 +141,8 @@ Only `/var/lib/kafka` (the PVC) and `/tmp` are writable.
 
 ## Notes
 
-Listeners are PLAINTEXT and reachable only inside the cluster (the NetworkPolicy
+Listeners are PLAINTEXT (SSL with `tls.enabled`) and reachable only inside the cluster (the NetworkPolicy
 restricts client ingress to the release namespace and permits the KRaft controller port
-only between brokers). SASL/TLS auth, a metrics exporter, and topic provisioning are
+only between brokers). SASL auth, a metrics exporter, and topic provisioning are
 tracked follow-ups. Depends on the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`.

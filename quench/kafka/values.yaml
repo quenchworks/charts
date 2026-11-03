@@ -2,7 +2,7 @@
 # image-published dispatch after every green image build. It is never a tag.
 image:
   repository: ghcr.io/quenchworks/images/kafka
-  digest: "sha256:dbbab3a5f532f95f523372596a5589c8b6f40a9a1fec76610604ca778f35a0cf"
+  digest: "sha256:615fd89c7628764aff757e07936fd2a63a764ac79c397db7a796ab9eaf4eef25"
   pullPolicy: IfNotPresent
 
 nameOverride: ""
@@ -17,7 +17,7 @@ replicaCount: 3
 # derives its node.id from its StatefulSet ordinal and advertises its own headless
 # DNS name; the controller quorum voters are the full set of pods. The listener is
 # PLAINTEXT and reachable only inside the cluster (the NetworkPolicy restricts ingress
-# to the namespace); SASL/TLS auth is a tracked follow-up.
+# to the namespace) unless tls.enabled; SASL auth is a tracked follow-up.
 kraft:
   # combined roles keep 3 nodes simple: every pod is both a controller and a broker
   processRoles: "broker,controller"
@@ -52,6 +52,31 @@ primary:
 service:
   type: ClusterIP
   port: 9092
+
+# Native TLS: the client listener (9092) and the KRaft controller quorum (9093) both speak
+# SSL, with no plaintext listener left. Clients set security.protocol=SSL and trust ca.crt
+# from the TLS Secret. A busybox init container writes the PKCS#8 key Kafka's PEM keystore
+# needs. The certificate comes from the first source set: existingSecret (must carry
+# ca.crt), then a cert-manager Certificate, else a Helm-generated CA + certificate.
+# Turning TLS on or off in a running cluster: a rolling restart strands the first switched
+# broker outside the quorum, so after the upgrade restart every broker at once
+# (kubectl delete pod -l app.kubernetes.io/instance=<release>). Data on the PVCs is kept.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# Helper image for the TLS init container. Pinned by digest, never a tag.
+busybox:
+  repository: ghcr.io/quenchworks/images/busybox
+  digest: "sha256:ca51f41cf97009e6913c4ea272879cffa6f8333a691839a3fa40eb7d16945d3a"
+  pullPolicy: IfNotPresent
 
 # --- Common production knobs, wired through quench-common (all optional) ---
 podLabels: {}

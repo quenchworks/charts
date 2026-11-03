@@ -51,6 +51,25 @@ jobs:
           # round-trip a topic to prove KRaft formatted and the broker is writable
           kubectl exec rtest-kafka-0 -- /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --topic gate --partitions 1 --replication-factor 1
           kubectl exec rtest-kafka-0 -- /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list | >/dev/null grep '^gate$'
+          # TLS: switch both listeners to SSL, then a replicated topic proves brokers and the
+          # quorum talk over TLS, and a plaintext client must fail (no silent downgrade).
+          # a rolling switch strands the first SSL broker outside the plaintext quorum, so restart all at once
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true
+          kubectl delete pod -l app.kubernetes.io/instance=rtest --wait=false
+          sleep 5
+          kubectl rollout status statefulset/rtest-kafka --timeout=480s
+          C=/tmp/ssl.properties
+          # client JVMs exec'd in the broker container inherit its KAFKA_HEAP_OPTS; a small heap keeps the pod under its limit
+          KT="env KAFKA_HEAP_OPTS=-Xmx128m /opt/kafka/bin/kafka-topics.sh"
+          kubectl exec rtest-kafka-0 -- sh -c "printf 'security.protocol=SSL\nssl.truststore.type=PEM\nssl.truststore.location=/tls-pkcs8/ca.crt\n' > $C"
+          kubectl exec rtest-kafka-0 -- $KT --bootstrap-server rtest-kafka:9092 --command-config $C --create --topic tlsgate --partitions 1 --replication-factor 3
+          out="$(kubectl exec rtest-kafka-0 -- $KT --bootstrap-server rtest-kafka:9092 --command-config $C --describe --topic tlsgate)"
+          grep -q 'ReplicationFactor: 3' <<<"$out"
+          # the plaintext-era topic survived the switch
+          kubectl exec rtest-kafka-0 -- $KT --bootstrap-server rtest-kafka:9092 --command-config $C --list | >/dev/null grep '^gate$'
+          if kubectl exec rtest-kafka-0 -- timeout 30 $KT --bootstrap-server localhost:9092 --list; then
+            echo "plaintext client succeeded on the TLS listener"; exit 1
+          fi
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

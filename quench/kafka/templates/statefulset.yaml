@@ -46,7 +46,13 @@ spec:
                     {{- include "quench-common.selectorLabels" . | nindent 20 }}
                     app.kubernetes.io/component: primary
       {{- end }}
-      {{- include "quench-common.initContainers" . | nindent 6 }}
+      {{- if or .Values.initContainers (include "quench-common.tls.enabled" .) }}
+      initContainers:
+        {{- include "quench-common.tls.pkcs8InitContainer" (dict "ctx" . "image" (printf "%s@%s" .Values.busybox.repository .Values.busybox.digest)) | nindent 8 }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
       containers:
         - name: kafka
           image: {{ include "quench-common.image" . }}
@@ -59,9 +65,29 @@ spec:
           args:
             - |
               export KAFKA_NODE_ID="${HOSTNAME##*-}"
+              {{- if include "quench-common.tls.enabled" . }}
+              export KAFKA_ADVERTISED_LISTENERS="SSL://${HOSTNAME}.{{ include "kafka.podDomain" . }}:{{ .Values.service.port }}"
+              {{- else }}
               export KAFKA_ADVERTISED_LISTENERS="PLAINTEXT://${HOSTNAME}.{{ include "kafka.podDomain" . }}:{{ .Values.service.port }}"
+              {{- end }}
               exec /usr/bin/docker-entrypoint.sh
           env:
+            {{- if include "quench-common.tls.enabled" . }}
+            # Both listeners speak TLS: clients on 9092, the KRaft quorum on 9093. Kafka reads
+            # PEM keys only as PKCS#8, so it uses the init container's /tls-pkcs8 copy.
+            - name: KAFKA_LISTENERS
+              value: "SSL://:9092,CONTROLLER://:9093"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "CONTROLLER:SSL,SSL:SSL"
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: "SSL"
+            - name: KAFKA_EXTRA_PROPERTIES
+              value: |
+                ssl.keystore.type=PEM
+                ssl.keystore.location=/tls-pkcs8/tls-keystore.pem
+                ssl.truststore.type=PEM
+                ssl.truststore.location=/tls-pkcs8/ca.crt
+            {{- end }}
             - name: KAFKA_HEAP_OPTS
               value: {{ .Values.kraft.heapOpts | quote }}
             - name: KAFKA_PROCESS_ROLES
@@ -108,11 +134,14 @@ spec:
               mountPath: /var/lib/kafka
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.pkcs8VolumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.tls.pkcs8Volume" . | nindent 8 }}
         {{- if and .Values.primary.persistence.enabled .Values.primary.persistence.existingClaim }}
         - name: data
           persistentVolumeClaim:
