@@ -60,6 +60,11 @@ replica shares the token key, so a token from one pod is valid on all of them.
 | `javaOpts` | `-XX:MaxRAMPercentage=75` | JVM flags |
 | `extraEnvVars` | `[]` | any other setting as an env var |
 | `service.port` / `service.managementPort` | `8181` / `8182` | API and health/metrics ports |
+| `service.httpsPort` | `8443` | HTTPS port (container and Service), only with `tls.enabled` |
+| `tls.enabled` | `false` | Quarkus adds an HTTPS listener beside HTTP, reading the PEM pair from /tls |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 
 Storage types default to upstream's `S3`, `GCS` and `AZURE`. `FILE` storage is refused by
 Polaris outside tests; enabling it takes `polaris.features."SUPPORTED_CATALOG_STORAGE_TYPES"`,

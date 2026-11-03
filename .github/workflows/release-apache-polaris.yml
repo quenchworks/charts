@@ -82,6 +82,20 @@ jobs:
           # readiness warnings (the realm header default) are fine; a severe one aborts startup
           logs="$(kubectl logs deployment/rtest-apache-polaris -c polaris | tr -d '\000')"
           ! grep -E 'ClassNotFound|NoClassDefFound|LinkageError|Severe production readiness' <<<"$logs" || exit 1
+          # TLS: HTTPS on 8443 with the chart CA; a token and the stored catalog over HTTPS,
+          # and plain HTTP on 8443 must fail
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status deployment/rtest-apache-polaris --timeout=300s
+          kubectl get secret rtest-apache-polaris-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl port-forward svc/rtest-apache-polaris 8443:8443 >/dev/null 2>&1 & PF=$!
+          for i in $(seq 1 30); do curl -s --cacert /tmp/ca.crt -o /dev/null https://localhost:8443/api/catalog/v1/config && break; sleep 1; done
+          r="$(curl -fsS --cacert /tmp/ca.crt https://localhost:8443/api/catalog/v1/oauth/tokens -d grant_type=client_credentials \
+                -d client_id="$ID" -d client_secret="$SECRET" -d scope=PRINCIPAL_ROLE:ALL)"
+          T="$(sed -n 's/.*"access_token" *: *"\([^"]*\)".*/\1/p' <<<"$r")"; test -n "$T"
+          cats="$(curl -fsS --cacert /tmp/ca.crt -H "Authorization: Bearer $T" https://localhost:8443/api/management/v1/catalogs)"
+          grep -q '"name" *: *"gate"' <<<"$cats"
+          if curl -s -m 10 -o /dev/null http://127.0.0.1:8443/api/catalog/v1/config; then echo "plain HTTP answered on 8443"; exit 1; fi
+          kill $PF
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

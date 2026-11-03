@@ -68,6 +68,15 @@ spec:
                 secretKeyRef:
                   name: {{ include "apache-polaris.authSecret" . }}
                   key: token-key
+            {{- if include "quench-common.tls.enabled" . }}
+            # native TLS: Quarkus adds an https listener beside plain http, reading the PEM pair
+            - name: QUARKUS_HTTP_SSL_PORT
+              value: {{ .Values.service.httpsPort | quote }}
+            - name: QUARKUS_HTTP_SSL_CERTIFICATE_FILES
+              value: /tls/tls.crt
+            - name: QUARKUS_HTTP_SSL_CERTIFICATE_KEY_FILES
+              value: /tls/tls.key
+            {{- end }}
             {{- with .Values.extraEnvVars }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -76,6 +85,10 @@ spec:
               containerPort: 8181
             - name: management
               containerPort: 8182
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: https
+              containerPort: {{ .Values.service.httpsPort }}
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /q/health/ready
@@ -96,6 +109,7 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- if .Values.properties }}
             - name: config
               mountPath: /home/nonroot/config
@@ -117,6 +131,7 @@ spec:
         # Quarkus and the JDBC driver write temp files on a read-only root
         - name: tmp
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- if .Values.properties }}
         - name: config
           configMap:
