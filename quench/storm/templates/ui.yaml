@@ -8,9 +8,17 @@ metadata:
 spec:
   type: {{ .Values.ui.service.type }}
   ports:
+    {{- /* with ui.https.port set, the Storm UI serves only HTTPS; 8080 closes. Its HTTPS probe
+           sends Host: localhost: Jetty's SNI host check answers the pod IP with 400. */}}
+    {{- if include "quench-common.tls.enabled" . }}
+    - name: https
+      port: {{ .Values.ui.service.httpsPort }}
+      targetPort: https
+    {{- else }}
     - name: http
       port: {{ .Values.ui.service.port }}
       targetPort: http
+    {{- end }}
   selector:
     {{- include "storm.selector" $sel | nindent 4 }}
 ---
@@ -39,6 +47,7 @@ spec:
     spec:
       {{- include "storm.podSpec" (dict "ctx" . "component" "ui"
             "args" (list "ui")
-            "ports" (list (dict "name" "http" "containerPort" 8080))
-            "probe" (dict "httpGet" (dict "path" "/api/v1/cluster/configuration" "port" "http") "periodSeconds" 10 "failureThreshold" 30)
+            "ports" (ternary (list (dict "name" "https" "containerPort" 8443)) (list (dict "name" "http" "containerPort" 8080)) (eq (include "quench-common.tls.enabled" .) "true"))
+            "probe" (ternary (dict "httpGet" (dict "path" "/api/v1/cluster/configuration" "port" "https" "scheme" "HTTPS" "httpHeaders" (list (dict "name" "Host" "value" "localhost"))) "periodSeconds" 10 "failureThreshold" 30) (dict "httpGet" (dict "path" "/api/v1/cluster/configuration" "port" "http") "periodSeconds" 10 "failureThreshold" 30) (eq (include "quench-common.tls.enabled" .) "true"))
+            "tls" true
             "resources" .Values.ui.resources) | nindent 6 }}

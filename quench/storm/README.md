@@ -28,6 +28,12 @@ shipped: topologies bundle their own connectors. Verify the image with
 | `ui.service.type` / `.port` | `ClusterIP` / `8080` | |
 | `extraConfig` | `{}` | storm.yaml keys merged over the chart's |
 | `zookeeper.enabled` | `true` | Bundled ZooKeeper; `false` plus `externalZookeeper.servers` for your own |
+| `ui.service.httpsPort` | `8443` | UI HTTPS Service port, only with `tls.enabled` |
+| `tls.enabled` | `false` | the UI serves HTTPS only on 8443 (8080 closes) (storm.yaml `ui.https.*`, PKCS12 from an openssl init container) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `openssl.digest` | (pinned) | init container that builds the PKCS12 keystore |
 
 Each release gets its own ZooKeeper root (`/storm/<release>`), so several releases can
 share one external ensemble. Supervisors advertise their pod IP (`storm.local.hostname`).

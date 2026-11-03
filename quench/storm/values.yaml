@@ -31,9 +31,32 @@ ui:
   service:
     type: ClusterIP
     port: 8080
+    # HTTPS (to the UI's 8443), only with tls.enabled; replaces port
+    httpsPort: 8443
   resources:
     requests: { cpu: 50m, memory: 384Mi }
     limits: { cpu: "1", memory: 768Mi }
+
+# Native TLS: the Storm UI serves HTTPS only on 8443 (ui.service.httpsPort; with ui.https.port
+# set it closes HTTP 8080), from storm.yaml ui.https.* and a PKCS12 an init container on the openssl image builds. Nimbus,
+# supervisors and ZooKeeper are unchanged. The certificate comes from the first source set:
+# existingSecret, then a cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# Helper image for the TLS init container. Pinned by digest, never a tag.
+openssl:
+  repository: ghcr.io/quenchworks/images/openssl
+  digest: "sha256:81d39521803214393629df2c8c08860b371414b46c2228af9598e0e23ff70f0c"
+  pullPolicy: IfNotPresent
 
 # Extra storm.yaml keys, merged over the chart's (ZooKeeper, Nimbus seeds, ports, dirs).
 extraConfig: {}

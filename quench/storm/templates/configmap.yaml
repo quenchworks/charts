@@ -9,6 +9,14 @@
   "storm.log.dir" "/tmp/storm/logs"
   "supervisor.slots.ports" .Values.supervisor.slotPorts
 -}}
+{{- if include "quench-common.tls.enabled" . }}
+{{- /* only the UI pod reads these; it mounts the PKCS12 the init container builds */ -}}
+{{- $_ := set $base "ui.https.port" 8443 }}
+{{- $_ := set $base "ui.https.keystore.path" "/tls-pkcs12/keystore.p12" }}
+{{- $_ := set $base "ui.https.keystore.type" "PKCS12" }}
+{{- $_ := set $base "ui.https.keystore.password" "changeit" }}
+{{- $_ := set $base "ui.https.key.password" "changeit" }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:

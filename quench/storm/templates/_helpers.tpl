@@ -26,7 +26,16 @@ serviceAccountName: {{ include "storm.serviceAccountName" $ }}
 securityContext:
   {{- include "quench-common.podSecurityContext" $ | nindent 2 }}
 {{ include "quench-common.podSpecFields" $ }}
+{{- $tls := and .tls (include "quench-common.tls.enabled" $) }}
+{{- if $tls }}
+initContainers:
+  {{- include "quench-common.tls.pkcs12InitContainer" (dict "ctx" $ "image" (printf "%s@%s" $.Values.openssl.repository $.Values.openssl.digest) "password" "changeit") | nindent 2 }}
+  {{- with $.Values.initContainers }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+{{- else }}
 {{ include "quench-common.initContainers" $ }}
+{{- end }}
 containers:
   - name: {{ .component }}
     image: {{ include "quench-common.image" $ }}
@@ -61,6 +70,9 @@ containers:
         mountPath: /data
       - name: tmp
         mountPath: /tmp
+      {{- if $tls }}
+      {{- include "quench-common.tls.pkcs12VolumeMount" $ | nindent 6 }}
+      {{- end }}
       {{- include "quench-common.extraVolumeMounts" $ | nindent 6 }}
   {{- include "quench-common.sidecars" $ | nindent 2 }}
 volumes:
@@ -69,6 +81,10 @@ volumes:
       name: {{ include "quench-common.fullname" $ }}
   - name: tmp
     emptyDir: {}
+  {{- if $tls }}
+  {{- include "quench-common.tls.volume" $ | nindent 2 }}
+  {{- include "quench-common.tls.pkcs12Volume" $ | nindent 2 }}
+  {{- end }}
   {{- if not .persistentData }}
   - name: data
     emptyDir: {}
