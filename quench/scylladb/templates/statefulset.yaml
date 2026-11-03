@@ -5,6 +5,13 @@
      liveness starts late so a slow bootstrap is never killed mid-flight. */}}
 {{- $liveness := dict "httpGet" (dict "path" "/storage_service/scylla_release_version" "port" "rest") "initialDelaySeconds" 120 "periodSeconds" 20 "timeoutSeconds" 5 "failureThreshold" 6 -}}
 {{- $readiness := dict "httpGet" (dict "path" "/storage_service/scylla_release_version" "port" "rest") "initialDelaySeconds" 60 "periodSeconds" 10 "timeoutSeconds" 5 "failureThreshold" 30 -}}
+{{/* tls.enabled: CQL 9042 takes TLS only (client_encryption_options with no
+     native_transport_port_ssl); the chart's block comes before yamlExtra. */}}
+{{- $extra := list -}}
+{{- if include "quench-common.tls.enabled" . }}
+{{- $extra = append $extra "client_encryption_options:\n  enabled: true\n  certificate: /tls/tls.crt\n  keyfile: /tls/tls.key" -}}
+{{- end -}}
+{{- with .Values.config.yamlExtra }}{{- $extra = append $extra . -}}{{- end -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -78,9 +85,9 @@ spec:
             - name: SCYLLA_AUTHORIZER
               value: {{ .Values.auth.authorizer | quote }}
             {{- end }}
-            {{- with .Values.config.yamlExtra }}
+            {{- with $extra }}
             - name: SCYLLA_YAML_EXTRA
-              value: {{ . | quote }}
+              value: {{ join "\n" . | quote }}
             {{- end }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
@@ -109,11 +116,13 @@ spec:
             # each start; rides on emptyDir (writable + exec under a read-only rootfs).
             - name: conf
               mountPath: /etc/scylla
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
         - name: conf
           emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- if and .Values.persistence.enabled .Values.persistence.existingClaim }}
         - name: data
           persistentVolumeClaim:

@@ -71,6 +71,33 @@ jobs:
           done
           [ -n "$ok" ] || { echo "::error::CQL roundtrip did not return the expected value"; exit 1; }
 
+          # TLS: CQL 9042 takes TLS only. The same round trip passes with cqlsh --ssl verifying
+          # the chart CA; a plaintext cqlsh must fail.
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status statefulset/rtest-scylladb --timeout=600s
+          kubectl get secret rtest-scylladb-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          kubectl create configmap scylla-ca --from-file=ca.crt=/tmp/ca.crt
+          # the override replaces kubectl's container list, so the command lives in it too
+          OV="$(jq -nc --arg cql "$CQL" '{spec:{volumes:[{name:"c",configMap:{name:"scylla-ca"}}],containers:[{name:"cqltls",image:"scylladb/scylla:6.2",
+            command:["cqlsh","rtest-scylladb","9042","--ssl","--connect-timeout=20","--request-timeout=30","-e",$cql],
+            env:[{name:"SSL_CERTFILE",value:"/c/ca.crt"},{name:"SSL_VALIDATE",value:"true"}],volumeMounts:[{name:"c",mountPath:"/c"}]}]}}')"
+          ok=""
+          for i in $(seq 1 12); do
+            kubectl delete pod cqltls --ignore-not-found --now >/dev/null 2>&1 || true
+            kubectl run cqltls --restart=Never --image=scylladb/scylla:6.2 --overrides="$OV" >/dev/null
+            kubectl wait --for=jsonpath='{.status.phase}'=Succeeded pod/cqltls --timeout=120s >/dev/null 2>&1 || true
+            out="$(kubectl logs cqltls 2>&1 || true)"
+            echo "tls attempt ${i}:"; echo "$out"
+            if grep -q quench <<<"$out"; then ok=1; break; fi
+            sleep 15
+          done
+          [ -n "$ok" ] || { echo "::error::CQL over TLS did not return the expected value"; exit 1; }
+          kubectl delete pod cqlplain --ignore-not-found --now >/dev/null 2>&1 || true
+          kubectl run cqlplain --restart=Never --image=scylladb/scylla:6.2 --command -- \
+            cqlsh rtest-scylladb 9042 --connect-timeout=10 -e "SELECT now() FROM system.local" >/dev/null
+          kubectl wait --for=jsonpath='{.status.phase}'=Failed pod/cqlplain --timeout=120s \
+            || { kubectl logs cqlplain || true; echo "::error::plaintext CQL still served on 9042"; exit 1; }
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

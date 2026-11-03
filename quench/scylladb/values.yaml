@@ -62,6 +62,21 @@ service:
   apiPort: 10000        # REST API (health/admin), exposed on ClusterIP for in-cluster probes only
   internodePort: 7000
 
+# Native TLS: CQL on 9042 takes TLS only (client_encryption_options with the PEM pair at
+# /tls). Internode (7000) stays plain behind the NetworkPolicy. The certificate comes from
+# the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
 # --- Common production knobs, wired through quench-common (all optional) ---
 podLabels: {}
 podAnnotations: {}
