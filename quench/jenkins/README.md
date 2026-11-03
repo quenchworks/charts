@@ -62,6 +62,12 @@ Configuration-as-Code) and persist on the volume.
 | `service.type`              | `ClusterIP`                                        |                                                                                           |
 | `service.ports.http`        | `8080`                                             | web UI + REST + `/login`                                                                  |
 | `service.ports.agent`       | `50000`                                            | inbound JNLP agents                                                                       |
+| `service.ports.https` | `443` | HTTPS (to 8443), only with `tls.enabled` |
+| `tls.enabled` | `false` | Winstone also serves HTTPS on 8443 beside HTTP (an openssl init container builds the PKCS12 keystore) |
+| `tls.existingSecret` | `""` | a `kubernetes.io/tls` Secret to use (1st choice) |
+| `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
+| `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
+| `openssl.digest` | (pinned) | init container that builds the PKCS12 keystore |
 | `extraEnvVars`              | `JAVA_OPTS=-Djenkins.install.runSetupWizard=false` | tune the JVM / disable the wizard                                                         |
 | `ingress.enabled`           | `false`                                            | Create an Ingress for this chart. HTTP only.                                              |
 | `ingress.className`         | `""`                                               | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
