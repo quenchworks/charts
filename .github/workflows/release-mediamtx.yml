@@ -79,6 +79,14 @@ jobs:
                     -verify_hostname rtest-mediamtx -CAfile /tmp/mtx-ca.crt -verify_return_error 2>&1)" || true
             grep -q 'Verify return code: 0 (ok)' <<<"$out" || { echo "::error::TLS handshake on $p failed"; echo "$out" | tail -5; exit 1; }
           done
+          # A custom config.yaml is passed as args (PR #63): it must load from /config, which
+          # needs the image's ENTRYPOINT to be the binary alone.
+          helm install cfg "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" \
+            --set-string 'config.yaml=logLevel: info' --wait --timeout 5m
+          kubectl rollout status deployment/cfg-mediamtx --timeout=300s
+          kubectl logs deployment/cfg-mediamtx > /tmp/mtx-cfg.log 2>&1
+          grep -q 'configuration loaded from /config/mediamtx.yml' /tmp/mtx-cfg.log \
+            || { cat /tmp/mtx-cfg.log; echo "::error::custom config not loaded"; exit 1; }
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
