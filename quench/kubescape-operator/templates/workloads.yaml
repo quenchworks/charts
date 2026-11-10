@@ -31,6 +31,10 @@ spec:
             - name: NODE_NAME
               valueFrom: { fieldRef: { fieldPath: spec.nodeName } }
             - { name: HELM_RELEASE, value: "kubescape-operator-{{ .Chart.Version }}" }
+            {{- include "ks.apiAuthEnv" . | nindent 12 }}
+            {{- if .Values.apiAuth.enabled }}
+            - { name: KS_API_TOKEN_FILE, value: /var/run/secrets/kubescape.io/api-token/token }
+            {{- end }}
           ports:
             - { name: trigger-port, containerPort: 4002 }
             - { name: readiness-port, containerPort: 8000 }
@@ -52,6 +56,9 @@ spec:
             - { name: ks-capabilities, mountPath: /etc/config/capabilities.json, subPath: capabilities, readOnly: true }
             - { name: cs-matching-rules, mountPath: /etc/config/matchingRules.json, subPath: matchingRules.json, readOnly: true }
             - { name: config, mountPath: /etc/config/config.json, subPath: config.json, readOnly: true }
+            {{- if .Values.apiAuth.enabled }}
+            - { name: api-token, mountPath: /var/run/secrets/kubescape.io/api-token, readOnly: true }
+            {{- end }}
       volumes:
         {{- include "ks.clusterDataVolume" . | nindent 8 }}
         - { name: cloud-secret, secret: { secretName: cloud-secret } }
@@ -59,6 +66,9 @@ spec:
         - { name: ks-capabilities, configMap: { name: ks-capabilities } }
         - { name: cs-matching-rules, configMap: { name: cs-matching-rules } }
         - { name: config, configMap: { name: operator } }
+        {{- if .Values.apiAuth.enabled }}
+        {{- include "ks.apiTokenVolume" . | nindent 8 }}
+        {{- end }}
 
 ---
 apiVersion: v1
@@ -120,6 +130,7 @@ spec:
             - { name: KS_ENABLE_HOST_SCANNER, value: "false" }
             - { name: KS_SKIP_UPDATE_CHECK, value: "true" }
             - { name: KS_EXCLUDE_NAMESPACES, value: {{ printf "%s,%s" .Release.Namespace .Values.excludeNamespaces | quote }} }
+            {{- include "ks.apiAuthEnv" . | nindent 12 }}
           ports:
             - { name: http, containerPort: 8080 }
           livenessProbe:
@@ -192,6 +203,7 @@ spec:
             {{- include "ks.env" . | nindent 12 }}
             - { name: GOMEMLIMIT, value: {{ include "ks.gomemlimit" .Values.kubevuln.resources.limits.memory | quote }} }
             - { name: CA_MAX_VULN_SCAN_ROUTINES, value: "1" }
+            {{- include "ks.apiAuthEnv" . | nindent 12 }}
           ports:
             - { name: http, containerPort: 8080 }
           livenessProbe:

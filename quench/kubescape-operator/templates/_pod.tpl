@@ -41,6 +41,25 @@ securityContext:
 - { name: KS_LOGGER_NAME, value: zap }
 {{- end -}}
 
+{{- /* In-cluster API auth (kubescape 4.x components): the operator, ksserver and kubevuln check a
+caller's projected service-account token with a TokenReview for apiAuth.audience, then a
+SubjectAccessReview on kubescape.io verbs in POD_NAMESPACE. */ -}}
+{{- define "ks.apiAuthEnv" -}}
+- { name: KS_API_AUDIENCE, value: {{ .Values.apiAuth.audience | quote }} }
+- name: POD_NAMESPACE
+  valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+{{- if not .Values.apiAuth.enabled }}
+- { name: KS_API_AUTH_DISABLED, value: "true" }
+{{- end }}
+{{- end -}}
+
+{{- define "ks.apiTokenVolume" -}}
+- name: api-token
+  projected:
+    sources:
+      - serviceAccountToken: { audience: {{ .Values.apiAuth.audience | quote }}, expirationSeconds: 3600, path: token }
+{{- end -}}
+
 {{- define "ks.clusterDataMount" -}}
 - { name: ks-cloud-config, mountPath: /etc/config/clusterData.json, subPath: clusterData, readOnly: true }
 {{- end -}}

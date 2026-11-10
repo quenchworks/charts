@@ -45,7 +45,8 @@ on first install and keeps on upgrade.
 | `continuousScanNamespaces` | `[]` | Re-scan Deployments here as soon as they change |
 | `storage.persistence.enabled` | `true` | Keep results (SQLite under `/data`) on a PVC; off is an emptyDir |
 | `scheduler.scanOnInstall` | `true` | A post-install Job triggers the first configuration and vulnerability scan |
-| `scheduler.enabled` / `scheduler.schedule` | `true` / `17 3 * * *` | CronJob that repeats both scans through the operator API |
+| `scheduler.enabled` / `scheduler.schedule` | `true` / `17 3 * * *` | CronJob that repeats both scans as OperatorCommand objects |
+| `apiAuth.enabled` / `apiAuth.audience` | `true` / `kubescape.io` | The operator, ksserver and kubevuln accept only service-account tokens for this audience whose account the chart grants the matching kubescape.io verb |
 | `kubevuln.maxImageSize` | `5368709120` | Larger images are skipped (bytes) |
 | `kubevuln.scanTimeout` | `5m` | Per-image scan timeout |
 | `nodeAgent.enabled` | `false` | The eBPF node agent and its application profiles |

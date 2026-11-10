@@ -38,10 +38,17 @@ storage:
     storageClass: ""
   cleanupInterval: 6h
 
-# Scans are triggered through the operator's REST API (POST v1/triggerAction), the way upstream's
-# scheduler does it: a post-install Job runs the first configuration and vulnerability scan, and a
-# CronJob repeats them. Both use the kubectl image and reach the operator through the API server's
-# service proxy, so they need no network policy exception and no extra image.
+# In-cluster API auth, as upstream's global.apiAuth: the operator, ksserver and kubevuln accept a
+# request only with a projected service-account token for `audience` whose account may do the
+# matching kubescape.io verb in the release namespace (the chart grants exactly those). Off sets
+# KS_API_AUTH_DISABLED on every server.
+apiAuth:
+  enabled: true
+  audience: kubescape.io
+
+# Scans are requested the way upstream's scheduler does it: a post-install Job runs the first
+# configuration and vulnerability scan, and a CronJob repeats them. Both use the kubectl image to create OperatorCommand objects, which the
+# operator watches, as upstream's kubescape-ops-tool does.
 scheduler:
   enabled: true
   schedule: "17 3 * * *"

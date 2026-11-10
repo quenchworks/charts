@@ -9,10 +9,18 @@ metadata:
     {{- include "quench-common.labels" . | nindent 4 }}
     app.kubernetes.io/component: scheduler
 data:
-  # The command bodies upstream's scheduler posts: a configuration scan and a vulnerability scan
-  # of every running image.
-  kubescape.json: '{"commands":[{"CommandName":"kubescapeScan","args":{"scanV1":{}}}]}'
-  kubevuln.json: '{"commands":[{"commandName":"scan","designators":[{"designatorType":"Attributes","attributes":{}}]}]}'
+  # A configuration scan and a vulnerability scan of every running image, as the OperatorCommand
+  # objects upstream's kubescape-ops-tool creates: spec.body is one command, base64; spec.guid is
+  # filled per run.
+  {{- range $name, $cmd := dict "kubescape" `{"CommandName":"kubescapeScan","args":{"scanV1":{}}}` "kubevuln" `{"commandName":"scan","designators":[{"designatorType":"Attributes","attributes":{}}]}` }}
+  {{ $name }}.yaml: |
+    apiVersion: kubescape.io/v1alpha1
+    kind: OperatorCommand
+    metadata:
+      generateName: kubescape-scheduler-
+      labels: { kubescape.io/app-name: operator }
+    spec: { guid: __GUID__, commandType: OperatorAPI, body: {{ b64enc $cmd }} }
+  {{- end }}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -23,7 +31,8 @@ metadata:
     {{- include "quench-common.labels" . | nindent 4 }}
     app.kubernetes.io/component: scheduler
 ---
-# Only the operator Service, only through the API server's service proxy.
+# Scans are requested as OperatorCommand objects, which the operator watches. (Its HTTP
+# triggerAction now demands an API token that the API server's service proxy would not pass on.)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -33,10 +42,9 @@ metadata:
     {{- include "quench-common.labels" . | nindent 4 }}
     app.kubernetes.io/component: scheduler
 rules:
-  - apiGroups: [""]
-    resources: [services/proxy]
-    resourceNames: [operator, "operator:4002"]
-    verbs: [create, get]
+  - apiGroups: [kubescape.io]
+    resources: [operatorcommands]
+    verbs: [create]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -73,14 +81,8 @@ containers:
     args:
       - |
         set -e
-        p="/api/v1/namespaces/{{ .Release.Namespace }}/services/operator:4002/proxy/v1/triggerAction"
-        # The operator accepts commands once it is ready; retry for up to 10 minutes.
         for body in kubescape kubevuln; do
-          for i in $(seq 1 60); do
-            if kubectl create --raw "$p" -f "/body/$body.json"; then echo "triggered $body scan"; break; fi
-            [ "$i" -lt 60 ] || exit 1
-            sleep 10
-          done
+          sed "s/__GUID__/$(cat /proc/sys/kernel/random/uuid)/" "/body/$body.yaml" | kubectl create -f -
         done
     env:
       - { name: HOME, value: /tmp }
