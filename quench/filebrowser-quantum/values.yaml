@@ -1,0 +1,124 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/filebrowser-quantum
+  digest: "sha256:c6c89b874bdb456c3cefa91034ee24693eb96051312186b674fab59f634ce85d"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# FileBrowser Quantum keeps users, shares and settings in one SQLite database on one pod,
+# so the Deployment always runs a single replica with the Recreate strategy.
+
+# Sub-path to serve the UI under, e.g. "/files/".
+baseURL: "/"
+# Display name of the file source in the UI (defaults to the folder name).
+sourceName: ""
+
+auth:
+  # Password of the `admin` user, applied on FIRST start only (when the database is created).
+  # Empty: a random 24-character password is generated into the Secret and kept across
+  # upgrades; read it with the command in NOTES. Change it in the UI after logging in.
+  adminPassword: ""
+  # Existing Secret with keys `admin-password` and `jwt-secret` (the chart then creates none).
+  existingSecret: ""
+  passwordMinLength: 8
+  # Let visitors create their own accounts.
+  signup: false
+
+# Extra keys merged into config.yaml (see the FileBrowser Quantum config reference), e.g.
+#   extraConfig: { frontend: { name: "Team files" } }
+extraConfig: {}
+
+# The SQLite database (users, shares, settings). Off: an emptyDir, so everything is lost
+# when the pod is replaced. On by default.
+persistence:
+  enabled: true
+  # existingClaim: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 1Gi
+  storageClass: ""
+  annotations: {}
+
+# The files FileBrowser serves, mounted at /srv. Point existingClaim at the volume that
+# already holds your files; otherwise a new PVC is created.
+files:
+  enabled: true
+  # existingClaim: ""
+  accessModes:
+    - ReadWriteOnce
+  size: 10Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+# Default Recreate: the old pod must release the database volume before the new one starts.
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # true: any pod in the cluster (an ingress controller included) may reach the UI port.
+  # false confines it to pods in the release namespace.
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# Optional Ingress for the web UI. Disabled by default.
+ingress:
+  enabled: false
+  # IngressClass to claim this Ingress. Empty -> the cluster default applies.
+  className: ""
+  annotations: {}
+  # Service port to route to. Unset -> resolved from service.ports.http.
+  servicePort: null
+  # e.g. [{host: files.example.com, paths: [{path: /, pathType: Prefix}]}]
+  # `paths` may be omitted for the common "/" Prefix case.
+  hosts: []
+  # Standard Ingress TLS list, e.g. [{hosts: [files.example.com], secretName: files-tls}]
+  tls: []

@@ -1,0 +1,31 @@
+Quenchworks FileBrowser Quantum is installed as {{ include "quench-common.fullname" . }}.
+
+Open the UI over a port-forward:
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  # http://127.0.0.1:8080{{ .Values.baseURL }}
+
+Log in as `admin`. The password was set from the chart on first start:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "filebrowser-quantum.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d; echo
+
+Change it in Settings after logging in; the chart's value only applies when the database is
+first created.
+
+{{ if .Values.persistence.enabled -}}
+Users, shares and settings are stored in a SQLite database on PVC {{ include "filebrowser-quantum.dataClaim" . }}.
+{{- else -}}
+Users, shares and settings are on an emptyDir and are LOST when the pod is replaced.
+Set persistence.enabled=true to keep them.
+{{- end }}
+{{ if .Values.files.enabled -}}
+Served files live on PVC {{ include "filebrowser-quantum.filesClaim" . }}, mounted at /srv.
+{{- else -}}
+Served files are on an emptyDir and are LOST when the pod is replaced.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/filebrowser-quantum \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

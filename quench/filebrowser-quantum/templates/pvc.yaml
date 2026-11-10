@@ -1,0 +1,24 @@
+{{- range $kind, $p := dict "data" .Values.persistence "files" .Values.files }}
+{{- if and $p.enabled (not $p.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ printf "%s-%s" (include "quench-common.fullname" $) $kind }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+  {{- with $p.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml $p.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ $p.size | quote }}
+  {{- if $p.storageClass }}
+  storageClassName: {{ ternary "" $p.storageClass (eq "-" $p.storageClass) | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}

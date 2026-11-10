@@ -1,0 +1,142 @@
+name: release-filebrowser-quantum
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/filebrowser-quantum/**"
+      - ".github/workflows/release-filebrowser-quantum.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/filebrowser-quantum
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/rtest-filebrowser-quantum --timeout=300s
+          # probe over a port-forward (the runtime image has no HTTP client)
+          kubectl port-forward svc/rtest-filebrowser-quantum 8080:8080 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS http://127.0.0.1:8080/health >/dev/null
+          # the UI is embedded in the binary
+          curl -fsSL http://127.0.0.1:8080/ | grep -qi '<script'
+          # the chart's admin password logs in; a wrong one is refused
+          token="$(curl -fsS -X POST -H 'X-Password: quench-ci-admin-pass' 'http://127.0.0.1:8080/api/auth/login?username=admin')"
+          [ "${#token}" -gt 20 ] || { echo "login returned no token: $token"; exit 1; }
+          code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'X-Password: wrong-password' 'http://127.0.0.1:8080/api/auth/login?username=admin')"
+          case "$code" in 401|403) ;; *) echo "wrong password got HTTP $code"; exit 1 ;; esac
+          # the binary runs in the pod (exec, nonroot)
+          kubectl exec deploy/rtest-filebrowser-quantum -- /usr/bin/filebrowser version
+          # no crash-looping
+          test "$(kubectl get pod -l app.kubernetes.io/name=filebrowser-quantum \
+            -o jsonpath='{.items[*].status.containerStatuses[*].restartCount}')" = "0"
+          # an upgrade keeps the generated JWT secret (users stay signed in)
+          before="$(kubectl get secret rtest-filebrowser-quantum -o jsonpath='{.data.jwt-secret}')"
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          after="$(kubectl get secret rtest-filebrowser-quantum -o jsonpath='{.data.jwt-secret}')"
+          [ -n "$before" ] && [ "$before" = "$after" ] || { echo "jwt-secret changed on upgrade"; exit 1; }
+          echo "FileBrowser Quantum: health, embedded UI, admin login, upgrade-stable secret: ok"
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/filebrowser-quantum-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/filebrowser-quantum@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/filebrowser-quantum:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
