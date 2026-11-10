@@ -49,7 +49,9 @@ jobs:
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           curl -fsS http://127.0.0.1:8080/health >/dev/null
           # the UI is embedded in the binary
-          curl -fsSL http://127.0.0.1:8080/ | grep -qi '<script'
+          # a here-string: curl | grep -q dies of SIGPIPE (curl exit 23) once grep matches early
+          page="$(curl -fsSL http://127.0.0.1:8080/)"
+          grep -qi '<script' <<<"$page"
           # the chart's admin password logs in; a wrong one is refused
           token="$(curl -fsS -X POST -H 'X-Password: quench-ci-admin-pass' 'http://127.0.0.1:8080/api/auth/login?username=admin')"
           [ "${#token}" -gt 20 ] || { echo "login returned no token: $token"; exit 1; }
