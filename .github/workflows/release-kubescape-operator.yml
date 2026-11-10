@@ -42,6 +42,11 @@ jobs:
       - name: Install gate (kind)
         run: |
           set -o pipefail
+          # The demo workload starts BEFORE the node agent. node-agent 0.3.310 (upstream's own image
+          # too, charts run 42822369965) profiles the containers running when it starts but picks up
+          # no container started after it in kind; the eBPF exec/open recording is what this proves.
+          kubectl create deployment demo --image=ghcr.io/quenchworks/images/busybox:1.38.0 -- sleep 3600
+          kubectl rollout status deployment/demo --timeout=180s
           helm install rtest "${CHART_DIR}" -n kubescape --create-namespace -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
           imgs="$(kubectl -n kubescape get pods -o jsonpath='{range .items[*]}{range .spec.containers[*]}{.image}{"\n"}{end}{end}' | sort -u)"
           echo "$imgs"
@@ -49,8 +54,6 @@ jobs:
           kubectl wait --for=condition=Available apiservice/v1beta1.spdx.softwarecomposition.kubescape.io --timeout=300s
           # A workload to scan: its image gets a vulnerability manifest, its Deployment a
           # configuration scan summary. The operator scans at startup and on new pods.
-          kubectl create deployment demo --image=ghcr.io/quenchworks/images/busybox:1.38.0 -- sleep 3600
-          kubectl rollout status deployment/demo --timeout=180s
           # something for the node agent to see while it learns the demo container (4m in CI)
           ( for i in $(seq 1 20); do kubectl exec deployment/demo -- cat /etc/hostname >/dev/null 2>&1 || true; sleep 10; done ) &
           for kind in workloadconfigurationscansummaries vulnerabilitymanifests; do
