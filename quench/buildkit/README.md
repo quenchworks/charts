@@ -2,7 +2,7 @@
 
 BuildKit, the concurrent container image build engine behind `docker build`,
 running **rootless**. buildkitd runs as uid 1001 inside a user namespace set up by
-rootlesskit, on the QuenchWorks image: hardened, 0-CVE, pinned by digest and
+rootlesskit, on the QuenchWorks image: hardened, CVE-gated, pinned by digest and
 cosign-signed.
 
 ## Install

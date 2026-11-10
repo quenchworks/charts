@@ -1,7 +1,7 @@
 # Quenchworks CouchDB
 
 Hardened [Apache CouchDB 3.x](https://couchdb.apache.org/) on a minimal, nonroot,
-0-CVE image pinned by digest. CouchDB is built from source on Wolfi onto the Erlang
+CVE-gated image pinned by digest. CouchDB is built from source on Wolfi onto the Erlang
 runtime. The JavaScript view server is the **bundled QuickJS engine** (no
 SpiderMonkey/mozjs, which removes that entire CVE surface). **Fauxton (the web UI)
 and the docs are not bundled** to keep Node and Python/Sphinx off the scan surface.

@@ -1,6 +1,6 @@
 # Quenchworks Cassandra
 
-Hardened Apache Cassandra on a minimal, nonroot, 0-CVE image pinned by digest.
+Hardened Apache Cassandra on a minimal, nonroot, CVE-gated image pinned by digest.
 Runs on the hardened `openjdk-17-jre` base. The image's entrypoint generates
 `cassandra.yaml` from `CASSANDRA_*` env on boot; the chart pins the image by its
 signed digest and runs a clustered StatefulSet (single node by default).

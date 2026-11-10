@@ -8,7 +8,7 @@ protocol. On first boot the image runs `initdb`, preloads `pg_cron` +
 `documentdb_core`, `pg_cron`, `pgvector`, `postgis`, `rum`). This chart is the
 data tier; point FerretDB at it with the
 [ferretdb chart](https://ghcr.io/quenchworks/charts/ferretdb) or your own
-`FERRETDB_POSTGRESQL_URL`. Runs on a minimal, nonroot (uid 1001), 0-CVE image on
+`FERRETDB_POSTGRESQL_URL`. Runs on a minimal, nonroot (uid 1001), CVE-gated image on
 a read-only root filesystem with all capabilities dropped. The image is
 cosign-signed (keyless / Sigstore) and the chart pins it by the signed digest,
 never a tag.

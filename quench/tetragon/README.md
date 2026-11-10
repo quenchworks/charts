@@ -1,7 +1,7 @@
 # Quenchworks Tetragon
 
 Hardened [Tetragon](https://github.com/cilium/tetragon), eBPF runtime security,
-with both images built from source, 0-CVE, cosign-signed and pinned by digest.
+with both images built from source, CVE-gated, cosign-signed and pinned by digest.
 An agent on every node sees process execution, file access and network
 activity in the kernel. TracingPolicy CRDs add custom hooks and enforcement.
 

@@ -2,7 +2,7 @@
 
 Hardened [oauth2-proxy](https://github.com/oauth2-proxy/oauth2-proxy) — a reverse
 proxy and static file server that puts OAuth2/OIDC authentication in front of
-upstream services — on a minimal, nonroot, 0-CVE image, built from source and
+upstream services — on a minimal, nonroot, CVE-gated image, built from source and
 pinned by digest. It runs as a stateless Deployment on a read-only root filesystem
 with all capabilities dropped. The image is cosign-signed (keyless / Sigstore) and
 the chart pins it by the signed digest, never a tag.

@@ -1,7 +1,7 @@
 # Quenchworks tyk
 
 Hardened [Tyk Gateway](https://tyk.io/) (open-source) on a minimal, nonroot,
-0-CVE image pinned by digest. Tyk Gateway is stateless (all runtime state lives
+CVE-gated image pinned by digest. Tyk Gateway is stateless (all runtime state lives
 in Redis), so it runs as a plain Deployment. This chart ships a **bundled Redis
 by default** for a self-contained install, and also supports bringing your own
 external Redis.

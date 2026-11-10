@@ -2,7 +2,7 @@
 
 Hardened [Distribution](https://github.com/distribution/distribution), the CNCF
 reference OCI/Docker registry server for storing and distributing container
-images and other OCI artifacts, on a minimal, nonroot, 0-CVE image built from
+images and other OCI artifacts, on a minimal, nonroot, CVE-gated image built from
 source on Wolfi, cosign-signed and pinned by digest. Runs as a single-replica
 StatefulSet with a persistent blob store at `/var/lib/registry` and the registry
 HTTP API on port 5000.

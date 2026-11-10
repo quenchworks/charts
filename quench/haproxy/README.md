@@ -1,7 +1,7 @@
 # Quenchworks HAProxy
 
 Hardened [HAProxy](https://github.com/haproxy/haproxy) high-performance TCP/HTTP load
-balancer on a minimal, nonroot, read-only-rootfs, 0-CVE image pinned by digest. Built
+balancer on a minimal, nonroot, read-only-rootfs, CVE-gated image pinned by digest. Built
 from source on Wolfi (no upstream distro binaries) with OpenSSL, PCRE2 (+JIT), zlib,
 and Lua. Frontends listen on unprivileged ports: `8080` (http), `8443` reserved for
 TLS, `8404` (stats + health). Stateless: this chart runs a `Deployment`.

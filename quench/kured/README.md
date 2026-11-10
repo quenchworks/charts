@@ -1,7 +1,7 @@
 # Quenchworks kured
 
 Hardened [kured](https://github.com/kubereboot/kured), the Kubernetes reboot
-daemon, on a minimal 0-CVE image built from source and pinned by digest.
+daemon, on a minimal CVE-gated image built from source and pinned by digest.
 
 kured runs on every node and watches for a reboot-required sentinel file. When a
 node needs a reboot it takes a cluster-wide lock, cordons and drains the node,

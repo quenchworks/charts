@@ -3,7 +3,7 @@
 A monitoring meta-chart for [Harbor](../harbor). It bundles the Quenchworks
 [Prometheus](../prometheus) and [Grafana](../grafana) charts, preconfigured to
 scrape a Harbor instance and chart its health. Both sub-charts run nonroot on
-minimal, 0-CVE images pinned by digest and cosign-signed (keyless / Sigstore).
+minimal, CVE-gated images pinned by digest and cosign-signed (keyless / Sigstore).
 
 This chart monitors Harbor; it does not deploy it. Install the Quenchworks `harbor`
 chart with `metrics.enabled=true` in the same namespace (or point the scrape config

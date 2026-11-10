@@ -1,7 +1,7 @@
 # Quenchworks Nextcloud
 
 Hardened [Nextcloud](https://nextcloud.com/) — the self-hosted content-collaboration and
-file-sync platform — on a minimal, nonroot, 0-CVE image pinned by digest and cosign-signed.
+file-sync platform — on a minimal, nonroot, CVE-gated image pinned by digest and cosign-signed.
 The image is a clean-room Wolfi rebuild (php-fpm + the QuenchWorks nginx, supervised by
 supervisord) of the official upstream release tarball; it runs as uid `1001` and serves
 HTTP on port `8080`.

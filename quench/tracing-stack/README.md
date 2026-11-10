@@ -4,7 +4,7 @@ A hardened, operator-free distributed-tracing bundle: **Tempo** (trace store and
 query), **Grafana** (Tempo pre-wired as the default datasource, plus a tracing
 overview dashboard), and an **OpenTelemetry Collector** gateway that receives
 OTLP from your applications and forwards spans to Tempo. No operator, no CRDs.
-Every component image is QuenchWorks-hardened: minimal, nonroot (uid 1001), 0-CVE,
+Every component image is QuenchWorks-hardened: minimal, nonroot (uid 1001), CVE-gated,
 pinned by digest and cosign-signed (keyless / Sigstore) with an SPDX SBOM and SLSA
 provenance, running on a read-only root filesystem with all capabilities dropped.
 

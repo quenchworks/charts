@@ -1,7 +1,7 @@
 # Quenchworks navidrome
 
 Hardened [navidrome](https://www.navidrome.org/) music server and streamer
-(Subsonic/OpenSubsonic API + web UI) on a minimal, nonroot, 0-CVE image pinned by
+(Subsonic/OpenSubsonic API + web UI) on a minimal, nonroot, CVE-gated image pinned by
 digest. Single node; persists its SQLite DB, scan cache and artwork to a PVC and
 serves a music library mounted read-only.
 

@@ -2,7 +2,7 @@
 
 Hardened [zot](https://github.com/project-zot/zot) — a production-ready,
 vendor-neutral, OCI-native container image registry — on a minimal, nonroot,
-0-CVE image pinned by digest. It serves the OCI Distribution API on port 5000,
+CVE-gated image pinned by digest. It serves the OCI Distribution API on port 5000,
 running on a read-only root filesystem with all capabilities dropped. The image
 is cosign-signed (keyless / Sigstore) and the chart pins it by the signed digest,
 never a tag.

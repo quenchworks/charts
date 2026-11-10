@@ -1,7 +1,7 @@
 # Quenchworks teleport
 
 Hardened [Teleport](https://goteleport.com/) (AGPL community build), the identity-based access
-plane for SSH, Kubernetes, databases, applications and Windows desktops, on a nonroot, 0-CVE
+plane for SSH, Kubernetes, databases, applications and Windows desktops, on a nonroot, CVE-gated
 image built from source, pinned by digest and cosign-signed (keyless / Sigstore). The chart runs
 one auth + proxy process with the embedded web UI; its SQLite backend, host CAs and session
 recordings live on a PVC, and `teleport.yaml` ships in a ConfigMap mounted at

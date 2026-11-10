@@ -1,7 +1,7 @@
 # QuenchWorks Cadence
 
 Hardened [Cadence](https://cadenceworkflow.io/) — Uber's fault-tolerant, stateful
-workflow orchestration engine — on a minimal, nonroot, 0-CVE image pinned by digest.
+workflow orchestration engine — on a minimal, nonroot, CVE-gated image pinned by digest.
 This chart runs the **all-in-one** server: one `cadence-server` process hosting all
 four roles (frontend + history + matching + worker), backed by **Cassandra**.
 

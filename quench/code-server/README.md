@@ -1,7 +1,7 @@
 # Quenchworks code-server
 
 Hardened [code-server](https://github.com/coder/code-server) (VS Code in the
-browser) by Coder, on a minimal, nonroot, 0-CVE image built on Wolfi from Coder's
+browser) by Coder, on a minimal, nonroot, CVE-gated image built on Wolfi from Coder's
 official prebuilt release, cosign-signed and pinned by digest. Runs as a
 single-replica Deployment with a persistent workspace and PASSWORD login, serving
 the editor on port 8080.

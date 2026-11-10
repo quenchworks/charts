@@ -1,7 +1,7 @@
 # Quenchworks PgBouncer
 
 Hardened [PgBouncer](https://www.pgbouncer.org/) — a lightweight connection pooler for
-PostgreSQL — on a minimal, nonroot, 0-CVE image pinned by digest. PgBouncer sits between
+PostgreSQL — on a minimal, nonroot, CVE-gated image pinned by digest. PgBouncer sits between
 your applications and PostgreSQL, multiplexing many short-lived client connections onto a
 small pool of long-lived server connections. The pooler listens on port `6432`.
 

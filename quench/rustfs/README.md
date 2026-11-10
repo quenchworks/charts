@@ -1,6 +1,6 @@
 # Quenchworks RustFS
 
-Hardened [RustFS](https://github.com/rustfs/rustfs) on a minimal, nonroot, 0-CVE
+Hardened [RustFS](https://github.com/rustfs/rustfs) on a minimal, nonroot, CVE-gated
 image pinned by digest and cosign-signed (keyless / Sigstore). RustFS is a Rust,
 S3-compatible, MinIO-alternative object store — the newest S3-compatible option
 in the Quenchworks catalog. The upstream musl-static binary is hardened on Wolfi

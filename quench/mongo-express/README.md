@@ -5,7 +5,7 @@ for MongoDB: browse databases and collections, edit, import and export documents
 queries. It works with MongoDB and with MongoDB-compatible servers such as the catalog's
 FerretDB. The chart runs the stateless Node UI on port 8081 and bundles no database; you
 point it at the server to manage. The image is minimal, runs nonroot (uid 1001) on a
-read-only root filesystem with all capabilities dropped, ships 0-CVE, is cosign-signed
+read-only root filesystem with all capabilities dropped, ships CVE-gated, is cosign-signed
 (keyless / Sigstore), and the chart pins it by the signed digest, never a tag.
 
 Mongo Express gives whoever logs in full read-write access to every database the URL's

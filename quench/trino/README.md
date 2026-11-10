@@ -1,7 +1,7 @@
 # trino
 
 Trino, the distributed SQL query engine, as one coordinator and a set of workers,
-on the QuenchWorks image: hardened, nonroot, 0-CVE, pinned by digest and
+on the QuenchWorks image: hardened, nonroot, CVE-gated, pinned by digest and
 cosign-signed.
 
 ## Install

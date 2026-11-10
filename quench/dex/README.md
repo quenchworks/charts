@@ -1,7 +1,7 @@
 # Quenchworks Dex
 
 Hardened [Dex](https://github.com/dexidp/dex) (the CNCF OpenID Connect identity
-provider and federated SSO gateway) on a minimal, nonroot, 0-CVE image, pinned by
+provider and federated SSO gateway) on a minimal, nonroot, CVE-gated image, pinned by
 digest and cosign-signed.
 
 ## Install

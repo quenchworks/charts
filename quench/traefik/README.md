@@ -2,7 +2,7 @@
 
 Hardened [Traefik](https://github.com/traefik/traefik) cloud-native edge router /
 reverse proxy and Kubernetes ingress controller on a minimal, nonroot,
-read-only-rootfs, 0-CVE image pinned by digest, cosign-signed (keyless /
+read-only-rootfs, CVE-gated image pinned by digest, cosign-signed (keyless /
 Sigstore). Built on Wolfi. Deployed as a cluster ingress controller that watches
 the Kubernetes API and routes traffic.
 

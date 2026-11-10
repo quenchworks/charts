@@ -1,6 +1,6 @@
 # Quenchworks QuestDB
 
-Hardened [QuestDB](https://questdb.io) on a minimal, nonroot, 0-CVE image pinned
+Hardened [QuestDB](https://questdb.io) on a minimal, nonroot, CVE-gated image pinned
 by digest. QuestDB is a high-performance time-series SQL database with three
 ingestion/query interfaces: an HTTP REST API + web console, the PostgreSQL wire
 protocol, and the InfluxDB line protocol (ILP).

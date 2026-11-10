@@ -5,7 +5,7 @@ external issuer. `StepIssuer` and `StepClusterIssuer` resources sign cert-manage
 CertificateRequests through a [step-ca](https://smallstep.com/docs/step-ca/) JWK
 provisioner, so certificates for in-cluster services come from your own CA. The image is
 minimal, runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
-dropped, ships 0-CVE, is cosign-signed (keyless / Sigstore), and the chart pins it by the
+dropped, ships CVE-gated, is cosign-signed (keyless / Sigstore), and the chart pins it by the
 signed digest.
 
 ## Install

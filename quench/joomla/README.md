@@ -1,7 +1,7 @@
 # Quenchworks Joomla
 
 Hardened [Joomla](https://www.joomla.org/), the PHP content-management system, on a
-nonroot, read-only-rootfs 0-CVE image pinned by digest and cosign-signed. A Wolfi
+nonroot, read-only-rootfs CVE-gated image pinned by digest and cosign-signed. A Wolfi
 PHP-FPM + nginx runtime (supervisord) serves it on port 8080 as uid 1001.
 
 The chart bundles the Quenchworks MariaDB chart and installs Joomla on the first start:

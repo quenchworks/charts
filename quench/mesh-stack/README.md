@@ -2,7 +2,7 @@
 
 An [Istio ambient](https://istio.io/latest/docs/ambient/) service mesh in one install: every pod
 in a labelled namespace gets a SPIFFE identity and talks mutual TLS through its node's ztunnel,
-with no sidecars and no restarts. All images are QuenchWorks builds: 0-CVE, pinned by digest and
+with no sidecars and no restarts. All images are QuenchWorks builds: CVE-gated, pinned by digest and
 cosign-signed.
 
 | Component | Chart | Name in the cluster |

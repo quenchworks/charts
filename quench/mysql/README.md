@@ -1,6 +1,6 @@
 # Quenchworks MySQL
 
-Hardened MySQL on a minimal, nonroot, 0-CVE image pinned by digest. The image runs
+Hardened MySQL on a minimal, nonroot, CVE-gated image pinned by digest. The image runs
 `mysql-install-db` on first boot, applies setup via a temporary local server, then
 serves; the chart pins it by the signed digest.
 

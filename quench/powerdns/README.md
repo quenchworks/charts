@@ -1,7 +1,7 @@
 # Quenchworks PowerDNS
 
 Hardened [PowerDNS Authoritative Server](https://github.com/PowerDNS/pdns),
-built from the release tarball, on a minimal, nonroot, 0-CVE image,
+built from the release tarball, on a minimal, nonroot, CVE-gated image,
 cosign-signed and pinned by digest. It serves zones from LMDB on a persistent
 volume and exposes the HTTP API for zone management.
 

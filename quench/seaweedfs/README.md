@@ -1,7 +1,7 @@
 # Quenchworks SeaweedFS
 
 Hardened [SeaweedFS](https://github.com/seaweedfs/seaweedfs) on a minimal,
-nonroot, 0-CVE image, cosign-signed (keyless / Sigstore) and pinned by digest.
+nonroot, CVE-gated image, cosign-signed (keyless / Sigstore) and pinned by digest.
 This is the default Quenchworks object store: S3-compatible and single node
 (MinIO gutted its community edition in 2025). The single `weed` binary is built
 from source on Wolfi and runs in the single-process `weed server -s3` model —

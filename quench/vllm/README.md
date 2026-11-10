@@ -2,7 +2,7 @@
 
 Hardened [vLLM](https://github.com/vllm-project/vllm) — a high-throughput
 inference and serving engine for open LLMs that exposes an **OpenAI-compatible**
-REST API — on a minimal, nonroot, 0-CVE image pinned by digest. It serves the API
+REST API — on a minimal, nonroot, CVE-gated image pinned by digest. It serves the API
 on port 8000, running on a read-only root filesystem with all capabilities
 dropped. The image is cosign-signed (keyless / Sigstore) and the chart pins it by
 the signed digest, never a tag. This is the **CPU-only** image; GPU acceleration is

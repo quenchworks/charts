@@ -1,6 +1,6 @@
 # Quenchworks MariaDB
 
-Hardened MariaDB on a minimal, nonroot, 0-CVE image pinned by digest. The image runs
+Hardened MariaDB on a minimal, nonroot, CVE-gated image pinned by digest. The image runs
 `mariadb-install-db` on first boot, applies setup via a temporary local server, then
 serves; the chart pins it by the signed digest.
 

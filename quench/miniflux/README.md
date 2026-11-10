@@ -1,7 +1,7 @@
 # Quenchworks miniflux
 
 Hardened [Miniflux](https://miniflux.app/) feed reader on a minimal, nonroot,
-0-CVE image pinned by digest. Miniflux is stateless (all state lives in
+CVE-gated image pinned by digest. Miniflux is stateless (all state lives in
 PostgreSQL), so it runs as a plain Deployment. This chart ships a **bundled
 PostgreSQL by default** for a self-contained install, and also supports bringing
 your own external database.

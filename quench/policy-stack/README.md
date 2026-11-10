@@ -10,7 +10,7 @@ Kubernetes policy in one install:
 - [Polaris](https://polaris.docs.fairwinds.com) audits every workload against configuration
   best practices (privileged containers, missing probes, `:latest` tags, ...) in a dashboard.
 
-Every image is minimal, nonroot, 0-CVE, cosign-signed and pinned by digest.
+Every image is minimal, nonroot, CVE-gated, cosign-signed and pinned by digest.
 
 ## Install
 

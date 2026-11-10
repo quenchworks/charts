@@ -1,7 +1,7 @@
 # Quenchworks Garage
 
 Hardened [Garage](https://github.com/deuxfleurs-org/garage) on a minimal, nonroot,
-0-CVE image pinned by digest and cosign-signed (keyless / Sigstore). Garage is an
+CVE-gated image pinned by digest and cosign-signed (keyless / Sigstore). Garage is an
 S3-compatible object store (AGPL-3.0), single node, and the alternative to the
 default Quenchworks object store, [SeaweedFS](https://github.com/quenchworks/charts).
 One `garage server` process runs the store; the entrypoint seeds `garage.toml`,

@@ -2,7 +2,7 @@
 
 Hardened [OpenFGA](https://github.com/openfga/openfga), the CNCF fine-grained
 authorization service (Google Zanzibar-style ReBAC) exposing HTTP and gRPC APIs,
-on a minimal, nonroot, 0-CVE image built from source. It runs as `openfga run`
+on a minimal, nonroot, CVE-gated image built from source. It runs as `openfga run`
 on a read-only root filesystem with all capabilities dropped, serving the HTTP
 API on port 8080 and gRPC on port 8081. The image is cosign-signed (keyless /
 Sigstore) and the chart pins it by the signed digest, never a tag.

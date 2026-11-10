@@ -8,7 +8,7 @@
 > same Redis-compatible cache slot with a true open-source license — prefer it.**
 
 Hardened Dragonfly (a Redis/Memcached-compatible in-memory datastore) on a minimal, nonroot,
-0-CVE image pinned by digest. Caution tier.
+CVE-gated image pinned by digest. Caution tier.
 
 ## Install
 

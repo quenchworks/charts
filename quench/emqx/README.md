@@ -1,7 +1,7 @@
 # Quenchworks EMQX
 
 Hardened [EMQX](https://github.com/emqx/emqx) (the massively scalable distributed
-MQTT broker for IoT, IIoT, and connected vehicles) on a minimal, nonroot, 0-CVE
+MQTT broker for IoT, IIoT, and connected vehicles) on a minimal, nonroot, CVE-gated
 image, pinned by digest and cosign-signed.
 
 > **License:** EMQX 6.x is Business Source License 1.1. A **single node** (the chart

@@ -1,6 +1,6 @@
 # Quenchworks Redis
 
-Hardened Redis on a minimal, nonroot, 0-CVE image pinned by digest.
+Hardened Redis on a minimal, nonroot, CVE-gated image pinned by digest.
 
 ## Install
 

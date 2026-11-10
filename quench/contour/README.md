@@ -1,7 +1,7 @@
 # Quenchworks Contour
 
 Hardened [Project Contour](https://github.com/projectcontour/contour) on minimal,
-nonroot, 0-CVE images, pinned by digest. Contour is a Kubernetes ingress controller
+nonroot, CVE-gated images, pinned by digest. Contour is a Kubernetes ingress controller
 that programs an [Envoy](https://www.envoyproxy.io/) data plane over xDS. It serves
 the standard `networking.k8s.io` Ingress API plus its own `HTTPProxy` CRD, which adds
 cross-namespace route delegation, per-route TLS, traffic splitting and rate limiting

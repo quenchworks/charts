@@ -1,6 +1,6 @@
 # Quenchworks ZooKeeper
 
-Hardened Apache ZooKeeper on a minimal, nonroot, 0-CVE image pinned by digest.
+Hardened Apache ZooKeeper on a minimal, nonroot, CVE-gated image pinned by digest.
 Packaged on the same hardened `openjdk-21-jre` base as the other JVM charts. The
 image writes `zoo.cfg` from `ZOO_*` env on boot; the chart pins the image by its
 signed digest and runs a single standalone server.

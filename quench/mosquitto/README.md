@@ -2,7 +2,7 @@
 
 Hardened [Eclipse Mosquitto](https://mosquitto.org) — the lightweight open-source
 MQTT broker (MQTT 3.1 / 3.1.1 / 5.0 over TCP, TLS and websockets) — on a minimal,
-nonroot, 0-CVE image, pinned by digest. It runs as a single-replica Deployment on
+nonroot, CVE-gated image, pinned by digest. It runs as a single-replica Deployment on
 a read-only root filesystem with all capabilities dropped. The image is
 cosign-signed (keyless / Sigstore) and the chart pins it by the signed digest,
 never a tag.

@@ -1,7 +1,7 @@
 # Quenchworks zabbix
 
 [Zabbix](https://www.zabbix.com) server and web frontend with a bundled PostgreSQL, on
-minimal, nonroot, 0-CVE images built from source and pinned by digest.
+minimal, nonroot, CVE-gated images built from source and pinned by digest.
 
 ## Install
 

@@ -5,7 +5,7 @@ PolicyReport aggregator. It watches the PolicyReport and ClusterPolicyReport res
 Kyverno (or another policy engine) writes, serves them over a REST API and as Prometheus
 metrics (`policy_report_result`), and can push new violations to Slack, Loki,
 Elasticsearch, webhooks and more. The image is minimal, runs nonroot (uid 1001) on a
-read-only root filesystem with all capabilities dropped, ships 0-CVE, is cosign-signed
+read-only root filesystem with all capabilities dropped, ships CVE-gated, is cosign-signed
 (keyless / Sigstore), and the chart pins it by the signed digest.
 
 This chart ships the core only; the web UI is a separate upstream project.

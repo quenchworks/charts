@@ -2,7 +2,7 @@
 
 Hardened [Jenkins](https://github.com/jenkinsci/jenkins) (the leading open-source
 automation server for CI/CD pipelines and Pipeline-as-Code) on a minimal, nonroot,
-0-CVE image, pinned by digest and cosign-signed.
+CVE-gated image, pinned by digest and cosign-signed.
 
 ## Install
 

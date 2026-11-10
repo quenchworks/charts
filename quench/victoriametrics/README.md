@@ -2,7 +2,7 @@
 
 Hardened [VictoriaMetrics](https://github.com/VictoriaMetrics/VictoriaMetrics) —
 a fast, cost-efficient single-node time-series database that speaks PromQL and
-Prometheus `remote_write` — on a minimal, nonroot, 0-CVE image pinned by digest.
+Prometheus `remote_write` — on a minimal, nonroot, CVE-gated image pinned by digest.
 A single self-contained Go binary exposes a Prometheus-compatible HTTP API on
 port 8428, running on a read-only root filesystem with all capabilities dropped.
 The image is cosign-signed (keyless / Sigstore) and the chart pins it by the

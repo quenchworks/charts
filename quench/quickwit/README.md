@@ -1,7 +1,7 @@
 # Quenchworks quickwit
 
 Hardened [Quickwit](https://quickwit.io/) — a cloud-native search engine for logs
-and traces (Rust), with the bundled admin UI — on a minimal, nonroot, 0-CVE image
+and traces (Rust), with the bundled admin UI — on a minimal, nonroot, CVE-gated image
 pinned by digest and cosign-signed (keyless / Sigstore). Runs single node
 (standalone) as a StatefulSet on a read-only root filesystem with all
 capabilities dropped, serving the REST API and admin UI on port 7280 and gRPC on

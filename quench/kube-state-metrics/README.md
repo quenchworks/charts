@@ -3,7 +3,7 @@
 Hardened [kube-state-metrics](https://github.com/kubernetes/kube-state-metrics), the
 Kubernetes add-on that listens to the API server and exposes the state of cluster
 objects — Deployments, Pods, Nodes, Jobs, PVCs, HPAs and more — as Prometheus
-metrics, on a minimal, nonroot, 0-CVE image built from source, cosign-signed and
+metrics, on a minimal, nonroot, CVE-gated image built from source, cosign-signed and
 pinned by digest. Runs as a stateless Deployment; object metrics on `8080`, health
 and its own process metrics on `8081`.
 

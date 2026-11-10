@@ -1,9 +1,9 @@
 # Quenchworks ClickHouse
 
-Hardened [ClickHouse](https://clickhouse.com/) on a minimal, nonroot, 0-CVE image
+Hardened [ClickHouse](https://clickhouse.com/) on a minimal, nonroot, CVE-gated image
 pinned by digest. Ships ClickHouse's own official self-contained static binary
 (the multi-call `clickhouse`: server/client/keeper/local), hardened on Wolfi and
-gated 0-CVE with Trivy. The HTTP API is served on port `8123` and the native TCP
+gated CVE-gated with Trivy. The HTTP API is served on port `8123` and the native TCP
 protocol on `9000`. Single node.
 
 ## Install

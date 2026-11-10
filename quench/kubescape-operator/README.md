@@ -2,7 +2,7 @@
 
 [Kubescape](https://kubescape.io) in-cluster: configuration (posture) scanning against the
 NSA-CISA, MITRE and CIS frameworks, and vulnerability scanning of every image running in the
-cluster. Every component is built from source by QuenchWorks on Wolfi, 0-CVE, cosign-signed and
+cluster. Every component is built from source by QuenchWorks on Wolfi, CVE-gated, cosign-signed and
 pinned by digest.
 
 ```sh

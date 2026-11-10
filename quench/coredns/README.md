@@ -1,7 +1,7 @@
 # Quenchworks CoreDNS
 
 Hardened [CoreDNS](https://github.com/coredns/coredns), the plugin-chained DNS
-server and default cluster DNS for Kubernetes, on a minimal, nonroot, 0-CVE image
+server and default cluster DNS for Kubernetes, on a minimal, nonroot, CVE-gated image
 built from source and pinned by digest. It runs as a stateless Deployment and
 serves DNS on port 53 (UDP and TCP), on a read-only root filesystem with all
 capabilities dropped. The image is cosign-signed (keyless / Sigstore) and the

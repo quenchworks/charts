@@ -2,7 +2,7 @@
 
 Hardened [ZITADEL](https://zitadel.com/) — cloud-native identity infrastructure
 (OIDC / OAuth2 / SAML, multi-tenancy, self-service, and a built-in management API
-and console) — on a minimal, nonroot, 0-CVE image pinned by digest and
+and console) — on a minimal, nonroot, CVE-gated image pinned by digest and
 cosign-signed (keyless / Sigstore). The server is a single static Go binary that
 runs as uid `1001` on a read-only root filesystem with all capabilities dropped,
 serving HTTP/2 cleartext (h2c: gRPC, REST, and console multiplexed) on port

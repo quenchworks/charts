@@ -1,7 +1,7 @@
 # Quenchworks OpenTelemetry Collector
 
 Hardened [OpenTelemetry Collector](https://github.com/open-telemetry/opentelemetry-collector)
-(the official `otelcol-contrib` distribution) on a minimal, nonroot, 0-CVE image
+(the official `otelcol-contrib` distribution) on a minimal, nonroot, CVE-gated image
 pinned by digest. Built from source on Wolfi with the upstream `v0.154.0` contrib
 manifest, so it has component parity with the official release.
 

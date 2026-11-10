@@ -1,7 +1,7 @@
 # Quenchworks Atlantis
 
 Hardened [Atlantis](https://github.com/runatlantis/atlantis) — Terraform/OpenTofu
-pull-request automation — on a minimal, nonroot, 0-CVE image pinned by digest.
+pull-request automation — on a minimal, nonroot, CVE-gated image pinned by digest.
 Built from source on Wolfi.
 
 Atlantis listens for VCS webhooks, clones the PR branch, runs `plan`/`apply`, and

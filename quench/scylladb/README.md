@@ -2,7 +2,7 @@
 
 Hardened [ScyllaDB Open Source](https://github.com/scylladb/scylladb) — a
 high-throughput, low-latency wide-column store that is Cassandra-compatible (CQL)
-— on a minimal, nonroot, 0-CVE image, cosign-signed (keyless / Sigstore) and
+— on a minimal, nonroot, CVE-gated image, cosign-signed (keyless / Sigstore) and
 pinned by digest. The image ships ScyllaDB's official relocatable binary on a
 hardened Wolfi base; its entrypoint seeds `scylla.yaml` from `SCYLLA_*` env on
 boot and runs Scylla in container/developer mode so it works in an unprivileged,

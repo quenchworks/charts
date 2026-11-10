@@ -1,7 +1,7 @@
 # Quenchworks Falco
 
 Hardened [Falco](https://github.com/falcosecurity/falco) runtime threat
-detection, built from source, 0-CVE, cosign-signed and pinned by digest. One
+detection, built from source, CVE-gated, cosign-signed and pinned by digest. One
 pod per node watches syscalls with the modern eBPF probe, the container plugin
 adds container and pod names, and every rule match is printed as one JSON line
 on stdout.

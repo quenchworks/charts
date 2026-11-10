@@ -1,7 +1,7 @@
 # Quenchworks Graylog
 
 Hardened [Graylog](https://graylog.org/), the log management and SIEM server, on a
-minimal, nonroot, 0-CVE image pinned by digest and cosign-signed (keyless /
+minimal, nonroot, CVE-gated image pinned by digest and cosign-signed (keyless /
 Sigstore). Graylog runs as uid 1001 and serves the web UI and REST API on port 9000. The chart pins the image by its signed digest, never a tag.
 
 > License notice: SSPL-1.0. Graylog Server is licensed under the Server Side

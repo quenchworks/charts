@@ -4,7 +4,7 @@ The realtime tier of [Coolify](https://github.com/coollabsio/coolify): a
 Pusher-compatible [soketi](https://soketi.app) WebSocket server (`:6001`) plus a
 `node-pty` terminal bridge (`:6002`). This is the pub/sub component the Coolify UI
 subscribes to for live deploy logs, resource status and the in-browser terminal.
-Hardened by QuenchWorks on a minimal, nonroot, 0-CVE image built from source,
+Hardened by QuenchWorks on a minimal, nonroot, CVE-gated image built from source,
 cosign-signed and pinned by digest. Licensed **AGPL-3.0-or-later** (Coolify's
 license).
 

@@ -1,7 +1,7 @@
 # Quenchworks Blackbox Exporter
 
 Hardened [Prometheus Blackbox Exporter](https://github.com/prometheus/blackbox_exporter)
-on a minimal, nonroot, 0-CVE image built from source, cosign-signed and pinned by
+on a minimal, nonroot, CVE-gated image built from source, cosign-signed and pinned by
 digest. It probes endpoints over HTTP, HTTPS, DNS, TCP, ICMP and gRPC and exposes the
 result as Prometheus metrics for scraping.
 

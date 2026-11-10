@@ -1,7 +1,7 @@
 # Quenchworks Jaeger
 
 Hardened [Jaeger](https://github.com/jaegertracing/jaeger) v2 all-in-one
-distributed tracing on a minimal, nonroot, 0-CVE image, cosign-signed and pinned
+distributed tracing on a minimal, nonroot, CVE-gated image, cosign-signed and pinned
 by digest. Jaeger v2 is built on the OpenTelemetry Collector, so this chart runs
 the all-in-one binary (collector + query + web UI in one process) with native
 OTLP ingestion. The container runs nonroot on a read-only root filesystem with

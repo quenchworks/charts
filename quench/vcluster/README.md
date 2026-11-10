@@ -1,7 +1,7 @@
 # Quenchworks vcluster
 
 Hardened [vCluster](https://github.com/loft-sh/vcluster) on a minimal, nonroot,
-0-CVE image. The syncer is built from source, and so is the control plane it
+CVE-gated image. The syncer is built from source, and so is the control plane it
 runs: kube-apiserver and kube-controller-manager 1.36.4 from the Kubernetes tag,
 with kine on SQLite as the store.
 

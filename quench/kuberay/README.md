@@ -3,7 +3,7 @@
 The KubeRay operator, which runs Ray on Kubernetes: `RayCluster` (a head and worker
 groups), `RayJob` (a cluster that runs one job, then tears down) and `RayService`
 (Ray Serve with zero-downtime upgrades), plus `RayCronJob`. On the QuenchWorks image:
-hardened, nonroot, 0-CVE, pinned by digest and cosign-signed.
+hardened, nonroot, CVE-gated, pinned by digest and cosign-signed.
 
 ## Install
 

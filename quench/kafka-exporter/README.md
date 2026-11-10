@@ -1,7 +1,7 @@
 # Quenchworks kafka-exporter
 
 Hardened [kafka_exporter](https://github.com/danielqsj/kafka_exporter) on a
-minimal, nonroot, 0-CVE image, built from source and pinned by digest.
+minimal, nonroot, CVE-gated image, built from source and pinned by digest.
 
 It exports Kafka brokers, topics, partition offsets and consumer-group lag as
 Prometheus metrics on port 9308.

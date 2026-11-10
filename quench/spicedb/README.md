@@ -2,7 +2,7 @@
 
 Hardened [SpiceDB](https://github.com/authzed/spicedb) — Authzed's open-source,
 Google Zanzibar-inspired database for fine-grained authorization (ReBAC /
-relationship-based permissions) over a gRPC API — on a minimal, nonroot, 0-CVE
+relationship-based permissions) over a gRPC API — on a minimal, nonroot, CVE-gated
 image, cosign-signed (keyless / Sigstore) and pinned by digest. It runs
 `spicedb serve` as a stateless Deployment and serves the gRPC API on port 50051.
 

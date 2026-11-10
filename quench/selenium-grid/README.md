@@ -5,7 +5,7 @@ remote browsers. This chart deploys Selenium Grid 4 in hub-and-node mode: one hu
 router, distributor, session queue and event bus in one process) and a Deployment of
 headless Firefox nodes that register with it. Both images are QuenchWorks builds of the
 upstream `selenium-server` jar on a Wolfi JRE; the Firefox node adds Wolfi Firefox and
-geckodriver. They run nonroot, are 0-CVE, cosign-signed and pinned by digest.
+geckodriver. They run nonroot, are CVE-gated, cosign-signed and pinned by digest.
 
 ## Install
 

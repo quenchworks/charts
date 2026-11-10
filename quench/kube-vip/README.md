@@ -1,6 +1,6 @@
 # Quenchworks kube-vip
 
-Hardened [kube-vip](https://github.com/kube-vip/kube-vip) on a minimal 0-CVE
+Hardened [kube-vip](https://github.com/kube-vip/kube-vip) on a minimal CVE-gated
 image, built from source and pinned by digest.
 
 kube-vip runs on every node and announces virtual IPs: addresses for Services of

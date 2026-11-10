@@ -2,7 +2,7 @@
 
 A self-contained MongoDB-compatible server: PostgreSQL 17, the
 [DocumentDB](https://github.com/documentdb/documentdb) extension, and the Rust
-`pg_documentdb_gw` gateway, all in one nonroot, 0-CVE container pinned by digest.
+`pg_documentdb_gw` gateway, all in one nonroot, CVE-gated container pinned by digest.
 A mongo client connects directly to it, with no FerretDB and no separate backend.
 
 On first boot the image runs `initdb`, `CREATE EXTENSION documentdb CASCADE`, and

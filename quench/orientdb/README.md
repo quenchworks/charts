@@ -1,6 +1,6 @@
 # QuenchWorks OrientDB
 
-Hardened [OrientDB](https://orientdb.org/) Community on a minimal, nonroot, 0-CVE
+Hardened [OrientDB](https://orientdb.org/) Community on a minimal, nonroot, CVE-gated
 image pinned by digest. OrientDB is a multi-model database (graph, document,
 key-value) queried with an SQL dialect. The binary protocol is on port `2424`; the
 HTTP API and Studio are on `2480`. License: Apache-2.0.

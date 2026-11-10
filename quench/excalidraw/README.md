@@ -2,7 +2,7 @@
 
 Hardened, self-hosted [Excalidraw](https://github.com/excalidraw/excalidraw)
 virtual whiteboard for sketching hand-drawn-style diagrams, served as a static
-SPA by nginx on a minimal, nonroot, 0-CVE image built from source, cosign-signed
+SPA by nginx on a minimal, nonroot, CVE-gated image built from source, cosign-signed
 and pinned by digest. This is the static, no-backend build: drawings live in the
 browser's local storage — there is no account, database, or server-side state.
 

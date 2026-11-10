@@ -7,7 +7,7 @@ One self-hosted artifact registry in one install:
 - [Terralist](https://www.terralist.io) is a private Terraform and OpenTofu registry for
   modules and providers, speaking the registry protocols `terraform init` uses.
 
-Every image is minimal, nonroot, 0-CVE, cosign-signed and pinned by digest. The two are
+Every image is minimal, nonroot, CVE-gated, cosign-signed and pinned by digest. The two are
 independent services in one release; values under `harbor` and `terralist` pass straight
 through to the [harbor](../harbor) and [terralist](../terralist) charts.
 

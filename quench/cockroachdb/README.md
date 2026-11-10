@@ -12,9 +12,9 @@
 > are documented follow-ups.
 
 Hardened [CockroachDB](https://github.com/cockroachdb/cockroach) — distributed SQL
-speaking the PostgreSQL wire protocol — on a minimal, nonroot, 0-CVE image pinned by
+speaking the PostgreSQL wire protocol — on a minimal, nonroot, CVE-gated image pinned by
 digest. Ships CockroachDB's own official precompiled binary, hardened on Wolfi and
-gated 0-CVE with Trivy. SQL (Postgres wire) is served on `26257` and the HTTP admin
+gated CVE-gated with Trivy. SQL (Postgres wire) is served on `26257` and the HTTP admin
 UI / health endpoint on `8080`. Single node.
 
 ## Install

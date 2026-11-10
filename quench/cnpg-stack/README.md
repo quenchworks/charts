@@ -7,7 +7,7 @@ Operator-managed HA PostgreSQL in one install:
   9187 of every instance,
 - a PgBouncer `Pooler` in front of the primary, running the catalog `pgbouncer` image.
 
-Every image is minimal, nonroot, 0-CVE, cosign-signed and pinned by digest. For HA
+Every image is minimal, nonroot, CVE-gated, cosign-signed and pinned by digest. For HA
 without an operator, see [postgres-ha-stack](../postgres-ha-stack) (Patroni).
 
 ## Install

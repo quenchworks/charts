@@ -2,7 +2,7 @@
 
 Hardened [Floci](https://github.com/floci-io/floci), a self-hosted,
 LocalStack-compatible local AWS emulator built on Quarkus, on a minimal,
-nonroot, 0-CVE image pinned by digest and cosign-signed (keyless / Sigstore).
+nonroot, CVE-gated image pinned by digest and cosign-signed (keyless / Sigstore).
 
 ## Install
 

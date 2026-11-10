@@ -1,7 +1,7 @@
 # Quenchworks headscale
 
 Hardened [headscale](https://headscale.net/), an open-source implementation of the
-Tailscale control server, on a minimal, nonroot, 0-CVE image pinned by digest and
+Tailscale control server, on a minimal, nonroot, CVE-gated image pinned by digest and
 cosign-signed (keyless / Sigstore). Single node; it persists its SQLite DB and
 generated noise/machine keys to a PVC, and its config ships via a ConfigMap mounted
 at `/etc/headscale/config.yaml`. The chart pins the image by its signed digest,

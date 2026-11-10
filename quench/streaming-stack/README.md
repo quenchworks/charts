@@ -6,7 +6,7 @@ An event-streaming platform in one install:
   proxy.
 - **AKHQ**: a web console for topics, consumer groups, messages and schemas.
 
-Every component is a QuenchWorks chart and image: hardened, nonroot, 0-CVE, pinned by
+Every component is a QuenchWorks chart and image: hardened, nonroot, CVE-gated, pinned by
 digest and cosign-signed.
 
 ## Install

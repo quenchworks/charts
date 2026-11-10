@@ -2,7 +2,7 @@
 
 Hardened [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets), the
 Kubernetes controller that decrypts one-way-encrypted `SealedSecret` resources
-into regular `Secret`s, on a minimal, nonroot, 0-CVE image built from source,
+into regular `Secret`s, on a minimal, nonroot, CVE-gated image built from source,
 cosign-signed and pinned by digest. Runs the controller as a single-replica
 Deployment, installs the `SealedSecret` CRD, and ships clean-room RBAC.
 

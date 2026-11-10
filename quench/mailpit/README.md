@@ -3,7 +3,7 @@
 Hardened [Mailpit](https://github.com/axllent/mailpit): an SMTP server that
 captures everything your application sends and a web UI + REST API to read it
 back. Runs as a single-replica Deployment listening on **SMTP 1025** and
-**HTTP 8025**. Built from source on a minimal, nonroot, 0-CVE image that runs on
+**HTTP 8025**. Built from source on a minimal, nonroot, CVE-gated image that runs on
 a read-only root filesystem with all capabilities dropped. The image is
 cosign-signed (keyless / Sigstore) and the chart pins it by the signed digest,
 never a tag.

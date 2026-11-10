@@ -3,7 +3,7 @@
 Hardened [SATOSA](https://github.com/IdentityPython/SATOSA), the IdentityPython proxy
 that translates between SAML2 and OpenID Connect or OAuth2, so services and identity
 providers that speak different protocols can federate. Runs on a minimal, nonroot,
-0-CVE image (the official wheel under gunicorn on Wolfi Python, with xmlsec1 for SAML
+CVE-gated image (the official wheel under gunicorn on Wolfi Python, with xmlsec1 for SAML
 signatures), cosign-signed and pinned by digest.
 
 ## Install

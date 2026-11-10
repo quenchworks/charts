@@ -1,7 +1,7 @@
 # Quenchworks KrakenD
 
 Hardened [KrakenD](https://github.com/krakend/krakend-ce) Community Edition API
-gateway on a minimal, nonroot, read-only-rootfs, 0-CVE image pinned by digest.
+gateway on a minimal, nonroot, read-only-rootfs, CVE-gated image pinned by digest.
 Built from source on Wolfi (no upstream distro binaries). Listens on `8080`,
 which is unprivileged because the container runs as nonroot uid 1001.
 

@@ -1,6 +1,6 @@
 # Quenchworks InfluxDB
 
-Hardened [InfluxDB 2.x](https://www.influxdata.com/) on a minimal, nonroot, 0-CVE
+Hardened [InfluxDB 2.x](https://www.influxdata.com/) on a minimal, nonroot, CVE-gated
 image pinned by digest. The `influxd` server (and the `influx` CLI) is built from
 source on Wolfi; the official prebuilt web UI bundle is embedded. The HTTP API and
 the web UI are both served on port `8086`. Single node (InfluxDB 2.x OSS).

@@ -1,7 +1,7 @@
 # Quenchworks External Secrets Operator
 
 Hardened [External Secrets Operator](https://github.com/external-secrets/external-secrets)
-(ESO) on a minimal, nonroot, 0-CVE image, pinned by digest. ESO syncs secrets from
+(ESO) on a minimal, nonroot, CVE-gated image, pinned by digest. ESO syncs secrets from
 external APIs (HashiCorp Vault, AWS/GCP/Azure secret managers, and many more) into
 native Kubernetes Secrets, driven by `ExternalSecret` / `SecretStore` CRDs.
 

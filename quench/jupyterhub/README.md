@@ -2,7 +2,7 @@
 
 JupyterHub on Kubernetes: users sign in and each gets their own Jupyter notebook
 server as a pod. The chart runs the hub and configurable-http-proxy on QuenchWorks
-images (hardened, nonroot, 0-CVE, pinned by digest, cosign-signed); KubeSpawner in
+images (hardened, nonroot, CVE-gated, pinned by digest, cosign-signed); KubeSpawner in
 the hub starts the notebook pods.
 
 ## Install

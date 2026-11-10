@@ -2,7 +2,7 @@
 
 Hardened [Metrics Server](https://github.com/kubernetes-sigs/metrics-server), the
 cluster-wide aggregator of container resource metrics that backs `kubectl top`
-and the Horizontal Pod Autoscaler, on a minimal, nonroot, 0-CVE image built from
+and the Horizontal Pod Autoscaler, on a minimal, nonroot, CVE-gated image built from
 source, cosign-signed and pinned by digest.
 
 ## Read this before installing

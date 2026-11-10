@@ -1,6 +1,6 @@
 # Quenchworks linkerd
 
-[Linkerd](https://linkerd.io) on QuenchWorks images built from source, 0-CVE, cosign-signed and
+[Linkerd](https://linkerd.io) on QuenchWorks images built from source, CVE-gated, cosign-signed and
 pinned by digest: the control plane AND the data plane. Annotated workloads get the
 linkerd-proxy sidecar and talk mutual TLS with a certificate for their ServiceAccount.
 

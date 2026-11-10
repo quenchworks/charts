@@ -1,7 +1,7 @@
 # Quenchworks Argo CD
 
 Hardened [Argo CD](https://github.com/argoproj/argo-cd), the declarative GitOps
-continuous-delivery controller for Kubernetes, on a minimal, nonroot, 0-CVE image
+continuous-delivery controller for Kubernetes, on a minimal, nonroot, CVE-gated image
 built from source, cosign-signed and pinned by digest.
 
 Ships the API server **with its embedded React console**, the repo server, the
@@ -135,7 +135,7 @@ controller writes every resource tree and app state into it and the API server r
 them back, so without it the console shows nothing and syncs stall.
 
 This chart depends on the catalog's own [`quench/redis`](../redis) chart rather than
-vendoring a second Redis — same hardened 0-CVE image, same digest pinning, same
+vendoring a second Redis — same hardened CVE-gated image, same digest pinning, same
 Sentinel HA path as everywhere else. Any `quench/redis` value can be set under the
 `redis:` key. Password auth is on by default and the chart wires `REDIS_PASSWORD`
 from the subchart's Secret into every component that talks to it.

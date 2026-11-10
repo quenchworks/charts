@@ -1,6 +1,6 @@
 # Quenchworks Solr
 
-Hardened [Apache Solr](https://solr.apache.org/) on a minimal, nonroot, 0-CVE image
+Hardened [Apache Solr](https://solr.apache.org/) on a minimal, nonroot, CVE-gated image
 pinned by digest. Packaged on the shared `openjdk-21-jre` base (the JRE is the scanned
 CVE surface). Single-node standalone by default; SolrCloud (`config.zkHost`) is a
 follow-up. The entrypoint relocates `SOLR_HOME`/logs/pid/tmp onto a single writable

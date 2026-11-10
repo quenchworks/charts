@@ -13,7 +13,7 @@
 > it for new deployments.** This chart exists for teams already committed to Vault.
 
 Hardened [Vault](https://github.com/hashicorp/vault) secrets-management server on a
-minimal, nonroot, 0-CVE image, built from source on Wolfi, cosign-signed and pinned by
+minimal, nonroot, CVE-gated image, built from source on Wolfi, cosign-signed and pinned by
 digest. Single node with the `file` storage backend on a PVC by default, or a
 [multi-node raft cluster](#high-availability-raft) with `ha.enabled=true`. The HTTP API
 is on 8200, cluster traffic on 8201. The **web UI is included** and served at `/ui/`.

@@ -4,7 +4,7 @@ Hardened [Velero](https://github.com/vmware-tanzu/velero), the CNCF backup and
 disaster-recovery controller for Kubernetes. It backs up cluster resources and
 persistent volumes to object storage and restores them on demand. This chart
 runs the velero server as a single-replica Deployment on a minimal, nonroot,
-0-CVE image built from source, cosign-signed and pinned by digest.
+CVE-gated image built from source, cosign-signed and pinned by digest.
 
 The container runs as uid 1001 with a read-only root filesystem and every Linux
 capability dropped. It writes only to in-memory `emptyDir` mounts (`/plugins`,

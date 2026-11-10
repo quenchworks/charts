@@ -3,7 +3,7 @@
 Hardened [xyOps](https://github.com/pixlcore/xyops) — a complete
 workflow-automation and server-monitoring system (job scheduler, host/service
 monitors, alerting and ticketing) by Joseph Huckaby, the creator of Cronicle — on a
-minimal, nonroot, 0-CVE image pinned by digest. It serves the web UI and JSON API
+minimal, nonroot, CVE-gated image pinned by digest. It serves the web UI and JSON API
 on port 5522, running on a read-only root filesystem with all capabilities dropped.
 The image is cosign-signed (keyless / Sigstore) and the chart pins it by the signed
 digest, never a tag. All state lives in an **embedded better-sqlite3 database**, so

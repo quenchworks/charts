@@ -1,7 +1,7 @@
 # Quenchworks DataHub
 
 Hardened [DataHub](https://datahubproject.io/), the open-source metadata platform for
-data discovery, lineage and governance, on minimal nonroot 0-CVE images pinned by digest
+data discovery, lineage and governance, on minimal nonroot CVE-gated images pinned by digest
 and cosign-signed. Everything runs as uid 1001 on a read-only root filesystem.
 
 The chart deploys three images from one DataHub release:

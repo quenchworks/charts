@@ -2,7 +2,7 @@
 
 Hardened [Harbor](https://goharbor.io/), a cloud-native OCI registry with RBAC,
 replication, vulnerability scanning and image signing, as a single umbrella chart
-that wires nine minimal, nonroot, 0-CVE component images (pinned by digest) over
+that wires nine minimal, nonroot, CVE-gated component images (pinned by digest) over
 the Quenchworks PostgreSQL and Valkey charts. Every container runs as uid 1001 on
 a read-only root filesystem with all capabilities dropped; each writable path is an
 `emptyDir` (or a PVC for registry storage). The images are cosign-signed (keyless /

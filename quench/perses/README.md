@@ -2,7 +2,7 @@
 
 Hardened [Perses](https://github.com/perses/perses), the CNCF open dashboard and
 observability visualization tool, running as a stateless Deployment that serves
-the UI and API on port 8080. Built from source on a minimal, nonroot, 0-CVE
+the UI and API on port 8080. Built from source on a minimal, nonroot, CVE-gated
 image that runs on a read-only root filesystem with all capabilities dropped.
 The image is cosign-signed (keyless / Sigstore) and the chart pins it by the
 signed digest, never a tag.

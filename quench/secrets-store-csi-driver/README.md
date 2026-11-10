@@ -3,7 +3,7 @@
 The [Secrets Store CSI Driver](https://github.com/kubernetes-sigs/secrets-store-csi-driver)
 1.6.1 mounts secrets from external stores into pods as volumes. Each store plugs in through
 a provider (Vault, AWS, Azure, GCP), installed separately. The driver and both CSI sidecars
-are built from source by QuenchWorks on Wolfi, 0-CVE, cosign-signed, and pinned by digest.
+are built from source by QuenchWorks on Wolfi, CVE-gated, cosign-signed, and pinned by digest.
 
 ```sh
 helm install csi-secrets-store oci://ghcr.io/quenchworks/charts/secrets-store-csi-driver -n kube-system

@@ -3,7 +3,7 @@
 The [Rook](https://rook.io) Ceph operator: it runs [Ceph](https://ceph.io) clusters on
 Kubernetes through CRDs (CephCluster, CephObjectStore, CephBlockPool, CephFilesystem,
 ObjectBucketClaims and more). The operator image is built from source; the Ceph image is
-Ceph 20 (Tentacle) from Wolfi packages. Both are minimal, 0-CVE, cosign-signed and pinned
+Ceph 20 (Tentacle) from Wolfi packages. Both are minimal, CVE-gated, cosign-signed and pinned
 by digest.
 
 Ceph CSI is included: the chart runs the ceph-csi-operator, Rook creates its driver

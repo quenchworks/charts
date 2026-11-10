@@ -6,7 +6,7 @@ removes nodes that stay underused. Every cloud provider is compiled into the ima
 `cloudProvider` picks one. The chart runs one Deployment with leader election, keeps
 the status ConfigMap and the lease in the release namespace, and grants the core,
 provider-independent RBAC. The image is minimal, runs nonroot (uid 1001) on a
-read-only root filesystem with all capabilities dropped, ships 0-CVE, is
+read-only root filesystem with all capabilities dropped, ships CVE-gated, is
 cosign-signed (keyless / Sigstore), and the chart pins it by the signed digest,
 never a tag. It keeps upstream's layout (binary at `/cluster-autoscaler`), so
 upstream's chart can run it too.

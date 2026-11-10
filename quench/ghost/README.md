@@ -1,7 +1,7 @@
 # Quenchworks Ghost
 
 Hardened [Ghost](https://ghost.org/), the Node.js publishing platform (CMS,
-membership and newsletter engine), on a minimal, nonroot, 0-CVE image pinned by
+membership and newsletter engine), on a minimal, nonroot, CVE-gated image pinned by
 digest and cosign-signed (keyless / Sigstore). Ghost runs as uid 1001 and serves
 the public site and the `/ghost` admin on port 2368.
 

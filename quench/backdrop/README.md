@@ -1,7 +1,7 @@
 # Quenchworks Backdrop CMS
 
 Hardened [Backdrop CMS](https://backdropcms.org/), the PHP content-management system
-forked from Drupal 7, on a nonroot, read-only-rootfs 0-CVE image pinned by digest and
+forked from Drupal 7, on a nonroot, read-only-rootfs CVE-gated image pinned by digest and
 cosign-signed. A Wolfi PHP-FPM + nginx runtime (supervisord) serves it on port 8080 as
 uid 1001.
 

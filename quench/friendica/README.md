@@ -1,7 +1,7 @@
 # Quenchworks Friendica
 
 Hardened [Friendica](https://friendi.ca/), the federated social network server
-(ActivityPub, Diaspora, OStatus), on a nonroot, read-only-rootfs 0-CVE image pinned by
+(ActivityPub, Diaspora, OStatus), on a nonroot, read-only-rootfs CVE-gated image pinned by
 digest and cosign-signed. A Wolfi PHP-FPM + nginx runtime (supervisord) serves it on
 port 8080 as uid 1001, and runs Friendica's background worker daemon in the same
 container.

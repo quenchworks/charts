@@ -6,7 +6,7 @@ routing, TLS, authentication and rate limiting. The chart installs the
 getambassador.io CRDs (v3alpha1, upstream's 4.x default) and the gateway Deployment
 behind a LoadBalancer Service. The image carries Envoy 1.37 from Wolfi, Emissary's
 Python control plane and Go entrypoint built from source. It runs nonroot (uid 8888)
-on a read-only root filesystem with all capabilities dropped, ships 0-CVE, is
+on a read-only root filesystem with all capabilities dropped, ships CVE-gated, is
 cosign-signed (keyless / Sigstore), and the chart pins it by the signed digest,
 never a tag.
 

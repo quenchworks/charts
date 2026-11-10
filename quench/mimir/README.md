@@ -2,7 +2,7 @@
 
 Hardened [Grafana Mimir](https://github.com/grafana/mimir) — horizontally scalable,
 long-term storage for Prometheus metrics — running in **single-process (monolithic)
-mode** (`-target=all`, every component in one process) on a minimal, nonroot, 0-CVE
+mode** (`-target=all`, every component in one process) on a minimal, nonroot, CVE-gated
 image pinned by digest. Built from source on Wolfi. Mimir has no UI of its own —
 Grafana is its frontend. The HTTP API (remote-write, query, `/ready`, `/metrics`)
 is on port 8080; gRPC on 9095.

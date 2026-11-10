@@ -1,6 +1,6 @@
 # Quenchworks Pulsar
 
-Hardened [Apache Pulsar](https://pulsar.apache.org/) on a minimal, nonroot, 0-CVE image
+Hardened [Apache Pulsar](https://pulsar.apache.org/) on a minimal, nonroot, CVE-gated image
 pinned by digest. Packaged on the shared `openjdk-21-jre` base (the JRE plus the bundled
 Pulsar jars are the scanned CVE surface). Single-node **standalone**: the broker, an
 in-process BookKeeper bookie, and the embedded RocksDB metadata store run in ONE JVM --

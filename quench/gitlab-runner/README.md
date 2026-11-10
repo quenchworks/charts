@@ -2,7 +2,7 @@
 
 GitLab Runner with the Kubernetes executor: it asks your GitLab instance for CI jobs
 and runs each one as a pod in the cluster. The runner runs on the QuenchWorks image:
-hardened, nonroot, 0-CVE, pinned by digest and cosign-signed.
+hardened, nonroot, CVE-gated, pinned by digest and cosign-signed.
 
 ## Install
 

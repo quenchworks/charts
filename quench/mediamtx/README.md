@@ -2,7 +2,7 @@
 
 Hardened [MediaMTX](https://github.com/bluenviron/mediamtx) — a zero-dependency
 real-time media server that ingests and republishes streams over RTSP, RTMP, HLS,
-WebRTC and SRT — on a minimal, nonroot, 0-CVE image, built from source and pinned
+WebRTC and SRT — on a minimal, nonroot, CVE-gated image, built from source and pinned
 by digest. It runs as a stateless Deployment on a read-only root filesystem with
 all capabilities dropped. The image is cosign-signed (keyless / Sigstore) and the
 chart pins it by the signed digest, never a tag.

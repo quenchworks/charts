@@ -1,6 +1,6 @@
 # Quenchworks OpenLDAP
 
-Hardened OpenLDAP `slapd` on a minimal, nonroot, 0-CVE image pinned by digest.
+Hardened OpenLDAP `slapd` on a minimal, nonroot, CVE-gated image pinned by digest.
 A single-instance directory server on the LMDB (`back-mdb`) backend, with its own
 PVC, an admin password in a `Secret`, and the base DN seeded on first boot.
 

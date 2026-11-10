@@ -1,7 +1,7 @@
 # Quenchworks ClamAV
 
 Hardened [ClamAV](https://github.com/Cisco-Talos/clamav), built from the release
-tarball, on a minimal, nonroot, 0-CVE image, cosign-signed and pinned by digest.
+tarball, on a minimal, nonroot, CVE-gated image, cosign-signed and pinned by digest.
 clamd scans streams over TCP 3310 for apps that check uploads. A freshclam init
 container fills the signature database before clamd starts, and a freshclam
 sidecar keeps it current.

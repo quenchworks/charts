@@ -1,7 +1,7 @@
 # Quenchworks Centrifugo
 
 Hardened [Centrifugo](https://github.com/centrifugal/centrifugo) on a minimal,
-nonroot, 0-CVE image, pinned by digest. Centrifugo is a scalable real-time
+nonroot, CVE-gated image, pinned by digest. Centrifugo is a scalable real-time
 messaging server speaking WebSocket, SSE, HTTP-streaming and GRPC, with JWT auth,
 an admin UI, and a server HTTP API.
 

@@ -3,7 +3,7 @@
 Hardened [Ollama](https://github.com/ollama/ollama) — the local
 large-language-model runtime that pulls open models (Llama, Mistral, Gemma,
 Qwen, ...) and serves them over a simple REST API — on a minimal, nonroot,
-0-CVE image pinned by digest. This is the **CPU-only** image (GPU acceleration
+CVE-gated image pinned by digest. This is the **CPU-only** image (GPU acceleration
 is out of scope for this chart); it runs as a single-replica StatefulSet with a
 persistent `/models` volume and serves the inference API on port 11434, on a
 read-only root filesystem with all capabilities dropped. The image is

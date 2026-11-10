@@ -1,7 +1,7 @@
 # Quenchworks WordPress
 
 Hardened [WordPress](https://wordpress.org/) — the PHP content-management
-system — on a minimal, nonroot, read-only-rootfs 0-CVE image pinned by digest
+system — on a minimal, nonroot, read-only-rootfs CVE-gated image pinned by digest
 and cosign-signed. WordPress is served by a Wolfi **PHP-FPM + nginx** runtime
 (supervisord): nginx listens on port 8080 (nonroot can't bind `<1024`) and
 FastCGI-passes `.php` to php-fpm on `127.0.0.1:9000`. It runs as uid 1001.

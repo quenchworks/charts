@@ -9,7 +9,7 @@
 > chart** (Apache-2.0 / PostgreSQL-licensed). The bundled `mongosh` shell is
 > separately Apache-2.0.
 
-MongoDB Community Server 8.0.26 on a nonroot, 0-CVE Wolfi image pinned by digest,
+MongoDB Community Server 8.0.26 on a nonroot, CVE-gated Wolfi image pinned by digest,
 read-only root filesystem. MongoDB wire protocol on port **27017**.
 
 On first boot (fresh data dir) with auth enabled, the entrypoint starts `mongod`

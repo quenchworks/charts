@@ -1,7 +1,7 @@
 # Quenchworks woodpecker
 
 Hardened [Woodpecker CI](https://woodpecker-ci.org/) **server** on a minimal,
-nonroot, 0-CVE image pinned by digest. It serves the web UI/API over HTTP on
+nonroot, CVE-gated image pinned by digest. It serves the web UI/API over HTTP on
 port 8000 and accepts agent connections over gRPC on port 9000, running as
 uid 1001 on a read-only root filesystem with all capabilities dropped. The
 image is cosign-signed (keyless / Sigstore) and the chart pins it by the signed

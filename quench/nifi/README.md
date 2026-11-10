@@ -2,7 +2,7 @@
 
 Apache NiFi, the visual dataflow engine for routing, transforming and moving data
 between systems, as a single node on the QuenchWorks image: hardened, nonroot,
-0-CVE, pinned by digest and cosign-signed.
+CVE-gated, pinned by digest and cosign-signed.
 
 ## Install
 

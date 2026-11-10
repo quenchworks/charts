@@ -2,7 +2,7 @@
 
 Hardened [Homepage](https://github.com/gethomepage/homepage), a services and
 bookmarks dashboard with live widgets for hundreds of self-hosted apps, built
-from source, 0-CVE, cosign-signed and pinned by digest.
+from source, CVE-gated, cosign-signed and pinned by digest.
 
 ## Install
 

@@ -9,7 +9,7 @@ Highly available PostgreSQL with pooling and metrics in one install:
 - **Grafana**, with the Prometheus datasource and the postgres_exporter "Postgres
   Overview" dashboard provisioned.
 
-Every component is a QuenchWorks chart or image: hardened, nonroot, 0-CVE, pinned by
+Every component is a QuenchWorks chart or image: hardened, nonroot, CVE-gated, pinned by
 digest and cosign-signed.
 
 ## Install

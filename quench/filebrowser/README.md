@@ -1,7 +1,7 @@
 # Quenchworks filebrowser
 
 Hardened [File Browser](https://filebrowser.org/) web file manager on a minimal,
-nonroot, 0-CVE image pinned by digest. Single node; persists its SQLite DB and
+nonroot, CVE-gated image pinned by digest. Single node; persists its SQLite DB and
 the served files directory to a PVC.
 
 ## Install

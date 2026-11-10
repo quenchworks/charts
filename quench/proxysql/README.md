@@ -1,7 +1,7 @@
 # Quenchworks ProxySQL
 
 Hardened [ProxySQL](https://github.com/sysown/proxysql), the MySQL-protocol
-proxy, on a minimal, nonroot, 0-CVE image, cosign-signed and pinned by digest.
+proxy, on a minimal, nonroot, CVE-gated image, cosign-signed and pinned by digest.
 It pools connections, splits reads from writes, routes queries by rule, and
 fails over between MySQL or MariaDB backends.
 

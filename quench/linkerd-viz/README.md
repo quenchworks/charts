@@ -1,7 +1,7 @@
 # Quenchworks linkerd-viz
 
 [Linkerd Viz](https://linkerd.io/2/reference/cli/viz/) on QuenchWorks images built from source,
-0-CVE, cosign-signed and pinned by digest: `linkerd viz stat`, `top`, `routes`, `edges` and `tap`
+CVE-gated, cosign-signed and pinned by digest: `linkerd viz stat`, `top`, `routes`, `edges` and `tap`
 against your own Prometheus.
 
 Tracks Linkerd's EDGE releases (this is edge-26.8.4), like the QuenchWorks linkerd chart it runs on.

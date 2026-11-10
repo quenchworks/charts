@@ -1,6 +1,6 @@
 # Quenchworks Kafka
 
-Hardened Apache Kafka on a minimal, nonroot, 0-CVE image pinned by digest. Runs in
+Hardened Apache Kafka on a minimal, nonroot, CVE-gated image pinned by digest. Runs in
 KRaft mode (no Zookeeper) as a highly available multi-broker cluster: three brokers by
 default, each a combined KRaft controller + broker, forming a controller quorum with
 replicated partitions. The image builds `server.properties` from environment at boot

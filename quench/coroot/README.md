@@ -3,7 +3,7 @@
 Hardened [Coroot](https://github.com/coroot/coroot) — an open-source
 observability/APM server that turns eBPF-collected metrics, logs, traces and
 profiles into service maps, SLOs and cost insights — on a minimal, nonroot,
-0-CVE image pinned by digest. It serves its embedded Vue UI and JSON API on port
+CVE-gated image pinned by digest. It serves its embedded Vue UI and JSON API on port
 8080 and runs a built-in OTLP gRPC collector on 4317, on a read-only root
 filesystem with all capabilities dropped. The image is cosign-signed (keyless /
 Sigstore) and the chart pins it by the signed digest, never a tag.

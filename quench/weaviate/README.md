@@ -1,7 +1,7 @@
 # Quenchworks Weaviate
 
 Hardened [Weaviate](https://github.com/weaviate/weaviate) vector database on a
-minimal, nonroot, 0-CVE image, built from source and pinned by digest. Runs as a
+minimal, nonroot, CVE-gated image, built from source and pinned by digest. Runs as a
 StatefulSet with a per-replica PVC; serves the REST API and gRPC.
 
 ## Install

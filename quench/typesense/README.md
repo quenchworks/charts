@@ -2,7 +2,7 @@
 
 Quenchworks-hardened [Typesense](https://github.com/typesense/typesense) — a fast,
 typo-tolerant search engine with an instant-search REST API and a **self-contained
-embedded store** (no external database). Runs from a minimal, nonroot, 0-CVE image
+embedded store** (no external database). Runs from a minimal, nonroot, CVE-gated image
 pinned by digest and cosign-signed. Single-node, with **mandatory** API-key auth
 backed by a generated Secret.
 
@@ -135,7 +135,7 @@ hardened defaults.
 
 ## Security posture
 
-- Minimal Wolfi-based image (upstream's official per-arch binary), scanned **0-CVE** (Trivy, `--ignore-unfixed`).
+- Minimal Wolfi-based image (upstream's official per-arch binary), scanned **CVE-gated** (Trivy, `--ignore-unfixed`).
 - Runs as **nonroot** (uid 1001), **read-only root filesystem**, all Linux capabilities dropped.
 - Image **pinned by digest** and **cosign keyless-signed**. Verify:
 

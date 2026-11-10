@@ -1,8 +1,8 @@
 # Quenchworks Grafana
 
 Hardened [Grafana OSS](https://grafana.com/oss/grafana/) on a minimal, nonroot,
-0-CVE image pinned by digest. Grafana is a single self-contained static Go binary;
-the official OSS release artifact (AGPL-3.0) is hardened on Wolfi and gated 0-CVE.
+CVE-gated image pinned by digest. Grafana is a single self-contained static Go binary;
+the official OSS release artifact (AGPL-3.0) is hardened on Wolfi and gated CVE-gated.
 The dashboard UI and HTTP API are both served on port `3000`. Single replica
 (state in a local SQLite database on the PVC).
 

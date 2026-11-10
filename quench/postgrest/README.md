@@ -4,7 +4,7 @@ Hardened [PostgREST](https://github.com/PostgREST/postgrest): a standalone serve
 that serves a RESTful API straight out of a PostgreSQL schema, with authorization
 delegated to the database's own roles and row-level security. Runs as a stateless
 Deployment on port 3000. Upstream's official prebuilt binary, hardened on a
-minimal, nonroot, 0-CVE image that runs on a read-only root filesystem with all
+minimal, nonroot, CVE-gated image that runs on a read-only root filesystem with all
 capabilities dropped. The image is cosign-signed (keyless / Sigstore) and the
 chart pins it by the signed digest, never a tag.
 

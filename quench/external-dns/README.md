@@ -3,7 +3,7 @@
 Hardened [ExternalDNS](https://github.com/kubernetes-sigs/external-dns), the
 Kubernetes SIG controller that keeps an external DNS provider in sync with the
 Services, Ingresses and Gateway API routes exposed in your cluster, on a minimal,
-nonroot, 0-CVE image built from source, cosign-signed and pinned by digest.
+nonroot, CVE-gated image built from source, cosign-signed and pinned by digest.
 
 The chart's **default provider is `inmemory`** — a real ExternalDNS provider that
 holds the zone inside the process. It needs no cloud credentials, so

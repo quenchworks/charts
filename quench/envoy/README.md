@@ -1,7 +1,7 @@
 # Quenchworks Envoy
 
 Hardened [Envoy](https://github.com/envoyproxy/envoy), the CNCF L7 edge and
-service proxy, on a minimal, nonroot, 0-CVE image pinned by digest. It runs as a
+service proxy, on a minimal, nonroot, CVE-gated image pinned by digest. It runs as a
 stateless Deployment on a read-only root filesystem with all capabilities
 dropped. The image is cosign-signed (keyless / Sigstore) and the chart pins it by
 the signed digest, never a tag.

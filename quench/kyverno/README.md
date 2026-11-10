@@ -1,7 +1,7 @@
 # Quenchworks Kyverno
 
 Hardened [Kyverno](https://github.com/kyverno/kyverno) on a minimal, nonroot,
-0-CVE image, pinned by digest. Kyverno is a Kubernetes-native policy engine:
+CVE-gated image, pinned by digest. Kyverno is a Kubernetes-native policy engine:
 policies are Kubernetes resources, so validating, mutating, generating and
 cleaning up cluster resources needs no new language and no sidecar in the
 workload.

@@ -2,7 +2,7 @@
 
 Hardened [Authelia](https://github.com/authelia/authelia) — an open-source
 authentication and authorization server providing SSO, 2FA, and forward-auth —
-on a minimal, nonroot, 0-CVE image, built from source and pinned by digest.
+on a minimal, nonroot, CVE-gated image, built from source and pinned by digest.
 
 ## Install
 
@@ -98,7 +98,7 @@ helm install auth oci://ghcr.io/quenchworks/charts/authelia \
 ### Session
 
 Resolution order: **bundled Valkey → bundled Redis → external → in-memory (default)**.
-Valkey is the recommended 0-CVE, BSD-licensed, Redis-wire-compatible store; Redis is
+Valkey is the recommended CVE-gated, BSD-licensed, Redis-wire-compatible store; Redis is
 the AGPL alternative. Enable **at most one** of `valkey.enabled` / `redis.enabled`
 (if both are set, Valkey wins).
 

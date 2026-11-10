@@ -7,7 +7,7 @@ A cache with metrics in one install:
   [redis_exporter dashboard](https://github.com/oliver006/redis_exporter/tree/master/contrib)
   provisioned
 
-Every component is a QuenchWorks chart on a hardened, nonroot, 0-CVE image, pinned by
+Every component is a QuenchWorks chart on a hardened, nonroot, CVE-gated image, pinned by
 digest and cosign-signed.
 
 ## Install

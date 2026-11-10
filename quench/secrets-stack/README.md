@@ -12,7 +12,7 @@ OpenBao (the open-source Vault fork) behind Keycloak sign-in, ready on first sta
 - **Keycloak** imports a `secrets` realm with the confidential `openbao` client, and
   runs on the bundled PostgreSQL.
 
-Every component is a QuenchWorks chart on a hardened, nonroot, 0-CVE image, pinned by
+Every component is a QuenchWorks chart on a hardened, nonroot, CVE-gated image, pinned by
 digest and cosign-signed.
 
 ## Install

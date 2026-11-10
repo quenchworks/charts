@@ -1,7 +1,7 @@
 # Quenchworks ingress-nginx
 
 Hardened [Ingress NGINX Controller](https://github.com/kubernetes/ingress-nginx)
-on a minimal, nonroot, 0-CVE image, pinned by digest. The controller watches
+on a minimal, nonroot, CVE-gated image, pinned by digest. The controller watches
 `Ingress` resources of the `nginx` IngressClass and configures NGINX to
 load-balance and route HTTP/HTTPS traffic to backend Services, with a validating
 admission webhook that rejects malformed Ingress objects before they are

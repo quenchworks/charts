@@ -131,7 +131,7 @@ together by construction — and the image runs as uid 101 / gid 1001, not the u
 * **The Gateway API CRDs** — owned by the `gateway-api-crds` chart.
 * **`ngx_otel_module`** — tracing. `ObservabilityPolicy` and
   `nginx.config.telemetry.exporter` need a data-plane module that the QuenchWorks image
-  does not build (it would drag gRPC/protobuf C++ into a 0-CVE image for one optional
+  does not build (it would drag gRPC/protobuf C++ into a CVE-gated image for one optional
   feature). `values.schema.json` rejects `telemetry.exporter` rather than letting NGF
   emit a `load_module` line for a module that is not there, which would fail the next
   nginx reload. Prometheus metrics are a separate path (agent-collected) and work.

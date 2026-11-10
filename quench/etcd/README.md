@@ -1,6 +1,6 @@
 # Quenchworks etcd
 
-Hardened etcd on a minimal, nonroot, 0-CVE image pinned by digest. Ships as a
+Hardened etcd on a minimal, nonroot, CVE-gated image pinned by digest. Ships as a
 highly available Raft cluster by default; the image is configured entirely
 through `ETCD_*` env vars.
 

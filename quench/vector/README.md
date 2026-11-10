@@ -1,7 +1,7 @@
 # Quenchworks Vector
 
 Hardened [Vector](https://github.com/vectordotdev/vector) (high-performance
-observability data pipeline for logs and metrics) on a minimal, nonroot, 0-CVE
+observability data pipeline for logs and metrics) on a minimal, nonroot, CVE-gated
 image pinned by digest, cosign-signed (keyless / Sigstore). Built from source on
 Wolfi from the upstream `v0.56.0` git tag with a curated, CVE-light feature set.
 
@@ -62,7 +62,7 @@ the liveness/readiness probes (`GET /health` on `:8686`) pass.
 ## Available components
 
 The image is built with a curated feature set (kafka, pulsar, nats, and the
-AWS/GCP/Azure/mongodb native components are **trimmed** to keep it lean and 0-CVE):
+AWS/GCP/Azure/mongodb native components are **trimmed** to keep it lean and CVE-gated):
 
 - **Sources**: `demo_logs`, `file`, `http_server`, `http_client`, `syslog`,
   `socket`, `statsd`, `prometheus_scrape`, `host_metrics`, `internal_logs`,

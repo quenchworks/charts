@@ -8,7 +8,7 @@ Operator-managed HA MySQL-compatible database in one install:
   replication and automatic recovery of failed nodes. `galera.metrics` adds
   `mysqld_exporter` when the Prometheus Operator is installed.
 
-Every image (operator, MariaDB, mysqld_exporter) is minimal, nonroot, 0-CVE,
+Every image (operator, MariaDB, mysqld_exporter) is minimal, nonroot, CVE-gated,
 cosign-signed and pinned by digest. For an operator-free MySQL, see the
 [mysql](../mysql) and [mariadb](../mariadb) charts.
 

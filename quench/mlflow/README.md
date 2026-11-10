@@ -1,7 +1,7 @@
 # Quenchworks MLflow
 
 Hardened [MLflow](https://mlflow.org/) Tracking Server — experiment tracking, the model
-registry, and a REST/UI for ML metadata — on a minimal, nonroot, 0-CVE image pinned by
+registry, and a REST/UI for ML metadata — on a minimal, nonroot, CVE-gated image pinned by
 digest and cosign-signed. The server runs as uid `1001` on a read-only root filesystem
 and serves its UI + REST API on port `5000`.
 

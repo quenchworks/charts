@@ -1,7 +1,7 @@
 # Quenchworks Alertmanager
 
 Hardened [Prometheus Alertmanager](https://github.com/prometheus/alertmanager),
-running on a minimal, nonroot, 0-CVE image pinned by digest. Built from source on
+running on a minimal, nonroot, CVE-gated image pinned by digest. Built from source on
 Wolfi. Alertmanager handles alerts sent by Prometheus: it dedups, groups, and
 routes them to receivers (email, Slack, PagerDuty, webhook, ...), and manages
 silences and inhibition. The web UI + HTTP/v2 API are on port 9093; the HA cluster

@@ -2,7 +2,7 @@
 
 Hardened [Grafana Tempo](https://github.com/grafana/tempo) distributed tracing
 backend, running in **single-binary mode** (`-target=all`, every component in one
-process) on a minimal, nonroot, 0-CVE image, cosign-signed (keyless / Sigstore)
+process) on a minimal, nonroot, CVE-gated image, cosign-signed (keyless / Sigstore)
 and pinned by digest. Built from source on Wolfi. Tempo has no UI of its own — Grafana is its frontend. The HTTP API (query,
 `/ready`, `/metrics`) is on port 3200; OTLP receivers on 4317 (gRPC) and 4318
 (HTTP); gRPC on 9095.

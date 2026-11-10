@@ -1,6 +1,6 @@
 # Quenchworks Valkey
 
-Hardened Valkey on a minimal, nonroot, 0-CVE image pinned by digest. Valkey is the BSD-licensed
+Hardened Valkey on a minimal, nonroot, CVE-gated image pinned by digest. Valkey is the BSD-licensed
 cache that Quenchworks leads with in place of Redis.
 
 ## Install

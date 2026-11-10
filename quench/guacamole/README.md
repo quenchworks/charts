@@ -6,7 +6,7 @@ telnet hosts, in one install:
 - **guacd**, the proxy daemon that speaks each remote protocol;
 - **PostgreSQL**, for users, connections and history (QuenchWorks postgresql chart).
 
-Every image is hardened, nonroot, 0-CVE, pinned by digest and cosign-signed.
+Every image is hardened, nonroot, CVE-gated, pinned by digest and cosign-signed.
 
 ## Install
 

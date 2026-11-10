@@ -9,7 +9,7 @@ Runtime security in one install, both sensors in the kernel through eBPF:
   with pod context, and adds custom hooks and enforcement through
   TracingPolicy CRDs.
 
-Every image is built from source, 0-CVE, cosign-signed and pinned by digest.
+Every image is built from source, CVE-gated, cosign-signed and pinned by digest.
 
 | Component | Chart | Workload |
 |---|---|---|

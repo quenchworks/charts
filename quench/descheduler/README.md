@@ -1,7 +1,7 @@
 # Quenchworks descheduler
 
 Hardened [Kubernetes descheduler](https://github.com/kubernetes-sigs/descheduler)
-on a minimal, nonroot, 0-CVE image, built from source and pinned by digest.
+on a minimal, nonroot, CVE-gated image, built from source and pinned by digest.
 
 The descheduler periodically evicts running pods so the scheduler can reschedule
 them onto more suitable nodes, correcting drift from node taints, affinity,

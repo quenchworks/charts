@@ -10,7 +10,7 @@ Your own certificate authority for a Kubernetes cluster, in one install:
 A post-install Job wires them: once step-ca answers, it reads the CA root and the JWK
 provisioner's key id, then creates the `StepClusterIssuer` `<release>-step-ca` and a trust
 `Bundle` that writes the root into ConfigMap `<release>-root-ca` in every namespace.
-Every image is minimal, nonroot, 0-CVE, cosign-signed and pinned by digest.
+Every image is minimal, nonroot, CVE-gated, cosign-signed and pinned by digest.
 
 ```
 Certificate (issuerRef <release>-step-ca) -> cert-manager -> step-issuer -> step-ca signs

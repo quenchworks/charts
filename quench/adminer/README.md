@@ -2,7 +2,7 @@
 
 Hardened [Adminer](https://github.com/vrana/adminer), vrana's single-file database
 manager — a web UI to browse, query and administer SQL databases — on a minimal,
-nonroot, 0-CVE PHP image, cosign-signed and pinned by digest. Runs as a stateless
+nonroot, CVE-gated PHP image, cosign-signed and pinned by digest. Runs as a stateless
 Deployment behind a ClusterIP Service, serving the UI on port `8080`.
 
 > Adminer has **no authentication of its own**. It shows a login form and connects to

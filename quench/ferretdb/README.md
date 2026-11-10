@@ -1,6 +1,6 @@
 # Quenchworks FerretDB
 
-Hardened [FerretDB](https://www.ferretdb.com/) on a minimal, nonroot, 0-CVE
+Hardened [FerretDB](https://www.ferretdb.com/) on a minimal, nonroot, CVE-gated
 image pinned by digest and cosign-signed (keyless / Sigstore). FerretDB speaks
 the MongoDB wire protocol and stores data in PostgreSQL with the DocumentDB
 extension, so it is a stateless proxy: this chart runs a Deployment that scales

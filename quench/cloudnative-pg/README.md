@@ -3,7 +3,7 @@
 The CloudNativePG operator: PostgreSQL clusters on Kubernetes with streaming
 replicas, automated failover, rolling updates and backups, declared as a `Cluster`
 resource. The operator and the PostgreSQL pods both run QuenchWorks images:
-hardened, 0-CVE, pinned by digest and cosign-signed.
+hardened, CVE-gated, pinned by digest and cosign-signed.
 
 ## Install
 

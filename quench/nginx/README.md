@@ -1,7 +1,7 @@
 # Quenchworks nginx
 
 Hardened [nginx](https://nginx.org) web server / reverse proxy on a minimal,
-nonroot, read-only-rootfs, 0-CVE image pinned by digest. Built from source on Wolfi
+nonroot, read-only-rootfs, CVE-gated image pinned by digest. Built from source on Wolfi
 (no upstream distro binaries). Listens on `8080` (http); `8443` is reserved for TLS.
 Stateless: this chart runs a `Deployment` and scales horizontally.
 

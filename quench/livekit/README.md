@@ -1,7 +1,7 @@
 # Quenchworks LiveKit
 
 Hardened [LiveKit](https://github.com/livekit/livekit) WebRTC SFU on a minimal,
-nonroot, 0-CVE image, built from source, cosign-signed and pinned by digest. This
+nonroot, CVE-gated image, built from source, cosign-signed and pinned by digest. This
 chart runs a single-node server (no Redis) suited to dev and small deployments.
 The container runs nonroot on a read-only root filesystem with all capabilities
 dropped.

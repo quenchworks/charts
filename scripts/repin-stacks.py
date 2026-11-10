@@ -146,7 +146,7 @@ def main() -> int:
         if notes:
             names = sorted({n.split(":")[0] for n in notes})
             ver = bump_chart_version(
-                st, "Re-pinned " + ", ".join(names) + " to rebuilt 0-CVE image digests.")
+                st, "Re-pinned " + ", ".join(names) + " to rebuilt image digests.")
             touched[st.name] = (ver, notes)
     if not touched:
         print("no stack pins matched those images; nothing to do")

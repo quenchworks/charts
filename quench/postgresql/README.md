@@ -1,6 +1,6 @@
 # Quenchworks PostgreSQL
 
-Hardened PostgreSQL on a minimal, nonroot, 0-CVE image pinned by digest. The image
+Hardened PostgreSQL on a minimal, nonroot, CVE-gated image pinned by digest. The image
 runs `initdb` on first boot, then serves; the chart pins it by the signed digest.
 
 ## Install

@@ -1,7 +1,7 @@
 # Quenchworks Fluent Bit
 
 Hardened [Fluent Bit](https://github.com/fluent/fluent-bit), a lightweight log
-and metrics processor and shipper, on a minimal, nonroot, 0-CVE image pinned by
+and metrics processor and shipper, on a minimal, nonroot, CVE-gated image pinned by
 digest and cosign-signed (keyless / Sigstore). Built from source on Wolfi
 (CMake) from the upstream `v5.1.2` tag. It ships in deployment
 (gateway/aggregator) mode: a standalone Deployment that receives logs (for

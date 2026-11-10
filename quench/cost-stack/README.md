@@ -3,7 +3,7 @@
 Kubernetes cost monitoring in one install: [OpenCost](https://github.com/opencost/opencost)
 prices every pod, namespace and node from metrics in a bundled Prometheus, and Grafana comes
 with that Prometheus already provisioned as its datasource. No operator and no CRDs; every
-pod runs nonroot on a read-only root filesystem, and every image is 0-CVE, cosign-signed and
+pod runs nonroot on a read-only root filesystem, and every image is CVE-gated, cosign-signed and
 pinned by digest.
 
 ```

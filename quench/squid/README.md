@@ -1,7 +1,7 @@
 # Quenchworks Squid
 
 Hardened [Squid](https://github.com/squid-cache/squid), the caching forward
-proxy for HTTP and HTTPS (CONNECT), on a minimal, nonroot, 0-CVE image,
+proxy for HTTP and HTTPS (CONNECT), on a minimal, nonroot, CVE-gated image,
 cosign-signed and pinned by digest. It runs as a stateless Deployment on a
 read-only rootfs, listens on port `3128`, and caches in memory only.
 

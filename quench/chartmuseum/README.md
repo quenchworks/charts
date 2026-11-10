@@ -3,7 +3,7 @@
 Hardened [ChartMuseum](https://github.com/helm/chartmuseum), an HTTP server that
 turns a storage backend into a Helm chart repository, running as a Deployment
 that serves the repository (and the optional write API) on port 8080. Built from
-source on a minimal, nonroot, 0-CVE image that runs on a read-only root
+source on a minimal, nonroot, CVE-gated image that runs on a read-only root
 filesystem with all capabilities dropped. The image is cosign-signed (keyless /
 Sigstore) and the chart pins it by the signed digest, never a tag.
 

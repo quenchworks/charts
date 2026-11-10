@@ -1,7 +1,7 @@
 # Quenchworks Argo Workflows
 
 Hardened [Argo Workflows](https://github.com/argoproj/argo-workflows), the CNCF
-container-native workflow engine for Kubernetes, on a minimal, nonroot, 0-CVE
+container-native workflow engine for Kubernetes, on a minimal, nonroot, CVE-gated
 image built from source, cosign-signed and pinned by digest.
 
 The chart runs two Deployments from one image:

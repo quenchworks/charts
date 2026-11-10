@@ -1,7 +1,7 @@
 # Quenchworks phpMyAdmin
 
 Hardened [phpMyAdmin](https://www.phpmyadmin.net/) — the web console for
-MySQL and MariaDB — on a minimal, nonroot, read-only-rootfs 0-CVE image pinned
+MySQL and MariaDB — on a minimal, nonroot, read-only-rootfs CVE-gated image pinned
 by digest and cosign-signed. It is served by a Wolfi **PHP-FPM + nginx** runtime
 (supervisord): nginx listens on port 8080 (nonroot can't bind `<1024`) and
 FastCGI-passes `.php` to php-fpm on `127.0.0.1:9000`. It runs as uid 1001.

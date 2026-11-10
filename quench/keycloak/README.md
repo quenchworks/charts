@@ -1,7 +1,7 @@
 # Quenchworks Keycloak
 
 Hardened [Keycloak](https://www.keycloak.org/) — identity & access management
-(SSO, OIDC, SAML) — on a minimal, nonroot, 0-CVE image pinned by digest. The image
+(SSO, OIDC, SAML) — on a minimal, nonroot, CVE-gated image pinned by digest. The image
 bakes the **optimized** Quarkus build (`kc.sh build` is run at image-build time with
 the Postgres driver and health/metrics endpoints) so the runtime starts fast on a
 read-only root filesystem. The admin console + protocol endpoints are on port `8080`;

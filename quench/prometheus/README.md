@@ -1,7 +1,7 @@
 # Quenchworks Prometheus
 
 Hardened [Prometheus](https://github.com/prometheus/prometheus) single-node
-metrics server / TSDB on a minimal, nonroot, 0-CVE image pinned by digest. The
+metrics server / TSDB on a minimal, nonroot, CVE-gated image pinned by digest. The
 server is built from source on Wolfi (UI embedded via `builtinassets`) and
 exposes the HTTP API + UI on port 9090, running on a read-only root filesystem
 with all capabilities dropped. The image is cosign-signed (keyless / Sigstore)

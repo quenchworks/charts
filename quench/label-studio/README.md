@@ -1,7 +1,7 @@
 # Quenchworks Label Studio
 
 [Label Studio](https://labelstud.io/), the open-source data labeling tool for text,
-images, audio, video and time series, on a nonroot, 0-CVE image pinned by digest and
+images, audio, video and time series, on a nonroot, CVE-gated image pinned by digest and
 cosign-signed. It runs as uid `1001` on a read-only root filesystem and serves the UI
 and REST API on port `8080`.
 

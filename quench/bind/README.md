@@ -1,7 +1,7 @@
 # Quenchworks bind
 
 Hardened [ISC BIND 9](https://www.isc.org/bind/) (named), the authoritative
-and recursive DNS server, on a nonroot 0-CVE image pinned by digest.
+and recursive DNS server, on a nonroot CVE-gated image pinned by digest.
 
 ## Install
 

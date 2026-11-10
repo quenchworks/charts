@@ -1,7 +1,7 @@
 # Quenchworks Varnish Cache
 
 Hardened [Varnish Cache](https://github.com/varnish/varnish), the HTTP
-reverse-proxy cache (web accelerator), on a minimal, nonroot, 0-CVE image,
+reverse-proxy cache (web accelerator), on a minimal, nonroot, CVE-gated image,
 cosign-signed and pinned by digest. Runs as a stateless Deployment, listens on
 container port `8080`, and caches an origin's responses in memory.
 

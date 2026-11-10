@@ -5,7 +5,7 @@ the web UI for OpenSearch: Discover, dashboards, visualizations, Dev Tools, aler
 anomaly detection, observability and the other bundled plugins. The chart runs the
 stateless Node UI on port 5601; saved objects live in the cluster's `.kibana` index, so
 pods scale out. The image is minimal, runs nonroot (uid 1001) on a read-only root
-filesystem with all capabilities dropped, ships 0-CVE, is cosign-signed (keyless /
+filesystem with all capabilities dropped, ships CVE-gated, is cosign-signed (keyless /
 Sigstore), and the chart pins it by the signed digest, never a tag.
 
 The image ships without the `securityDashboards` and `securityAnalyticsDashboards`

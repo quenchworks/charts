@@ -132,9 +132,9 @@ def main() -> int:
 
     kind = opts.get("kind", "changed")
     desc = opts.get("desc") or (
-        f"Updated {chart} to {appver} and re-pinned the image to its new 0-CVE digest."
+        f"Updated {chart} to {appver} and re-pinned the image to its new rebuilt digest."
         if appver != oldapp else
-        f"Re-pinned {chart} to a rebuilt 0-CVE image digest (no application version change)."
+        f"Re-pinned {chart} to a rebuilt image digest (no application version change)."
     )
     block = (f"  artifacthub.io/changes: |\n"
              f"    - kind: {kind}\n"

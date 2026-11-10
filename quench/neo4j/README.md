@@ -1,7 +1,7 @@
 # Quenchworks Neo4j (Community Edition)
 
 Hardened [Neo4j](https://neo4j.com/) **Community Edition** on a minimal, nonroot,
-0-CVE image pinned by digest. The upstream Community binary distribution runs on a
+CVE-gated image pinned by digest. The upstream Community binary distribution runs on a
 hardened Wolfi JRE. The HTTP API and Neo4j Browser are served on port `7474`; the
 Bolt protocol (drivers, `cypher-shell`) on `7687`. Single node.
 

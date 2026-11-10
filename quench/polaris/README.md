@@ -7,7 +7,7 @@ best-practice checks (security contexts, probes, resource requests and limits,
 image tags, RBAC) and `/results.json` serves the same audit as JSON. Polaris reads
 the cluster through a read-only ClusterRole. The image is minimal, runs nonroot
 (uid 1001) on a read-only root filesystem with all capabilities dropped, ships
-0-CVE, is cosign-signed (keyless / Sigstore), and the chart pins it by the signed
+CVE-gated, is cosign-signed (keyless / Sigstore), and the chart pins it by the signed
 digest, never a tag.
 
 ## Install

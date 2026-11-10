@@ -1,7 +1,7 @@
 # Quenchworks vertical-pod-autoscaler
 
 Hardened [Vertical Pod Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler)
-on one minimal, nonroot, 0-CVE image that carries all three components, built
+on one minimal, nonroot, CVE-gated image that carries all three components, built
 from source and pinned by digest.
 
 - **recommender** computes CPU and memory requests from observed usage (it needs

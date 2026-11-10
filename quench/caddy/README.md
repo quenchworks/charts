@@ -1,7 +1,7 @@
 # Quenchworks Caddy
 
 Hardened [Caddy](https://github.com/caddyserver/caddy) web server with automatic
-HTTPS on a minimal, nonroot, read-only-rootfs, 0-CVE image pinned by digest.
+HTTPS on a minimal, nonroot, read-only-rootfs, CVE-gated image pinned by digest.
 Built from source on Wolfi (no upstream distro binaries). Listens on `8080`
 (http) and `8443` (https); the admin API is on `2019` (in-cluster only). Ports
 are unprivileged because the container runs as nonroot uid 1001, which cannot

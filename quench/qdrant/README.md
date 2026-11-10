@@ -2,7 +2,7 @@
 
 Hardened [Qdrant](https://github.com/qdrant/qdrant), a high-performance vector
 database and similarity-search engine for AI embeddings, on a minimal, nonroot,
-0-CVE image pinned by digest and cosign-signed (keyless / Sigstore). Runs
+CVE-gated image pinned by digest and cosign-signed (keyless / Sigstore). Runs
 single-node as a StatefulSet, serving the REST API and web dashboard on port
 6333 and gRPC on port 6334, on a read-only root filesystem with all capabilities
 dropped. Qdrant ships with no auth by default, so the NetworkPolicy is the trust

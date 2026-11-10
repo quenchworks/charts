@@ -1,7 +1,7 @@
 # Quenchworks Coolify
 
 Hardened [Coolify](https://coolify.io/), the self-hostable PaaS (an open-source
-Heroku/Netlify/Vercel alternative), on minimal, nonroot, 0-CVE images pinned by
+Heroku/Netlify/Vercel alternative), on minimal, nonroot, CVE-gated images pinned by
 digest. This umbrella chart deploys the Coolify control plane into Kubernetes and
 wires it to bundled Quenchworks PostgreSQL 15 and Redis.
 

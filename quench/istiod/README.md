@@ -2,7 +2,7 @@
 
 The [Istio](https://istio.io) control plane -- `pilot-discovery`: the xDS
 discovery server, the mesh certificate authority and namespace configuration --
-on a minimal, nonroot, 0-CVE QuenchWorks image built from source, cosign-signed
+on a minimal, nonroot, CVE-gated QuenchWorks image built from source, cosign-signed
 and pinned by digest.
 
 ## Install

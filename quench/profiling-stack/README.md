@@ -4,7 +4,7 @@ Continuous profiling in one install: [Grafana Pyroscope](https://github.com/graf
 stores CPU, memory, goroutine and lock profiles, and Grafana comes with the Pyroscope
 datasource already provisioned, so flame graphs are one click away in Explore. It is the
 "P" next to the logging, metrics and tracing stacks. No operator and no CRDs; both pods run
-nonroot (uid 1001) on read-only root filesystems, and every image is 0-CVE, cosign-signed
+nonroot (uid 1001) on read-only root filesystems, and every image is CVE-gated, cosign-signed
 and pinned by digest.
 
 ```

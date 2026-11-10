@@ -2,7 +2,7 @@
 
 Hardened [NATS](https://github.com/nats-io/nats-server) — a lightweight,
 high-performance messaging system for cloud-native pub/sub and request-reply — on
-a minimal, nonroot, 0-CVE image pinned by digest. Runs a single combined server
+a minimal, nonroot, CVE-gated image pinned by digest. Runs a single combined server
 with JetStream persistence on by default; the chart owns the server command so
 flags are deterministic. The image is cosign-signed (keyless / Sigstore) and the
 chart pins it by the signed digest, never a tag.

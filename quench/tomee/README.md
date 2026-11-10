@@ -1,7 +1,7 @@
 # Quenchworks Apache TomEE
 
 Hardened [Apache TomEE](https://tomee.apache.org) servlet container / Jakarta EE
-web server on a minimal, nonroot, read-only-rootfs, 0-CVE image, cosign-signed (keyless / Sigstore) and pinned by
+web server on a minimal, nonroot, read-only-rootfs, CVE-gated image, cosign-signed (keyless / Sigstore) and pinned by
 digest.
 Built from source on Wolfi (`openjdk-21-jre`, no upstream distro binaries). Listens
 on `8080` (http). Stateless: this chart runs a `Deployment` and scales horizontally.

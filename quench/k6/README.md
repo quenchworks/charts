@@ -1,7 +1,7 @@
 # Quenchworks k6
 
 Hardened [k6](https://github.com/grafana/k6), Grafana's developer-friendly load and
-performance testing tool scripted in JavaScript, on a minimal, nonroot, 0-CVE image
+performance testing tool scripted in JavaScript, on a minimal, nonroot, CVE-gated image
 built from source, cosign-signed and pinned by digest.
 
 **k6 is a CLI, not a server.** It runs a script, reports, and exits. So this chart

@@ -3,7 +3,7 @@
 Hardened [Apache APISIX Ingress Controller](https://github.com/apache/apisix-ingress-controller),
 the Kubernetes control plane that turns `apisix.apache.org` custom resources,
 native Ingress and Gateway API objects into APISIX configuration, on minimal,
-nonroot, 0-CVE images built from source, cosign-signed and pinned by digest.
+nonroot, CVE-gated images built from source, cosign-signed and pinned by digest.
 
 It runs no data plane. It watches Kubernetes, translates what it finds into a
 declarative document, and pushes that into an APISIX Admin API — the

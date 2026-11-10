@@ -1,7 +1,7 @@
 # Quenchworks httpd
 
 Hardened [Apache HTTP Server](https://httpd.apache.org) on a minimal, nonroot,
-read-only-rootfs, 0-CVE image pinned by digest. Built from source on Wolfi (no
+read-only-rootfs, CVE-gated image pinned by digest. Built from source on Wolfi (no
 upstream distro binaries), `mpm_event`. Listens on `8080` (http). Stateless: this
 chart runs a `Deployment` and scales horizontally.
 

@@ -1,6 +1,6 @@
 # Quenchworks RabbitMQ
 
-Hardened RabbitMQ on a minimal, nonroot, 0-CVE image pinned by digest. Built from
+Hardened RabbitMQ on a minimal, nonroot, CVE-gated image pinned by digest. Built from
 source on Wolfi's Erlang runtime. On first boot the broker seeds a default user from
 the chart's Secret and drops the stock guest account; the chart pins the image by its
 signed digest.

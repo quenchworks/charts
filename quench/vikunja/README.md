@@ -1,7 +1,7 @@
 # Quenchworks vikunja
 
 Hardened [Vikunja](https://vikunja.io/) self-hosted to-do & project-management
-app (Go single binary with an embedded frontend) on a minimal, nonroot, 0-CVE
+app (Go single binary with an embedded frontend) on a minimal, nonroot, CVE-gated
 image pinned by digest. Single node; persists its SQLite DB and uploaded
 attachments to a PVC.
 

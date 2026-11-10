@@ -2,7 +2,7 @@
 
 Hardened [Crossplane](https://github.com/crossplane/crossplane), the CNCF
 control-plane framework that turns Kubernetes into a universal API for
-infrastructure, on a minimal, nonroot, 0-CVE image built from source,
+infrastructure, on a minimal, nonroot, CVE-gated image built from source,
 cosign-signed and pinned by digest.
 
 Ships the core control plane and the RBAC manager as two Deployments, cluster-wide

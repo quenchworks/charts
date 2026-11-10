@@ -1,7 +1,7 @@
 # Quenchworks Thanos
 
 Hardened [Thanos](https://github.com/thanos-io/thanos) on a minimal, nonroot,
-0-CVE image, built from source, cosign-signed (keyless / Sigstore) and pinned by
+CVE-gated image, built from source, cosign-signed (keyless / Sigstore) and pinned by
 digest.
 
 Thanos is a single static Go binary that runs every component via a subcommand

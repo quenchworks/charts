@@ -1,7 +1,7 @@
 # Quenchworks PowerDNS Recursor
 
 Hardened [PowerDNS Recursor](https://github.com/PowerDNS/pdns), the caching DNS
-resolver, built from the release tarball, on a minimal, nonroot, 0-CVE image,
+resolver, built from the release tarball, on a minimal, nonroot, CVE-gated image,
 cosign-signed and pinned by digest. It runs as a stateless Deployment and
 serves DNS on port 53, UDP and TCP.
 

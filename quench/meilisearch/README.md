@@ -1,7 +1,7 @@
 # Meilisearch (Quenchworks)
 
 Quenchworks-hardened [Meilisearch](https://github.com/meilisearch/meilisearch) — a
-fast, typo-tolerant full-text search engine. Runs from a minimal, nonroot, 0-CVE
+fast, typo-tolerant full-text search engine. Runs from a minimal, nonroot, CVE-gated
 image pinned by digest and cosign-signed. Single-node, with **mandatory** master-key
 auth (`MEILI_ENV=production`) backed by a generated Secret.
 
@@ -141,7 +141,7 @@ hardened defaults.
 
 ## Security posture
 
-- Minimal Wolfi-based image, **built from source**, scanned **0-CVE** (Trivy, `--ignore-unfixed`).
+- Minimal Wolfi-based image, **built from source**, scanned **CVE-gated** (Trivy, `--ignore-unfixed`).
 - Runs as **nonroot** (uid 1001), **read-only root filesystem**, all Linux capabilities dropped.
 - Image **pinned by digest** and **cosign keyless-signed**. Verify:
 

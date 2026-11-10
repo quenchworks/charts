@@ -1,7 +1,7 @@
 # Quenchworks step-ca
 
 Hardened [step-ca](https://smallstep.com/docs/step-ca/) — the Smallstep online
-certificate authority — on a minimal, nonroot, 0-CVE image, cosign-signed
+certificate authority — on a minimal, nonroot, CVE-gated image, cosign-signed
 (keyless / Sigstore) and pinned by digest. Serves an ACME / step CA over HTTPS. Single node; the PKI (root + intermediate
 CA, provisioners, ca.json and the badger db) persists to a PVC.
 

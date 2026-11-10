@@ -8,7 +8,7 @@ maps image patterns to validators. The chart runs Connaisseur as a Deployment
 behind a mutating admission webhook for Pods and every workload controller. Helm
 generates the webhook's CA and serving certificate and keeps them on upgrade, so
 cert-manager is not needed. The image is minimal, runs nonroot (uid 1001) on a
-read-only root filesystem with all capabilities dropped, ships 0-CVE, is
+read-only root filesystem with all capabilities dropped, ships CVE-gated, is
 cosign-signed (keyless / Sigstore), and the chart pins it by the signed digest,
 never a tag.
 

@@ -9,7 +9,7 @@ Search with a UI in one install:
   Discover, dashboards, visualizations, Dev Tools, alerting and anomaly detection. The
   stack points it at its own OpenSearch.
 
-Every image is minimal, nonroot, 0-CVE, cosign-signed and pinned by digest. Both ship
+Every image is minimal, nonroot, CVE-gated, cosign-signed and pinned by digest. Both ship
 without the security plugin, so there is no login: both subcharts' NetworkPolicies limit
 access to the release namespace. Put an authenticating proxy in front of Dashboards before
 exposing it.

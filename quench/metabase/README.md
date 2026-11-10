@@ -1,7 +1,7 @@
 # Quenchworks Metabase
 
 Hardened [Metabase](https://github.com/metabase/metabase) open-source edition,
-self-service BI and dashboards, 0-CVE, cosign-signed and pinned by digest. The
+self-service BI and dashboards, CVE-gated, cosign-signed and pinned by digest. The
 image is the official uberjar on Java 25, with its bundled lz4-java swapped to
 a fixed release.
 

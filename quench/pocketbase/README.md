@@ -5,7 +5,7 @@ single Go binary: an embedded SQLite database, authentication, file storage, a
 realtime REST API, and a web admin UI. It runs as a single-node StatefulSet,
 binds HTTP on container port 8080, and persists its SQLite database and uploaded
 files to a PVC at `/pb_data`. The image is minimal, runs nonroot (uid 1001) on a
-read-only root filesystem with all capabilities dropped, ships 0-CVE, is
+read-only root filesystem with all capabilities dropped, ships CVE-gated, is
 cosign-signed (keyless / Sigstore), and the chart pins it by the signed digest,
 never a tag.
 

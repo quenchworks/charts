@@ -1,7 +1,7 @@
 # Quenchworks reloader
 
 Hardened [Stakater Reloader](https://github.com/stakater/Reloader) on a minimal,
-nonroot, 0-CVE image, built from source and pinned by digest.
+nonroot, CVE-gated image, built from source and pinned by digest.
 
 Reloader watches ConfigMaps and Secrets and rolls the Deployments, StatefulSets
 and DaemonSets that use them, so a changed config reaches running pods without a

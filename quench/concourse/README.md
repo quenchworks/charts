@@ -1,6 +1,6 @@
 # Quenchworks Concourse
 
-Hardened [Concourse CI](https://concourse-ci.org/) on a 0-CVE image built from the release
+Hardened [Concourse CI](https://concourse-ci.org/) on a CVE-gated image built from the release
 tag. One binary runs in two roles:
 
 - **web**: the API, the embedded UI (port 8080) and the TSA (port 2222). Nonroot uid 1001

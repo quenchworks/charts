@@ -6,7 +6,7 @@ a directory on a PVC mounted at `/data`. The same image can front another S3
 service or Azure Blob by changing `backendArgs`. It runs as a single-replica
 StatefulSet on port 7070 with `GET /health` for probes. The image is minimal,
 runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
-dropped, ships 0-CVE, is cosign-signed (keyless / Sigstore), and the chart pins
+dropped, ships CVE-gated, is cosign-signed (keyless / Sigstore), and the chart pins
 it by the signed digest, never a tag.
 
 ## Install

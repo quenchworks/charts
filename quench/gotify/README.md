@@ -1,7 +1,7 @@
 # Quenchworks gotify
 
 Hardened [gotify](https://gotify.net/) push-notification server on a minimal,
-nonroot, 0-CVE image pinned by digest. Single node; persists its SQLite DB and
+nonroot, CVE-gated image pinned by digest. Single node; persists its SQLite DB and
 uploaded images/plugins to a PVC.
 
 ## Install

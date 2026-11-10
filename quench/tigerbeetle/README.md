@@ -2,7 +2,7 @@
 
 Hardened [TigerBeetle](https://tigerbeetle.com) — a distributed, financial-grade
 accounting database for high-throughput double-entry bookkeeping — on a minimal,
-nonroot, 0-CVE image pinned by digest. This chart ships a **single-node standalone**
+nonroot, CVE-gated image pinned by digest. This chart ships a **single-node standalone**
 deployment: one `StatefulSet` replica with a PVC, a format-once `initContainer`, and
 a TCP-connect readiness probe.
 

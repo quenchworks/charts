@@ -2,7 +2,7 @@
 
 Hardened [Ory Kratos](https://www.ory.sh/kratos/) — an API-first identity
 server (registration, login, MFA, account recovery, profile management) — on
-a minimal, nonroot, 0-CVE image, cosign-signed (keyless / Sigstore) and pinned
+a minimal, nonroot, CVE-gated image, cosign-signed (keyless / Sigstore) and pinned
 by digest.
 
 Kratos ships **no login/registration UI** — it is an identity API you build

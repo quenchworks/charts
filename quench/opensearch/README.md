@@ -1,6 +1,6 @@
 # Quenchworks OpenSearch
 
-Hardened [OpenSearch](https://opensearch.org/) on a minimal, nonroot, 0-CVE image
+Hardened [OpenSearch](https://opensearch.org/) on a minimal, nonroot, CVE-gated image
 pinned by digest. Packaged on the shared `openjdk-21-jre` base (the bundled JDK is
 stripped so the JRE stays the scanned CVE surface). The image writes `opensearch.yml`
 from `OPENSEARCH_*` env, so the whole cluster is configured from chart values.
@@ -169,7 +169,7 @@ is the `vm.max_map_count` init, which is privileged on purpose and only touches 
 node sysctl.
 
 The security plugin is not bundled (its opensaml jar shades a jackson we can't
-patch to 0-CVE), so TLS/auth is off by construction — run this behind the
+patch to CVE-gated), so TLS/auth is off by construction — run this behind the
 NetworkPolicy on an internal network.
 
 ## Notes

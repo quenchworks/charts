@@ -2,7 +2,7 @@
 
 Hardened [rqlite](https://github.com/rqlite/rqlite) — a lightweight distributed
 relational database built on SQLite with Raft consensus — on a minimal, nonroot,
-0-CVE image pinned by digest. It serves the HTTP API on port 4001 and Raft on
+CVE-gated image pinned by digest. It serves the HTTP API on port 4001 and Raft on
 port 4002, running on a read-only root filesystem with all capabilities dropped.
 The image is cosign-signed (keyless / Sigstore) and the chart pins it by the
 signed digest, never a tag.

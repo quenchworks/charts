@@ -1,7 +1,7 @@
 # Quenchworks n8n
 
 Hardened [n8n](https://n8n.io/) — a fair-code workflow automation platform with a
-visual node editor and native AI/LLM agent nodes — on a minimal, nonroot, 0-CVE image
+visual node editor and native AI/LLM agent nodes — on a minimal, nonroot, CVE-gated image
 pinned by digest. n8n is a Node.js app; the whole flagged transitive npm CVE class is
 cleared image-side with pinned `overrides`, and the app runs on a read-only root
 filesystem as a single-replica StatefulSet. The editor UI, REST API and webhooks are

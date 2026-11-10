@@ -1,7 +1,7 @@
 # Quenchworks nsq
 
 Hardened [NSQ](https://nsq.io/) realtime distributed messaging on a minimal,
-nonroot, 0-CVE image pinned by digest. Ships a single `nsqd` node that persists
+nonroot, CVE-gated image pinned by digest. Ships a single `nsqd` node that persists
 its topic/channel disk-queue to a PVC.
 
 ## Install

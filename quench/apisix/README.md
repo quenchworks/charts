@@ -1,7 +1,7 @@
 # Quenchworks Apache APISIX
 
 Hardened [Apache APISIX](https://github.com/apache/apisix), the cloud-native API
-gateway built on OpenResty/LuaJIT, on a minimal, nonroot, 0-CVE image built from
+gateway built on OpenResty/LuaJIT, on a minimal, nonroot, CVE-gated image built from
 source, cosign-signed and pinned by digest. Runs as a stateless Deployment with
 its configuration in etcd: routes, upstreams, plugins and certificates are
 written through the REST Admin API at runtime, not through this chart's values.

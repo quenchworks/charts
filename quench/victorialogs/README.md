@@ -2,7 +2,7 @@
 
 Hardened [VictoriaLogs](https://docs.victoriametrics.com/victorialogs/) — a fast,
 single-binary log database with an HTTP ingestion and query API — on a minimal,
-nonroot, 0-CVE image pinned by digest. It serves the HTTP API on port 9428 and
+nonroot, CVE-gated image pinned by digest. It serves the HTTP API on port 9428 and
 persists all log data to a PVC, running on a read-only root filesystem with all
 capabilities dropped. The image is cosign-signed (keyless / Sigstore) and the
 chart pins it by the signed digest, never a tag.

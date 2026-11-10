@@ -1,6 +1,6 @@
 # Quenchworks Kong Gateway
 
-Kong Gateway OSS (Apache-2.0) on a minimal, nonroot, 0-CVE image built from source on
+Kong Gateway OSS (Apache-2.0) on a minimal, nonroot, CVE-gated image built from source on
 Wolfi, cosign-signed and pinned by digest. DB-less by default; Postgres-backed and
 hybrid control-plane/data-plane topologies are both supported.
 

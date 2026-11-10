@@ -1,7 +1,7 @@
 # Quenchworks kgateway
 
 Hardened [kgateway](https://github.com/kgateway-dev/kgateway), the CNCF Gateway API
-control plane that succeeded Gloo Edge, on minimal, nonroot, 0-CVE images built from
+control plane that succeeded Gloo Edge, on minimal, nonroot, CVE-gated images built from
 source, cosign-signed and pinned by digest.
 
 The control plane is one stateless, leader-elected Deployment. It runs no data plane

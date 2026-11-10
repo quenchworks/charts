@@ -1,7 +1,7 @@
 # Authentik (QuenchWorks)
 
 Hardened [Authentik](https://github.com/goauthentik/authentik) identity provider
-(OIDC / SAML / LDAP / SCIM) on a 0-CVE, nonroot (uid 1001), multi-arch, cosign-signed
+(OIDC / SAML / LDAP / SCIM) on a CVE-gated, nonroot (uid 1001), multi-arch, cosign-signed
 image with an SBOM and SLSA provenance. Clean-room chart authored from Authentik's own
 upstream documentation.
 
@@ -49,7 +49,7 @@ fails with a clear message — there is no standalone fallback.
 
 | Mode                                      | How                                       | Notes                                                                                                                    |
 | ----------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| **Bundled valkey** (default, recommended) | `valkey.enabled=true`                     | 0-CVE, BSD-licensed, Redis-wire-compatible; connects to `<release>-valkey:6379`. Password read from valkey's own Secret. |
+| **Bundled valkey** (default, recommended) | `valkey.enabled=true`                     | CVE-gated, BSD-licensed, Redis-wire-compatible; connects to `<release>-valkey:6379`. Password read from valkey's own Secret. |
 | **Bundled redis** (AGPL alternative)      | `redis.enabled=true`                      | Connects to `<release>-redis:6379`. Enable **at most one** of valkey/redis; valkey wins if both are set.                 |
 | **External**                              | both bundled off + `externalRedis.host=…` | Point at any reachable Redis/Valkey. Password inline or via `externalRedis.existingSecret`.                              |
 

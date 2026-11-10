@@ -4,7 +4,7 @@ Self-hosted DNS for Kubernetes in one install:
 [PowerDNS Authoritative](https://github.com/PowerDNS/pdns) serves the zones, and
 [external-dns](https://github.com/kubernetes-sigs/external-dns) writes records
 into it from annotated Services and Ingresses. All images are QuenchWorks
-builds: nonroot, 0-CVE, pinned by digest and cosign-signed.
+builds: nonroot, CVE-gated, pinned by digest and cosign-signed.
 
 | Component | Chart | Name in the cluster |
 |---|---|---|

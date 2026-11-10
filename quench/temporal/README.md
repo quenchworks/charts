@@ -1,7 +1,7 @@
 # Quenchworks Temporal
 
 Hardened [Temporal](https://temporal.io/) — a durable workflow execution engine —
-on a minimal, nonroot, 0-CVE image, cosign-signed (keyless / Sigstore) and pinned
+on a minimal, nonroot, CVE-gated image, cosign-signed (keyless / Sigstore) and pinned
 by digest. This chart runs the
 **single-binary all-in-one** server: one `temporal-server` process hosting all four
 roles (frontend + history + matching + worker), backed by **PostgreSQL**.

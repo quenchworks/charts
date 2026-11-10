@@ -1,7 +1,7 @@
 # Quenchworks cert-manager
 
 Hardened [cert-manager](https://github.com/cert-manager/cert-manager) on minimal,
-nonroot, 0-CVE images, pinned by digest. cert-manager automates the issuance and
+nonroot, CVE-gated images, pinned by digest. cert-manager automates the issuance and
 renewal of X.509 certificates in Kubernetes from ACME (Let's Encrypt), SelfSigned,
 CA, Vault and other Issuers, driven by the `Certificate` / `Issuer` /
 `ClusterIssuer` CRDs.

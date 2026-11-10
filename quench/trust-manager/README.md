@@ -5,7 +5,7 @@ bundle distributor. A `Bundle` gathers CA certificates from ConfigMaps, Secrets 
 PEM in the trust namespace and writes the combined bundle into a ConfigMap (or Secret) in
 every selected namespace, and keeps it current as the sources change. The image is minimal,
 runs nonroot (uid 1001) on a read-only root filesystem with all capabilities dropped, ships
-0-CVE, is cosign-signed (keyless / Sigstore), and the chart pins it by the signed digest.
+CVE-gated, is cosign-signed (keyless / Sigstore), and the chart pins it by the signed digest.
 
 The chart needs no cert-manager: Helm generates the validating webhook's CA and serving
 certificate on first install and reuses them on upgrade.

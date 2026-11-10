@@ -1,6 +1,6 @@
 # Quenchworks memcached
 
-Hardened memcached on a minimal, nonroot, 0-CVE image pinned by digest. memcached is
+Hardened memcached on a minimal, nonroot, CVE-gated image pinned by digest. memcached is
 a stateless in-memory cache, so this chart runs a **Deployment** (no persistence, no
 stable identity) that can scale horizontally behind the service. The chart owns the
 server command so flags are deterministic, and the image is pinned by its signed digest.

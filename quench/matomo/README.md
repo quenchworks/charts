@@ -2,7 +2,7 @@
 
 Hardened [Matomo](https://github.com/matomo-org/matomo), the self-hosted,
 privacy-respecting web analytics platform where you keep the raw data, on a minimal,
-nonroot, 0-CVE image built from source, cosign-signed and pinned by digest. Runs
+nonroot, CVE-gated image built from source, cosign-signed and pinned by digest. Runs
 nginx + php-fpm from a single image as a Deployment and serves the UI on port 8080.
 
 **Bring your own MySQL or MariaDB.** No database subchart is bundled — pair this with

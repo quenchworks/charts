@@ -1,7 +1,7 @@
 # Apache Airflow (Quenchworks)
 
 Clean-room Helm chart for [Apache Airflow](https://airflow.apache.org/) 3, running on the
-hardened, 0-CVE, digest-pinned `ghcr.io/quenchworks/images/airflow` image (nonroot uid
+hardened, CVE-gated, digest-pinned `ghcr.io/quenchworks/images/airflow` image (nonroot uid
 1001, read-only root filesystem, multi-arch, cosign-signed with SBOM + SLSA provenance).
 
 Airflow 3 runs each role as a **separate workload from the same image**; the chart passes
@@ -46,7 +46,7 @@ written into a ConfigMap.
 
 ## Broker (CeleryExecutor only)
 
-- **Bundled valkey** (recommended, 0-CVE BSD): `valkey.enabled=true`.
+- **Bundled valkey** (recommended, CVE-gated BSD): `valkey.enabled=true`.
 - **Bundled redis** (AGPL alternative): `redis.enabled=true`. Enable at most one of
   valkey/redis; valkey wins if both are set.
 - **External**: `externalRedis.host` (+ password inline or via `existingSecret`).

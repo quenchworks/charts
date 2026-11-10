@@ -2,7 +2,7 @@
 
 Hardened [Envoy Gateway](https://github.com/envoyproxy/gateway), the CNCF Gateway
 API control plane that turns GatewayClass, Gateway and route objects into fleets
-of running Envoy proxies, on a minimal, nonroot, 0-CVE image built from source,
+of running Envoy proxies, on a minimal, nonroot, CVE-gated image built from source,
 cosign-signed and pinned by digest.
 
 The control plane is one stateless Deployment running
@@ -149,7 +149,7 @@ The chart writes its own digest into
 **The data-plane image comes from config, not from a pod spec.** Envoy Gateway
 builds the Envoy Deployment itself, reading the image from the EnvoyGateway
 config file. The chart writes the QuenchWorks Envoy image there, so a default
-install runs a 0-CVE data plane. Clear `envoyProxy.image.digest` to fall back to
+install runs a CVE-gated data plane. Clear `envoyProxy.image.digest` to fall back to
 the upstream image compiled into Envoy Gateway.
 
 That default applies only while the GatewayClass has no `parametersRef`. A

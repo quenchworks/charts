@@ -1,7 +1,7 @@
 # Quenchworks Pyroscope
 
 Hardened [Grafana Pyroscope](https://grafana.com/oss/pyroscope/) continuous-profiling
-database on a minimal, nonroot, 0-CVE image pinned by digest. Runs monolithic
+database on a minimal, nonroot, CVE-gated image pinned by digest. Runs monolithic
 (single-binary, `-target=all`); persists its profiling blocks and metastore raft
 state to a PVC.
 

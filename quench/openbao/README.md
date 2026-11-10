@@ -1,7 +1,7 @@
 # Quenchworks OpenBao
 
 Hardened [OpenBao](https://github.com/openbao/openbao) secrets-management server on
-a minimal, nonroot, 0-CVE image, built from source on Wolfi, cosign-signed and
+a minimal, nonroot, CVE-gated image, built from source on Wolfi, cosign-signed and
 pinned by digest. OpenBao is the MPL-2.0 fork of HashiCorp Vault (which moved to
 the BUSL license), an OSI-licensed alternative. The `bao` server and the
 Vault-compatible CLI both ship in the image. Single-node raft integrated storage;

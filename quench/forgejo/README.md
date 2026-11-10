@@ -1,7 +1,7 @@
 # Quenchworks forgejo
 
 Hardened [Forgejo](https://forgejo.org/), a self-hosted Git forge and community
-[Gitea](https://about.gitea.com/) fork, on a minimal, nonroot, 0-CVE image pinned
+[Gitea](https://about.gitea.com/) fork, on a minimal, nonroot, CVE-gated image pinned
 by digest and cosign-signed (keyless / Sigstore). Single node; it persists its
 repositories, SQLite database and generated config to a PVC, and boots
 install-locked so the web installer is never served.

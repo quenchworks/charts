@@ -1,6 +1,6 @@
 # Quenchworks KEDA
 
-Hardened [KEDA](https://github.com/kedacore/keda) on a minimal, nonroot, 0-CVE
+Hardened [KEDA](https://github.com/kedacore/keda) on a minimal, nonroot, CVE-gated
 image, pinned by digest. KEDA scales any workload from zero to N off event
 sources -- queues, streams, databases, Prometheus, cron and 60+ more -- by
 driving a standard `HorizontalPodAutoscaler` from the `ScaledObject` /

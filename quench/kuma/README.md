@@ -1,7 +1,7 @@
 # Quenchworks Kuma
 
 Hardened [Kuma](https://github.com/kumahq/kuma) service mesh control plane
-(`kuma-cp`) on a minimal, nonroot, 0-CVE image, built from source, cosign-signed
+(`kuma-cp`) on a minimal, nonroot, CVE-gated image, built from source, cosign-signed
 and pinned by digest. This chart runs a single `kuma-cp` in standalone/universal
 mode with the in-memory store (`KUMA_STORE_TYPE=memory`), so it needs no external
 database and no Kubernetes CRDs. The container runs nonroot on a read-only root

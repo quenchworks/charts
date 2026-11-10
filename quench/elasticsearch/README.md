@@ -8,7 +8,7 @@
 > for parity/migration only. CAUTION TIER.
 
 Hardened [Elasticsearch](https://github.com/elastic/elasticsearch) on a minimal,
-nonroot, 0-CVE image pinned by digest. Runs on the hardened Wolfi-packaged OpenJDK 21
+nonroot, CVE-gated image pinned by digest. Runs on the hardened Wolfi-packaged OpenJDK 21
 (the bundled JDK is dropped so the Wolfi JDK stays the scanned CVE surface). Single-node
 by default; the image writes `elasticsearch.yml` from `ES_*` env.
 

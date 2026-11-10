@@ -3,7 +3,7 @@
 [Project Calico](https://github.com/projectcalico/calico) 3.32.0 networking and network
 policy, installed by the [Tigera operator](https://github.com/tigera/operator) 1.42.2 (the
 operator release that deploys Calico 3.32.0). Every image is built from source by
-QuenchWorks on Wolfi, 0-CVE, cosign-signed, and pinned by digest.
+QuenchWorks on Wolfi, CVE-gated, cosign-signed, and pinned by digest.
 
 ```sh
 helm install calico oci://ghcr.io/quenchworks/charts/calico -n tigera-operator --create-namespace

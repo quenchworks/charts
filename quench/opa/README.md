@@ -2,7 +2,7 @@
 
 Hardened [Open Policy Agent](https://github.com/open-policy-agent/opa), the CNCF
 general-purpose policy engine for authorization, admission control, and config
-validation over Rego, on a minimal, nonroot, 0-CVE image built from source,
+validation over Rego, on a minimal, nonroot, CVE-gated image built from source,
 cosign-signed and pinned by digest. Runs in server mode (`opa run --server`) as a
 stateless Deployment and serves the policy API on port 8181.
 

@@ -1,6 +1,6 @@
 # Quenchworks TimescaleDB
 
-Hardened TimescaleDB on a minimal, nonroot, 0-CVE image pinned by digest. The image
+Hardened TimescaleDB on a minimal, nonroot, CVE-gated image pinned by digest. The image
 is PostgreSQL 17 plus the open-source (Apache-2.0) TimescaleDB extension. It runs
 `initdb` and `CREATE EXTENSION timescaledb` on first boot, then serves; the chart
 pins it by the signed digest. Use it for hypertables, continuous aggregates, native

@@ -6,7 +6,7 @@ statistics, an admin UI and an API. The chart runs YOURLS on PHP-FPM behind ngin
 the database, so the pods hold no state. On every start an init container runs
 `yourls-install`, which waits for the database and creates the tables the first time;
 later starts find them and change nothing. The image is minimal, runs nonroot (uid
-1001) on a read-only root filesystem with all capabilities dropped, ships 0-CVE, is
+1001) on a read-only root filesystem with all capabilities dropped, ships CVE-gated, is
 cosign-signed (keyless / Sigstore), and the chart pins it by the signed digest, never a
 tag.
 

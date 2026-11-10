@@ -1,7 +1,7 @@
 # Quenchworks Hydra
 
 Hardened [Ory Hydra](https://www.ory.sh/hydra/) — a certified OAuth2 / OpenID
-Connect server — on a minimal, nonroot, 0-CVE image, cosign-signed (keyless /
+Connect server — on a minimal, nonroot, CVE-gated image, cosign-signed (keyless /
 Sigstore) and pinned by digest.
 
 Hydra is a **token and consent service**, not a login UI: it delegates

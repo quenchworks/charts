@@ -1,7 +1,7 @@
 # Quenchworks Pgpool-II
 
 Hardened [Pgpool-II](https://www.pgpool.net/) — a connection pooler, load balancer and
-query router for PostgreSQL — on a minimal, nonroot, 0-CVE image pinned by digest.
+query router for PostgreSQL — on a minimal, nonroot, CVE-gated image pinned by digest.
 Pgpool-II sits between your applications and a PostgreSQL cluster: it pools connections,
 routes read-only queries across streaming-replication standbys, keeps writes on the
 primary, and detaches a node that stops answering health checks. The client listener is

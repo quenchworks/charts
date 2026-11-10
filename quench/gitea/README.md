@@ -1,7 +1,7 @@
 # Quenchworks Gitea
 
 Hardened [Gitea](https://about.gitea.com/), a lightweight self-hosted Git service,
-on a minimal, nonroot, 0-CVE image pinned by digest. The Go backend is built from
+on a minimal, nonroot, CVE-gated image pinned by digest. The Go backend is built from
 the official release source (the prebuilt Vue web assets ship inside it, so no Node
 build), and runs on a read-only root filesystem as a StatefulSet. The web UI + API +
 git-over-HTTP are on port `3000`; git-over-SSH is on the unprivileged port `2222`.

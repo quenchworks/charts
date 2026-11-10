@@ -2,7 +2,7 @@
 
 Hardened [Grafana Loki](https://github.com/grafana/loki) log aggregation system,
 running in **single-binary mode** (`-target=all`, every component in one process)
-on a minimal, nonroot, 0-CVE image pinned by digest. Built from source on Wolfi.
+on a minimal, nonroot, CVE-gated image pinned by digest. Built from source on Wolfi.
 Loki has no UI of its own — Grafana is its frontend. The HTTP API (push, query,
 `/ready`, `/metrics`) is on port 3100; gRPC on 9095.
 

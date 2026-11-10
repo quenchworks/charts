@@ -23,7 +23,7 @@
 > That requires OpenSSL's FIPS provider, which Wolfi does not ship, so this image is built
 > with the `non-fips` feature. **Do not inherit the FIPS claim** for this build.
 
-KMIP 2.1 key management server on a minimal, nonroot, 0-CVE image built from source on
+KMIP 2.1 key management server on a minimal, nonroot, CVE-gated image built from source on
 Wolfi, cosign-signed and pinned by digest.
 
 ## Install
@@ -99,7 +99,7 @@ Keep the mount and the work-dir in agreement.
 
 **OpenSSL is Wolfi's, not vendored.** Upstream's `build.rs` downloads and compiles its own
 OpenSSL 3.6.2; the recipe redirects it at Wolfi's current OpenSSL via `OPENSSL_DIR` and
-fails the build if a vendored copy appears anyway. That is what keeps the image 0-CVE and
+fails the build if a vendored copy appears anyway. That is what keeps the image CVE-gated and
 the SBOM honest. The running server reports its OpenSSL version on `/version`, so you can
 check: it should say the Wolfi version and `non-FIPS`.
 
