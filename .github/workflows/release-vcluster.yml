@@ -49,6 +49,13 @@ jobs:
             --wait --timeout 10m
           # Use the virtual cluster: read its kubeconfig, reach its API server through
           # the Service, and require a pod created inside it to run on the host.
+          # The syncer writes the kubeconfig secret after its pod turns Ready, so helm --wait can
+          # return first (0.37.7, run 42920445435). Wait for it; on timeout list what exists.
+          for i in $(seq 1 60); do
+            kubectl -n vc get secret vc-vtest >/dev/null 2>&1 && break
+            [ "$i" = 60 ] && { kubectl -n vc get secrets; kubectl -n vc get pods -o wide; exit 1; }
+            sleep 3
+          done
           kubectl -n vc get secret vc-vtest -o jsonpath='{.data.config}' | base64 -d > /tmp/vc.kubeconfig
           kubectl -n vc port-forward svc/vtest 18443:443 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
