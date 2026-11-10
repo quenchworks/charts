@@ -66,7 +66,10 @@ jobs:
           # Prove the admission webhook is wired (its caBundle was baked into the
           # ValidatingWebhookConfiguration): a bad Ingress must be DENIED by the
           # webhook, and a valid Ingress must be ACCEPTED.
-          if kubectl apply -f - <<'EOF' 2>/dev/null
+          # The webhook Service can refuse connections for a while after the pod is Ready (its
+          # endpoint is not programmed yet), and a refused call also makes the apply fail. Only a
+          # denial from the webhook itself counts; retry until one arrives.
+          cat > /tmp/bad-ingress.yaml <<'EOF'
           apiVersion: networking.k8s.io/v1
           kind: Ingress
           metadata:
@@ -84,7 +87,16 @@ jobs:
                       pathType: Prefix
                       backend: { service: { name: echo, port: { number: 80 } } }
           EOF
-          then echo "::error::admission webhook did not reject an invalid Ingress"; exit 1; fi
+          denied=0
+          for i in $(seq 1 30); do
+            if kubectl apply -f /tmp/bad-ingress.yaml > /tmp/bad.log 2>&1; then
+              cat /tmp/bad.log; echo "::error::admission webhook did not reject an invalid Ingress"; exit 1
+            fi
+            if grep -q 'denied the request' /tmp/bad.log; then denied=1; break; fi
+            sleep 4
+          done
+          cat /tmp/bad.log
+          [ "$denied" = 1 ] || { echo "::error::the admission webhook never answered"; exit 1; }
           echo "admission webhook rejected the invalid Ingress (caBundle OK)"
 
           # Routing proof: a tiny backend + a valid Ingress (class nginx), then
