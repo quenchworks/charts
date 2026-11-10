@@ -53,7 +53,10 @@ jobs:
           ! grep -v '^ghcr.io/quenchworks/images/[a-z-]*@sha256:' <<<"$imgs" || exit 1
           kubectl wait --for=condition=Available apiservice/v1beta1.spdx.softwarecomposition.kubescape.io --timeout=300s
           # A workload to scan: its image gets a vulnerability manifest, its Deployment a
-          # configuration scan summary. The operator scans at startup and on new pods.
+          # configuration scan summary. It starts after the node agent: a container the agent saw
+          # already running gets a partial profile, and kubevuln skips relevancy scans of those.
+          kubectl create deployment scanme --image=ghcr.io/quenchworks/images/busybox:1.38.0 -- sleep 3600
+          kubectl rollout status deployment/scanme --timeout=180s
           # something for the node agent to see while it learns the demo container (4m in CI)
           ( for i in $(seq 1 20); do kubectl exec deployment/demo -- cat /etc/hostname >/dev/null 2>&1 || true; sleep 10; done ) &
           for kind in workloadconfigurationscansummaries vulnerabilitymanifests; do
