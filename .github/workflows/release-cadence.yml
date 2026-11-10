@@ -116,9 +116,10 @@ jobs:
             --set serviceAccount.create=false --set serviceAccount.name=cadence-puller \
             --set tls.enabled=true --wait --timeout 12m
           kubectl rollout status deployment/rtest-cadence --timeout=720s
-          POD="$(kubectl get pod -l app.kubernetes.io/name=cadence --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')"
           tok=0
           for i in $(seq 1 30); do
+            # re-resolve each try: right after the rollout the old pod is still Running while it terminates
+            POD="$(kubectl get pod -l app.kubernetes.io/name=cadence --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')"
             if kubectl exec "$POD" -c cadence -- /usr/bin/cadence --transport grpc --address rtest-cadence:7833 \
                  --tls_cert_path /tls/ca.crt --domain citest domain describe >/tmp/desc-tls.log 2>&1; then tok=1; break; fi
             sleep 4
