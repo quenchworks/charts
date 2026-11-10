@@ -145,6 +145,10 @@ kubectl delete pvc -l app.kubernetes.io/instance=objstore
 
 ## Notes
 
+Since RustFS 1.0.5 the server serves region `us-east-1` and rejects CreateBucket with any other
+non-empty location constraint (`InvalidLocationConstraint`). Point S3 clients at `us-east-1`, for
+example `AWS_DEFAULT_REGION=us-east-1` for the AWS CLI.
+
 At boot RustFS emits benign ERROR lines (an expired-TLS
 remote check and transient `AccessDenied` during init); these are not failures —
 the `/health` probe on port 9000 is the source of truth for readiness. The chart
