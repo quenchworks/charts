@@ -1,0 +1,111 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/vouch-proxy
+  digest: "sha256:3d672096ec75446fcf55e4637649d376358475b39ac10db60736268cea5aaca7"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Sessions are JWT cookies signed with the shared secret: any replica validates them.
+replicaCount: 1
+
+vouch:
+  # Domains Vouch serves; the session cookie is set for these (VOUCH_DOMAINS).
+  domains: []
+  # Let every user the provider authenticates in (VOUCH_ALLOWALLUSERS). With false, list them
+  # in whiteList or rely on domains.
+  allowAllUsers: false
+  # Exact user names/emails allowed in (VOUCH_WHITELIST).
+  whiteList: []
+  cookie:
+    secure: true
+    domain: ""
+  # Secret that signs the session JWTs. Empty: generated into the Secret and kept across upgrades.
+  jwtSecret: ""
+
+oauth:
+  # oidc, google, github, adfs, azure, indieauth, openstax, nextcloud, homeassistant
+  provider: oidc
+  clientId: ""
+  clientSecret: ""
+  authUrl: ""
+  tokenUrl: ""
+  userInfoUrl: ""
+  scopes: [openid, email, profile]
+  # The /auth URL users come back to, e.g. https://vouch.example.com/auth
+  callbackUrl: ""
+
+# Existing Secret with keys `client-secret` and `jwt-secret` (the chart then creates none).
+existingSecret: ""
+
+# Native TLS on Vouch's listener (vouch.tls in config.yml). Off by default: nginx usually talks
+# to Vouch in-cluster. The first source set wins: existingSecret, then certManager, else a
+# Helm-generated self-signed CA + certificate. The Secret is mounted at /tls.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 128Mi }
+
+service:
+  type: ClusterIP
+  port: 9090
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# Optional Ingress for /login and /auth (the user-facing endpoints). Disabled by default.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []

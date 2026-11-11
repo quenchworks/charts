@@ -1,0 +1,106 @@
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $probe := dict "httpGet" (dict "path" "/healthcheck" "port" "http" "scheme" (ternary "HTTPS" "HTTP" (eq $tls "true"))) "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: vouch-proxy
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: VOUCH_PORT
+              value: "9090"
+            - name: VOUCH_DOMAINS
+              value: {{ join "," .Values.vouch.domains | quote }}
+            - name: VOUCH_ALLOWALLUSERS
+              value: {{ .Values.vouch.allowAllUsers | quote }}
+            {{- with .Values.vouch.whiteList }}
+            - name: VOUCH_WHITELIST
+              value: {{ join "," . | quote }}
+            {{- end }}
+            - name: VOUCH_COOKIE_SECURE
+              value: {{ .Values.vouch.cookie.secure | quote }}
+            {{- with .Values.vouch.cookie.domain }}
+            - name: VOUCH_COOKIE_DOMAIN
+              value: {{ . | quote }}
+            {{- end }}
+            - name: VOUCH_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vouch-proxy.secretName" . }}
+                  key: jwt-secret
+            - name: OAUTH_PROVIDER
+              value: {{ .Values.oauth.provider | quote }}
+            - name: OAUTH_CLIENT_ID
+              value: {{ .Values.oauth.clientId | quote }}
+            - name: OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "vouch-proxy.secretName" . }}
+                  key: client-secret
+            {{- range $k, $v := dict "OAUTH_AUTH_URL" .Values.oauth.authUrl "OAUTH_TOKEN_URL" .Values.oauth.tokenUrl "OAUTH_USER_INFO_URL" .Values.oauth.userInfoUrl "OAUTH_CALLBACK_URL" .Values.oauth.callbackUrl }}
+            {{- if $v }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+            {{- end }}
+            - name: OAUTH_SCOPES
+              value: {{ join "," .Values.oauth.scopes | quote }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 9090
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- if $tls }}
+            - name: config
+              mountPath: /vouch/config
+              readOnly: true
+            {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        {{- if $tls }}
+        - name: config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}
+        {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

@@ -1,0 +1,23 @@
+Quenchworks Vouch Proxy is installed as {{ include "quench-common.fullname" . }}.
+
+Point nginx auth_request at it, for example in an ingress-nginx Ingress:
+
+  nginx.ingress.kubernetes.io/auth-url: "http{{ if include "quench-common.tls.enabled" . }}s{{ end }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}/validate"
+  nginx.ingress.kubernetes.io/auth-signin: "https://<vouch public host>/login?url=$scheme://$http_host$request_uri"
+
+Users must reach /login and /auth on a public host that matches oauth.callbackUrl
+({{ .Values.oauth.callbackUrl | default "not set" }}); enable `ingress` or route it yourself.
+{{- if not .Values.vouch.domains }}
+
+WARNING: vouch.domains is empty: set the domains Vouch issues session cookies for.
+{{- end }}
+{{- if not .Values.oauth.clientId }}
+
+WARNING: oauth.clientId is empty: logins will fail until the provider settings are set.
+{{- end }}
+
+Verify the signed image:
+
+  cosign verify ghcr.io/quenchworks/images/vouch-proxy \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
