@@ -1,0 +1,149 @@
+{{/* /livez needs no database; /readyz tests the database and the cache driver, so a pod is
+     Ready only once Cube can reach the database it was given. */}}
+{{- $liveness := dict "httpGet" (dict "path" "/livez" "port" "http") "initialDelaySeconds" 15 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/readyz" "port" "http") "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/model: {{ toJson .Values.model | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "cube.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: cube
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: PORT
+              value: "4000"
+            - name: CUBEJS_TELEMETRY
+              value: "false"
+            - name: CUBEJS_DB_TYPE
+              value: {{ .Values.database.type | quote }}
+            {{- with .Values.database.host }}
+            - name: CUBEJS_DB_HOST
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.database.port }}
+            - name: CUBEJS_DB_PORT
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.database.name }}
+            - name: CUBEJS_DB_NAME
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.database.user }}
+            - name: CUBEJS_DB_USER
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if .Values.database.existingSecret }}
+            - name: CUBEJS_DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret }}
+                  key: {{ .Values.database.existingSecretPasswordKey }}
+            {{- else if .Values.database.password }}
+            - name: CUBEJS_DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "quench-common.fullname" . }}
+                  key: db-password
+            {{- end }}
+            - name: CUBEJS_DB_SSL
+              value: {{ .Values.database.ssl | quote }}
+            - name: CUBEJS_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cube.secretName" . }}
+                  key: api-secret
+            {{- if .Values.cubestore.host }}
+            - name: CUBEJS_CUBESTORE_HOST
+              value: {{ .Values.cubestore.host | quote }}
+            - name: CUBEJS_CACHE_AND_QUEUE_DRIVER
+              value: cubestore
+            {{- else }}
+            - name: CUBEJS_CACHE_AND_QUEUE_DRIVER
+              value: memory
+            {{- end }}
+            {{- if .Values.sqlApi.enabled }}
+            - name: CUBEJS_PG_SQL_PORT
+              value: {{ .Values.sqlApi.port | quote }}
+            - name: CUBEJS_SQL_USER
+              value: {{ .Values.sqlApi.user | quote }}
+            - name: CUBEJS_SQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "cube.secretName" . }}
+                  key: sql-password
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 4000
+              protocol: TCP
+            {{- if .Values.sqlApi.enabled }}
+            - name: sql
+              containerPort: {{ .Values.sqlApi.port }}
+              protocol: TCP
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # one subPath mount per file: a whole-ConfigMap mount also carries the kubelet's
+            # ..data copies, which Cube's recursive model loader reads as duplicate cubes
+            - name: model
+              mountPath: /cube/conf/model
+            {{- range $file, $_ := .Values.model }}
+            - name: model-files
+              mountPath: /cube/conf/model/{{ $file }}
+              subPath: {{ $file }}
+              readOnly: true
+            {{- end }}
+            # the root filesystem is read-only
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: model
+          emptyDir: {}
+        - name: model-files
+          configMap:
+            name: {{ include "cube.modelConfigMap" . }}
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

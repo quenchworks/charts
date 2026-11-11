@@ -1,0 +1,125 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/cube
+  digest: "sha256:ad504273da124c0d72d212cf89dabb8d76b5fd988bdd854bbc20c7d3af099bd5"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Cube API instances are stateless. With the default in-memory cache each replica keeps its
+# own query cache; point cubestore.host at a Cube Store to share cache and queue.
+replicaCount: 1
+
+# The database Cube queries. The image ships the postgres, mysql and clickhouse drivers.
+database:
+  type: postgres
+  host: ""
+  port: ""
+  name: ""
+  user: ""
+  # Plain password, stored in the chart's Secret. Prefer existingSecret.
+  password: ""
+  # Existing Secret holding the database password (key below); the chart then stores none.
+  existingSecret: ""
+  existingSecretPasswordKey: password
+  ssl: false
+
+auth:
+  # Secret that signs the JWTs clients send to the REST and GraphQL APIs. Empty: a random
+  # 48-character one is generated into the Secret and kept across upgrades.
+  apiSecret: ""
+  # Existing Secret with keys `api-secret` and `sql-password` (the chart then creates none).
+  existingSecret: ""
+
+# The Postgres-protocol SQL API (BI tools connect here).
+sqlApi:
+  enabled: true
+  port: 15432
+  user: cube
+  # Empty: a random password is generated into the Secret and kept across upgrades.
+  password: ""
+
+# Cube Store for shared cache, queue and pre-aggregations. Empty: in-memory cache and queue
+# per pod (CUBEJS_CACHE_AND_QUEUE_DRIVER=memory); the image sets NODE_ENV=production, where
+# Cube otherwise expects a Cube Store and fails queries without one.
+cubestore:
+  host: ""
+
+# Data model files, mounted flat at /cube/conf/model (a model kept elsewhere mounts there
+# with extraVolumes and extraVolumeMounts). Keys are file names, e.g.
+#   model:
+#     orders.yml: |
+#       cubes:
+#         - name: orders
+#           sql_table: public.orders
+#           measures:
+#             - name: count
+#               type: count
+model: {}
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 4000
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # true: any pod in the cluster (an ingress controller included) may reach the API ports.
+  # false confines them to pods in the release namespace.
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# Optional Ingress for the REST/GraphQL API. Disabled by default.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  # e.g. [{host: cube.example.com, paths: [{path: /, pathType: Prefix}]}]
+  hosts: []
+  tls: []

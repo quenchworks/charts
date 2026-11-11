@@ -1,0 +1,166 @@
+name: release-cube
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/cube/**"
+      - ".github/workflows/release-cube.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/cube
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          # a PostgreSQL with a table for the model to read
+          helm install pg oci://ghcr.io/quenchworks/charts/postgresql --wait --timeout 6m
+          pgpw="$(kubectl get secret pg-postgresql -o jsonpath='{.data.postgres-password}' | base64 -d)"
+          kubectl exec pg-postgresql-0 -- env PGPASSWORD="$pgpw" psql -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 -c \
+            "create table public.orders (id int, status text, amount int); insert into public.orders values (1,'paid',10),(2,'paid',20),(3,'open',5);"
+          # --wait passes only once /readyz reports the database and the memory cache healthy
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/rtest-cube --timeout=300s
+          # probe over a port-forward (the runtime image has no HTTP client)
+          kubectl port-forward svc/rtest-cube 4000:4000 15432:15432 >/tmp/pf.log 2>&1 &
+          pf=$!; trap 'kill $pf' EXIT; sleep 5
+          curl -fsS http://127.0.0.1:4000/readyz | jq -e '.health == "HEALTH"'
+          # REST API: a JWT signed with the chart's API secret queries the model
+          b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+          secret="$(kubectl get secret rtest-cube -o jsonpath='{.data.api-secret}' | base64 -d)"
+          h="$(printf '{"alg":"HS256","typ":"JWT"}' | b64url)"
+          p="$(printf '{"iat":%d}' "$(date +%s)" | b64url)"
+          sig="$(printf '%s.%s' "$h" "$p" | openssl dgst -sha256 -hmac "$secret" -binary | b64url)"
+          # the model loads once (a whole-ConfigMap mount would add ..data duplicates)
+          meta="$(curl -fsS -H "Authorization: $h.$p.$sig" http://127.0.0.1:4000/cubejs-api/v1/meta)"
+          jq -e '[.cubes[].name] == ["orders"]' <<<"$meta" >/dev/null || { echo "model: $meta"; exit 1; }
+          q='{"measures":["orders.count","orders.total"]}'
+          # a cold query can answer {"error":"Continue wait"}: poll until data arrives
+          for _ in $(seq 1 20); do
+            out="$(curl -fsS -G -H "Authorization: $h.$p.$sig" --data-urlencode "query=$q" http://127.0.0.1:4000/cubejs-api/v1/load)"
+            jq -e '.error == "Continue wait"' <<<"$out" >/dev/null || break
+            sleep 3
+          done
+          jq -c '.data' <<<"$out"
+          jq -e '.data[0]["orders.count"] | tonumber == 3' <<<"$out" >/dev/null
+          jq -e '.data[0]["orders.total"] | tonumber == 35' <<<"$out" >/dev/null
+          # a token signed with another secret is refused
+          bad="$(printf '%s.%s' "$h" "$p" | openssl dgst -sha256 -hmac wrong-secret -binary | b64url)"
+          code="$(curl -s -o /dev/null -w '%{http_code}' -G -H "Authorization: $h.$p.$bad" --data-urlencode "query=$q" http://127.0.0.1:4000/cubejs-api/v1/load)"
+          case "$code" in 401|403) ;; *) echo "bad token got HTTP $code"; exit 1 ;; esac
+          # SQL API (the from-source native addon) answers a Postgres client
+          n="$(PGPASSWORD=quench-ci-sql-pass psql -h 127.0.0.1 -p 15432 -U cube -d db -tAc \
+            "select measure(count) from orders where status = 'paid'")"
+          [ "$(echo "$n" | tr -d ' ')" = 2 ] || { echo "SQL API returned: $n"; exit 1; }
+          # no crash-looping
+          test "$(kubectl get pod -l app.kubernetes.io/name=cube \
+            -o jsonpath='{.items[*].status.containerStatuses[*].restartCount}')" = "0"
+          # an upgrade keeps the generated SQL password (the API secret is set in CI values)
+          before="$(kubectl get secret rtest-cube -o jsonpath='{.data.sql-password}')"
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set sqlApi.password= --wait --timeout 8m
+          after="$(kubectl get secret rtest-cube -o jsonpath='{.data.sql-password}')"
+          [ -n "$before" ] && [ "$before" = "$after" ] || { echo "sql-password changed on upgrade"; exit 1; }
+          echo "Cube: readyz, REST query (3 orders, total 35), JWT refusal, SQL API, upgrade-stable secret: ok"
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/cube-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/cube@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/cube:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

@@ -1,0 +1,30 @@
+Quenchworks Cube is installed as {{ include "quench-common.fullname" . }}.
+
+REST and GraphQL API over a port-forward:
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 4000:{{ .Values.service.port }}
+  # http://127.0.0.1:4000/cubejs-api/v1/meta  (Authorization: a JWT signed with the API secret)
+
+The API secret that signs client JWTs (HS256):
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "cube.secretName" . }} -o jsonpath='{.data.api-secret}' | base64 -d; echo
+{{ if .Values.sqlApi.enabled }}
+SQL API (Postgres protocol) on port {{ .Values.sqlApi.port }}, user `{{ .Values.sqlApi.user }}`; the password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "cube.secretName" . }} -o jsonpath='{.data.sql-password}' | base64 -d; echo
+{{ end }}
+{{- if not .Values.database.host }}
+WARNING: database.host is empty, so the pods stay not-Ready (/readyz tests the database).
+Set database.type, host, name, user and existingSecret.
+{{ end }}
+{{- if not .Values.model }}
+No data model yet: set `model` (file name to YAML).
+{{ end }}
+{{- if not .Values.cubestore.host }}
+Cache and queue are in memory per pod; pre-aggregations need a Cube Store (cubestore.host).
+{{ end }}
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/cube \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

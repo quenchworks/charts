@@ -1,0 +1,32 @@
+# Install gate. The workflow installs the QuenchWorks postgresql chart as release `pg` first
+# and seeds public.orders; Cube reads the postgres password from that chart's Secret.
+database:
+  type: postgres
+  host: pg-postgresql
+  port: "5432"
+  name: postgres
+  user: postgres
+  existingSecret: pg-postgresql
+  existingSecretPasswordKey: postgres-password
+auth:
+  apiSecret: quench-ci-api-secret-0123456789abcdef
+sqlApi:
+  password: quench-ci-sql-pass
+model:
+  orders.yml: |
+    cubes:
+      - name: orders
+        sql_table: public.orders
+        measures:
+          - name: count
+            type: count
+          - name: total
+            sql: amount
+            type: sum
+        dimensions:
+          - name: status
+            sql: status
+            type: string
+resources:
+  requests: { cpu: 50m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
