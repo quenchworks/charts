@@ -12,9 +12,12 @@ spec:
   policyTypes:
     - Ingress
   ingress:
-    # peer traffic between etcd members is always allowed
+    # quorum traffic between ZooKeeper servers (followers to the leader, and leader election)
+    # is always allowed
     - ports:
         - port: peer
+          protocol: TCP
+        - port: election
           protocol: TCP
       from:
         - podSelector:
@@ -24,6 +27,10 @@ spec:
     - ports:
         - port: client
           protocol: TCP
+        {{- if include "quench-common.tls.enabled" . }}
+        - port: client-tls
+          protocol: TCP
+        {{- end }}
       {{- if not .Values.networkPolicy.allowExternal }}
       from:
         - podSelector: {}
