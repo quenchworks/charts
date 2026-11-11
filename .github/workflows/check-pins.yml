@@ -45,3 +45,17 @@ jobs:
         run: |
           pip install --quiet pyyaml
           python3 scripts/check-default-passwords.py
+
+  # A container port the chart's NetworkPolicy does not admit is dropped on every cluster
+  # whose CNI enforces policies, and no release gate sees it (kind's CNI does not enforce
+  # NetworkPolicy, port-forward bypasses it). This renders every chart with tls.enabled and
+  # fails on a port the policy drops that is not documented as closed on purpose.
+  netpol-ports:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - name: Every container port is admitted by the chart's NetworkPolicy
+        run: |
+          pip install --quiet pyyaml
+          python3 scripts/check-netpol-ports.py
