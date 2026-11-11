@@ -1,0 +1,26 @@
+OpenZiti (Quenchworks) is installed as {{ include "quench-common.fullname" . }}: a controller and an
+integrated edge router, advertised as {{ include "openziti.advertisedHost" . }}.
+
+  edge API (management and client):  https://{{ include "openziti.advertisedHost" . }}:{{ .Values.controller.port }}
+  edge router:                        tls:{{ include "openziti.advertisedHost" . }}:{{ .Values.router.port }}
+
+Log in as admin and check the router:
+
+  kubectl exec sts/{{ include "quench-common.fullname" . }} -- ziti edge login {{ include "openziti.advertisedHost" . }}:{{ .Values.controller.port }} -u admin -y \
+    -p "$(kubectl get secret {{ include "openziti.adminSecret" . }} -o jsonpath='{.data.password}' | base64 -d)"
+  kubectl exec sts/{{ include "quench-common.fullname" . }} -- ziti edge list edge-routers
+
+From there create identities, services and policies with `ziti edge create ...`, and enroll
+tunnelers and SDK clients with the identities' JWTs.
+{{- if not .Values.advertisedHost }}
+
+advertisedHost is empty, so only in-cluster clients can reach the network. Set it to an external
+DNS name (with service.type LoadBalancer or NodePort) on the FIRST install: it goes into the
+certificates.
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/openziti \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

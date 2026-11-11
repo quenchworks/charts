@@ -1,0 +1,89 @@
+image:
+  repository: ghcr.io/quenchworks/images/openziti
+  digest: "sha256:911def15ef8d34bfec05ca19e09a2a4a9bddf11220678723c103fc57fe563dc1"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# One controller with an integrated edge router (ziti edge quickstart on a persistent volume).
+# The PKI, database and router identity live on the volume and survive restarts. It is one
+# replica by design: for an HA controller cluster use OpenZiti's raft mode outside this chart.
+replicaCount: 1
+
+# The name clients and the router use to reach the controller and the router. Empty: this
+# release's Service DNS name (in-cluster clients only). For clients outside the cluster set an
+# external DNS name that resolves to the Service (service.type LoadBalancer or NodePort); it
+# goes into the certificates, so changing it later means a new volume.
+advertisedHost: ""
+
+controller:
+  # edge API (management + client), TLS
+  port: 1280
+router:
+  # edge router listener clients connect to, TLS
+  port: 3022
+
+# The admin password for the edge API (user "admin"). Empty: generated into
+# <release>-openziti-admin on first install and kept across upgrades. existingSecret takes
+# precedence (key: password, at least 5 characters).
+admin:
+  password: ""
+  existingSecret: ""
+
+persistence:
+  size: 1Gi
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Ziti clients and tunnelers usually run elsewhere, so ingress from anywhere is allowed by
+# default. Set allowExternal=false to restrict it to the release namespace. Egress is not
+# restricted: the router dials the services it hosts.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+# Off by default: with one replica a minAvailable: 1 budget blocks every node drain.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
