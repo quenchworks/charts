@@ -1,0 +1,124 @@
+# The digest below is the contract with the image factory. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/nginx-proxy-manager
+  digest: "sha256:688d3a728eb27203c503b47339caf99948b4c4822f2206b723e1c13c4e2d9c34"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The first admin account, created once on the first start. The password comes from
+# admin.password, admin.existingSecret (key "password"), or is generated into
+# <release>-nginx-proxy-manager-admin (kept on uninstall). Change both in the UI later.
+admin:
+  email: admin@example.com
+  password: ""
+  existingSecret: ""
+
+# NPM is one process tree writing its SQLite database and nginx config to /data, so it
+# runs one replica. Set DB_MYSQL_* or DB_POSTGRES_* in extraEnvVars for an external
+# database; it still runs one replica (the nginx config lives on the volume).
+persistence:
+  enabled: true
+  size: 2Gi
+  # storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  annotations: {}
+  existingClaim: ""
+  # certbot's config dir (/etc/letsencrypt): accounts, issued certificates, renewal config
+  letsencrypt:
+    size: 1Gi
+    existingClaim: ""
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+# The container listens on 8080 (HTTP), 8443 (HTTPS) and 8181 (admin), since it runs
+# nonroot; the Service publishes the usual ports. For Let's Encrypt HTTP-01 the HTTP
+# port must be reachable from the internet on port 80 (a LoadBalancer Service).
+service:
+  type: ClusterIP
+  httpPort: 80
+  httpsPort: 443
+  adminPort: 81
+  # also publish the admin port on this Service (it always has its own ClusterIP
+  # Service, <release>-nginx-proxy-manager-admin)
+  exposeAdmin: false
+  # Local keeps client source IPs for access lists on a LoadBalancer/NodePort Service
+  externalTrafficPolicy: ""
+  annotations: {}
+
+# Ports for NPM "streams" (TCP/UDP forwarding). Each must match the incoming port set
+# on the stream in the UI and be 1024 or higher (the pod runs nonroot).
+#   - { name: ssh, port: 2222 }
+#   - { name: dns, port: 5353, protocol: UDP, servicePort: 53 }
+streamPorts: []
+
+# Fetch the CloudFront and Cloudflare IP ranges at start for real-IP handling. Needs
+# egress to the internet.
+ipRangesFetch: true
+# Comment out the [::] listeners (for clusters without IPv6 in the pod network).
+disableIPv6: false
+
+# TLS on the admin UI (8181) with the chart certificate. The proxied sites get their
+# certificates from NPM itself (Let's Encrypt or custom certificates in the UI). The
+# first source set wins: existingSecret, then certManager, else a Helm-generated
+# self-signed CA + certificate (kept across upgrades). Mounted at /tls.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+command: []
+args: []
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # The proxy ports are always open to any source. The admin port is open to the
+  # namespace only, unless this is true.
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

@@ -1,0 +1,8 @@
+{{- /* The admin UI has its own Service (<fullname>-admin); add its names to the chart
+     certificate's SANs (quench-common appends tls.certManager.dnsNames to its defaults,
+     for the self-signed certificate too). */}}
+{{- $admin := printf "%s-admin" (include "quench-common.fullname" .) -}}
+{{- $ns := .Release.Namespace -}}
+{{- $names := list $admin (printf "%s.%s" $admin $ns) (printf "%s.%s.svc" $admin $ns) (printf "%s.%s.svc.cluster.local" $admin $ns) -}}
+{{- $_ := set .Values.tls.certManager "dnsNames" (concat (.Values.tls.certManager.dnsNames | default list) $names | uniq) -}}
+{{- include "quench-common.tls.resources" . }}

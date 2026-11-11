@@ -1,0 +1,20 @@
+Quenchworks Nginx Proxy Manager {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }}.
+
+Proxied sites: Service {{ include "quench-common.fullname" . }} (type {{ .Values.service.type }}), HTTP on
+{{ .Values.service.httpPort }} and HTTPS on {{ .Values.service.httpsPort }}. For Let's Encrypt certificates the HTTP port
+must answer on port 80 from the internet (service.type=LoadBalancer).
+
+The admin UI ({{ ternary "HTTPS" "HTTP" (eq (include "quench-common.tls.enabled" .) "true") }}) is on {{ include "quench-common.fullname" . }}-admin:{{ .Values.service.adminPort }}:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }}-admin 8181:{{ .Values.service.adminPort }}
+  # then open {{ ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") }}://127.0.0.1:8181
+
+Log in as {{ .Values.admin.email }} with the password in Secret {{ include "nginx-proxy-manager.adminSecret" . }}:
+
+  kubectl get secret {{ include "nginx-proxy-manager.adminSecret" . }} -o jsonpath='{.data.password}' | base64 -d
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

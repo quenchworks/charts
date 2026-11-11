@@ -1,0 +1,33 @@
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # the proxy listeners are the point of the product: open to any source
+    - ports:
+        - port: http
+          protocol: TCP
+        - port: https
+          protocol: TCP
+        {{- range .Values.streamPorts }}
+        - port: {{ .name }}
+          protocol: {{ default "TCP" .protocol }}
+        {{- end }}
+    # the admin UI: the namespace only, unless allowExternal
+    - ports:
+        - port: admin
+          protocol: TCP
+      {{- if not .Values.networkPolicy.allowExternal }}
+      from:
+        - podSelector: {}
+      {{- end }}
+{{- end }}

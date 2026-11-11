@@ -1,0 +1,142 @@
+{{/* GET /api/ on the admin server answers {"status":"OK"} once nginx is up and the backend
+     has run its migrations and setup; nginx proxies it to the backend, so it proves both. */}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/api/" "port" "admin" "scheme" $scheme) "initialDelaySeconds" 30 "periodSeconds" 20 "timeoutSeconds" 5 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/api/" "port" "admin" "scheme" $scheme) "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "nginx-proxy-manager.headlessName" . }}
+  replicas: 1
+  {{- with .Values.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: nginx-proxy-manager
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- include "quench-common.command" . | nindent 10 }}
+          {{- include "quench-common.args" . | nindent 10 }}
+          env:
+            - name: INITIAL_ADMIN_EMAIL
+              value: {{ .Values.admin.email | quote }}
+            - name: INITIAL_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "nginx-proxy-manager.adminSecret" . }}
+                  key: password
+            - name: IP_RANGES_FETCH_ENABLED
+              value: {{ .Values.ipRangesFetch | quote }}
+            - name: DISABLE_IPV6
+              value: {{ .Values.disableIPv6 | quote }}
+            {{- if eq $tls "true" }}
+            # the admin UI serves HTTPS with the chart certificate
+            - name: NPM_ADMIN_TLS_CERT
+              value: /tls/tls.crt
+            - name: NPM_ADMIN_TLS_KEY
+              value: /tls/tls.key
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+            - name: admin
+              containerPort: 8181
+              protocol: TCP
+            {{- range .Values.streamPorts }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ default "TCP" .protocol }}
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: letsencrypt
+              mountPath: /etc/letsencrypt
+            # nginx temp and cache, generated conf, certbot work dir; the root is read-only
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if not .Values.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        - name: letsencrypt
+          emptyDir: {}
+        {{- else if .Values.persistence.existingClaim }}
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim }}
+        {{- end }}
+        {{- if and .Values.persistence.enabled .Values.persistence.letsencrypt.existingClaim }}
+        - name: letsencrypt
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.letsencrypt.existingClaim }}
+        {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
+  {{- if .Values.persistence.enabled }}
+  {{- $claims := list }}
+  {{- if not .Values.persistence.existingClaim }}{{ $claims = append $claims (dict "name" "data" "size" .Values.persistence.size) }}{{ end }}
+  {{- if not .Values.persistence.letsencrypt.existingClaim }}{{ $claims = append $claims (dict "name" "letsencrypt" "size" .Values.persistence.letsencrypt.size) }}{{ end }}
+  {{- if $claims }}
+  volumeClaimTemplates:
+    {{- range $claims }}
+    - metadata:
+        name: {{ .name }}
+        {{- with $.Values.persistence.annotations }}
+        annotations:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      spec:
+        accessModes: {{ $.Values.persistence.accessModes }}
+        {{- with $.Values.persistence.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .size }}
+    {{- end }}
+  {{- end }}
+  {{- end }}
