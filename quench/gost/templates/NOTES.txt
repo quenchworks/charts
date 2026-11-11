@@ -1,0 +1,21 @@
+Quenchworks GOST is installed as {{ include "quench-common.fullname" . }}.
+{{ if .Values.proxy.enabled }}
+{{ ternary "HTTPS" "HTTP" (eq (include "quench-common.tls.enabled" .) "true") }} proxy ({{ .Values.proxy.type }}) on port {{ .Values.proxy.port }}, user `{{ .Values.proxy.auth.username }}`; the password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "quench-common.fullname" . }} -o jsonpath='{.data.password}' | base64 -d; echo
+
+Try it over a port-forward:
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.proxy.port }}:{{ .Values.proxy.port }}
+  curl -x {{ ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") }}://{{ .Values.proxy.auth.username }}:<password>@127.0.0.1:{{ .Values.proxy.port }} https://example.com/
+{{- if include "quench-common.tls.enabled" . }}
+  # add --proxy-cacert ca.crt (key ca.crt of Secret {{ include "quench-common.tls.secretName" . }})
+{{- end }}
+{{ end }}
+Prometheus metrics: port {{ .Values.metrics.port }}, /metrics.
+
+Verify the signed image:
+
+  cosign verify ghcr.io/quenchworks/images/gost \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

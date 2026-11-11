@@ -1,0 +1,100 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/gost
+  digest: "sha256:27b8ee7548964b3bcc583e7c925d0479b3e4085d355ec0e7d76dce7d99be3b7f"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# GOST keeps no state: scale freely.
+replicaCount: 1
+
+# The built-in service: an HTTP proxy (CONNECT and plain HTTP) with username/password auth.
+proxy:
+  enabled: true
+  port: 8080
+  # http or socks5
+  type: http
+  auth:
+    username: gost
+    # Empty: a random 24-character password is generated into the Secret and kept across upgrades.
+    password: ""
+
+# More GOST services, as entries of the config's services list (see gost.run), e.g. a SOCKS5
+# proxy or a port forward:
+#   - name: socks
+#     addr: ":1080"
+#     handler: { type: socks5 }
+#     listener: { type: tcp }
+# Publish their ports with extraPorts.
+extraServices: []
+# Ports for extraServices, published on the Service and the container: [{name, port, protocol}].
+extraPorts: []
+
+# Prometheus metrics (and the probes' target).
+metrics:
+  port: 9000
+
+# TLS on the built-in proxy listener (an HTTPS proxy: clients use --proxy https://...). Off by
+# default. The first source set wins: existingSecret, then certManager, else a Helm-generated
+# self-signed CA + certificate. The Secret is mounted at /tls (tls.crt, tls.key, ca.crt).
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: "1", memory: 256Mi }
+
+service:
+  type: ClusterIP
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
