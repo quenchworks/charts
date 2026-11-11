@@ -1,0 +1,74 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/cloudflared
+  digest: "sha256:ba22cf957aa3953f9fcef43dc91cac58ea0c9c8e91ed11d1c5417c2ea25ba31d"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Cloudflare balances a tunnel across every connected replica: 2 for availability.
+replicaCount: 2
+
+tunnel:
+  # The tunnel token from the Cloudflare dashboard (Zero Trust > Networks > Tunnels). Stored in
+  # the chart's Secret. Prefer existingSecret.
+  token: ""
+  # Existing Secret holding the token (key below); the chart then creates none.
+  existingSecret: ""
+  existingSecretKey: token
+  # Edge transport: auto, quic or http2. http2 when UDP egress is blocked.
+  protocol: auto
+  logLevel: info
+
+# Extra cloudflared tunnel flags, e.g. ["--edge-ip-version", "4"].
+extraArgs: []
+
+metrics:
+  port: 2000
+
+resources:
+  requests: { cpu: 25m, memory: 64Mi }
+  limits: { cpu: "1", memory: 256Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+# Readiness defaults to /ready, which passes once Cloudflare accepted the tunnel connection.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Ingress to the metrics port only (cloudflared dials out; it has no other listener).
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

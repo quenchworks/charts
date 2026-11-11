@@ -1,0 +1,19 @@
+Quenchworks cloudflared is installed as {{ include "quench-common.fullname" . }} ({{ .Values.replicaCount }} replica(s)).
+{{ if and (not .Values.tunnel.token) (not .Values.tunnel.existingSecret) }}
+WARNING: no tunnel token. Set tunnel.token (or tunnel.existingSecret) to the token from the
+Cloudflare dashboard (Zero Trust > Networks > Tunnels); until then the pods never turn Ready.
+{{ end }}
+Public hostnames and the in-cluster services they route to are configured on the tunnel in the
+Cloudflare dashboard, e.g. app.example.com -> http://my-app.{{ .Release.Namespace }}.svc:80.
+
+Pods turn Ready (/ready) once Cloudflare accepted the connection. Check:
+
+  kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "quench-common.fullname" . }} | grep -i 'registered tunnel connection'
+
+Metrics: Service {{ include "quench-common.fullname" . }}-metrics, port {{ .Values.metrics.port }}, /metrics.
+
+Verify the signed image:
+
+  cosign verify ghcr.io/quenchworks/images/cloudflared \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
