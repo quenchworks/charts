@@ -1,0 +1,31 @@
+Apache Traffic Server (Quenchworks) is installed as {{ include "quench-common.fullname" . }}.
+
+{{ if .Values.remap -}}
+Remap rules ({{ len .Values.remap }}):
+{{- range .Values.remap }}
+  {{ . }}
+{{- end }}
+{{- else -}}
+No remap rules yet: every request gets ATS's 404 "Not Found on Accelerator" until you add
+one, for example:
+
+  helm upgrade {{ .Release.Name }} oci://ghcr.io/quenchworks/charts/trafficserver --reuse-values \
+    --set 'remap[0]=map / http://my-app.{{ .Release.Namespace }}.svc.cluster.local:8080/'
+{{- end }}
+
+Send traffic to:
+
+  http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+{{- if include "quench-common.tls.enabled" . }}
+  https://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.tlsPort }}
+{{- end }}
+
+Cache and request stats:
+
+  kubectl exec deploy/{{ include "quench-common.fullname" . }} -- traffic_ctl metric match proxy.process.http.cache_
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/trafficserver \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

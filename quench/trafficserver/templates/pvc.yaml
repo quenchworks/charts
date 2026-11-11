@@ -1,0 +1,17 @@
+{{- if and .Values.cache.persistence.enabled (not .Values.cache.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "quench-common.fullname" . }}-cache
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    {{- toYaml .Values.cache.persistence.accessModes | nindent 4 }}
+  {{- with .Values.cache.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.cache.persistence.size }}
+{{- end }}

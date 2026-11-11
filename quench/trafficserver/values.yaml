@@ -1,0 +1,107 @@
+image:
+  repository: ghcr.io/quenchworks/images/trafficserver
+  digest: "sha256:6bd562ec9ef5393e31c7d4a75e7ec786bf0d043a83e1621305b7bcaf43911a72"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+replicaCount: 1
+
+# remap.config lines, in order. ATS answers 404 for any request no rule maps, so a fresh
+# install proxies nothing until you add one. Example:
+#   remap:
+#     - map http://www.example.com/ http://my-app.default.svc.cluster.local:8080/
+#     - map / https://origin.internal/
+remap: []
+
+# records.yaml overrides, passed as ATS's PROXY_CONFIG_* environment variables (the key with
+# dots and the leading "proxy.config." turned into PROXY_CONFIG_ and upper case). Example:
+#   records:
+#     proxy.config.http.cache.http: "0"
+#     proxy.config.diags.debug.enabled: "1"
+records: {}
+
+# Disk cache. size goes into storage.config; the directory is an emptyDir unless
+# persistence.enabled, in which case it is a PVC (one per replica is not supported by a
+# Deployment: keep replicaCount 1 with a PVC, or use an emptyDir per pod).
+cache:
+  size: 256M
+  persistence:
+    enabled: false
+    size: 1Gi
+    storageClass: ""
+    accessModes: [ReadWriteOnce]
+    existingClaim: ""
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  tlsPort: 8443
+
+# tls.enabled adds a TLS listener on service.tlsPort (ssl_multicert.config points at the
+# mounted certificate). Plain HTTP on service.port stays open for in-cluster clients.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Clients are usually an ingress or pods in other namespaces, so ingress from anywhere is
+# allowed by default. Set allowExternal=false to restrict it to the release namespace.
+# Egress is not restricted: origins can be anywhere.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

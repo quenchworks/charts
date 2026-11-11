@@ -1,0 +1,109 @@
+{{/* /__hc is answered by the healthchecks plugin from a file, before remap, so the probe
+     proves traffic_server is accepting and processing requests without needing an origin. */}}
+{{- $health := dict "httpGet" (dict "path" "/__hc" "port" "http") -}}
+{{- $liveness := merge (dict "initialDelaySeconds" 10 "periodSeconds" 15) (deepCopy $health) -}}
+{{- $readiness := merge (dict "initialDelaySeconds" 3 "periodSeconds" 10) (deepCopy $health) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include "trafficserver.files" . | sha256sum }}
+        checksum/records: {{ include "trafficserver.recordsEnv" . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "trafficserver.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: trafficserver
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "trafficserver.recordsEnv" . | nindent 12 }}
+            {{- with .Values.extraEnvVars }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+            {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            {{- if include "quench-common.tls.enabled" . }}
+            - name: https
+              containerPort: {{ .Values.service.tlsPort }}
+              protocol: TCP
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- range $k, $_ := (include "trafficserver.files" . | fromYaml) }}
+            - name: config
+              mountPath: /etc/trafficserver/{{ $k }}
+              subPath: {{ $k }}
+              readOnly: true
+            {{- end }}
+            # the three directories traffic_server writes: logs, runtime sockets, the disk cache
+            - name: logs
+              mountPath: /var/log/trafficserver
+            - name: run
+              mountPath: /run/trafficserver
+            - name: cache
+              mountPath: /var/cache/trafficserver
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "trafficserver.configMapName" . }}
+        - name: logs
+          emptyDir: {}
+        - name: run
+          emptyDir: {}
+        - name: cache
+          {{- if .Values.cache.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.cache.persistence.existingClaim | default (printf "%s-cache" (include "quench-common.fullname" .)) }}
+          {{- else }}
+          # no sizeLimit: ATS preallocates cache.size plus its own metadata, so a limit equal to
+          # cache.size would get the pod evicted
+          emptyDir: {}
+          {{- end }}
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
