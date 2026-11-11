@@ -1,0 +1,95 @@
+# The digest below is the contract with the image factory. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/apache-pinot
+  digest: "sha256:6113aa6876b7cca51ee85da2fd30c22ce7d6245d3ffddca9f3eb34d446cd723e"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The Helix cluster every component joins.
+clusterName: pinot
+
+# The controller manages tables, segments and the cluster. Its local dataDir is the segment
+# deep store, so with more than one controller set a shared deep store (S3, GCS, HDFS) through
+# extraEnvVars/config first.
+controller:
+  replicas: 1
+  port: 9000
+  javaOpts: "-XX:MaxRAMPercentage=75"
+  resources:
+    requests: { cpu: 200m, memory: 1Gi }
+    limits: { memory: 2Gi }
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: ""
+
+# Brokers route queries (HTTP /query/sql on port) to servers.
+broker:
+  replicas: 1
+  port: 8099
+  javaOpts: "-XX:MaxRAMPercentage=75"
+  resources:
+    requests: { cpu: 200m, memory: 1Gi }
+    limits: { memory: 2Gi }
+
+# Servers hold and query segments.
+server:
+  replicas: 1
+  port: 8098
+  adminPort: 8097
+  javaOpts: "-XX:MaxRAMPercentage=60"
+  resources:
+    requests: { cpu: 200m, memory: 1Gi }
+    limits: { memory: 2Gi }
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+
+# Minions run background tasks (segment merge/rollup, purge, ingestion tasks). Off by default.
+minion:
+  enabled: false
+  replicas: 1
+  port: 9514
+  javaOpts: "-XX:MaxRAMPercentage=75"
+  resources:
+    requests: { cpu: 100m, memory: 512Mi }
+    limits: { memory: 1Gi }
+
+# The bundled quench ZooKeeper (Helix keeps the cluster state there). Set enabled: false and
+# externalZookeeper.address (host:port[,host:port][/chroot]) to use your own.
+zookeeper:
+  enabled: true
+externalZookeeper:
+  address: ""
+
+service:
+  type: ClusterIP
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraVolumes: []
+extraVolumeMounts: []
+podSecurityContext: {}
+containerSecurityContext: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  # The broker (queries) and controller (admin API, UI) are open to the namespace only unless
+  # this is true. Component-to-component traffic is always allowed inside the release.
+  allowExternal: false

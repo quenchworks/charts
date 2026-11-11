@@ -1,0 +1,18 @@
+{{- range $c := list "controller" "broker" }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" $ }}-{{ $c }}-api
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $c }}
+spec:
+  type: {{ $.Values.service.type }}
+  ports:
+    - name: http
+      port: {{ index $.Values $c "port" }}
+      targetPort: http
+  selector:
+    {{- include "pinot.selector" (dict "ctx" $ "component" $c) | nindent 4 }}
+{{- end }}

@@ -1,0 +1,14 @@
+Quenchworks Apache Pinot {{ .Chart.AppVersion }} is installed as {{ include "quench-common.fullname" . }} (cluster {{ .Values.clusterName }}).
+
+Controller (admin API and UI):
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }}-controller-api 9000:{{ .Values.controller.port }}
+  # open http://127.0.0.1:9000
+
+Query through the broker:
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }}-broker-api 8099:{{ .Values.broker.port }}
+  curl -H 'Content-Type: application/json' -d '{"sql":"select 1"}' http://127.0.0.1:8099/query/sql
+
+The image is pinned by digest and signed. Verify it:
+  cosign verify {{ .Values.image.repository }} \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
