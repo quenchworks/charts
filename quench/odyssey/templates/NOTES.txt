@@ -1,0 +1,20 @@
+Quenchworks Odyssey is installed as {{ include "quench-common.fullname" . }}, pooling to {{ .Values.postgres.host | default "(postgres.host not set)" }}:{{ .Values.postgres.port }}.
+
+Clients connect to {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }} as one of the listed users
+({{- range $i, $u := .Values.users }}{{ if $i }}, {{ end }}{{ $u.name }}{{- end }}), any database, {{ .Values.pool.mode }} pooling:
+
+  psql "host={{ include "quench-common.fullname" . }} port={{ .Values.service.port }} user=<user> dbname=<db>{{ if include "quench-common.tls.enabled" . }} sslmode=verify-full sslrootcert=ca.crt{{ end }}"
+{{- if include "quench-common.tls.enabled" . }}
+
+TLS is required (tls "require"); ca.crt is key ca.crt of Secret {{ include "quench-common.tls.secretName" . }}.
+{{- end }}
+{{- if not .Values.users }}
+
+WARNING: users is empty, so Odyssey refuses every client. List each database user and password.
+{{- end }}
+
+Verify the signed image:
+
+  cosign verify ghcr.io/quenchworks/images/odyssey \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

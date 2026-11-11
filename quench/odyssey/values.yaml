@@ -1,0 +1,103 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/odyssey
+  digest: "sha256:46d5a3eaa346af9df7f10f2adb642d327ee440fdf1fd3c177416b5fed69e0649"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Odyssey keeps pools in memory per pod; replicas each hold their own pools.
+replicaCount: 1
+
+# The PostgreSQL server Odyssey pools connections to.
+postgres:
+  host: ""
+  port: 5432
+
+# Users Odyssey accepts. Each password both authenticates the client (SCRAM-SHA-256) and logs in
+# to PostgreSQL as the same user, so it must match the user's password in the database. Users not
+# listed here are refused. Either a plain password (stored in the chart's Secret) or an existing
+# Secret, read at install and upgrade:
+#   users:
+#     - name: app
+#       password: ""
+#       existingSecret: app-db        # optional
+#       existingSecretKey: password
+users: []
+
+pool:
+  # session, transaction or statement
+  mode: transaction
+  # Server connections per user/database route (0: unlimited).
+  size: 20
+  # Run DISCARD ALL before a server connection goes back to the pool.
+  discard: true
+
+workers: 2
+port: 6432
+
+# Extra raw lines appended to the global section of odyssey.conf.
+extraConfig: ""
+
+# TLS for clients on Odyssey's listener (tls "require"). Off by default. The first source set
+# wins: existingSecret, then certManager, else a Helm-generated self-signed CA + certificate.
+# The Secret is mounted at /tls (tls.crt, tls.key, ca.crt).
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: "2", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 6432
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
