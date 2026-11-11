@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: kafka
+      port: {{ .Values.gateway.bootstrapPort }}
+      targetPort: kafka
+      protocol: TCP
+    {{- range (include "kroxylicious.nodePorts" . | fromYamlArray) }}
+    - name: {{ .name }}
+      port: {{ .port }}
+      targetPort: {{ .name }}
+      protocol: TCP
+    {{- end }}
+    - name: management
+      port: 9190
+      targetPort: management
+      protocol: TCP
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

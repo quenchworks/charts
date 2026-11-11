@@ -1,0 +1,117 @@
+image:
+  repository: ghcr.io/quenchworks/images/kroxylicious
+  digest: "sha256:e78d74fa70fda64fb13bdb7f01c046b3420ec2e4e69aaef071a6cf00363865db"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+replicaCount: 1
+
+# The Kafka cluster behind the proxy. Required: e.g. my-kafka.kafka.svc.cluster.local:9092
+targetCluster:
+  bootstrapServers: ""
+
+# The client-facing gateway (portIdentifiesNode): clients bootstrap on bootstrapPort and reach
+# each broker on its own port after it, in nodeIdRanges order (9193, 9194, ... by default).
+# The ranges must cover every node.id in the target cluster. advertisedHost is the name the
+# proxy hands back in metadata; empty means this release's Service DNS name.
+gateway:
+  bootstrapPort: 9192
+  nodeIdRanges:
+    - name: brokers
+      start: 0
+      end: 2
+  advertisedHost: ""
+
+# Filters, verbatim into the config (see the Kroxylicious docs for each filter's config).
+# Example:
+#   filterDefinitions:
+#     - name: validate
+#       type: RecordValidation
+#       config: { ... }
+#   defaultFilters: [validate]
+filterDefinitions: []
+defaultFilters: []
+
+# The whole proxy config, verbatim. When set, targetCluster, gateway and the filter keys are
+# ignored (keep management on 9190 and the gateway ports in step with the Service).
+config:
+  raw: ""
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+service:
+  type: ClusterIP
+
+# tls.enabled makes the gateway speak TLS with the chart certificate (clients then use
+# security.protocol=SSL and trust ca.crt from the TLS Secret). A busybox init container
+# writes the PKCS#8 copy of the key the proxy's TLS stack reads.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# Helper image for the TLS init container. Pinned by digest, never a tag.
+busybox:
+  repository: ghcr.io/quenchworks/images/busybox
+  digest: "sha256:ca51f41cf97009e6913c4ea272879cffa6f8333a691839a3fa40eb7d16945d3a"
+  pullPolicy: IfNotPresent
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Kafka clients are usually pods in other namespaces, so ingress from anywhere is allowed by
+# default. Set allowExternal=false to restrict it to the release namespace. Egress is not
+# restricted: the proxy has to reach the brokers.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

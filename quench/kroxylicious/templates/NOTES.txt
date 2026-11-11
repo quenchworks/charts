@@ -1,0 +1,27 @@
+Kroxylicious (Quenchworks) is installed as {{ include "quench-common.fullname" . }}.
+
+Kafka clients bootstrap through the proxy instead of the brokers:
+
+  bootstrap.servers={{ include "kroxylicious.advertisedHost" . }}:{{ .Values.gateway.bootstrapPort }}
+{{- if include "quench-common.tls.enabled" . }}
+  security.protocol=SSL
+  ssl.truststore.type=PEM
+  ssl.truststore.location=<ca.crt from the {{ include "quench-common.fullname" . }}-tls Secret>
+{{- end }}
+
+{{ if not .Values.config.raw -}}
+Target cluster: {{ .Values.targetCluster.bootstrapServers }}
+Each broker is reached on its own port after {{ .Values.gateway.bootstrapPort }}, for node ids
+{{- range .Values.gateway.nodeIdRanges }} {{ .start }}-{{ .end }}{{ end }}. Widen gateway.nodeIdRanges if the
+cluster has other node ids, or clients will fail to reach those brokers.
+{{- end }}
+
+Metrics (Prometheus) and liveness on the management port:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 9190 && curl localhost:9190/metrics
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/kroxylicious \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

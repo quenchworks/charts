@@ -1,0 +1,98 @@
+{{/* /livez on the management port answers once the proxy is up. It does not reach the
+     target cluster, so a broker outage does not restart the proxy. */}}
+{{- $health := dict "httpGet" (dict "path" "/livez" "port" "management") -}}
+{{- $liveness := merge (dict "initialDelaySeconds" 20 "periodSeconds" 15) (deepCopy $health) -}}
+{{- $readiness := merge (dict "initialDelaySeconds" 5 "periodSeconds" 10) (deepCopy $health) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include "kroxylicious.config" . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "kroxylicious.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if or .Values.initContainers (include "quench-common.tls.enabled" .) }}
+      initContainers:
+        {{- include "quench-common.tls.pkcs8InitContainer" (dict "ctx" . "image" (printf "%s@%s" .Values.busybox.repository .Values.busybox.digest)) | nindent 8 }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: kroxylicious
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args: ["--config", "/etc/kroxylicious/config.yaml"]
+          {{- with .Values.extraEnvVars }}
+          env:
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: management
+              containerPort: 9190
+              protocol: TCP
+            - name: kafka
+              containerPort: {{ .Values.gateway.bootstrapPort }}
+              protocol: TCP
+            {{- range (include "kroxylicious.nodePorts" . | fromYamlArray) }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: TCP
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/kroxylicious/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            # the JNI libraries (netty, snappy, lz4, zstd) extract here at runtime
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- include "quench-common.tls.pkcs8VolumeMount" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-config
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.tls.pkcs8Volume" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
