@@ -17,7 +17,6 @@ import glob, os, subprocess, sys, yaml
 
 ALLOW = {
     # probe/health endpoints, used only by the kubelet
-    "apisix-ingress-controller": {"probe"},
     "argocd": {"probe"},
     "coredns": {"health", "ready"},
     "envoy-gateway": {"health"},
@@ -30,22 +29,17 @@ ALLOW = {
     "emissary": {"admin"},
     "ferretdb": {"debug"},
     "postgrest": {"admin"},
-    "kuma": {"diagnostics"},
-    "teleport": {"diag"},
     # with tls.enabled the API is HTTPS-only through the TLS sidecar
     "elasticsearch": {"http"},
-}
-# NOT YET REVIEWED (2026-11-11): closed today, each needs a decision (metrics scraping, a second
-# API, an internal RPC port). Review, then move to ALLOW with a reason or admit the port.
-UNREVIEWED = {
-    "apisix-ingress-controller": {"adc-status"},
-    "argocd": {"webhook"},
-    "fulcio": {"grpc"},
+    # reviewed 2026-11-11: none of these is exposed by the chart's Service at default values
+    "teleport": {"diag", "auth"},           # agents join through web/tunnel; tctl reaches auth in-pod
+    "apisix-ingress-controller": {"probe", "adc-status"},  # adc status, read inside the pod
+    "fulcio": {"grpc"},                     # clients use the HTTP API
+    "kuma": {"diagnostics", "http"},        # the control-plane API is reached through port-forward
+    # metrics/monitor endpoints stay private: a scraper in another namespace needs its own policy
     "headscale": {"metrics"},
-    "kuma": {"http"},
     "nats": {"monitor"},
     "postgres-documentdb": {"metrics"},
-    "teleport": {"auth"},
 }
 
 
@@ -68,26 +62,27 @@ def ports(chart):
 
 
 def gaps(chart):
-    cports, admitted, open_all, has_np = set(), set(), False, False
-    for doc in yaml.safe_load_all(ports(chart)):
-        if not doc:
+    docs = [d for d in yaml.safe_load_all(ports(chart)) if d]
+    policies = [d["spec"] for d in docs if d.get("kind") == "NetworkPolicy"
+                and "Ingress" in d["spec"].get("policyTypes", ["Ingress"])]
+    allowed = ALLOW.get(chart, set())
+    gaps = set()
+    for d in docs:
+        if d.get("kind") not in ("Deployment", "StatefulSet", "DaemonSet"):
             continue
-        kind = doc.get("kind")
-        if kind in ("Deployment", "StatefulSet", "DaemonSet"):
-            for c in doc["spec"]["template"]["spec"].get("containers", []):
-                for p in c.get("ports") or []:
-                    cports.add((p.get("name") or str(p["containerPort"]), p["containerPort"]))
-        elif kind == "NetworkPolicy" and "Ingress" in doc["spec"].get("policyTypes", ["Ingress"]):
-            has_np = True
-            for rule in doc["spec"].get("ingress") or []:
-                if not rule.get("ports"):
-                    open_all = True
-                for p in rule.get("ports") or []:
-                    admitted.add(p.get("port"))
-    if not has_np or open_all:
-        return []
-    allowed = ALLOW.get(chart, set()) | UNREVIEWED.get(chart, set())
-    return sorted(n for n, num in cports if n not in admitted and num not in admitted and n not in allowed)
+        labels = d["spec"]["template"]["metadata"].get("labels") or {}
+        # only the policies that select this workload's pods restrict it
+        mine = [p for p in policies
+                if all(labels.get(k) == v for k, v in (p.get("podSelector", {}).get("matchLabels") or {}).items())]
+        if not mine or any(not r.get("ports") for p in mine for r in p.get("ingress") or []):
+            continue
+        admitted = {pt.get("port") for p in mine for r in p.get("ingress") or [] for pt in r.get("ports") or []}
+        for c in d["spec"]["template"]["spec"].get("containers", []):
+            for pt in c.get("ports") or []:
+                name = pt.get("name") or str(pt["containerPort"])
+                if name not in admitted and pt["containerPort"] not in admitted and name not in allowed:
+                    gaps.add(name)
+    return sorted(gaps)
 
 
 def main():
