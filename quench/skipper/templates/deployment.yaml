@@ -1,0 +1,88 @@
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $probe := dict "httpGet" (dict "path" "/metrics" "port" "metrics") "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # routes are a flag: a change rolls the pods
+        checksum/routes: {{ .Values.routes | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      {{- if .Values.kubernetes.enabled }}
+      # the Kubernetes data client talks to the API server
+      automountServiceAccountToken: true
+      {{- end }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: skipper
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - -address=:9090
+            - -support-listener=:9911
+            {{- if .Values.kubernetes.enabled }}
+            - -kubernetes
+            - -kubernetes-in-cluster
+            - -kubernetes-ingress-class=^{{ .Values.kubernetes.ingressClass }}$
+            {{- end }}
+            {{- with .Values.routes }}
+            - {{ printf "-inline-routes=%s" (. | trim) | quote }}
+            {{- end }}
+            {{- if $tls }}
+            - -tls-cert=/tls/tls.crt
+            - -tls-key=/tls/tls.key
+            {{- end }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: proxy
+              containerPort: 9090
+              protocol: TCP
+            - name: metrics
+              containerPort: 9911
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

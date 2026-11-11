@@ -1,0 +1,21 @@
+Quenchworks Skipper is installed as {{ include "quench-common.fullname" . }}.
+{{ if .Values.kubernetes.enabled }}
+It routes Ingress resources with spec.ingressClassName: {{ .Values.kubernetes.ingressClass }}
+{{- if .Values.kubernetes.defaultClass }} (also the cluster default IngressClass){{ end }}.
+{{ end }}
+Try it over a port-forward:
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ ternary .Values.service.httpsPort .Values.service.port (eq (include "quench-common.tls.enabled" .) "true") }}
+  curl -H 'Host: <an Ingress host>' {{ ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") }}://127.0.0.1:8080/
+
+Prometheus metrics: port 9911, /metrics.
+{{- if eq .Values.service.type "ClusterIP" }}
+
+The Service is ClusterIP: set service.type=LoadBalancer (or NodePort) to take outside traffic.
+{{- end }}
+
+Verify the signed image:
+
+  cosign verify ghcr.io/quenchworks/images/skipper \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

@@ -1,0 +1,10 @@
+{{- /* Ingress mode reads cluster-wide, never writes: Skipper's own data client lists these. */}}
+{{- $rules := list
+  (dict "apiGroups" (list "networking.k8s.io") "resources" (list "ingresses" "ingressclasses") "verbs" (list "get" "list"))
+  (dict "apiGroups" (list "") "resources" (list "namespaces" "services" "endpoints" "pods") "verbs" (list "get" "list"))
+  (dict "apiGroups" (list "discovery.k8s.io") "resources" (list "endpointslices") "verbs" (list "get" "list")) }}
+{{- if .Values.kubernetes.routeGroups }}
+{{- $rules = append $rules (dict "apiGroups" (list "zalando.org") "resources" (list "routegroups") "verbs" (list "get" "list")) }}
+{{- end }}
+{{- $_ := set .Values "rbac" (dict "create" .Values.kubernetes.enabled "clusterScoped" true "clusterRules" $rules) }}
+{{- include "quench-common.rbac" . }}

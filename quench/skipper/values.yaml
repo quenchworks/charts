@@ -1,0 +1,99 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/skipper
+  digest: "sha256:d30c07dd104fc2a85b4f84905b2dee59ba66fd39ec33609c465deb2674e2067c"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Skipper keeps no state: scale freely.
+replicaCount: 1
+
+# Ingress controller mode: Skipper watches Ingress resources across the cluster (read-only
+# ClusterRole: ingresses, services, endpointslices, namespaces) and routes them.
+kubernetes:
+  enabled: true
+  # IngressClass created and served by this release (spec.ingressClassName on an Ingress).
+  ingressClass: skipper
+  # Make it the cluster default IngressClass.
+  defaultClass: false
+  # Grant read access to RouteGroups. Skipper serves them on its own once the zalando.org
+  # RouteGroup CRD is installed (not shipped here); without the CRD it logs once and skips them.
+  routeGroups: false
+
+# Routes in eskip format, served next to (or, with kubernetes.enabled=false, instead of)
+# Ingress routes, e.g.
+#   routes: |
+#     health: Path("/ping") -> inlineContent("pong") -> <shunt>;
+#     api: PathSubtree("/api") -> setRequestHeader("X-From", "skipper") -> "http://api:8080";
+routes: ""
+
+# Extra skipper flags, e.g. ["-enable-ratelimits", "-proxy-preserve-host"].
+extraArgs: []
+
+# Native TLS on the proxy listener (Skipper -tls-cert / -tls-key). Off by default. The first
+# source set wins: existingSecret, then certManager, else a Helm-generated self-signed CA +
+# certificate. The Secret is mounted at /tls (tls.crt, tls.key, ca.crt).
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "2", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  # 80, or 443 when tls.enabled.
+  port: 80
+  httpsPort: 443
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
