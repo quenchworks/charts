@@ -1,0 +1,122 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/frp
+  digest: "sha256:4c003500e4908ad469961e2897962af73f3cff55fe6c793b9ee7640a05abd8b6"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# frps keeps its proxies in memory and each frpc logs in to one server, so the chart runs one
+# replica. Expose it with service.type LoadBalancer (or NodePort) so clients outside the
+# cluster reach bindPort and the proxy ports.
+
+# Port frpc clients connect to (the control channel).
+bindPort: 7000
+
+auth:
+  # Shared token every frpc must present. Empty: a random 32-character token is generated into
+  # the Secret and kept across upgrades.
+  token: ""
+  # Existing Secret with keys `token` and `dashboard-password` (the chart then creates none).
+  existingSecret: ""
+
+dashboard:
+  enabled: true
+  port: 7500
+  user: admin
+  # Empty: generated into the Secret and kept across upgrades.
+  password: ""
+
+# Ports frpc clients may bind on the server for tcp/udp proxies, as frps allowPorts entries,
+# e.g. [{start: 6000, end: 6010}, {single: 6100}]. Empty: no limit (frps default).
+allowPorts: []
+
+# Proxy ports to publish on the Service and the container, e.g.
+#   - { name: ssh, port: 6000, protocol: TCP }
+# A client proxy with remotePort 6000 is then reachable on the Service's port 6000.
+proxyPorts: []
+
+# HTTP and HTTPS virtual-host ports for http/https proxies (0: off).
+vhostHTTPPort: 0
+vhostHTTPSPort: 0
+# Domain suffix for client subdomains (frps subDomainHost), e.g. frp.example.com.
+subDomainHost: ""
+
+# Raw TOML appended to frps.toml for settings the values above do not cover.
+extraConfig: ""
+
+# TLS on the control channel (frps transport.tls with force = true). Off by default; frpc
+# still encrypts with its built-in self-signed certificate unless told otherwise. On: frps
+# serves the chart's certificate, refuses plain clients, and frpc can verify the server
+# (transport.tls.trustedCaFile = ca.crt, transport.tls.serverName = the Service name).
+# The first source set wins: existingSecret, then certManager, else a Helm-generated
+# self-signed CA + certificate. The Secret is mounted at /tls (tls.crt, tls.key, ca.crt).
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: "1", memory: 256Mi }
+
+service:
+  type: ClusterIP
+  annotations: {}
+  # NodePort / LoadBalancer only: Local keeps client source addresses.
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# Security contexts merge over the hardened quench-common defaults (your keys win).
+podSecurityContext: {}
+containerSecurityContext: {}
+# Probe timing overrides ({enabled, initialDelaySeconds, periodSeconds, ...}); a
+# customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  # frps is meant to be reached from outside the namespace; false confines every port to
+  # pods in the release namespace.
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

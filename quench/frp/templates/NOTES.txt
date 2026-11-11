@@ -1,0 +1,29 @@
+Quenchworks frp server (frps) is installed as {{ include "quench-common.fullname" . }}.
+
+Clients connect to port {{ .Values.bindPort }} of Service {{ include "quench-common.fullname" . }}
+{{- if eq .Values.service.type "ClusterIP" }} (ClusterIP: reachable from inside the cluster only; set service.type=LoadBalancer for outside clients){{ end }}.
+
+The token every frpc must send (auth.token in frpc.toml):
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "frp.secretName" . }} -o jsonpath='{.data.token}' | base64 -d; echo
+{{ if .Values.dashboard.enabled }}
+Dashboard over a port-forward, user `{{ .Values.dashboard.user }}`:
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.dashboard.port }}:{{ .Values.dashboard.port }}
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "frp.secretName" . }} -o jsonpath='{.data.dashboard-password}' | base64 -d; echo
+{{ end }}
+{{- if include "quench-common.tls.enabled" . }}
+TLS is forced on the control channel. Let frpc verify the server:
+
+  transport.tls.trustedCaFile = "ca.crt"   # key ca.crt of Secret {{ include "quench-common.tls.secretName" . }}
+  transport.tls.serverName = "{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc"
+{{ end }}
+{{- if not .Values.proxyPorts }}
+No proxyPorts published yet: a client tcp/udp proxy is reachable on the Service only after its
+remotePort is listed in proxyPorts.
+{{ end }}
+The image carries frpc too (`--entrypoint /usr/bin/frpc`). Verify the signed image:
+
+  cosign verify ghcr.io/quenchworks/images/frp \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com
