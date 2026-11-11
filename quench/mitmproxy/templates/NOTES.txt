@@ -1,0 +1,28 @@
+mitmproxy (Quenchworks) is installed as {{ include "quench-common.fullname" . }}.
+
+Point clients at the proxy:
+
+  export HTTPS_PROXY=http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ include "mitmproxy.modePort" (first .Values.modes) }}
+  export HTTP_PROXY=$HTTPS_PROXY
+
+Clients must trust mitmproxy's CA to accept the certificates it forges. Fetch it:
+
+  kubectl exec deploy/{{ include "quench-common.fullname" . }} -- /opt/mitmproxy/venv/bin/python -c "print(open('/home/mitmproxy/.mitmproxy/mitmproxy-ca-cert.pem').read())"
+{{- if not .Values.ca.existingSecret }}
+
+The CA is generated at every pod start. Set ca.existingSecret to keep one CA across restarts.
+{{- end }}
+{{- if .Values.ui.enabled }}
+
+The mitmweb UI:
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} {{ .Values.ui.port }}
+  open http://127.0.0.1:{{ .Values.ui.port }}/
+  password: kubectl get secret {{ include "mitmproxy.webSecret" . }} -o jsonpath='{.data.password}' | base64 -d
+{{- end }}
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/mitmproxy \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

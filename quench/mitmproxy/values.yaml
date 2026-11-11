@@ -1,0 +1,95 @@
+image:
+  repository: ghcr.io/quenchworks/images/mitmproxy
+  digest: "sha256:45136a5186d1e158105f51a50e4224d640d0bb954c17881b359561738a3b95a9"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# One proxy per release: flows live in memory, so more replicas would split them.
+replicaCount: 1
+
+# Proxy modes, each a mitmproxy --mode value (regular, upstream:..., reverse:..., socks5,
+# wireguard ...). Each mode listens on its own port; the first one is the Service's proxy port.
+modes:
+  - regular@8080
+
+# Extra --set options, as key: value (see `mitmdump --options`). Example:
+#   options:
+#     ssl_insecure: "true"
+#     block_global: "false"
+options: {}
+
+# The mitmweb UI (flows, replay, edit). With ui.enabled=false the pod runs mitmdump.
+ui:
+  enabled: true
+  port: 8081
+  # The UI password. Empty: one is generated into <release>-mitmproxy-web on first install
+  # and kept across upgrades. existingSecret takes precedence (key: password).
+  password: ""
+  existingSecret: ""
+
+# The CA mitmproxy forges certificates with; clients must trust its certificate.
+# Empty: a new CA is generated in the pod at every start (fine for a throwaway session).
+# existingSecret: a Secret with key mitmproxy-ca.pem (the CA private key + certificate in
+# one PEM, the format mitmproxy writes), so the CA survives restarts and clients trust it once.
+ca:
+  existingSecret: ""
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+
+# Helper image for the CA init container. Pinned by digest, never a tag.
+busybox:
+  repository: ghcr.io/quenchworks/images/busybox
+  digest: "sha256:ca51f41cf97009e6913c4ea272879cffa6f8333a691839a3fa40eb7d16945d3a"
+  pullPolicy: IfNotPresent
+
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+# Proxy clients are usually pods in other namespaces, so ingress from anywhere is allowed by
+# default. Set allowExternal=false to restrict it to the release namespace. Egress is not
+# restricted: the proxy has to reach whatever it intercepts.
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+# Off by default: with one replica a minAvailable: 1 budget blocks every node drain.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

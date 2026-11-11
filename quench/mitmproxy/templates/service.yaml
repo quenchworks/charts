@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    {{- range $i, $m := .Values.modes }}
+    {{- $name := ternary "proxy" (printf "proxy-%d" $i) (eq $i 0) }}
+    - name: {{ $name }}
+      port: {{ include "mitmproxy.modePort" $m }}
+      targetPort: {{ $name }}
+      protocol: {{ ternary "UDP" "TCP" (or (hasPrefix "wireguard" $m) (hasPrefix "dns" $m)) }}
+    {{- end }}
+    {{- if .Values.ui.enabled }}
+    - name: web
+      port: {{ .Values.ui.port }}
+      targetPort: web
+      protocol: TCP
+    {{- end }}
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

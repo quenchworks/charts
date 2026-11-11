@@ -1,0 +1,142 @@
+{{/* A TCP probe on the first proxy port: mitmproxy answers proxy requests there, but an HTTP
+     GET to a proxy port is a proxy request for the pod itself, which mitmproxy refuses. */}}
+{{- $health := dict "tcpSocket" (dict "port" "proxy") -}}
+{{- if .Values.ui.enabled -}}
+{{- /* every mitmweb page needs the UI password (403 otherwise); its static files do not,
+       so the probe fetches one through the same tornado server. */ -}}
+{{- $health = dict "httpGet" (dict "path" "/static/favicon.ico" "port" "web") -}}
+{{- end -}}
+{{- $liveness := merge (dict "initialDelaySeconds" 10 "periodSeconds" 15) (deepCopy $health) -}}
+{{- $readiness := merge (dict "initialDelaySeconds" 3 "periodSeconds" 10) (deepCopy $health) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/args: {{ list .Values.modes .Values.options .Values.ui .Values.ca | toJson | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "mitmproxy.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if or .Values.initContainers .Values.ca.existingSecret }}
+      initContainers:
+        {{- if .Values.ca.existingSecret }}
+        # mitmproxy writes its derived CA files next to mitmproxy-ca.pem, so the Secret is
+        # copied into the writable confdir rather than mounted over it.
+        - name: ca
+          image: {{ printf "%s@%s" .Values.busybox.repository .Values.busybox.digest | quote }}
+          imagePullPolicy: {{ .Values.busybox.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/bin/sh", "-c", "mkdir -p /home/mitmproxy/.mitmproxy && cat /ca/mitmproxy-ca.pem > /home/mitmproxy/.mitmproxy/mitmproxy-ca.pem"]
+          volumeMounts:
+            - name: home
+              mountPath: /home/mitmproxy
+            - name: ca
+              mountPath: /ca
+              readOnly: true
+        {{- end }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: mitmproxy
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: [{{ ternary "/usr/bin/mitmweb" "/usr/bin/mitmdump" .Values.ui.enabled | quote }}]
+          args:
+            {{- range .Values.modes }}
+            - --mode
+            - {{ . | quote }}
+            {{- end }}
+            {{- if .Values.ui.enabled }}
+            - --set
+            - web_host=0.0.0.0
+            - --set
+            - web_port={{ .Values.ui.port }}
+            - --set
+            - web_open_browser=false
+            - --set
+            - web_password=$(MITMWEB_PASSWORD)
+            {{- end }}
+            {{- range $k, $v := .Values.options }}
+            - --set
+            - {{ printf "%s=%v" $k $v | quote }}
+            {{- end }}
+          env:
+            {{- if .Values.ui.enabled }}
+            - name: MITMWEB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "mitmproxy.webSecret" . }}
+                  key: password
+            {{- end }}
+            {{- with .Values.extraEnvVars }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+            {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            {{- range $i, $m := .Values.modes }}
+            - name: {{ ternary "proxy" (printf "proxy-%d" $i) (eq $i 0) }}
+              containerPort: {{ include "mitmproxy.modePort" $m }}
+              protocol: {{ ternary "UDP" "TCP" (or (hasPrefix "wireguard" $m) (hasPrefix "dns" $m)) }}
+            {{- end }}
+            {{- if .Values.ui.enabled }}
+            - name: web
+              containerPort: {{ .Values.ui.port }}
+              protocol: TCP
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # ~/.mitmproxy: the CA and the certificates forged from it
+            - name: home
+              mountPath: /home/mitmproxy
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: home
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.ca.existingSecret }}
+        - name: ca
+          secret:
+            secretName: {{ .Values.ca.existingSecret }}
+            items:
+              - key: mitmproxy-ca.pem
+                path: mitmproxy-ca.pem
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
