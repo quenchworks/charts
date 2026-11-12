@@ -1,0 +1,99 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/mealie
+  digest: "sha256:06012a49e9f456e724bb3562627cc8c2ef939cf5a8d46bfb349a9e49e7f78081"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Mealie settings as environment variables (https://docs.mealie.io/documentation/getting-started/installation/backend-config/).
+# Set BASE_URL to the URL users reach Mealie at. For PostgreSQL: DB_ENGINE: postgres with
+# POSTGRES_SERVER, POSTGRES_DB, POSTGRES_USER and POSTGRES_PASSWORD (through extraEnvVarsSecret).
+settings:
+  BASE_URL: http://localhost:9000
+  ALLOW_SIGNUP: "false"
+  TZ: UTC
+
+# /app/data: the SQLite database, recipe images and backups.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 50m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 9000
+  # HTTPS Service port (to the TLS sidecar's 8443), only with tls.enabled
+  httpsPort: 443
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# TLS: Mealie serves plain HTTP, so with tls.enabled a caddy sidecar terminates HTTPS on 8443
+# (Service port service.httpsPort) and proxies to it over localhost. Certificate: existingSecret,
+# then certManager, else a Helm-generated CA.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# The TLS sidecar (our caddy image, pinned by digest).
+proxy:
+  image:
+    repository: ghcr.io/quenchworks/images/caddy
+    digest: "sha256:6377c513134e78bd41fad0819c9d45830b1868398c1805a5b3ee8494f93072d7"
+  resources:
+    requests: { cpu: 10m, memory: 16Mi }
+    limits: { cpu: 500m, memory: 128Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
