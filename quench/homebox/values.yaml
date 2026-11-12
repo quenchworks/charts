@@ -1,0 +1,106 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/homebox
+  digest: "sha256:192ff98a84b277b700eb6d46ab251ca4eb067167071e4f59d6e8ce22fffe8379"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Signs API keys (HBOX_AUTH_API_KEY_PEPPER, at least 32 bytes). Empty: generated into the Secret
+# <fullname> (api-key-pepper) and kept across upgrades; rotating it invalidates every API key.
+apiKeyPepper:
+  value: ""
+  existingSecret: ""
+  existingSecretKey: api-key-pepper
+
+# More Homebox settings as HBOX_* environment variables
+# (https://homebox.software/en/configure/). Turn registration off once your users exist, and point
+# at PostgreSQL with HBOX_DATABASE_DRIVER: postgres plus HBOX_DATABASE_* (password through
+# extraEnvVarsSecret).
+settings:
+  HBOX_OPTIONS_ALLOW_REGISTRATION: "true"
+  HBOX_OPTIONS_ALLOW_ANALYTICS: "false"
+
+# /data: the SQLite database and attachments.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 25m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 7745
+  # HTTPS Service port (to the TLS sidecar's 8443), only with tls.enabled
+  httpsPort: 443
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# TLS: Homebox serves plain HTTP, so with tls.enabled a caddy sidecar terminates HTTPS on 8443
+# (Service port service.httpsPort) and proxies to it over localhost. Certificate: existingSecret,
+# then certManager, else a Helm-generated CA.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# The TLS sidecar (our caddy image, pinned by digest).
+proxy:
+  image:
+    repository: ghcr.io/quenchworks/images/caddy
+    digest: "sha256:6377c513134e78bd41fad0819c9d45830b1868398c1805a5b3ee8494f93072d7"
+  resources:
+    requests: { cpu: 10m, memory: 16Mi }
+    limits: { cpu: 500m, memory: 128Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
