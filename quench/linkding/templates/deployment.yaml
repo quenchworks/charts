@@ -1,0 +1,98 @@
+{{- $probe := dict "httpGet" (dict "path" "/health" "port" "http") "initialDelaySeconds" 3 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # linkding reads its settings from the environment at start: a change rolls the pods
+        checksum/config: {{ toJson (list .Values.superuser.username .Values.database .Values.settings) | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: linkding
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - { name: LD_SERVER_PORT, value: "9090" }
+            - { name: LD_SUPERUSER_NAME, value: {{ .Values.superuser.username | quote }} }
+            - name: LD_SUPERUSER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "linkding.secretName" . }}
+                  key: password
+            {{- if eq .Values.database.engine "postgres" }}
+            - { name: LD_DB_ENGINE, value: postgres }
+            - { name: LD_DB_HOST, value: {{ required "database.host" .Values.database.host | quote }} }
+            - { name: LD_DB_PORT, value: {{ .Values.database.port | quote }} }
+            - { name: LD_DB_DATABASE, value: {{ .Values.database.name | quote }} }
+            - { name: LD_DB_USER, value: {{ .Values.database.user | quote }} }
+            - name: LD_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "database.existingSecret: a Secret holding the database password" .Values.database.existingSecret }}
+                  key: {{ .Values.database.passwordKey }}
+            {{- end }}
+            {{- range $k, $v := .Values.settings }}
+            - { name: {{ $k }}, value: {{ $v | quote }} }
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            {{- range (include "linkding.ports" . | fromJsonArray) }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ .protocol }}
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # uWSGI and supervisord keep sockets and logs in /tmp
+            - name: tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /etc/linkding/data
+                        {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "linkding.pvcName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+                {{- include "quench-common.extraVolumes" . | nindent 8 }}

@@ -1,0 +1,94 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/linkding
+  digest: "sha256:beb8ceef17ba15adfc76d685a7fd0edd1421d6d14ad52603aeea84ec6f28cee0"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# linkding keeps its SQLite database and archives in /etc/linkding/data: run one replica
+# (Recreate with the volume). With PostgreSQL the data volume still holds favicons, previews
+# and uploaded assets.
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The admin user, created on first start only. Empty password: generated into a Secret and kept
+# across upgrades (kubectl get secret <release>-linkding-superuser -o jsonpath='{.data.password}').
+superuser:
+  username: admin
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+
+# SQLite on the data volume (default), or an external PostgreSQL.
+database:
+  engine: sqlite        # sqlite | postgres
+  host: ""
+  port: 5432
+  name: linkding
+  user: linkding
+  existingSecret: ""
+  passwordKey: password
+
+# More linkding settings as environment variables
+# (https://linkding.link/options/), e.g. LD_CSRF_TRUSTED_ORIGINS: https://links.example.com
+settings: {}
+
+# The data volume: SQLite database, favicons, previews, uploaded assets.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 2Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 9090
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
