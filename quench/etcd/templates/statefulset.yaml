@@ -1,7 +1,8 @@
+{{- if and .Values.tls.clientAuth (not (include "quench-common.tls.enabled" .)) }}{{ fail "tls.clientAuth needs tls.enabled: client certificates are checked on the TLS client port" }}{{ end -}}
 {{- $liveness := dict "tcpSocket" (dict "port" "client") "initialDelaySeconds" 15 "periodSeconds" 15 -}}
 {{- $readiness := dict "exec" (dict "command" (list "etcdctl" "endpoint" "health")) "initialDelaySeconds" 5 "periodSeconds" 10 -}}
 {{- if include "quench-common.tls.enabled" . -}}
-{{- $readiness = dict "exec" (dict "command" (list "etcdctl" (printf "--endpoints=https://localhost:%v" .Values.service.clientPort) "--cacert=/tls/ca.crt" "endpoint" "health")) "initialDelaySeconds" 5 "periodSeconds" 10 -}}
+{{- $readiness = dict "exec" (dict "command" (list "etcdctl" (printf "--endpoints=https://localhost:%v" .Values.service.clientPort) "--cacert=/tls/ca.crt" "--cert=/tls/tls.crt" "--key=/tls/tls.key" "endpoint" "health")) "initialDelaySeconds" 5 "periodSeconds" 10 -}}
 {{- end -}}
 {{/* Static peer list for Raft bootstrap: every ordinal's stable headless DNS name. */}}
 {{- $fullname := include "quench-common.fullname" . -}}
@@ -95,6 +96,12 @@ spec:
               value: /tls/tls.crt
             - name: ETCD_KEY_FILE
               value: /tls/tls.key
+            {{- if .Values.tls.clientAuth }}
+            - name: ETCD_CLIENT_CERT_AUTH
+              value: "true"
+            - name: ETCD_TRUSTED_CA_FILE
+              value: /tls/ca.crt
+            {{- end }}
             {{- end }}
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}

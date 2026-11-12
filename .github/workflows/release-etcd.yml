@@ -58,7 +58,18 @@ jobs:
           kubectl exec rtls-etcd-0 -- etcdctl $e endpoint health --cluster
           kubectl exec rtls-etcd-0 -- etcdctl $e put qw hello >/dev/null
           kubectl exec rtls-etcd-0 -- etcdctl $e get qw --print-value-only | >/dev/null grep hello
-          ! kubectl exec rtls-etcd-0 -- etcdctl --endpoints=http://localhost:2379 --dial-timeout=2s endpoint health
+          # `! cmd` is exempt from set -e, so a plain-HTTP answer must fail the step explicitly.
+          if kubectl exec rtls-etcd-0 -- etcdctl --endpoints=http://localhost:2379 --dial-timeout=2s endpoint health; then
+            echo "FAIL: plain HTTP answered on the TLS client port"; exit 1; fi
+
+          # mTLS: a client certificate from the CA is accepted, a client without one is refused.
+          helm install rmtls "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true \
+            --set tls.clientAuth=true --wait --timeout 5m
+          m="--endpoints=https://rmtls-etcd:2379 --cacert=/tls/ca.crt"
+          kubectl exec rmtls-etcd-0 -- etcdctl $m --cert=/tls/tls.crt --key=/tls/tls.key put qw hello >/dev/null
+          if kubectl exec rmtls-etcd-0 -- etcdctl $m --dial-timeout=3s --command-timeout=5s get qw; then
+            echo "FAIL: etcd served a client with no certificate"; exit 1; fi
+          echo "mTLS: certificate accepted, anonymous client refused"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
