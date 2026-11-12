@@ -1,0 +1,77 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/zoraxy
+  digest: "sha256:3a2adb1dfc93f9e6765e034444fd2266a1a470affe6c8faec1d729a0e161a846"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The admin panel (HTTP). The first visit asks for the admin account: create it right
+# after install, and keep this port off the internet (networkPolicy.allowExternal: false).
+adminPort: 8000
+# The proxy listener (Zoraxy's inbound port; TLS with the certificates set in the panel,
+# or plain HTTP when TLS is turned off there).
+proxyPort: 8443
+# More listeners you configure in the panel (stream proxy, an HTTP port for redirects):
+# [{name, port, protocol}], published on the Service and the container.
+extraPorts: []
+
+# Extra zoraxy flags, e.g. -fastgeoip=false on small nodes.
+extraArgs: []
+
+# Config, database, certificates and logs live under /opt/zoraxy/data.
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  size: 1Gi
+  accessModes: ["ReadWriteOnce"]
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
