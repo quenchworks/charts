@@ -1,0 +1,103 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/tusd
+  digest: "sha256:0edf52d1a2ff841d27f8c54ad5c7bfe159870a9e0dde76f12adf8f67bea95d52"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# With the disk store, keep one replica: uploads live on one ReadWriteOnce volume (Recreate,
+# so it is never mounted twice). With S3 every replica shares the bucket and can scale.
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# URL path uploads are created under (clients POST to http://<service>:8080/files/).
+basePath: /files/
+
+# Disk store: uploads on a PersistentVolumeClaim at /data (ignored when s3.bucket is set).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 10Gi
+  storageClass: ""
+  annotations: {}
+
+# S3 store (or any S3-compatible endpoint) instead of the disk. The Secret holds
+# AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and AWS_REGION.
+s3:
+  bucket: ""
+  endpoint: ""        # e.g. https://minio.storage:9000
+  objectPrefix: ""
+  existingSecret: ""
+
+# Honour X-Forwarded-* from an ingress or proxy in front (for correct upload URLs).
+behindProxy: false
+
+# Extra `tusd` flags, e.g. -max-size=1073741824 or -hooks-http=http://...
+extraArgs: []
+
+# TLS on the listener (tusd -tls-certificate/-tls-key); clients then use https://. The
+# first source set wins:
+# existingSecret, then certManager, else a Helm-generated self-signed CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: "1", memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
