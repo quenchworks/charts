@@ -61,8 +61,7 @@ jobs:
           # 1. The release's version; /status (database and cache checks) over HTTPS with the chart CA.
           v="$(kubectl exec deploy/rtest-bookstack -c bookstack -- cat /var/www/bookstack/version)"
           echo "version $v (want $want)"; test "$v" = "$want"
-          curl -fsS -m 20 --cacert /tmp/ca.crt --resolve rtest-bookstack:18443:127.0.0.1 https://rtest-bookstack:18443/status | grep -q '"database":true'
-
+          grep -q '"database":true' <<<"$(curl -fsS -m 20 --cacert /tmp/ca.crt --resolve rtest-bookstack:18443:127.0.0.1 https://rtest-bookstack:18443/status)"
           # 2. A wrong password goes back to /login; the seeded admin gets in.
           r="$(login wrong-password)"; echo "wrong password: $r"; case "$r" in */login) ;; *) exit 1;; esac
           r="$(login password)"; echo "admin: $r"; case "$r" in */login|"") exit 1;; esac
@@ -70,7 +69,7 @@ jobs:
           # 3. A book, created through the form and read back.
           tok="$(curl -fsS -m 20 -b $J -c $J $B/create-book | sed -n 's/.*name="_token" value="\([^"]*\)".*/\1/p' | head -1)"
           curl -fsS -m 30 -o /dev/null -b $J -c $J $B/books --data-urlencode "_token=$tok" --data-urlencode 'name=Quench Gate Book' --data-urlencode 'description_html=<p>gate</p>'
-          curl -fsS -m 20 -b $J $B/books/quench-gate-book | grep -q 'Quench Gate Book'
+          grep -q 'Quench Gate Book' <<<"$(curl -fsS -m 20 -b $J $B/books/quench-gate-book)"
           echo "book created"
 
           # 4. A settings change through helm upgrade rolls the pod (and migrates again); the book is still there.
@@ -80,7 +79,7 @@ jobs:
           fwd
           for i in $(seq 1 30); do curl -fsS -m 10 $B/login >/dev/null 2>&1 && break; sleep 2; done
           login password >/dev/null
-          curl -fsS -m 20 -b $J $B/books/quench-gate-book | grep -q 'Quench Gate Book'
+          grep -q 'Quench Gate Book' <<<"$(curl -fsS -m 20 -b $J $B/books/quench-gate-book)"
           echo "book kept across the upgrade"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
