@@ -1,0 +1,94 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/smokescreen
+  digest: "sha256:003f5676a1b3846742ce3a413ba79f9c5567e9ed34a5fd1461da0d26e0c678fc"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Each replica is an independent proxy with the same rules.
+replicaCount: 1
+
+# HTTP and CONNECT proxy port; clients use http://<service>:4750 as their proxy.
+port: 4750
+
+# Smokescreen refuses private, loopback and link-local destinations by default (SSRF
+# protection), which inside a cluster covers every pod and Service IP. Open specific ones here.
+allowRanges: []      # CIDRs, e.g. 10.20.0.0/16
+allowAddresses: []   # IP[:PORT], e.g. 10.96.0.15:443
+# Block more on top of the defaults.
+denyRanges: []
+denyAddresses: []
+
+# Egress ACL (https://github.com/stripe/smokescreen#egress-acls), as YAML. Roles come from
+# client certificates or the X-Smokescreen-Role header; empty disables ACLs.
+egressAcl: {}
+#  version: v1
+#  services:
+#    - name: billing
+#      project: payments
+#      action: enforce
+#      allowed_domains: [api.stripe.com]
+#  default:
+#    project: other
+#    action: report
+
+# Appended to the 503 a denied client gets.
+denyMessage: ""
+
+# Prometheus metrics on 9810 (/metrics).
+metrics:
+  enabled: true
+
+# Extra `smokescreen` flags, e.g. --timeout=10s.
+extraArgs: []
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: "1", memory: 256Mi }
+
+service:
+  type: ClusterIP
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
