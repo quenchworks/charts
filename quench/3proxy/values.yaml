@@ -1,0 +1,84 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/3proxy
+  digest: "sha256:283fc44a478bbb7ef5e2223a41a755f0b68b46ff55c68a6b4e70d2a6e4ab51f6"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# 3proxy keeps no state: scale freely.
+replicaCount: 1
+
+# HTTP proxy (CONNECT and plain HTTP).
+http:
+  enabled: true
+  port: 3128
+# SOCKS4/5 proxy.
+socks:
+  enabled: true
+  port: 1080
+
+# Every client authenticates (auth strong). The default user's password, when empty, is
+# generated into the Secret and kept across upgrades; read it with
+#   kubectl get secret <release>-3proxy -o jsonpath='{.data.password}' | base64 -d
+auth:
+  username: proxy
+  password: ""
+  # more users: [{name, password}]
+  extraUsers: []
+
+# Raw 3proxy config appended after the listeners (e.g. tcppm port maps, bandlimin, more
+# services); publish any extra listener with extraPorts.
+extraConfig: ""
+# [{name, port, protocol}], published on the Service and the container.
+extraPorts: []
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: "1", memory: 256Mi }
+
+service:
+  type: ClusterIP
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
