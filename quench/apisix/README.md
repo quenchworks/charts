@@ -49,6 +49,46 @@ The key is only generated when `admin.key` is empty, and every later
 All five are APISIX's own defaults and all sit above 1024, so the nonroot user
 binds them with no capability granted.
 
+### Roles: traditional, hybrid, standalone
+
+`role` picks the topology. One chart, one image, four shapes:
+
+| role | Proxies | Admin API | Config store |
+|------|---------|-----------|--------------|
+| `traditional` (default) | yes | yes | etcd |
+| `control_plane` | no | yes, ClusterIP only | etcd |
+| `data_plane` | yes | no | the control plane's etcd |
+| `standalone` | yes | `mode: api` only | none: values (`mode: file`) or memory (`mode: api`) |
+
+Hybrid (APISIX's decoupled mode) is two releases on one etcd. The control plane
+keeps the Admin API inside the cluster (the chart refuses a non-ClusterIP
+Service for it); the data plane owns the public Service:
+
+```bash
+helm install cp oci://ghcr.io/quenchworks/charts/apisix --set role=control_plane
+helm install dp oci://ghcr.io/quenchworks/charts/apisix --set role=data_plane \
+  --set etcd.enabled=false --set 'etcdClient.hosts={http://cp-etcd:2379}' \
+  --set service.type=LoadBalancer
+```
+
+For etcd over TLS, use `https://` hosts and set `etcdClient.tls.existingSecret`
+to a Secret with `tls.crt`, `tls.key` and `ca.crt` (a cert-manager Certificate
+has that layout). Set `etcdClient.tls.sni` to a name in etcd's certificate: with
+verification on and no SNI, APISIX fails every handshake and nothing syncs.
+
+Standalone needs no etcd (`etcd.enabled=false`). APISIX has no other database, so
+the config lives in a file or in memory:
+
+- `standalone.mode: file`: `standalone.config` is rendered into `conf/apisix.yaml`
+  (routes, upstreams, ssls, ... in APISIX's own schema). A `helm upgrade` that
+  changes it rolls the pods. No Admin API.
+- `standalone.mode: api`: the whole config is replaced through
+  `PUT /apisix/admin/configs` with an `X-Digest` header (any version string,
+  e.g. a hash of the body; APISIX refuses the push without it). This is what
+  apisix-ingress-controller 2.x drives.
+  Each pod holds its own copy and starts empty after a restart until it is pushed
+  again.
+
 ### An existing etcd
 
 ```bash

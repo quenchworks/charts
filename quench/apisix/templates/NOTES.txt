@@ -5,15 +5,43 @@ The gateway runs nonroot on a read-only rootfs and proxies traffic on Service po
 
   {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
 
-Configuration lives in etcd{{ if .Values.etcd.enabled }}, served by the bundled quench/etcd release
-{{ .Release.Name }}-etcd{{ else }} at {{ join ", " .Values.etcdClient.hosts }}{{ end }}. Routes come from the Admin API, not from this
-chart's values -- APISIX is configured at runtime.
+Role: {{ .Values.role }}{{ if eq .Values.role "standalone" }} ({{ .Values.standalone.mode }}-driven, no etcd){{ end }}.
+{{ if eq .Values.role "standalone" -}}
+{{- if eq .Values.standalone.mode "file" }}
+Routes come from standalone.config in this chart's values (rendered into
+conf/apisix.yaml). Change them with `helm upgrade`; the pods roll to pick them up.
+The Admin API is off: there is nothing for it to write to.
+{{- else }}
+Routes live in memory and are replaced whole through the Admin API:
 
-{{ if .Values.admin.enabled -}}
+  curl -X PUT http://{{ include "quench-common.fullname" . }}:{{ .Values.service.adminPort }}/apisix/admin/configs \
+    -H "X-API-KEY: $ADMIN_KEY" -H "X-Digest: <any version string, e.g. a hash of the body>" \
+    -H 'Content-Type: application/json' \
+    -d '{"routes":[{"id":"1","uri":"/echo","upstream":{"type":"roundrobin","nodes":{"httpbin.org:80":1}}}]}'
+
+WARNING: every pod holds its own copy and a restarted pod starts with no routes
+until something pushes again. Run apisix-ingress-controller 2.x (standalone
+provider) in front of it, or push to every pod yourself.
+{{- end }}
+{{- else -}}
+Configuration lives in etcd{{ if .Values.etcd.enabled }}, served by the bundled quench/etcd release
+{{ .Release.Name }}-etcd{{ else }} at {{ join ", " .Values.etcdClient.hosts }}{{ end }}.
+{{- if eq .Values.role "control_plane" }}
+This release is the control plane: Admin API only, ClusterIP, no proxy. Install
+data plane releases with role=data_plane, etcd.enabled=false and
+etcdClient.hosts pointing at the same etcd.
+{{- else if eq .Values.role "data_plane" }}
+This release is a data plane: it proxies what the control plane writes into etcd
+and runs no Admin API.
+{{- end }}
+{{- end }}
+
+{{ if include "apisix.adminOn" . -}}
 Read the Admin API key:
 
   kubectl get secret {{ include "apisix.adminSecretName" . }} -n {{ .Release.Namespace }} \
     -o jsonpath='{.data.{{ include "apisix.adminSecretKey" . }}}' | base64 -d; echo
+{{- if eq .Values.role "traditional" }}
 
 Create a route and call it through the proxy:
 
@@ -24,9 +52,7 @@ Create a route and call it through the proxy:
     -d '{"uri":"/echo","upstream":{"type":"roundrobin","nodes":{"httpbin.org:80":1}}}'
 
   curl http://127.0.0.1:{{ .Values.service.port }}/echo
-{{- else -}}
-The Admin API is disabled (admin.enabled=false), so this release is a data plane
-only: write its configuration into etcd from elsewhere.
+{{- end }}
 {{- end }}
 
 {{ if .Values.metrics.enabled -}}

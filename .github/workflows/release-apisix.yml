@@ -85,6 +85,75 @@ jobs:
           restarts="$(kubectl get pods -o jsonpath='{range .items[*]}{.status.containerStatuses[*].restartCount}{"\n"}{end}' | tr -d '\n' | tr -s ' ')"
           case "$restarts" in *[1-9]*) kubectl get pods; echo "FAIL: a container restarted"; exit 1 ;; esac
 
+      - name: Role gates (hybrid control/data plane, standalone file + API)
+        run: |
+          set -o pipefail
+          V="${CHART_DIR}/ci/default-values.yaml"
+          k() { kubectl exec gate-client -- "$@"; }
+          served() { # $1 url: the upstream's own body comes back through APISIX
+            for i in $(seq 1 45); do
+              body="$(k curl -sS "$1" || true)"
+              case "$body" in *"Welcome to nginx"*) return 0 ;; esac
+              sleep 2
+            done
+            echo "FAIL: $1 did not reach the upstream: ${body:0:200}"; return 1
+          }
+          route='{"uri":"/get","plugins":{"proxy-rewrite":{"uri":"/"}},"upstream":{"type":"roundrobin","nodes":{"gate-upstream:80":1}}}'
+
+          # Hybrid: the control plane owns etcd and the Admin API, the data plane
+          # proxies what it reads from that etcd and runs no Admin API.
+          helm install cp "${CHART_DIR}" -f "$V" --set role=control_plane --wait --timeout 10m
+          helm install dp "${CHART_DIR}" -f "$V" --set role=data_plane --set etcd.enabled=false \
+            --set 'etcdClient.hosts={http://cp-etcd:2379}' --wait --timeout 10m
+          ports() { kubectl get svc "$1" -o jsonpath='{.spec.ports[*].name}'; }
+          case " $(ports cp-apisix) " in *" http "*) echo "FAIL: the control plane Service exposes the proxy"; exit 1 ;; esac
+          case " $(ports dp-apisix) " in *" admin "*) echo "FAIL: the data plane Service exposes the Admin API"; exit 1 ;; esac
+          test "$(kubectl get svc cp-apisix -o jsonpath='{.spec.type}')" = ClusterIP
+          if helm template x "${CHART_DIR}" -f "$V" --set role=control_plane --set service.type=LoadBalancer >/dev/null 2>&1; then
+            echo "FAIL: a LoadBalancer control plane rendered"; exit 1; fi
+          cpkey="$(kubectl get secret cp-apisix-admin -o jsonpath='{.data.admin-key}' | base64 -d)"
+          k curl -fsS -X PUT http://cp-apisix:9180/apisix/admin/routes/1 -H "X-API-KEY: ${cpkey}" -d "$route"
+          served http://dp-apisix:9080/get
+          echo "hybrid: route written through the control plane is served by the data plane"
+          kubectl delete pod -l app.kubernetes.io/instance=dp --wait
+          kubectl rollout status deployment/dp-apisix --timeout=300s
+          served http://dp-apisix:9080/get
+          echo "hybrid: a restarted data plane serves the route again from etcd"
+
+          # Standalone, file-driven: the route table comes from values, no etcd, no Admin API.
+          cat > /tmp/sa.yaml <<'YAML'
+          role: standalone
+          etcd: {enabled: false}
+          standalone:
+            mode: file
+            config:
+              routes:
+                - id: "1"
+                  uri: /get
+                  plugins: {proxy-rewrite: {uri: /}}
+                  upstream: {type: roundrobin, nodes: {"gate-upstream:80": 1}}
+          YAML
+          helm install sa "${CHART_DIR}" -f "$V" -f /tmp/sa.yaml --wait --timeout 10m
+          case " $(ports sa-apisix) " in *" admin "*) echo "FAIL: file standalone exposes an Admin API"; exit 1 ;; esac
+          if kubectl get statefulset sa-etcd >/dev/null 2>&1; then echo "FAIL: standalone installed etcd"; exit 1; fi
+          served http://sa-apisix:9080/get
+          echo "standalone file: route from values served with no etcd"
+
+          # Standalone, API-driven: the whole config is pushed into memory.
+          helm install sapi "${CHART_DIR}" -f "$V" --set role=standalone --set standalone.mode=api \
+            --set etcd.enabled=false --wait --timeout 10m
+          akey="$(kubectl get secret sapi-apisix-admin -o jsonpath='{.data.admin-key}' | base64 -d)"
+          # APISIX 3.19 refuses a push without X-Digest (400 "missing digest header"); it stores
+          # the value to tell when every worker has applied the config, so a body hash fits.
+          body="{\"routes\":[$(echo "$route" | sed 's/^{/{"id":"1",/')]}"
+          k curl -fsS -X PUT http://sapi-apisix:9180/apisix/admin/configs -H "X-API-KEY: ${akey}" \
+            -H "X-Digest: $(printf %s "$body" | sha256sum | cut -d' ' -f1)" -H 'Content-Type: application/json' -d "$body"
+          served http://sapi-apisix:9080/get
+          echo "standalone api: config pushed through the Admin API is served"
+
+          restarts="$(kubectl get pods -o jsonpath='{range .items[*]}{.status.containerStatuses[*].restartCount}{"\n"}{end}' | tr -d '\n' | tr -s ' ')"
+          case "$restarts" in *[1-9]*) kubectl get pods; echo "FAIL: a container restarted"; exit 1 ;; esac
+
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

@@ -5,7 +5,9 @@
 {{- $handler := dict "httpGet" (dict "path" "/v1/healthcheck" "port" "control") -}}
 {{- $liveness := merge (dict "initialDelaySeconds" 15 "periodSeconds" 20 "failureThreshold" 6) (deepCopy $handler) -}}
 {{- $readiness := merge (dict "initialDelaySeconds" 5 "periodSeconds" 10 "failureThreshold" 6) (deepCopy $handler) -}}
-{{- $etcdHosts := include "apisix.etcdHosts" . | fromJsonArray -}}
+{{- $adminOn := include "apisix.adminOn" . -}}
+{{- $proxies := include "apisix.proxies" . -}}
+{{- $standaloneFile := and (eq .Values.role "standalone") (eq .Values.standalone.mode "file") -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -28,7 +30,7 @@ spec:
       annotations:
         # Roll the pods when the rendered config.yaml changes; APISIX only reads it
         # at startup.
-        checksum/config: {{ include "apisix.configYaml" . | sha256sum }}
+        checksum/config: {{ print (include "apisix.configYaml" .) ($standaloneFile | ternary (include "apisix.standaloneYaml" .) "") | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -40,7 +42,10 @@ spec:
       securityContext:
         {{- include "quench-common.podSecurityContext" . | nindent 8 }}
       {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if or (include "apisix.usesEtcd" .) .Values.initContainers }}
       initContainers:
+        {{- if include "apisix.usesEtcd" . }}
+        {{- $etcdHosts := include "apisix.etcdHosts" . | fromJsonArray }}
         # `apisix init_etcd` talks to etcd before the gateway starts and exits when
         # it cannot, so without this the pod CrashLoopBackOffs its way through the
         # store's own startup. Helm installs Deployments before StatefulSets, so on
@@ -70,9 +75,11 @@ spec:
               {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+        {{- end }}
         {{- with .Values.initContainers }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
+      {{- end }}
       containers:
         - name: apisix
           image: {{ include "quench-common.image" . }}
@@ -83,10 +90,10 @@ spec:
           {{- include "quench-common.args" . | nindent 10 }}
           env:
             # The image is standalone (file-driven) by default; "false" is what makes
-            # the entrypoint also run `apisix init_etcd` for the etcd-backed topology.
+            # the entrypoint also run `apisix init_etcd` for the etcd-backed roles.
             - name: APISIX_STAND_ALONE
-              value: "false"
-            {{- if .Values.admin.enabled }}
+              value: {{ include "apisix.usesEtcd" . | empty | toString | quote }}
+            {{- if $adminOn }}
             # config.yaml carries ${{ "{{" }}APISIX_ADMIN_KEY{{ "}}" }}, which APISIX interpolates from
             # the environment, so the key never lands in a ConfigMap.
             - name: APISIX_ADMIN_KEY
@@ -98,15 +105,17 @@ spec:
             {{- include "quench-common.extraEnvVars" . | nindent 12 }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
+            {{- if $proxies }}
             - name: http
               containerPort: {{ .Values.containerPorts.http }}
               protocol: TCP
-            {{- if .Values.tls.enabled }}
+            {{- end }}
+            {{- if and $proxies .Values.tls.enabled }}
             - name: https
               containerPort: {{ .Values.containerPorts.https }}
               protocol: TCP
             {{- end }}
-            {{- if .Values.admin.enabled }}
+            {{- if $adminOn }}
             - name: admin
               containerPort: {{ .Values.containerPorts.admin }}
               protocol: TCP
@@ -147,6 +156,17 @@ spec:
               mountPath: /usr/local/apisix/conf/config.yaml
               subPath: config.yaml
               readOnly: true
+            {{- if $standaloneFile }}
+            - name: config
+              mountPath: /usr/local/apisix/conf/apisix.yaml
+              subPath: apisix.yaml
+              readOnly: true
+            {{- end }}
+            {{- if and (include "apisix.usesEtcd" .) .Values.etcdClient.tls.existingSecret }}
+            - name: etcd-tls
+              mountPath: /etc/apisix/etcd-tls
+              readOnly: true
+            {{- end }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -159,4 +179,9 @@ spec:
         - name: config
           configMap:
             name: {{ include "apisix.configMapName" . }}
+        {{- if and (include "apisix.usesEtcd" .) .Values.etcdClient.tls.existingSecret }}
+        - name: etcd-tls
+          secret:
+            secretName: {{ .Values.etcdClient.tls.existingSecret }}
+        {{- end }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

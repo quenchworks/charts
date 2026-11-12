@@ -7,17 +7,19 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
+    {{- if include "apisix.proxies" . }}
     - name: http
       port: {{ .Values.service.port }}
       targetPort: http
       protocol: TCP
-    {{- if .Values.tls.enabled }}
+    {{- end }}
+    {{- if and (include "apisix.proxies" .) .Values.tls.enabled }}
     - name: https
       port: {{ .Values.service.httpsPort }}
       targetPort: https
       protocol: TCP
     {{- end }}
-    {{- if .Values.admin.enabled }}
+    {{- if include "apisix.adminOn" . }}
     - name: admin
       port: {{ .Values.service.adminPort }}
       targetPort: admin

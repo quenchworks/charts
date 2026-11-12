@@ -7,6 +7,32 @@ image:
 
 nameOverride: ""
 
+# Deployment role. One chart covers every APISIX topology:
+#   traditional    one Deployment that proxies AND serves the Admin API, both on etcd (the default).
+#   control_plane  hybrid/decoupled: Admin API only, writes to etcd, never proxies. The Service
+#                  stays ClusterIP (the chart refuses anything else) so the Admin API is never
+#                  exposed. Install it with the bundled etcd.
+#   data_plane     hybrid/decoupled: proxies only, reads the control plane's etcd, Admin API off.
+#                  Set etcd.enabled=false and etcdClient.hosts to the control plane's etcd;
+#                  this release usually owns the LoadBalancer (service.type).
+#   standalone     no etcd at all (etcd.enabled=false). See `standalone` below.
+role: traditional
+
+# Only read when role=standalone. APISIX has no other database: standalone keeps the
+# whole config in conf/apisix.yaml or in memory.
+standalone:
+  # file: routes come from `config` below, rendered into conf/apisix.yaml. A
+  #       `helm upgrade` that changes them rolls the pods. GitOps-friendly, no Admin API.
+  # api:  routes live in memory and are replaced whole through the Admin API
+  #       (PUT /apisix/admin/configs, X-API-KEY). This is what apisix-ingress-controller
+  #       2.x drives. Every pod holds its own copy and a restarted pod starts EMPTY until
+  #       the controller (or you) pushes again; the chart warns in NOTES.
+  mode: file
+  # The apisix.yaml content for mode=file: routes, upstreams, services, ssls,
+  # global_rules, plugin_configs, consumers, ... (APISIX's own schema).
+  config:
+    routes: []
+
 # APISIX keeps every route, upstream and plugin config in etcd, so the gateway
 # pods hold no state of their own: this is a Deployment and it scales
 # horizontally. All replicas watch the same etcd prefix.
@@ -28,6 +54,17 @@ etcdClient:
   prefix: /apisix
   # Seconds APISIX waits on an etcd call.
   timeout: 30
+  # Client TLS to etcd (use https:// hosts). The Secret uses cert-manager's
+  # Certificate layout: tls.crt + tls.key (the client certificate, for etcd's
+  # --client-cert-auth) and ca.crt (the CA etcd's server certificate chains to).
+  tls:
+    existingSecret: ""
+    # Check etcd's server certificate against ca.crt. Keep it on.
+    verify: true
+    # Server name sent in the handshake and checked against etcd's certificate.
+    # Set it explicitly: left empty, APISIX fails the handshake
+    # ("SSL_set_tlsext_host_name failed"), the Admin API answers 503 and nothing syncs.
+    sni: ""
 
 # Admin API (the REST interface that writes routes/upstreams into etcd).
 admin:

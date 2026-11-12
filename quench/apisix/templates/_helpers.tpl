@@ -17,6 +17,55 @@
 {{- end -}}
 
 {{/*
+Role checks. Every template asks these instead of reading .Values.role itself, so
+the rules live in one place. "true" or empty, for use in `if`.
+*/}}
+{{- define "apisix.validate" -}}
+{{- $role := .Values.role -}}
+{{- if not (has $role (list "traditional" "control_plane" "data_plane" "standalone")) -}}
+{{- fail (printf "role must be traditional, control_plane, data_plane or standalone, not %q" $role) -}}
+{{- end -}}
+{{- if and (eq $role "standalone") (not (has .Values.standalone.mode (list "file" "api"))) -}}
+{{- fail (printf "standalone.mode must be file or api, not %q" .Values.standalone.mode) -}}
+{{- end -}}
+{{- if and (has $role (list "data_plane" "standalone")) .Values.etcd.enabled -}}
+{{- fail (printf "role=%s runs no etcd of its own: set etcd.enabled=false (a data plane reads the control plane's etcd through etcdClient.hosts)" $role) -}}
+{{- end -}}
+{{- if and (eq $role "control_plane") (ne .Values.service.type "ClusterIP") -}}
+{{- fail "role=control_plane keeps the Admin API inside the cluster: service.type must be ClusterIP (put the LoadBalancer on the data plane release)" -}}
+{{- end -}}
+{{- if and (eq $role "control_plane") .Values.ingress.enabled -}}
+{{- fail "role=control_plane does not proxy: ingress.enabled belongs on a data plane or traditional release" -}}
+{{- end -}}
+{{- if and (or (eq $role "control_plane") (and (eq $role "standalone") (eq .Values.standalone.mode "api"))) (not .Values.admin.enabled) -}}
+{{- fail (printf "role=%s is driven through the Admin API: keep admin.enabled=true" $role) -}}
+{{- end -}}
+{{- if and .Values.etcdClient.tls.existingSecret .Values.etcdClient.tls.verify (not .Values.etcdClient.tls.sni) -}}
+{{- fail "etcdClient.tls.sni is required with verify=true: APISIX sends no server name otherwise and every etcd handshake fails" -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "apisix.usesEtcd" -}}
+{{- if ne .Values.role "standalone" }}true{{ end -}}
+{{- end -}}
+
+{{- define "apisix.proxies" -}}
+{{- if ne .Values.role "control_plane" }}true{{ end -}}
+{{- end -}}
+
+{{/* data_plane cannot run the Admin API (APISIX rejects the config), and file-driven
+     standalone has nothing for it to write to. */}}
+{{- define "apisix.adminOn" -}}
+{{- if and .Values.admin.enabled (not (eq .Values.role "data_plane")) (not (and (eq .Values.role "standalone") (eq .Values.standalone.mode "file"))) }}true{{ end -}}
+{{- end -}}
+
+{{/* conf/apisix.yaml for file-driven standalone. APISIX refuses the file without #END. */}}
+{{- define "apisix.standaloneYaml" -}}
+{{- toYaml (.Values.standalone.config | default dict) }}
+#END
+{{- end -}}
+
+{{/*
 etcd client URLs. The bundled subchart wins when it is on -- its Service is
 "<release>-etcd", the same shape argocd uses for its bundled Redis.
 */}}
@@ -44,15 +93,34 @@ read-only conf.default/ and then runs `apisix init`.
       "control" (dict "ip" "0.0.0.0" "port" $cp.control)
       "ssl" (dict "enable" .Values.tls.enabled "listen" (list (dict "port" $cp.https)))
 -}}
-{{- $deployment := dict
-      "role" "traditional"
-      "role_traditional" (dict "config_provider" "etcd")
-      "etcd" (dict
-        "host" (include "apisix.etcdHosts" . | fromJsonArray)
-        "prefix" .Values.etcdClient.prefix
-        "timeout" .Values.etcdClient.timeout)
--}}
-{{- if .Values.admin.enabled -}}
+{{- $role := .Values.role -}}
+{{- $deployment := dict -}}
+{{- if eq $role "standalone" -}}
+{{/* file: APISIX's data_plane role on yaml is its file-driven standalone mode.
+     api: traditional on yaml keeps the Admin API, and its /apisix/admin/configs
+     endpoint replaces the in-memory config whole. */}}
+{{- $r := ternary "data_plane" "traditional" (eq .Values.standalone.mode "file") -}}
+{{- $_ := set $deployment "role" $r -}}
+{{- $_ := set $deployment (printf "role_%s" $r) (dict "config_provider" "yaml") -}}
+{{- else -}}
+{{- $_ := set $deployment "role" $role -}}
+{{- $_ := set $deployment (printf "role_%s" $role) (dict "config_provider" "etcd") -}}
+{{- $etcd := dict
+      "host" (include "apisix.etcdHosts" . | fromJsonArray)
+      "prefix" .Values.etcdClient.prefix
+      "timeout" .Values.etcdClient.timeout -}}
+{{- with .Values.etcdClient.tls -}}
+{{- if .existingSecret -}}
+{{- $tls := dict "cert" "/etc/apisix/etcd-tls/tls.crt" "key" "/etc/apisix/etcd-tls/tls.key" "verify" .verify -}}
+{{- if .sni }}{{ $_ := set $tls "sni" .sni }}{{ end -}}
+{{- $_ := set $etcd "tls" $tls -}}
+{{/* APISIX checks etcd's server certificate against its global trust store. */}}
+{{- $_ := set $apisix.ssl "ssl_trusted_certificate" "/etc/apisix/etcd-tls/ca.crt" -}}
+{{- end -}}
+{{- end -}}
+{{- $_ := set $deployment "etcd" $etcd -}}
+{{- end -}}
+{{- if include "apisix.adminOn" . -}}
 {{/* APISIX interpolates ${{VAR}} out of the environment when it loads config.yaml,
      so the key itself stays in a Secret and never lands in a ConfigMap. */}}
 {{- $keyRef := printf "$%sAPISIX_ADMIN_KEY%s" "{{" "}}" -}}

@@ -1,3 +1,4 @@
+{{- include "apisix.validate" . -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -10,3 +11,8 @@ data:
   # wins and everything else (mime.types, the cert templates, ...) is filled in.
   config.yaml: |-
     {{- include "apisix.configYaml" . | nindent 4 }}
+  {{- if and (eq .Values.role "standalone") (eq .Values.standalone.mode "file") }}
+  # Mounted over conf/apisix.yaml: the whole route table of a file-driven standalone gateway.
+  apisix.yaml: |-
+    {{- include "apisix.standaloneYaml" . | nindent 4 }}
+  {{- end }}
