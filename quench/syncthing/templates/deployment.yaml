@@ -1,0 +1,113 @@
+{{- $scheme := include "syncthing.scheme" . | upper -}}
+{{- $probe := dict "httpGet" (dict "path" "/rest/noauth/health" "port" "gui" "scheme" $scheme) "periodSeconds" 10 "timeoutSeconds" 5 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  # One Syncthing instance per volume: its database and device key live there.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # the GUI credentials are written into config.xml by the init container: a change rolls the pod
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        # Creates the device key and config on first start, and sets the GUI user and password on
+        # every start (bcrypt-hashed into config.xml), so the Secret stays the source of truth.
+        - name: generate
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: [/usr/bin/syncthing, generate, --no-port-probing, --gui-user={{ .Values.gui.user }}, --gui-password=$(GUI_PASSWORD)]
+          env:
+            - name: GUI_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "syncthing.secretName" . }}
+                  key: password
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 500m, memory: 128Mi }
+          volumeMounts:
+            - { name: data, mountPath: /var/syncthing }
+            - { name: tmp, mountPath: /tmp }
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: syncthing
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - { name: STGUIADDRESS, value: "{{ include "syncthing.scheme" . }}://0.0.0.0:8384" }
+            - name: STGUIAPIKEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "syncthing.secretName" . }}
+                  key: api-key
+            {{- range $k, $v := .Values.settings }}
+            - { name: {{ $k }}, value: {{ $v | quote }} }
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            {{- range (include "syncthing.ports" . | fromJsonArray) }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ .protocol }}
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # config, device key, database and the default folder location
+            - { name: data, mountPath: /var/syncthing }
+            - { name: tmp, mountPath: /tmp }
+            {{- if $tls }}
+            # Syncthing serves the GUI with the certificate it finds in its config dir
+            - { name: tls, mountPath: /var/syncthing/config/https-cert.pem, subPath: tls.crt, readOnly: true }
+            - { name: tls, mountPath: /var/syncthing/config/https-key.pem, subPath: tls.key, readOnly: true }
+            {{- end }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "syncthing.pvcName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

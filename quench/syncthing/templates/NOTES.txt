@@ -1,0 +1,12 @@
+Syncthing is on {{ include "quench-common.fullname" . }}:{{ .Values.service.guiPort }} (GUI and REST API, {{ include "syncthing.scheme" . }}).
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8384:{{ .Values.service.guiPort }}
+  open {{ include "syncthing.scheme" . }}://localhost:8384
+
+Log in as "{{ .Values.gui.user }}" with the password, or call the REST API with the key (X-API-Key), from:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "syncthing.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "syncthing.secretName" . }} -o jsonpath='{.data.api-key}' | base64 -d
+
+Peers connect to {{ include "quench-common.fullname" . }}-sync:{{ .Values.service.syncPort }} ({{ .Values.syncService.type }}).
+Folders default to /var/syncthing/<folder> on the volume.

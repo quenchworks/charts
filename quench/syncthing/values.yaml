@@ -1,0 +1,100 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/syncthing
+  digest: "sha256:89afe1cbf90dca2a816a096a098d5d134fb6425b49497da462afd43f23ec9771"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# GUI login and the REST API key (header X-API-Key). Empty password / apiKey: generated into the
+# Secret <fullname> (keys password, api-key) and kept across upgrades. The init container writes
+# the user and password into config.xml on every start.
+gui:
+  user: admin
+  password: ""
+  apiKey: ""
+  existingSecret: ""   # a Secret with keys "password" and "api-key" instead
+
+# More Syncthing settings as environment variables, e.g. STLOGLEVEL: DEBUG.
+# Folders and devices are configured in the GUI or over the REST API and kept in config.xml.
+settings: {}
+
+# /var/syncthing: config, device key, database and the synced folders (the default folder
+# location is /var/syncthing/<folder>). Size it for the data you sync.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 10Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  guiPort: 8384
+  syncPort: 22000
+  annotations: {}
+
+# The sync Service (22000 TCP + QUIC). LoadBalancer or NodePort lets peers outside the cluster
+# connect directly; otherwise Syncthing still reaches them through relays.
+syncService:
+  type: ClusterIP
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# HTTPS on the GUI and REST API (port 8384). Device-to-device sync is always TLS with the device
+# key. The first source set wins: existingSecret, then certManager, else a Helm-generated
+# self-signed CA + certificate (Secret <fullname>-tls, ca.crt for clients).
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

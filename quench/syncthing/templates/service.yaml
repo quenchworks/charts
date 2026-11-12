@@ -1,0 +1,39 @@
+{{- /* The GUI and REST API (keep it internal: put an Ingress or port-forward in front). */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  ports:
+    - { name: gui, port: {{ .Values.service.guiPort }}, targetPort: gui, protocol: TCP }
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+---
+{{- /* The sync protocol (always TLS between devices): expose this one to remote peers. */}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}-sync
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.syncService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.syncService.type }}
+  {{- with .Values.syncService.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
+  ports:
+    - { name: sync-tcp, port: {{ .Values.service.syncPort }}, targetPort: sync-tcp, protocol: TCP }
+    - { name: sync-quic, port: {{ .Values.service.syncPort }}, targetPort: sync-quic, protocol: UDP }
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
