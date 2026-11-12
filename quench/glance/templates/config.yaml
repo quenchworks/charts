@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # server.port is the chart's: the probes and Services depend on it.
+  glance.yml: |
+    {{- $cfg := deepCopy .Values.config }}
+    {{- $_ := set $cfg "server" (merge (dict "port" 8080) (omit ($cfg.server | default dict) "port")) }}
+    {{- toYaml $cfg | nindent 4 }}
+  {{- range $name, $body := .Values.extraConfigFiles }}
+  {{ $name }}: |
+    {{- $body | nindent 4 }}
+  {{- end }}
