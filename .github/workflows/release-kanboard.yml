@@ -61,7 +61,7 @@ jobs:
           # 1. The release's version through nginx + php-fpm, and the login page over HTTPS.
           v="$(rpc $B '{"jsonrpc":"2.0","id":1,"method":"getVersion"}' | res)"
           echo "version $v (want $want)"; test "${v#v}" = "$want"
-          curl -fsS -m 20 "${T[@]}" "$H/?controller=AuthController&action=login" | grep -qi password
+          grep -qi password <<<"$(curl -fsS -m 20 "${T[@]}" "$H/?controller=AuthController&action=login")"
 
           # 2. A wrong password is refused.
           code="$(curl -s -m 20 -o /dev/null -w '%{http_code}' -u admin:wrong -H 'Content-Type: application/json' $B/jsonrpc.php -d '{"jsonrpc":"2.0","id":1,"method":"getVersion"}')"

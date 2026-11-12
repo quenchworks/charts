@@ -92,7 +92,7 @@ jobs:
           kubectl port-forward pod/rtest-cratedb-0 14200:4200 15432:5432 >/tmp/pftls.log 2>&1 &
           pf=$!; sleep 5
           for i in $(seq 1 30); do curl -fs --cacert /tmp/ca.crt -o /dev/null https://localhost:14200/ && break; sleep 2; done
-          curl -fsS --cacert /tmp/ca.crt https://localhost:14200/ | grep -q "\"number\" *: *\"$want\""
+          grep -q "\"number\" *: *\"$want\"" <<<"$(curl -fsS --cacert /tmp/ca.crt https://localhost:14200/)"
           if curl -s -m 10 -o /dev/null http://127.0.0.1:14200/; then echo "plain HTTP answered on 4200"; exit 1; fi
           out="$(openssl s_client -connect 127.0.0.1:15432 -starttls postgres -servername localhost -CAfile /tmp/ca.crt </dev/null 2>&1 || true)"
           grep -q 'Verify return code: 0 (ok)' <<<"$out"

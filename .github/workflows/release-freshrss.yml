@@ -60,14 +60,14 @@ jobs:
           # 1. The release's version, the web UI over HTTPS with the chart CA, the refresh sidecar running.
           v="$(kubectl exec deploy/rtest-freshrss -c freshrss -- php -r 'require "constants.php"; echo FRESHRSS_VERSION;')"
           echo "version $v (want $want)"; test "$v" = "$want"
-          curl -fsS -m 20 "${T[@]}" "$H/i/" | grep -qi freshrss
+          grep -qi freshrss <<<"$(curl -fsS -m 20 "${T[@]}" "$H/i/")"
           test "$(kubectl get pod -l app.kubernetes.io/instance=rtest -o jsonpath='{.items[0].status.containerStatuses[?(@.name=="refresh")].ready}')" = true
 
           # 2. The Google Reader API takes the Secret's API password and refuses a wrong one.
           code="$(login $B wrong)"; echo "wrong API password: $code"; test "$code" = 401 -o "$code" = 403
           code="$(login $H "$api" "${T[@]}")"; echo "API login over HTTPS: $code"; test "$code" = 200
           tok="$(sed -n 's/^Auth=//p' /tmp/login.txt)"; test -n "$tok"
-          curl -fsS -m 20 -H "Authorization: GoogleLogin auth=$tok" "$B/api/greader.php/reader/api/0/tag/list?output=json" | grep -q reading-list
+          grep -q reading-list <<<"$(curl -fsS -m 20 -H "Authorization: GoogleLogin auth=$tok" "$B/api/greader.php/reader/api/0/tag/list?output=json")"
 
           # 3. A new API password through helm upgrade: the init container applies it, the old one stops working.
           kill $pf 2>/dev/null || true

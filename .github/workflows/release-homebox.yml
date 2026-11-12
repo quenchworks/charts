@@ -68,7 +68,7 @@ jobs:
           echo "wrong password: $code"; test "$code" = 401 -o "$code" = 403
           tok="$(login)"
           curl -fsS -m 20 -H "Authorization: $tok" "${J[@]}" $B/api/v1/entities -d '{"name":"quench-gate-item"}' >/dev/null
-          curl -fsS -m 20 -H "Authorization: $tok" "${T[@]}" "$H/api/v1/entities?q=quench-gate-item" | grep -q quench-gate-item
+          grep -q quench-gate-item <<<"$(curl -fsS -m 20 -H "Authorization: $tok" "${T[@]}" "$H/api/v1/entities?q=quench-gate-item")"
           echo "item created, found over HTTPS"
 
           # 3. Close registration through helm upgrade; the item survives the new pod (SQLite on the PVC).
@@ -79,7 +79,7 @@ jobs:
           fwd
           for i in $(seq 1 30); do curl -fsS -m 10 $B/api/v1/status >/dev/null 2>&1 && break; sleep 2; done
           tok="$(login)"
-          curl -fsS -m 20 -H "Authorization: $tok" "$B/api/v1/entities?q=quench-gate-item" | grep -q quench-gate-item
+          grep -q quench-gate-item <<<"$(curl -fsS -m 20 -H "Authorization: $tok" "$B/api/v1/entities?q=quench-gate-item")"
           code="$(curl -s -m 20 -o /dev/null -w '%{http_code}' "${J[@]}" $B/api/v1/users/register -d '{"name":"Late","email":"late@quench.test","password":"late-pass-2026"}')"
           echo "registration after closing: $code"; test "$code" != 200 -a "$code" != 201 -a "$code" != 204
           echo "item kept across the upgrade, registration closed"

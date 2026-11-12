@@ -62,7 +62,7 @@ jobs:
           echo "rendered: marker and monitor up"
 
           # 2. The same over HTTPS with the chart CA.
-          curl -fsS -m 20 "${T[@]}" $H/api/pages/home/content/ | grep -q quench-gate-marker
+          grep -q quench-gate-marker <<<"$(curl -fsS -m 20 "${T[@]}" $H/api/pages/home/content/)"
           echo "HTTPS ok"
 
           # 3. A config change through helm upgrade shows up (the checksum rolls the pod).
@@ -72,7 +72,7 @@ jobs:
           kubectl rollout status deployment/rtest-glance --timeout=300s
           fwd
           for i in $(seq 1 30); do curl -fsS -m 10 $B/api/pages/home/content/ 2>/dev/null | grep -q quench-gate-upgraded && break; sleep 2; done
-          curl -fsS -m 20 $B/api/pages/home/content/ | grep -q quench-gate-upgraded
+          grep -q quench-gate-upgraded <<<"$(curl -fsS -m 20 $B/api/pages/home/content/)"
           echo "upgrade applied the new config"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",

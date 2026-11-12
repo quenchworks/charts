@@ -88,7 +88,7 @@ jobs:
           for i in $(seq 1 30); do grep -q 'Forwarding from 127.0.0.1:8443' /tmp/pftls.log && break; sleep 1; done
           T=https://localhost:8443
           for i in $(seq 1 30); do curl -fsS -m 20 --cacert /tmp/ca.crt $T/api/health >/dev/null 2>&1 && break; sleep 2; done
-          curl -fsS -m 20 --cacert /tmp/ca.crt -H "X-Metabase-Session: $sid" $T/api/user/current | grep -q 'gate@quench.test'
+          grep -q 'gate@quench.test' <<<"$(curl -fsS -m 20 --cacert /tmp/ca.crt -H "X-Metabase-Session: $sid" $T/api/user/current)"
           if curl -s -m 10 -o /dev/null http://127.0.0.1:8443/api/health; then echo "plain HTTP answered on 8443"; exit 1; fi
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",

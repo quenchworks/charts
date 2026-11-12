@@ -58,7 +58,7 @@ jobs:
           kubectl get secret rtest-envoy-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
           kubectl port-forward svc/rtest-envoy 10000:10000 >/tmp/pftls.log 2>&1 &
           pf=$!; sleep 5
-          curl -fsS --cacert /tmp/ca.crt --resolve rtest-envoy:10000:127.0.0.1 https://rtest-envoy:10000/ | grep -q 'Envoy is ready'
+          grep -q 'Envoy is ready' <<<"$(curl -fsS --cacert /tmp/ca.crt --resolve rtest-envoy:10000:127.0.0.1 https://rtest-envoy:10000/)"
           if curl -fsS -m 10 -o /dev/null http://127.0.0.1:10000/; then
             echo "::error::plain HTTP still served on 10000"; exit 1
           fi

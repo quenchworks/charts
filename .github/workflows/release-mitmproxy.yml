@@ -68,7 +68,7 @@ jobs:
           code="$(curl -sS -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:8081/flows)"
           [ "$code" = 403 ] || { echo "/flows without the password returned $code"; exit 1; }
           pw="$(kubectl get secret rtest-mitmproxy-web -o jsonpath='{.data.password}' | base64 -d)"
-          curl -fsS -m 10 -H "Authorization: Bearer $pw" http://127.0.0.1:8081/flows | grep -q '"path": *"/livez"'
+          grep -q '"path": *"/livez"' <<<"$(curl -fsS -m 10 -H "Authorization: Bearer $pw" http://127.0.0.1:8081/flows)"
           kubectl logs deployment/rtest-mitmproxy > /tmp/mitm.log
           if grep -qiE 'Traceback|Permission denied|Read-only file system' /tmp/mitm.log; then
             cat /tmp/mitm.log; exit 1

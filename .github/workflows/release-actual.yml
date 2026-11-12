@@ -60,17 +60,17 @@ jobs:
           curl -f "${C[@]}" "$H/health" >/dev/null
           v="$(kubectl exec deploy/rtest-actual -- node -p 'require("/app/node_modules/@actual-app/sync-server/package.json").version')"
           echo "version $v (want $want)"; test "$v" = "$want"
-          curl -f "${C[@]}" "$H/" | grep -qi '<html'
+          grep -qi '<html' <<<"$(curl -f "${C[@]}" "$H/")"
 
           # 2. Set the server password, refuse a wrong one, log in.
           curl -f "${C[@]}" "${J[@]}" "$H/account/bootstrap" -d '{"password":"gate-pass-2026"}' >/dev/null
-          curl "${C[@]}" "${J[@]}" "$H/account/login" -d '{"loginMethod":"password","password":"wrong"}' | grep -q '"status":"error"'
+          grep -q '"status":"error"' <<<"$(curl "${C[@]}" "${J[@]}" "$H/account/login" -d '{"loginMethod":"password","password":"wrong"}')"
           tok="$(login)"; test -n "$tok"
 
           # 3. Upload a budget file and list it.
           curl -f "${C[@]}" -H "x-actual-token: $tok" -H 'Content-Type: application/encrypted-file' -H 'x-actual-file-id: quench-gate-file' \
             -H 'x-actual-name: quench-gate' -H 'x-actual-format: 2' --data-binary 'quench-gate-budget' "$H/sync/upload-user-file" >/dev/null
-          curl -f "${C[@]}" -H "x-actual-token: $tok" "$H/sync/list-user-files" | grep -q quench-gate
+          grep -q quench-gate <<<"$(curl -f "${C[@]}" -H "x-actual-token: $tok" "$H/sync/list-user-files")"
           echo "bootstrapped, wrong password refused, budget file synced"
 
           # 4. A settings change through helm upgrade rolls the pod; password and file are still there.
@@ -79,7 +79,7 @@ jobs:
           kubectl rollout status deployment/rtest-actual --timeout=300s
           fwd
           for i in $(seq 1 30); do curl -f "${C[@]}" "$H/health" >/dev/null 2>&1 && break; sleep 2; done
-          curl -f "${C[@]}" -H "x-actual-token: $(login)" "$H/sync/list-user-files" | grep -q quench-gate
+          grep -q quench-gate <<<"$(curl -f "${C[@]}" -H "x-actual-token: $(login)" "$H/sync/list-user-files")"
           echo "password and budget file kept across the upgrade"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
