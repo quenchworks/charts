@@ -1,0 +1,86 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/dnscrypt-proxy
+  digest: "sha256:3d4663576d1a97cbe8b13565481769b82af6f09728d53ae598206bc554956bc1"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Each replica is an independent proxy with the same config (no shared cache).
+replicaCount: 1
+
+# dnscrypt-proxy.toml (https://github.com/DNSCrypt/dnscrypt-proxy/wiki/Configuration), as
+# YAML; the chart renders it as TOML. The chart owns listen_addresses (5353); anything else
+# goes to dnscrypt-proxy unchanged. The default uses two static DNS-over-HTTPS upstreams
+# (stamps from the public-resolvers list), so it needs no resolver-list download or cache dir.
+config:
+  server_names: [cloudflare, quad9]
+  require_dnssec: false
+  require_nolog: false
+  require_nofilter: false
+  cache: true
+  cache_size: 4096
+  static:
+    cloudflare:
+      stamp: sdns://AgcAAAAAAAAABzEuMC4wLjEAEmRucy5jbG91ZGZsYXJlLmNvbQovZG5zLXF1ZXJ5
+    quad9:
+      stamp: sdns://AgMAAAAAAAAABzkuOS45LjkgsBkgdEu7dsmrBT4B4Ht-BQ5HPSD3n3vqQ1-v5DydJC8SZG5zOS5xdWFkOS5uZXQ6NDQzCi9kbnMtcXVlcnk
+
+# Rule files, mounted at /etc/dnscrypt-proxy/<name>: point the config at them, e.g.
+#   config: { cloaking_rules: /etc/dnscrypt-proxy/cloaking.txt }
+#   files: { cloaking.txt: "printer.lan 10.0.0.20" }
+files: {}
+
+# Extra `dnscrypt-proxy` arguments (the config path is fixed).
+extraArgs: []
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: "1", memory: 256Mi }
+
+service:
+  type: ClusterIP
+  dnsPort: 53       # published on UDP and TCP; the container listens on 5353 (nonroot)
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
