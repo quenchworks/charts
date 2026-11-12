@@ -1,0 +1,144 @@
+{{/* /api/heartbeat answers once the server is up; start-docker.sh migrates the database first,
+     which the startup probe allows (10 minutes). */}}
+{{- $hc := dict "httpGet" (dict "path" "/api/heartbeat" "port" "http") -}}
+{{- $liveness := merge (dict "periodSeconds" 20 "timeoutSeconds" 5 "failureThreshold" 6) (deepCopy $hc) -}}
+{{- $readiness := merge (dict "periodSeconds" 10 "timeoutSeconds" 5) (deepCopy $hc) -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- if $tls }}
+        checksum/proxy: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "umami.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- if or .Values.waitForDatabase.enabled .Values.initContainers }}
+      initContainers:
+        {{- if .Values.waitForDatabase.enabled }}
+        - name: wait-for-database
+          image: "{{ .Values.waitForDatabase.image.repository }}@{{ .Values.waitForDatabase.image.digest }}"
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/bin/sh", "-c", "until pg_isready -h \"$DB_HOST\" -p \"$DB_PORT\" -t 3; do echo waiting for $DB_HOST:$DB_PORT; sleep 3; done"]
+          env:
+            - { name: DB_HOST, value: {{ include "umami.db.host" . | quote }} }
+            - { name: DB_PORT, value: {{ include "umami.db.port" . | quote }} }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+        {{- end }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: umami
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "umami.db.secretName" . }}
+                  key: {{ include "umami.db.secretKey" . }}
+            # The password goes into the URL as is: keep it URL-safe (generated ones are).
+            - name: DATABASE_URL
+              value: {{ printf "postgresql://%s:$(DB_PASSWORD)@%s:%s/%s?sslmode=%s" (include "umami.db.user" .) (include "umami.db.host" .) (include "umami.db.port" .) (include "umami.db.name" .) (include "umami.db.sslMode" .) | quote }}
+            - name: APP_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "umami.appSecretName" . }}
+                  key: {{ .Values.appSecret.existingSecretKey }}
+            {{- range $k, $v := .Values.settings }}
+            - { name: {{ $k }}, value: {{ $v | quote }} }
+            {{- end }}
+            {{- with .Values.extraEnvVars }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+            {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          startupProbe:
+            {{- if .Values.customStartupProbe }}
+            {{- toYaml .Values.customStartupProbe | nindent 12 }}
+            {{- else }}
+            httpGet: { path: /api/heartbeat, port: http }
+            periodSeconds: 5
+            failureThreshold: 120
+            {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # Next.js writes its image cache under .next/cache; the root stays read-only.
+            - { name: tmp, mountPath: /tmp }
+            - { name: next-cache, mountPath: /app/.next/cache }
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- if $tls }}
+        - name: tls-proxy
+          image: "{{ .Values.proxy.image.repository }}@{{ .Values.proxy.image.digest }}"
+          imagePullPolicy: IfNotPresent
+          command: [/usr/bin/caddy, run, --config, /etc/caddy/Caddyfile, --adapter, caddyfile]
+          env:
+            - { name: XDG_CONFIG_HOME, value: /tmp }
+            - { name: XDG_DATA_HOME, value: /tmp }
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - { name: https, containerPort: 3443, protocol: TCP }
+          readinessProbe:
+            tcpSocket: { port: https }
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.proxy.resources | nindent 12 }}
+          volumeMounts:
+            - { name: proxy-config, mountPath: /etc/caddy/Caddyfile, subPath: Caddyfile, readOnly: true }
+            - { name: proxy-tmp, mountPath: /tmp }
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+        {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: next-cache
+          emptyDir: {}
+        {{- if $tls }}
+        - name: proxy-config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-proxy
+        - name: proxy-tmp
+          emptyDir: {}
+        {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

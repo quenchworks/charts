@@ -1,0 +1,20 @@
+{{- if include "quench-common.tls.enabled" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-proxy
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  # HTTPS on 3443 in front of Umami's plain-HTTP server on localhost:3000.
+  Caddyfile: |
+    {
+      admin off
+      auto_https off
+      persist_config off
+    }
+    :3443 {
+      tls /tls/tls.crt /tls/tls.key
+      reverse_proxy 127.0.0.1:3000
+    }
+{{- end }}

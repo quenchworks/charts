@@ -1,0 +1,17 @@
+Quenchworks Umami is installed as {{ include "quench-common.fullname" . }}.
+
+  kubectl port-forward svc/{{ include "quench-common.fullname" . }} 3000:{{ .Values.service.port }}
+  open http://localhost:3000     # log in as admin / umami and change the password right away
+{{- if include "quench-common.tls.enabled" . }}
+
+HTTPS is served on Service port {{ .Values.service.httpsPort }} by the TLS sidecar.
+{{- end }}
+
+Each start migrates the database first. Database: {{ if .Values.postgresql.enabled }}the bundled PostgreSQL ({{ .Release.Name }}-postgresql){{ else }}{{ .Values.externalDatabase.host }}:{{ .Values.externalDatabase.port }}{{ end }}.
+Add the tracker to a site: <script defer src="https://<your umami>/script.js" data-website-id="<id>"></script>
+
+The image is pinned by digest and signed. Verify it:
+
+  cosign verify ghcr.io/quenchworks/images/umami \
+    --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+    --certificate-oidc-issuer https://token.actions.githubusercontent.com

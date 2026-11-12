@@ -1,0 +1,140 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/umami
+  digest: "sha256:1cdc950c66015724beef8de13c9706e1a999ebb15e34d3e2697d6770ab1e91bd"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Umami is stateless (everything lives in PostgreSQL), so it scales out. Each pod runs
+# `prisma migrate deploy` on start; Prisma takes an advisory lock, so concurrent starts wait.
+replicaCount: 1
+
+# Signs login tokens and share links (APP_SECRET). Changing it logs everyone out. Empty: generated
+# once and kept across upgrades in the Secret <fullname> (app-secret). Or set it, or bring a Secret.
+appSecret:
+  value: ""
+  existingSecret: ""
+  existingSecretKey: app-secret
+
+# More Umami settings as environment variables (https://umami.is/docs/environment-variables),
+# e.g. TRACKER_SCRIPT_NAME: stats.js, DISABLE_TELEMETRY: "1", COLLECT_API_ENDPOINT, BASE_PATH.
+# The first login is admin / umami: change the password right away.
+settings:
+  DISABLE_TELEMETRY: "1"
+
+# --- DATABASE, mode 1 (default): the bundled PostgreSQL subchart. ---
+postgresql:
+  enabled: true
+  auth:
+    # username and database MUST differ: the bundled PostgreSQL only creates the
+    # application database when its name differs from the superuser's.
+    username: umamidb
+    password: ""              # generated if empty; in the Secret <release>-postgresql
+    database: umami
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- DATABASE, mode 2: external PostgreSQL (postgresql.enabled=false). ---
+externalDatabase:
+  host: ""
+  port: 5432
+  database: umami
+  username: umami
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: password
+  sslMode: prefer
+
+# Waits for the database before Umami starts, so the startup migration does not race a
+# PostgreSQL that is still initialising. Uses our postgresql image for pg_isready.
+waitForDatabase:
+  enabled: true
+  image:
+    repository: ghcr.io/quenchworks/images/postgresql
+    digest: "sha256:9c4478f8925ca6e4098ef00966036e933f93c54185b38281f74f5ab02208aa0b"
+
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 3000
+  # HTTPS Service port (to the TLS proxy's 3443), only with tls.enabled
+  httpsPort: 443
+
+# TLS: Umami's Next.js server speaks plain HTTP, so with tls.enabled a caddy sidecar terminates
+# HTTPS on 3443 and proxies to it over localhost (the probes keep HTTP on 3000). The certificate
+# comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate (Secret <fullname>-tls, ca.crt for clients).
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# The TLS sidecar (our caddy image, pinned by digest).
+proxy:
+  image:
+    repository: ghcr.io/quenchworks/images/caddy
+    digest: "sha256:6377c513134e78bd41fad0819c9d45830b1868398c1805a5b3ee8494f93072d7"
+  resources:
+    requests: { cpu: 10m, memory: 16Mi }
+    limits: { cpu: 500m, memory: 128Mi }
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
