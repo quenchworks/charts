@@ -1,0 +1,89 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/dagger
+  digest: "sha256:7de8d3fd3154d36fe4bf62636be2b47521a8db8af903f374f65c13417c07724b"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# One engine. More replicas are independent engines with separate caches; a
+# client connects to one pod by name (kube-pod://<pod>?namespace=<ns>).
+replicaCount: 1
+
+# The engine runs containers itself (runc, CNI, cgroup nesting, overlay mounts),
+# so it needs root and a privileged container, as upstream's engine does. Run it
+# on nodes you trust with that, and only let trusted clients reach it: anyone who
+# can exec into the pod can run any container on the node.
+podSecurityContext:
+  runAsNonRoot: false
+  runAsUser: 0
+  runAsGroup: 0
+  fsGroup: 0
+  seccompProfile:
+    type: Unconfined
+containerSecurityContext:
+  privileged: true
+  allowPrivilegeEscalation: true
+  readOnlyRootFilesystem: false
+
+# Extra flags for dagger-engine (for example --debug).
+extraArgs: []
+
+# engine.toml, mounted at /etc/dagger/engine.toml when set. See
+# https://docs.dagger.io/configuration/engine for the keys.
+config: ""
+#  [grpc]
+#  address = ["unix:///run/dagger/engine.sock"]
+
+# The engine's state: the build cache, images and per-client databases under
+# /var/lib/dagger. Off: an emptyDir, lost on every restart.
+persistence:
+  enabled: true
+  storageClass: ""
+  size: 50Gi
+  accessModes: ["ReadWriteOnce"]
+
+resources:
+  requests: { cpu: "1", memory: 2Gi }
+  limits: { cpu: "4", memory: 8Gi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+# The engine finishes running pipelines on SIGTERM before it exits.
+terminationGracePeriodSeconds: 300
+updateStrategy:
+  type: RollingUpdate
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+# The engine does not call the Kubernetes API, so the token is not mounted.
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: false
+
+# The engine listens only on its unix socket and clients reach it through the
+# Kubernetes API (exec), so the policy admits no ingress at all. Egress stays
+# open: pipelines pull images and modules.
+networkPolicy:
+  enabled: true
