@@ -1,0 +1,105 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/ghostunnel
+  digest: "sha256:0b2b21b4b453681c82ee76c470f7dcd7779c6b10199857a814267952457a22e6"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Each replica is an innameOverride: ""
+
+# Each replica is an independent proxy with the same certificates and policy.
+replicaCount: 1
+
+# The mTLS listener clients connect to.
+port: 8443
+# The plaintext service ghostunnel forwards accepted connections to (host:port). Required.
+target: ""
+
+# Which client certificates are let through, after their chain verifies against the client
+# CA. With the chart's generated client CA, its client certificate's CN is always allowed.
+allow:
+  all: false        # any certificate the client CA signed
+  cns: []           # --allow-cn
+  ous: []           # --allow-ou
+  dnsNames: []      # --allow-dns (SAN)
+  uris: []          # --allow-uri (SAN), e.g. SPIFFE IDs
+
+# CA that signs accepted client certificates. Empty existingSecret: the chart generates a CA
+# and one client certificate into the Secret <fullname>-client (ca.crt, tls.crt, tls.key),
+# kept across upgrades; mount it in the client. Otherwise a Secret with key ca.crt.
+clientCA:
+  existingSecret: ""
+  validityDays: 365
+
+# Plain-HTTP status and metrics (/_status, /_metrics), on its own port.
+status:
+  enabled: true
+  port: 6060
+
+# Extra `ghostunnel server` flags, e.g. --timed-reload=1h or --proxy-protocol.
+extraArgs: []
+
+# The server certificate on the listener; TLS is always on. The first source set wins:
+# existingSecret, then certManager, else a Helm-generated self-signed CA + certificate,
+# mounted at /tls. Clients verify it with that Secret's ca.crt.
+tls:
+  enabled: true
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: "1", memory: 256Mi }
+
+service:
+  type: ClusterIP
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

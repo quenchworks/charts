@@ -1,0 +1,106 @@
+{{- $probe := dict "tcpSocket" (dict "port" "tunnel") "initialDelaySeconds" 3 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/args: {{ toJson (list .Values.port .Values.target .Values.allow .Values.status .Values.extraArgs) | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: ghostunnel
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - server
+            - --listen=0.0.0.0:{{ .Values.port }}
+            - --target={{ required "target (host:port of the plaintext backend) is required" .Values.target }}
+            {{- if not (or (hasPrefix "localhost:" .Values.target) (hasPrefix "unix:" .Values.target)) }}
+            # ghostunnel refuses a target off the pod unless told; here the target is a Service
+            - --unsafe-target
+            {{- end }}
+            - --cert=/tls/tls.crt
+            - --key=/tls/tls.key
+            - --cacert=/client-ca/ca.crt
+            {{- if .Values.status.enabled }}
+            - --status=http://0.0.0.0:{{ .Values.status.port }}
+            {{- end }}
+            {{- if .Values.allow.all }}
+            - --allow-all
+            {{- else }}
+            {{- $cns := .Values.allow.cns }}
+            {{- if not .Values.clientCA.existingSecret }}{{ $cns = append $cns (include "ghostunnel.clientCN" .) }}{{ end }}
+            {{- range $cns }}
+            - --allow-cn={{ . }}
+            {{- end }}
+            {{- range .Values.allow.ous }}
+            - --allow-ou={{ . }}
+            {{- end }}
+            {{- range .Values.allow.dnsNames }}
+            - --allow-dns={{ . }}
+            {{- end }}
+            {{- range .Values.allow.uris }}
+            - --allow-uri={{ . }}
+            {{- end }}
+            {{- end }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            {{- range (include "ghostunnel.ports" . | fromJsonArray) }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ .protocol }}
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: client-ca
+              mountPath: /client-ca
+              readOnly: true
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: client-ca
+          secret:
+            secretName: {{ include "ghostunnel.clientCASecret" . }}
+            items:
+              - { key: ca.crt, path: ca.crt }
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

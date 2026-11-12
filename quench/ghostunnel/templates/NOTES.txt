@@ -1,0 +1,13 @@
+ghostunnel accepts mTLS on {{ include "quench-common.fullname" . }}:{{ .Values.port }} and forwards to {{ .Values.target }}.
+
+Clients verify the server with ca.crt from the Secret {{ include "quench-common.tls.secretName" . }}.
+{{- if not .Values.clientCA.existingSecret }}
+A client certificate (CN {{ include "ghostunnel.clientCN" . }}) is in the Secret {{ include "ghostunnel.clientCASecret" . }}:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "ghostunnel.clientCASecret" . }} -o jsonpath='{.data.tls\.crt}' | base64 -d
+{{- end }}
+
+A plaintext client can use ghostunnel itself in client mode:
+
+  ghostunnel client --listen localhost:8080 --target {{ include "quench-common.fullname" . }}:{{ .Values.port }} \
+    --cert client.crt --key client.key --cacert server-ca.crt
