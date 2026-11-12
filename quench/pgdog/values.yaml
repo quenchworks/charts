@@ -1,0 +1,114 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/pgdog
+  digest: "sha256:d6079cd95b43fe205c0c2f3ec76ec639ab5399a1ccbe2553ae575234bba2dd75"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# PgDog keeps no state: scale freely (each replica holds its own server pools).
+replicaCount: 1
+
+# Client port (the PostgreSQL protocol).
+port: 6432
+
+# Prometheus metrics (openmetrics_port).
+metrics:
+  enabled: true
+  port: 9090
+
+# Extra [general] settings, rendered as `key = value` (workers, default_pool_size,
+# pooler_mode, tls_client_required, ...). See https://docs.pgdog.dev/configuration/.
+general:
+  workers: 2
+  default_pool_size: 10
+  pooler_mode: transaction
+
+# The admin database (connect as user "admin" to database "admin" for SHOW POOLS etc.).
+# Empty: a random password is generated into the Secret and kept across upgrades.
+admin:
+  password: ""
+
+# Backend databases, one [[databases]] entry each. Keys as in pgdog.toml: name (the name
+# clients use), host, port, database_name (on the server, default: name), role
+# (primary/replica), shard.
+databases: []
+#  - name: app
+#    host: postgres.default.svc.cluster.local
+#    port: 5432
+
+# Client users, one [[users]] entry each: name, database, password (also used to log in
+# to the server unless server_user/server_password are set).
+users: []
+#  - name: app
+#    database: app
+#    password: change-me
+# Or bring your own users.toml: a Secret with a users.toml key. `users` is then ignored.
+existingUsersSecret: ""
+
+# Raw TOML appended to pgdog.toml (sharded tables, plugins, ...).
+extraConfig: ""
+
+# TLS for client connections: tls_certificate/tls_private_key point at /tls. The first
+# source set wins: existingSecret, then certManager, else a Helm-generated self-signed CA +
+# certificate. Set general.tls_client_required: true to refuse plaintext clients.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: "2", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
