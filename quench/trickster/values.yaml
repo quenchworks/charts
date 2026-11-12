@@ -1,0 +1,80 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/trickster
+  digest: "sha256:8b8915546e73d9ab3cd198a85d15ef31854fc04b850d1bf03fe56d2b3ec09287"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Each replica keeps its own in-memory cache; use a shared cache (Redis) in config for more.
+replicaCount: 1
+
+# Trickster's config (https://trickstercache.org/docs/configuring/), as YAML. Point
+# backends at your origins; clients query Trickster instead, at /<backend name>/... or the
+# default backend at /. The listener stays on 8480 and metrics on 8481.
+config:
+  backends:
+    default:
+      provider: prometheus        # prometheus, influxdb, clickhouse, rpc (any HTTP origin) ...
+      origin_url: http://prometheus-server:9090
+  caches:
+    default:
+      provider: memory
+      index:
+        max_size_bytes: 268435456  # 256 MiB, inside the default 512Mi memory limit
+  logging:
+    log_level: info
+
+# Extra `trickster` arguments (the config path is fixed).
+extraArgs: []
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8480
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
