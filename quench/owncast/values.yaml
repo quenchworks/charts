@@ -1,0 +1,111 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/owncast
+  digest: "sha256:902b2b1078903be2164064e71327026f40b9d74b910869dfb55735a5d719462f"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The admin UI (/admin, user "admin") password and the stream key broadcasters put in OBS. Empty:
+# generated into the Secret <fullname> (admin-password, stream-key) and kept across upgrades.
+# Both are passed as flags on every start, so the Secret stays the source of truth.
+admin:
+  password: ""
+  streamKey: ""
+  existingSecret: ""   # a Secret with keys "admin-password" and "stream-key" instead
+
+# Extra `owncast` flags, e.g. -enableVerboseLogging.
+extraArgs: []
+
+# /app/data: SQLite database, logs, HLS segments and backups.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+# Transcoding runs ffmpeg in the pod: CPU grows with the number of output variants.
+resources:
+  requests: { cpu: 250m, memory: 256Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+# Web player, chat, HLS and admin.
+service:
+  type: ClusterIP
+  port: 8080
+  # HTTPS Service port (to the TLS sidecar's 8443), only with tls.enabled
+  httpsPort: 443
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# RTMP ingest. LoadBalancer or NodePort to stream from outside the cluster.
+rtmpService:
+  type: ClusterIP
+  port: 1935
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# TLS: Owncast serves plain HTTP, so with tls.enabled a caddy sidecar terminates HTTPS on 8443
+# (Service port service.httpsPort) and proxies to it over localhost, chat WebSocket included.
+# RTMP stays plain. Certificate: existingSecret, then certManager, else a Helm-generated CA.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# The TLS sidecar (our caddy image, pinned by digest).
+proxy:
+  image:
+    repository: ghcr.io/quenchworks/images/caddy
+    digest: "sha256:6377c513134e78bd41fad0819c9d45830b1868398c1805a5b3ee8494f93072d7"
+  resources:
+    requests: { cpu: 10m, memory: 16Mi }
+    limits: { cpu: 500m, memory: 128Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

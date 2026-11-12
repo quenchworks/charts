@@ -1,0 +1,12 @@
+Owncast is on {{ include "quench-common.fullname" . }}:{{ .Values.service.port }}{{ if include "quench-common.tls.enabled" . }} (HTTPS on {{ .Values.service.httpsPort }}){{ end }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+  open http://localhost:8080/admin     # user "admin"
+
+Admin password and stream key:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "owncast.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "owncast.secretName" . }} -o jsonpath='{.data.stream-key}' | base64 -d
+
+Stream from OBS to rtmp://<{{ include "quench-common.fullname" . }}-rtmp>:{{ .Values.rtmpService.port }}/live with that stream key
+(Service type {{ .Values.rtmpService.type }}).
