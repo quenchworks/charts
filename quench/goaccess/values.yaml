@@ -1,0 +1,86 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/goaccess
+  digest: "sha256:39b926511d7309341d18c8fcedb93439fb3f3d07bdf08b3077f753cb74a1d01b"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# GoAccess follows one log file: run one replica.
+replicaCount: 1
+
+# The access log GoAccess follows: a PVC your web server or log shipper writes to (mounted
+# read-only at /logs), the file inside it, and its format (COMBINED, COMMON, VCOMBINED, CLOUDFRONT,
+# CLOUDSTORAGE, AWSELB, SQUID, W3C, CADDY, TRAEFIKCLF or a custom format string).
+logs:
+  existingClaim: ""
+  file: access.log
+  format: COMBINED
+
+# Where browsers reach the WebSocket (service.wsPort), e.g. wss://stats.example.com:7890. Empty:
+# the page's own host on port 7890.
+wsUrl: ""
+
+# Extra `goaccess` flags, e.g. --ignore-crawlers or --exclude-ip=10.0.0.0-10.255.255.255.
+extraArgs: []
+
+# Static file server for the HTML report (our caddy image, pinned by digest).
+web:
+  image:
+    repository: ghcr.io/quenchworks/images/caddy
+    digest: "sha256:6377c513134e78bd41fad0819c9d45830b1868398c1805a5b3ee8494f93072d7"
+  resources:
+    requests: { cpu: 10m, memory: 16Mi }
+    limits: { cpu: 500m, memory: 128Mi }
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: "1", memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 8080      # the HTML report
+  wsPort: 7890    # live updates (WebSocket)
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

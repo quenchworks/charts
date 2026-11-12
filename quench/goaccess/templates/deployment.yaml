@@ -1,0 +1,108 @@
+{{- $probe := dict "tcpSocket" (dict "port" "ws") "initialDelaySeconds" 3 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ toJson (list .Values.logs .Values.wsUrl .Values.extraArgs) | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: goaccess
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - /logs/{{ required "logs.file: the log file, relative to the logs volume" .Values.logs.file }}
+            - --log-format={{ .Values.logs.format }}
+            - --real-time-html
+            - --output=/report/index.html
+            - --addr=0.0.0.0
+            - --port=7890
+            {{- with .Values.wsUrl }}
+            - --ws-url={{ . }}
+            {{- end }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - { name: ws, containerPort: 7890, protocol: TCP }
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: logs
+              mountPath: /logs
+              readOnly: true
+            - name: report
+              mountPath: /report
+            # GoAccess creates its WebSocket FIFOs in /tmp
+            - name: tmp
+              mountPath: /tmp
+                        {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        # serves the report GoAccess rewrites in place; the live updates come over the WebSocket
+        - name: web
+          image: {{ .Values.web.image.repository }}@{{ .Values.web.image.digest }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [/usr/bin/caddy, file-server, --root, /report, --listen, ":8080"]
+          env:
+            - { name: XDG_CONFIG_HOME, value: /tmp }
+            - { name: XDG_DATA_HOME, value: /tmp }
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - { name: http, containerPort: 8080, protocol: TCP }
+          readinessProbe:
+            httpGet: { path: /, port: http }
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.web.resources | nindent 12 }}
+          volumeMounts:
+            - { name: report, mountPath: /report, readOnly: true }
+            - { name: web-tmp, mountPath: /tmp }
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: logs
+          persistentVolumeClaim:
+            claimName: {{ required "logs.existingClaim: the PVC holding the access log" .Values.logs.existingClaim }}
+            readOnly: true
+        - name: report
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: web-tmp
+          emptyDir: {}
+                {{- include "quench-common.extraVolumes" . | nindent 8 }}
