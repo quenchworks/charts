@@ -1,0 +1,87 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/actual
+  digest: "sha256:820a7e43620aa806afedacf91cb629d32c0d84661ee795211b81e6969e219791"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# More Actual settings as ACTUAL_* environment variables
+# (https://actualbudget.org/docs/config/), e.g. ACTUAL_LOGIN_METHOD: openid with the
+# ACTUAL_OPENID_* settings (client secret through extraEnvVarsSecret), or
+# ACTUAL_UPLOAD_FILE_SIZE_LIMIT_MB.
+settings: {}
+
+# /data: the server database (accounts, sessions) and the synced budget files.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 2Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 25m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+# One port: HTTP, or HTTPS with tls.enabled.
+service:
+  type: ClusterIP
+  port: 5006
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# TLS: Actual serves HTTPS itself on 5006 from the certificate. The web client needs HTTPS off
+# localhost (SharedArrayBuffer and Web Crypto need a secure context). Certificate: existingSecret,
+# then certManager, else a Helm-generated self-signed CA + certificate (Secret <fullname>-tls).
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
