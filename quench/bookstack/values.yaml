@@ -1,0 +1,131 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/bookstack
+  digest: "sha256:2964128805ebc08d74b05d7559bd11bc71828d7310ab9f2d07b39f71b86b8e83"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The URL users reach BookStack at (links, redirects, emails). Required to match the browser's URL.
+appUrl: http://localhost:8080
+
+# Encrypts sessions and stored secrets (APP_KEY). Empty: generated into the Secret <fullname>
+# (app-key) and kept across upgrades; changing it logs everyone out and breaks stored secrets.
+appKey:
+  value: ""
+  existingSecret: ""
+  existingSecretKey: app-key
+
+# More BookStack settings as environment variables (.env.example.complete upstream), e.g.
+# MAIL_*, AUTH_METHOD (ldap, saml2, oidc) or APP_TIMEZONE; secrets through extraEnvVarsSecret.
+settings:
+  APP_TIMEZONE: UTC
+  LOG_CHANNEL: stderr
+
+# --- DATABASE, mode 1 (default): the bundled MariaDB subchart. ---
+mariadb:
+  enabled: true
+  auth:
+    # Both are generated into MariaDB's Secret if left empty.
+    rootPassword: ""
+    password: ""
+    database: bookstack
+    username: bookstack
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- DATABASE, mode 2: external MySQL or MariaDB (mariadb.enabled=false). ---
+externalDatabase:
+  host: ""
+  port: 3306
+  database: bookstack
+  user: bookstack
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: db-password
+
+# One volume for storage/ (attachments, logs, caches) and public/uploads (images).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 25m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  # HTTPS Service port (to the TLS sidecar's 8443), only with tls.enabled
+  httpsPort: 443
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# TLS: BookStack serves plain HTTP, so with tls.enabled a caddy sidecar terminates HTTPS on 8443
+# (Service port service.httpsPort) and proxies to it over localhost. Certificate: existingSecret,
+# then certManager, else a Helm-generated CA.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# The TLS sidecar (our caddy image, pinned by digest).
+proxy:
+  image:
+    repository: ghcr.io/quenchworks/images/caddy
+    digest: "sha256:6377c513134e78bd41fad0819c9d45830b1868398c1805a5b3ee8494f93072d7"
+  resources:
+    requests: { cpu: 10m, memory: 16Mi }
+    limits: { cpu: 500m, memory: 128Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
