@@ -1,0 +1,77 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/promxy
+  digest: "sha256:238f8e3e9445fa05390a33996551c7e95b4fb7f8744c7a15b73cbd7afeb1cd81"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Promxy is stateless: run as many replicas as the query load needs.
+replicaCount: 1
+
+# Promxy's config (https://github.com/jacksontj/promxy/blob/master/cmd/promxy/config.yaml), as
+# YAML. Each server group is one logical source; list the members of an HA pair in one group
+# and Promxy merges their results, filling gaps from either. Clients and Grafana query
+# http://<service>:8082 with the Prometheus HTTP API.
+config:
+  promxy:
+    server_groups:
+      - static_configs:
+          - targets: [prometheus-server:9090]
+        scheme: http
+        labels:
+          sg: default
+
+# Extra `promxy` arguments (the config path is fixed).
+extraArgs: []
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8082
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
