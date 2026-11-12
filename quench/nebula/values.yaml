@@ -1,0 +1,94 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/nebula
+  digest: "sha256:3b6181bc2ad995be37aca50866e780de1ffa7d03e770a015e13ced96dcb05a0d"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Each replica is a lighthouse with the same certificate; list every replica's address in
+# the hosts' static_host_map (one replica behind a LoadBalancer is the usual setup).
+replicaCount: 1
+
+# UDP port for the Nebula protocol (lighthouse discovery and relaying).
+port: 4242
+
+# Nebula PKI, made with nebula-cert (Nebula certificates are not X.509, so the chart cannot
+# generate them). A Secret with ca.crt, host.crt and host.key for the lighthouse:
+#   nebula-cert ca -name my-org
+#   nebula-cert sign -name lighthouse -ip 192.168.100.1/24
+#   kubectl create secret generic nebula-pki --from-file=ca.crt \
+#     --from-file=host.crt=lighthouse.crt --from-file=host.key=lighthouse.key
+pki:
+  existingSecret: ""
+
+# Nebula's config.yml (https://nebula.defined.net/docs/config/), as YAML. The chart owns pki,
+# listen, lighthouse.am_lighthouse and tun (disabled: the lighthouse needs no TUN device, so
+# no NET_ADMIN); anything else here goes to Nebula unchanged.
+config:
+  relay:
+    am_relay: false
+  firewall:
+    outbound:
+      - { port: any, proto: any, host: any }
+    inbound:
+      - { port: any, proto: icmp, host: any }
+  logging:
+    level: info
+
+# Prometheus metrics on 8080 (/metrics); also what the probes use, since UDP cannot be probed.
+metrics:
+  enabled: true
+
+# Extra `nebula` arguments.
+extraArgs: []
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: "1", memory: 256Mi }
+
+service:
+  type: ClusterIP
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
