@@ -1,0 +1,99 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/sozu
+  digest: "sha256:e86ad8ef3559f3613ada0589383d32c783a51f9c802458add12bf18d4c809201"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Each replica is an independent proxy loading the same config; routes added at runtime
+# over one pod's command socket stay on that pod. Keep routes in `clusters` for HA.
+replicaCount: 1
+
+listeners:
+  http:
+    port: 8080
+  https:
+    enabled: true
+    port: 8443
+
+# Routes, as Sozu config.toml [clusters] TOML. Backends take host:port (Service DNS names
+# work; Sozu resolves them when it loads the config). HTTP frontends use the http listener
+# address, HTTPS ones the https listener and certificate files (see tls below), e.g.:
+#   [clusters.app]
+#   protocol = "http"
+#   frontends = [
+#     { address = "0.0.0.0:8080", hostname = "app.example.com" },
+#     { address = "0.0.0.0:8443", hostname = "app.example.com", certificate = "/tls/tls.crt", key = "/tls/tls.key" },
+#   ]
+#   backends = [ { address = "app.default.svc.cluster.local:80", backend_id = "app-0" } ]
+clusters: ""
+
+# Settings for the top of config.toml (worker_count, timeouts, access_logs_target, ...).
+extraGlobalConfig: ""
+logLevel: info
+workerCount: 2
+
+# A certificate for HTTPS frontends, mounted at /tls (tls.crt, tls.key, ca.crt). The first
+# source set wins: existingSecret, then certManager, else a Helm-generated self-signed CA +
+# certificate. Reference /tls/tls.crt and /tls/tls.key from the frontends in `clusters`.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

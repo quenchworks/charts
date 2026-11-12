@@ -1,0 +1,16 @@
+# Install gate. No image override: the install uses the chart's real, CI-maintained digest.
+# The release workflow creates the gate-backend Service first; the route below sends
+# Host gate.local to it, over HTTP and over HTTPS with the chart's self-signed certificate.
+tls:
+  enabled: true
+  # the self-signed certificate carries these names too (Sozu picks the certificate by SNI)
+  certManager:
+    dnsNames: [gate.local]
+clusters: |
+  [clusters.gate]
+  protocol = "http"
+  frontends = [
+    { address = "0.0.0.0:8080", hostname = "gate.local" },
+    { address = "0.0.0.0:8443", hostname = "gate.local", certificate = "/tls/tls.crt", key = "/tls/tls.key" },
+  ]
+  backends = [ { address = "gate-backend.default.svc.cluster.local:8000", backend_id = "gate-0" } ]
