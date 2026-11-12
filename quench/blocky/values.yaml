@@ -1,0 +1,100 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/blocky
+  digest: "sha256:229f44fd53da24555b9410e9cca6b8e2a270709a34e26c427547b436c0f1a062"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Each replica is an independent resolver with the same config (no shared cache).
+replicaCount: 1
+
+# Blocky's config.yml (https://0xerr0r.github.io/blocky/latest/configuration/), as YAML.
+# The chart owns `ports` (DNS 5353, HTTP 4000, and DoT 8853 / DoH 8443 with tls.enabled)
+# and, with TLS, `certFile` / `keyFile`; anything else here goes to Blocky unchanged.
+config:
+  upstreams:
+    init:
+      strategy: fast      # start even when an upstream is unreachable at boot
+    groups:
+      default:
+        - https://1.1.1.1/dns-query
+        - https://9.9.9.9/dns-query
+  blocking:
+    denylists: {}         # e.g. ads: [https://...hosts.txt]
+    clientGroupsBlock: {}  # e.g. default: [ads]
+  caching:
+    minTime: 5m
+  prometheus:
+    enable: true
+  log:
+    level: info
+
+# Extra `blocky` arguments (the config path is fixed at /app/config.yml).
+extraArgs: []
+
+# DNS-over-TLS (8853) and DNS-over-HTTPS (8443) next to plain DNS. The first source set wins:
+# existingSecret, then certManager, else a Helm-generated self-signed CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: "1", memory: 256Mi }
+
+service:
+  type: ClusterIP
+  dnsPort: 53       # published on UDP and TCP; the container listens on 5353 (nonroot)
+  dotPort: 853
+  dohPort: 443
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
