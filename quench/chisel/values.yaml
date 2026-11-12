@@ -1,0 +1,93 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/chisel
+  digest: "sha256:f3eac3498a34d244c0a9f2e605dadd300b68d33f265defa9c409fdf73e5e38b4"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Each replica is an independent server with the same key and credentials.
+replicaCount: 1
+
+# The server's HTTP(S) listener; clients connect here (chisel client http://<service>:8080 ...).
+port: 8080
+
+# Every client authenticates with username:password. Empty password: generated into the
+# Secret and kept across upgrades. The server's SSH key is generated the same way, so its
+# fingerprint survives restarts and upgrades (clients can pin it with --fingerprint).
+auth:
+  username: chisel
+  password: ""
+
+# Allow clients to open reverse tunnels (listeners on the server side). Publish those
+# listeners with extraPorts.
+reverse: false
+# Allow clients to use the server as a SOCKS5 proxy (client remote "socks").
+socks5: false
+# [{name, port, protocol}], published on the Service and the container (reverse remotes).
+extraPorts: []
+# Extra `chisel server` flags, e.g. --backend http://... or --keepalive 25s.
+extraArgs: []
+
+# TLS on the listener (clients use https://). The first source set wins: existingSecret,
+# then certManager, else a Helm-generated self-signed CA + certificate, mounted at /tls.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: "1", memory: 256Mi }
+
+service:
+  type: ClusterIP
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

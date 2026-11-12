@@ -1,0 +1,9 @@
+chisel server is running on {{ include "quench-common.fullname" . }}:{{ .Values.port }}{{ if (include "quench-common.tls.enabled" .) }} (TLS){{ end }}.
+
+Every client authenticates. The password for user "{{ .Values.auth.username }}":
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "quench-common.fullname" . }} -o jsonpath='{.data.password}' | base64 -d
+
+Forward local port 5432 to a service the server can reach:
+
+  chisel client --auth {{ .Values.auth.username }}:<password> {{ if (include "quench-common.tls.enabled" .) }}https{{ else }}http{{ end }}://{{ include "quench-common.fullname" . }}:{{ .Values.port }} 5432:postgres:5432
