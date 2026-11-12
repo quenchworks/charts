@@ -1,0 +1,98 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/vaultwarden
+  digest: "sha256:b70ea7968a89f0649c5423d86dd89c4a0e56a6e47e478065e3a8a5b1f694ea7f"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The admin panel (/admin): off unless enabled. Its token is generated into the Secret
+# <fullname> (admin-token) and kept across upgrades, or set admin.token or admin.existingSecret.
+admin:
+  enabled: false
+  token: ""
+  existingSecret: ""
+  existingSecretKey: admin-token
+
+# More Vaultwarden settings as environment variables
+# (https://github.com/dani-garcia/vaultwarden/blob/main/.env.template). Set DOMAIN to the URL the
+# clients use; close sign-ups once your users exist. For PostgreSQL or MySQL set DATABASE_URL
+# through extraEnvVarsSecret.
+settings:
+  SIGNUPS_ALLOWED: "true"
+  INVITATIONS_ALLOWED: "true"
+  SHOW_PASSWORD_HINT: "false"
+
+# /data: SQLite, the server's RSA keys, attachments and sends.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 2Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 25m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+# One port: HTTP, or HTTPS with tls.enabled.
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# TLS: Vaultwarden (Rocket) serves HTTPS itself on 8080 from the certificate. Bitwarden clients
+# need HTTPS (the browser's Web Crypto works only in a secure context). Certificate: existingSecret,
+# then certManager, else a Helm-generated self-signed CA + certificate (Secret <fullname>-tls).
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

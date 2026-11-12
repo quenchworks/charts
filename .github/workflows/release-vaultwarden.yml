@@ -1,0 +1,172 @@
+name: release-vaultwarden
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/vaultwarden/**"
+      - ".github/workflows/release-vaultwarden.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/vaultwarden
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          want="$(sed -n 's/^appVersion: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "${CHART_DIR}/Chart.yaml")"
+          kubectl get secret rtest-vaultwarden-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
+          fwd() { kubectl port-forward svc/rtest-vaultwarden 18443:8080 >/tmp/pf.log 2>&1 & pf=$!
+            for i in $(seq 1 30); do grep -q 'Forwarding from 127.0.0.1:18443' /tmp/pf.log && break; sleep 1; done; }
+          fwd; trap 'kill $pf 2>/dev/null || true' EXIT
+          H=https://rtest-vaultwarden:18443
+          C=(-sS -m 30 --cacert /tmp/ca.crt --resolve rtest-vaultwarden:18443:127.0.0.1 -H 'Accept: application/json')
+          EMAIL=gate@quench.test
+          # what a Bitwarden client sends: PBKDF2(PBKDF2(password, email, 600000), password, 1)
+          mhash() { python3 -c 'import base64,hashlib,sys; k=hashlib.pbkdf2_hmac("sha256",sys.argv[1].encode(),sys.argv[2].encode(),600000); print(base64.b64encode(hashlib.pbkdf2_hmac("sha256",k,sys.argv[1].encode(),1)).decode())' "$1" "$EMAIL"; }
+          ENC='2.c21va2VpdjEyMzQ1Njc4OQ==|c21va2VjdA==|c21va2VtYWNtYWNtYWNtYWNtYWNtYWNtYWNtYWM='
+          token() { curl "${C[@]}" -w '\n%{http_code}' "$H/identity/connect/token" --data-urlencode grant_type=password \
+            --data-urlencode "username=$EMAIL" --data-urlencode "password=$(mhash "$1")" --data-urlencode 'scope=api offline_access' \
+            --data-urlencode client_id=web --data-urlencode deviceType=9 --data-urlencode deviceIdentifier=$(cat /proc/sys/kernel/random/uuid) \
+            --data-urlencode deviceName=gate; }
+          ciphers() { curl -f "${C[@]}" -H "Authorization: Bearer $1" "$H/api/sync" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["ciphers"]))'; }
+
+          # --- PROVE VAULTWARDEN STORES A CIPHER OVER HTTPS ON ITS VOLUME. ---
+          # 1. HTTPS with the chart CA, the release's version, the web vault served.
+          curl -f "${C[@]}" "$H/alive" >/dev/null
+          v="$(curl -f "${C[@]}" "$H/api/version" | tr -d '"')"; echo "version $v (want $want)"; test "$v" = "$want"
+          curl -f "${C[@]}" "$H/" | grep -qi '<html'
+
+          # 2. Register like a client (the verification step returns its token with mail off).
+          vt="$(curl -f "${C[@]}" -H 'Content-Type: application/json' "$H/identity/accounts/register/send-verification-email" -d "{\"email\":\"$EMAIL\",\"name\":\"Gate\"}" | tr -d '"')"
+          curl -f "${C[@]}" -H 'Content-Type: application/json' "$H/identity/accounts/register/finish" -d "{\"email\":\"$EMAIL\",\"name\":\"Gate\",\"masterPasswordHash\":\"$(mhash gate-master-pass-2026)\",\"key\":\"$ENC\",\"kdf\":0,\"kdfIterations\":600000,\"keys\":{\"publicKey\":\"Z2F0ZQ==\",\"encryptedPrivateKey\":\"$ENC\"},\"emailVerificationToken\":\"$vt\"}" >/dev/null
+
+          # 3. A wrong password is refused; the right one logs in and stores a cipher.
+          code="$(token wrong-pass | tail -1)"; echo "wrong password: $code"; test "$code" = 400
+          tok="$(token gate-master-pass-2026 | head -1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')"
+          sub="$(python3 -c 'import base64,json,sys; s=sys.argv[1].split(".")[1]; print(json.loads(base64.urlsafe_b64decode(s+"="*(-len(s)%4)))["sub"])' "$tok")"
+          curl -f "${C[@]}" -H "Authorization: Bearer $tok" -H 'Content-Type: application/json' "$H/api/ciphers" \
+            -d "{\"type\":2,\"name\":\"$ENC\",\"secureNote\":{\"type\":0},\"favorite\":false,\"encryptedFor\":\"$sub\"}" >/dev/null
+          test "$(ciphers "$tok")" = 1; echo "cipher stored"
+
+          # 4. The admin panel takes the generated token and refuses a wrong one.
+          adm="$(kubectl get secret rtest-vaultwarden -o jsonpath='{.data.admin-token}' | base64 -d)"
+          code="$(curl "${C[@]}" -o /dev/null -w '%{http_code}' "$H/admin" --data-urlencode token=wrong)"; echo "admin wrong token: $code"; test "$code" = 401
+          code="$(curl "${C[@]}" -o /dev/null -w '%{http_code}' "$H/admin" --data-urlencode "token=$adm")"; echo "admin token: $code"; test "$code" = 200 -o "$code" = 303
+
+          # 5. Close sign-ups with helm upgrade: the cipher is still there in the new pod, new sign-ups are refused.
+          kill $pf 2>/dev/null || true
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set-string settings.SIGNUPS_ALLOWED=false --wait --timeout 5m
+          kubectl rollout status deployment/rtest-vaultwarden --timeout=300s
+          fwd
+          for i in $(seq 1 30); do curl -f "${C[@]}" "$H/alive" >/dev/null 2>&1 && break; sleep 2; done
+          tok="$(token gate-master-pass-2026 | head -1 | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])')"
+          test "$(ciphers "$tok")" = 1
+          code="$(curl "${C[@]}" -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' "$H/identity/accounts/register/send-verification-email" -d '{"email":"late@quench.test","name":"Late"}')"
+          echo "sign-up after closing: $code"; test "$code" = 400
+          echo "cipher kept across the upgrade, sign-ups closed"
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/vaultwarden-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/vaultwarden@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/vaultwarden:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

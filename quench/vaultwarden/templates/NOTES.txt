@@ -1,0 +1,14 @@
+Vaultwarden is on {{ include "quench-common.fullname" . }}:{{ .Values.service.port }} ({{ if include "quench-common.tls.enabled" . }}HTTPS{{ else }}HTTP: Bitwarden clients need HTTPS, enable tls or terminate it in front{{ end }}).
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+
+Open the web vault and create an account, then set settings.DOMAIN to the URL your clients use.
+{{- if eq (toString (.Values.settings.SIGNUPS_ALLOWED | default "true")) "true" }}
+Sign-ups are open: once your users exist set settings.SIGNUPS_ALLOWED: "false" (invite the rest).
+{{- end }}
+{{- if .Values.admin.enabled }}
+
+Admin panel at /admin with the token from:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "vaultwarden.adminSecretName" . }} -o jsonpath='{.data.{{ .Values.admin.existingSecretKey }}}' | base64 -d
+{{- end }}
