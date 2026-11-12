@@ -1,0 +1,113 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/freshrss
+  digest: "sha256:a5897d897d8268174596984d38b15efc2846da7b5954a4233540d55164c69d5c"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The admin user, created on first start. Empty passwords: generated into the Secret <fullname>
+# (password, api-password) and kept across upgrades; the init container applies them on every
+# start. The API password is what Google Reader and Fever clients use.
+admin:
+  user: admin
+  password: ""
+  apiPassword: ""
+  existingSecret: ""   # a Secret with keys "password" and "api-password" instead
+
+# The URL users reach FreshRSS at (redirects, API endpoints shown in the UI).
+baseUrl: http://localhost:8080
+
+# Feed refresh: a sidecar runs app/actualize_script.php for every user on this interval.
+refresh:
+  intervalMinutes: 20
+  resources:
+    requests: { cpu: 10m, memory: 32Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+# More FreshRSS settings as environment variables, e.g. COPY_LOG_TO_SYSLOG.
+settings: {}
+
+# DATA_PATH (/var/www/FreshRSS/data): config, users, SQLite databases and caches.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 25m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  # HTTPS Service port (to the TLS sidecar's 8443), only with tls.enabled
+  httpsPort: 443
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# TLS: FreshRSS serves plain HTTP, so with tls.enabled a caddy sidecar terminates HTTPS on 8443
+# (Service port service.httpsPort) and proxies to it over localhost. Certificate: existingSecret,
+# then certManager, else a Helm-generated CA.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# The TLS sidecar (our caddy image, pinned by digest).
+proxy:
+  image:
+    repository: ghcr.io/quenchworks/images/caddy
+    digest: "sha256:6377c513134e78bd41fad0819c9d45830b1868398c1805a5b3ee8494f93072d7"
+  resources:
+    requests: { cpu: 10m, memory: 16Mi }
+    limits: { cpu: 500m, memory: 128Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

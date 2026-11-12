@@ -1,0 +1,153 @@
+{{- $probe := dict "httpGet" (dict "path" "/i/" "port" "http") "periodSeconds" 10 "timeoutSeconds" 5 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  # One FreshRSS per volume: config, users and SQLite live in DATA_PATH.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # settings are read at start: a change rolls the pod
+        checksum/settings: {{ toJson (list .Values.settings .Values.baseUrl .Values.admin.user) | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- if $tls }}
+        checksum/proxy: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        # Sets up DATA_PATH on first start (prepare, install, the admin user) and applies the
+        # base URL and the admin's passwords from the Secret on every start.
+        - name: setup
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              php ./cli/prepare.php >/dev/null
+              if [ ! -f "$DATA_PATH/config.php" ]; then
+                php ./cli/do-install.php --default-user "$ADMIN_USER" --auth-type form --environment production \
+                  --base-url "$BASE_URL" --db-type sqlite --api-enabled --disable-update
+              fi
+              php ./cli/reconfigure.php --base-url "$BASE_URL" >/dev/null
+              if php ./cli/list-users.php | grep -qx "$ADMIN_USER"; then
+                php ./cli/update-user.php --user "$ADMIN_USER" --password "$ADMIN_PASSWORD" --api-password "$API_PASSWORD"
+              else
+                php ./cli/create-user.php --user "$ADMIN_USER" --password "$ADMIN_PASSWORD" --api-password "$API_PASSWORD"
+              fi
+          env:
+            - { name: BASE_URL, value: {{ .Values.baseUrl | quote }} }
+            - { name: ADMIN_USER, value: {{ .Values.admin.user | quote }} }
+            - name: ADMIN_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "freshrss.secretName" . }}, key: password } }
+            - name: API_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ include "freshrss.secretName" . }}, key: api-password } }
+          volumeMounts:
+            - { name: data, mountPath: /var/www/FreshRSS/data }
+            - { name: tmp, mountPath: /tmp }
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: freshrss
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- range $k, $v := .Values.settings }}
+            - { name: {{ $k }}, value: {{ $v | quote }} }
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - { name: http, containerPort: 8080, protocol: TCP }
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /var/www/FreshRSS/data }
+            - { name: tmp, mountPath: /tmp }
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        # Refreshes every user's feeds on an interval (upstream's image runs the same script from cron).
+        - name: refresh
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: [/bin/sh, -c, "while true; do sleep {{ .Values.refresh.intervalMinutes | mul 60 }}; php ./app/actualize_script.php >/dev/null 2>&1 || echo refresh failed; done"]
+          resources:
+            {{- toYaml .Values.refresh.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /var/www/FreshRSS/data }
+            - { name: tmp, mountPath: /tmp }
+        {{- if $tls }}
+        - name: tls-proxy
+          image: "{{ .Values.proxy.image.repository }}@{{ .Values.proxy.image.digest }}"
+          imagePullPolicy: IfNotPresent
+          command: [/usr/bin/caddy, run, --config, /etc/caddy/Caddyfile, --adapter, caddyfile]
+          env:
+            - { name: XDG_CONFIG_HOME, value: /tmp }
+            - { name: XDG_DATA_HOME, value: /tmp }
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - { name: https, containerPort: 8443, protocol: TCP }
+          readinessProbe:
+            tcpSocket: { port: https }
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.proxy.resources | nindent 12 }}
+          volumeMounts:
+            - { name: proxy-config, mountPath: /etc/caddy/Caddyfile, subPath: Caddyfile, readOnly: true }
+            - { name: proxy-tmp, mountPath: /tmp }
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+        {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "freshrss.pvcName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if $tls }}
+        - name: proxy-config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-proxy
+        - name: proxy-tmp
+          emptyDir: {}
+        {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

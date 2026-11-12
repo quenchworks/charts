@@ -1,0 +1,11 @@
+FreshRSS is on {{ include "quench-common.fullname" . }}:{{ .Values.service.port }}{{ if include "quench-common.tls.enabled" . }} (HTTPS on {{ .Values.service.httpsPort }}){{ end }}, base URL {{ .Values.baseUrl }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+
+Log in as "{{ .Values.admin.user }}" with the password, and point Google Reader or Fever clients at
+{{ .Values.baseUrl }}/api/greader.php with the API password, both from:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "freshrss.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "freshrss.secretName" . }} -o jsonpath='{.data.api-password}' | base64 -d
+
+Feeds refresh every {{ .Values.refresh.intervalMinutes }} minutes.
