@@ -1,0 +1,87 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/gatus
+  digest: "sha256:e078e3dda313192e950ebd832cf644da5cfda966587042bd4aaed99ba118de22"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Gatus keeps check history in one process: run one replica (Recreate with the volume).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# Gatus' config (https://github.com/TwiN/gatus#configuration), as YAML: endpoints, alerting,
+# ui, security. The status page and API are on 8080.
+config:
+  ui:
+    title: Status
+  endpoints:
+    - name: example
+      group: external
+      url: https://example.com
+      interval: 1m
+      conditions: ["[STATUS] == 200", "[RESPONSE_TIME] < 2000"]
+
+# Keep check history across restarts: SQLite on a PersistentVolumeClaim (the chart sets
+# config.storage). Off: history lives in memory and resets on restart.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 1Gi
+  storageClass: ""
+  annotations: {}
+
+# Extra `gatus` arguments.
+extraArgs: []
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: "1", memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
