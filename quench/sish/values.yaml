@@ -1,0 +1,80 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/sish
+  digest: "sha256:d57575af9d98621a8c84549c4c3451d13d1431ece72becbe0e391ea1e2fb9505"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Tunnels live in one process: keep one replica.
+replicaCount: 1
+
+# Base domain: a tunnel requested as `ssh -R app:80:localhost:3000` is served at app.<domain>
+# on the HTTP port. Point a wildcard DNS record (*.<domain>) at the Service.
+domain: tunnel.example.com
+
+# Hand out the requested subdomain (false) or a random one (true).
+randomSubdomains: false
+
+# Clients authenticate with SSH public keys. authorizedKeys: one OpenSSH public key per entry;
+# or existingSecret: a Secret whose every key is an authorized public key. With auth disabled
+# anyone who reaches the SSH port can open tunnels.
+auth:
+  enabled: true
+  authorizedKeys: []
+  existingSecret: ""
+
+# Extra `sish` flags, e.g. --idle-connection-timeout=1h or --tcp-aliases.
+extraArgs: []
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: "1", memory: 256Mi }
+
+# Expose both ports where clients reach them, typically a LoadBalancer: SSH 2222 for
+# `ssh -p 2222 -R ...` and HTTP 8080 behind the wildcard domain (an Ingress can front 8080).
+service:
+  type: ClusterIP
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
