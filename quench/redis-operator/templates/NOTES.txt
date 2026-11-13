@@ -1,0 +1,20 @@
+The Redis Operator {{ .Chart.AppVersion }} is running in {{ .Release.Namespace }}{{ with .Values.watchNamespaces }} and watches {{ join ", " . }}{{ else }} and watches every namespace{{ end }}.
+{{- if .Values.featureGates }}
+Feature gates: {{ .Values.featureGates }}
+{{- end }}
+
+A primary with one replica:
+
+  kubectl apply -f - <<'YAML'
+  apiVersion: redis.redis.opstreelabs.in/v1beta2
+  kind: RedisReplication
+  metadata: { name: cache }
+  spec:
+    clusterSize: 2
+    kubernetesConfig: { image: redis:8.2 }
+    storage:
+      volumeClaimTemplate:
+        spec: { accessModes: [ReadWriteOnce], resources: { requests: { storage: 1Gi } } }
+  YAML
+
+  kubectl get pods -l app=cache -L redis-role

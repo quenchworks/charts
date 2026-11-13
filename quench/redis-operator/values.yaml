@@ -1,0 +1,74 @@
+# The digests below are the contract with the image factory. CI rewrites them from the
+# image-published dispatch after every green image build. Never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/redis-operator
+  digest: "sha256:e51e0c9c89f0edb7d53bda96fa6e3d2b0566e65ece3a32ebd19ea97b4958a1cc"
+  pullPolicy: IfNotPresent
+
+# Alpha feature gates (--feature-gates). GenerateConfigInInitContainer makes the operator image
+# write redis.conf in an init container, so the Redis pods can run any Redis image with sh and
+# redis-cli (the official redis image included), not only the opstree images. Upstream's default is
+# off; this chart turns it on. Set "" for upstream's behaviour.
+featureGates: "GenerateConfigInInitContainer=true"
+
+nameOverride: ""
+
+# Namespaces to watch (WATCH_NAMESPACE). Empty: every namespace.
+watchNamespaces: []
+
+# More operator flags, e.g. ["--max-concurrent-reconciles=5"]
+extraArgs: []
+
+# Leader election is always on; extra replicas are warm standbys.
+replicaCount: 1
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
