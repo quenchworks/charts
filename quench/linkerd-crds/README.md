@@ -57,7 +57,7 @@ If your linkerd deployment routes with `HTTPRoute` or `GRPCRoute`, install
 `templates/crds.yaml` is generated, not hand-written:
 
 ```sh
-uv run scripts/gen-linkerd-crds.py 26.8.4
+go -C tools/qw run . gen-linkerd-crds 26.8.4
 ```
 
 Each CRD **spec** is upstream's byte for byte, because that is the API contract.

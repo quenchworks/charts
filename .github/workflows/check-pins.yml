@@ -1,7 +1,7 @@
 name: check-pins
 
 # Every chart pins images by digest, and a stale pin installs cleanly while
-# shipping the CVEs its rebuild fixed. scripts/check-pins.py compares every pin
+# shipping the CVEs its rebuild fixed. `qw check-pins` compares every pin
 # (values, inline refs, ArtifactHub image lists) and every quench subchart
 # dependency with the catalog lock; this runs it on each push and daily, since
 # an image rebuild in the images repo makes pins stale without touching this one.
@@ -28,8 +28,7 @@ jobs:
           sparse-checkout-cone-mode: false
       - name: Every pin is a published image and every subchart is current
         run: |
-          pip install --quiet pyyaml
-          python3 scripts/check-pins.py --lock images/catalog.lock.yaml
+          go -C tools/qw run . check-pins --lock "$GITHUB_WORKSPACE/images/catalog.lock.yaml"
 
   # A chart that copies a bundled database's password gets two different random values on
   # a first install (lookup finds nothing yet), and every ci values file sets explicit
@@ -43,8 +42,7 @@ jobs:
       - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
       - name: Default installs log in with the subchart's own password
         run: |
-          pip install --quiet pyyaml
-          python3 scripts/check-default-passwords.py
+          go -C tools/qw run . check-default-passwords
 
   # A container port the chart's NetworkPolicy does not admit is dropped on every cluster
   # whose CNI enforces policies, and no release gate sees it (kind's CNI does not enforce

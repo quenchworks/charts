@@ -23,7 +23,7 @@ defaults, including the upstream nginx image.
 Refuse to render while an image is still on the PENDING placeholder.
 
 The chart is authored before its images exist on GHCR (the image build's charts
-dispatch is what fills these in, via scripts/repin.py). Rendering anyway would produce
+dispatch is what fills these in, via `qw repin`). Rendering anyway would produce
 a Deployment whose image reference is syntactically a digest and semantically garbage,
 and the first sign of it would be ImagePullBackOff in someone's cluster. Fail here
 instead, naming the fix.
@@ -31,7 +31,7 @@ instead, naming the fix.
 {{- define "nginx-gateway-fabric.assertDigest" -}}
 {{- $digest := .digest | default "" -}}
 {{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $digest) -}}
-{{- fail (printf "%s must be a real digest (sha256:<64 hex>), got %q. This chart is published only after both images are: run `uv run scripts/repin.py nginx-gateway-fabric <appVersion> <digest>` for the control plane and set nginx.image.digest for the data plane." .field $digest) -}}
+{{- fail (printf "%s must be a real digest (sha256:<64 hex>), got %q. This chart is published only after both images are: run `go -C tools/qw run . repin nginx-gateway-fabric <appVersion> <digest>` for the control plane and set nginx.image.digest for the data plane." .field $digest) -}}
 {{- end -}}
 {{- end -}}
 
