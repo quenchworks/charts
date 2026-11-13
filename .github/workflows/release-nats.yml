@@ -62,15 +62,7 @@ jobs:
           kubectl port-forward rtest-nats-0 8222:8222 4222:4222 &
           pf=$!; trap 'kill $pf' EXIT; sleep 4
           curl -sf 'http://127.0.0.1:8222/varz' | >/dev/null grep '"tls_required": true'
-          python3 - <<'PY'
-          import socket, ssl
-          s = socket.create_connection(("127.0.0.1", 4222), 10)
-          assert s.recv(4096).startswith(b"INFO ")
-          t = ssl.create_default_context(cafile="/tmp/nats-ca.crt").wrap_socket(s, server_hostname="rtest-nats")
-          t.sendall(b'CONNECT {"verbose":false}\r\nPING\r\n')
-          assert t.recv(64).startswith(b"PONG"), "no PONG over TLS"
-          print("nats TLS ok:", t.version())
-          PY
+          go -C tools/qw run . tlsprobe --addr 127.0.0.1:4222 --ca /tmp/nats-ca.crt --name rtest-nats --banner 'INFO ' --send 'CONNECT {\"verbose\":false}\r\nPING\r\n' --read 4 --expect-hex-prefix 504f4e47 --label 'nats TLS'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

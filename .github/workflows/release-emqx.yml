@@ -61,22 +61,7 @@ jobs:
           kubectl get secret rtest-emqx-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/emqx-ca.crt
           kubectl port-forward svc/rtest-emqx 8883:8883 >/tmp/pf.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
-          python3 - <<'PY'
-          import socket, ssl, time
-          for i in range(30):
-              try:
-                  t = ssl.create_default_context(cafile="/tmp/emqx-ca.crt").wrap_socket(
-                      socket.create_connection(("127.0.0.1", 8883), 10), server_hostname="rtest-emqx")
-                  break
-              except (OSError, ssl.SSLError) as e:
-                  err = e; time.sleep(3)
-          else:
-              raise SystemExit(f"no TLS session: {err}")
-          t.sendall(bytes.fromhex("100c00044d5154540402003c0000"))
-          r = t.recv(4)
-          assert r == bytes.fromhex("20020000"), r.hex()
-          print("MQTT over TLS ok:", t.version())
-          PY
+          go -C tools/qw run . tlsprobe --addr 127.0.0.1:8883 --ca /tmp/emqx-ca.crt --name rtest-emqx --retry 30 --send-hex 100c00044d5154540402003c0000 --read 4 --expect-hex-prefix 20020000 --label 'MQTT over TLS'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

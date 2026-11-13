@@ -84,7 +84,7 @@ jobs:
           one="$(curl -fsS --cacert /tmp/ch-ca.crt --resolve rtest-clickhouse:8443:127.0.0.1 \
             "https://rtest-clickhouse:8443/?${AUTH}" --data-binary 'SELECT 1')"
           test "$one" = 1
-          python3 -c 'import socket, ssl; t = ssl.create_default_context(cafile="/tmp/ch-ca.crt").wrap_socket(socket.create_connection(("127.0.0.1", 9440), 10), server_hostname="rtest-clickhouse"); print("native TLS ok:", t.version())'
+          go -C tools/qw run . tlsprobe --addr 127.0.0.1:9440 --ca /tmp/ch-ca.crt --name rtest-clickhouse --label 'native TLS'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

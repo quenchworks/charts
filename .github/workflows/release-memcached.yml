@@ -58,15 +58,7 @@ jobs:
           kubectl get secret rtest-memcached-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/mc-ca.crt
           kubectl port-forward svc/rtest-memcached 11211:11211 &
           pf=$!; trap 'kill $pf' EXIT; sleep 4
-          python3 - <<'PY'
-          import socket, ssl, time
-          t = ssl.create_default_context(cafile="/tmp/mc-ca.crt").wrap_socket(
-              socket.create_connection(("127.0.0.1", 11211), 10), server_hostname="rtest-memcached")
-          t.sendall(b"set qw 0 0 5\r\nhello\r\nget qw\r\n"); time.sleep(1)
-          out = t.recv(200)
-          assert b"STORED" in out and b"hello" in out, out
-          print("memcached TLS ok:", t.version())
-          PY
+          go -C tools/qw run . tlsprobe --addr 127.0.0.1:11211 --ca /tmp/mc-ca.crt --name rtest-memcached --send 'set qw 0 0 5\r\nhello\r\nget qw\r\n' --expect STORED --expect hello --label 'memcached TLS'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

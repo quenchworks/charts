@@ -61,14 +61,7 @@ jobs:
           kubectl get secret rtest-rabbitmq-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/rmq-ca.crt
           kubectl port-forward svc/rtest-rabbitmq 5671:5671 &
           pf=$!; trap 'kill $pf' EXIT; sleep 4
-          python3 - <<'PY'
-          import socket, ssl
-          t = ssl.create_default_context(cafile="/tmp/rmq-ca.crt").wrap_socket(
-              socket.create_connection(("127.0.0.1", 5671), 10), server_hostname="rtest-rabbitmq")
-          t.sendall(b"AMQP\x00\x00\x09\x01")
-          assert t.recv(64)[:1] == b"\x01", "no Connection.Start over TLS"
-          print("rabbitmq AMQPS ok:", t.version())
-          PY
+          go -C tools/qw run . tlsprobe --addr 127.0.0.1:5671 --ca /tmp/rmq-ca.crt --name rtest-rabbitmq --send-hex 414d515000000901 --read 1 --expect-hex-prefix 01 --label 'rabbitmq AMQPS'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

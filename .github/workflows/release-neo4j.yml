@@ -71,14 +71,7 @@ jobs:
           kubectl port-forward svc/rtest-neo4j 7473:7473 7687:7687 >/tmp/pf-tls.log 2>&1 &
           pf=$!; trap 'kill $pf' EXIT; sleep 5
           curl -fsS --cacert /tmp/neo-ca.crt --resolve rtest-neo4j:7473:127.0.0.1 https://rtest-neo4j:7473/ | >/dev/null grep bolt_routing
-          python3 - <<'PY'
-          import socket, ssl
-          t = ssl.create_default_context(cafile="/tmp/neo-ca.crt").wrap_socket(
-              socket.create_connection(("127.0.0.1", 7687), 10), server_hostname="rtest-neo4j")
-          t.sendall(b"\x60\x60\xb0\x17" + b"\x00\x00\x04\x05" + b"\x00" * 12)
-          assert t.recv(4) != b"\x00\x00\x00\x00", "no Bolt version agreed over TLS"
-          print("bolt over TLS ok:", t.version())
-          PY
+          go -C tools/qw run . tlsprobe --addr 127.0.0.1:7687 --ca /tmp/neo-ca.crt --name rtest-neo4j --send-hex 6060b01700000405000000000000000000000000 --read 4 --reject-hex-prefix 00000000 --label 'bolt over TLS'
           # ci values run on emptyDir, so the upgraded pod starts empty: write, then read, over TLS
           kubectl exec rtest-neo4j-0 -- cypher-shell -a neo4j+ssc://localhost:7687 -u neo4j -p "$PW" \
             "CREATE (:Thing {name:'quench-tls'}) RETURN 1"

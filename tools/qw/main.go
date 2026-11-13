@@ -13,7 +13,7 @@ var chartsRoot = "."
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: qw check-pins [--lock path] | check-default-passwords | check-netpol-ports [chart...] | repin <chart> <appVersion> <digest>")
+		fmt.Fprintln(os.Stderr, "usage: qw check-pins [--lock path] | check-default-passwords | check-netpol-ports [chart...] | repin <chart> <appVersion> <digest> | tlsprobe --addr host:port --ca ca.crt --name server ...")
 		os.Exit(2)
 	}
 	if wd, err := os.Getwd(); err == nil {
@@ -46,6 +46,8 @@ func main() {
 		os.Exit(cmdDefaultPasswords())
 	case "check-netpol-ports":
 		os.Exit(cmdNetpolPorts(os.Args[2:]))
+	case "tlsprobe":
+		os.Exit(cmdTLSProbe(os.Args[2:]))
 	default:
 		fmt.Fprintf(os.Stderr, "qw: unknown command %q\n", os.Args[1])
 		os.Exit(2)
