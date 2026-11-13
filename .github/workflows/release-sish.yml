@@ -49,7 +49,7 @@ jobs:
           kubectl port-forward svc/rtest-sish 2222:2222 8080:8080 >/tmp/pf.log 2>&1 &
           pf=$!; sleep 5
           mkdir -p /tmp/www && echo quench-tunneled > /tmp/www/index.html
-          (cd /tmp/www && exec python3 -m http.server 18888 --bind 127.0.0.1 >/dev/null 2>&1) & web=$!
+          go -C tools/qw build -o /tmp/qw . && { /tmp/qw serve --dir /tmp/www --addr 127.0.0.1:18888 >/dev/null 2>&1 & web=$!; }
           S=(-p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes)
           ssh "${S[@]}" -i /tmp/good -o ExitOnForwardFailure=yes -N -R app:80:127.0.0.1:18888 127.0.0.1 >/tmp/ssh.log 2>&1 & tun=$!
           out=""

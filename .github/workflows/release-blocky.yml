@@ -59,10 +59,11 @@ jobs:
           kubectl get secret rtest-blocky-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ca.crt
           kubectl port-forward svc/rtest-blocky 8443:443 >/tmp/pf.log 2>&1 &
           pf=$!; sleep 5
-          qs="$(python3 -c 'import base64,struct;n=b"".join(bytes([len(p)])+p.encode() for p in "smoke.quench.test".split("."))+b"\0";print(base64.urlsafe_b64encode(struct.pack(">HHHHHH",0,256,1,0,0,0)+n+struct.pack(">HH",1,1)).decode().rstrip("="))')"
+          # DNS wire query for smoke.quench.test A IN (id 0, RD), base64url without padding (RFC 8484)
+          qs="$(printf '\x00\x00\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x05smoke\x06quench\x04test\x00\x00\x01\x00\x01' | base64 -w0 | tr '+/' '-_' | tr -d '=')"
           curl -sS --cacert /tmp/ca.crt -H 'accept: application/dns-message' "https://localhost:8443/dns-query?dns=$qs" -o /tmp/doh.bin
           kill $pf 2>/dev/null || true
-          python3 -c 'import sys;d=open("/tmp/doh.bin","rb").read();sys.exit(0 if bytes([192,0,2,10]) in d else 1)' \
+          od -An -tx1 -v /tmp/doh.bin | tr -d ' \n' | grep -qE '^(..)*c000020a' \
             || { echo "DoH answer missing 192.0.2.10"; xxd /tmp/doh.bin | head; exit 1; }
           echo "blocky: custom DNS, blocking, plain DNS via the Service and DoH over TLS: ok"
 

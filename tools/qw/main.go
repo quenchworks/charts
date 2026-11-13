@@ -48,6 +48,8 @@ func main() {
 		os.Exit(cmdNetpolPorts(os.Args[2:]))
 	case "tlsprobe":
 		os.Exit(cmdTLSProbe(os.Args[2:]))
+	case "serve":
+		os.Exit(cmdServe(os.Args[2:]))
 	default:
 		fmt.Fprintf(os.Stderr, "qw: unknown command %q\n", os.Args[1])
 		os.Exit(2)

@@ -83,7 +83,7 @@ jobs:
           # 5. ClickHouse holds the operator's login from the chart's Secret (its sha256, not upstream's
           #    fixed password), allowed only from the operator pod's IP.
           users="$(kubectl exec "$pod" -- cat /etc/clickhouse-server/users.d/chop-generated-users.xml)"
-          want="$(kubectl get secret clickhouse-operator -o jsonpath='{.data.password}' | python3 -c 'import sys,base64,hashlib;print(hashlib.sha256(base64.b64decode(sys.stdin.read())).hexdigest())')"
+          want="$(kubectl get secret clickhouse-operator -o jsonpath='{.data.password}' | base64 -d | sha256sum | cut -d' ' -f1)"
           grep -qF "<password_sha256_hex>${want}</password_sha256_hex>" <<<"$users" || { echo "FAIL: ClickHouse does not hold the chart's operator password"; exit 1; }
           opip="$(kubectl get pod -l app.kubernetes.io/instance=rtest -o jsonpath='{.items[0].status.podIP}')"
           grep -qF "<ip>${opip}</ip>" <<<"$users" || { echo "FAIL: clickhouse_operator is not limited to the operator pod ($opip)"; exit 1; }

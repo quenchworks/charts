@@ -54,7 +54,8 @@ jobs:
           C=(-sS -m 30 --cacert /tmp/ca.crt --resolve rtest-vaultwarden:18443:127.0.0.1 -H 'Accept: application/json')
           EMAIL=gate@quench.test
           # what a Bitwarden client sends: PBKDF2(PBKDF2(password, email, 600000), password, 1)
-          mhash() { python3 -c 'import base64,hashlib,sys; k=hashlib.pbkdf2_hmac("sha256",sys.argv[1].encode(),sys.argv[2].encode(),600000); print(base64.b64encode(hashlib.pbkdf2_hmac("sha256",k,sys.argv[1].encode(),1)).decode())' "$1" "$EMAIL"; }
+          # Bitwarden's master password hash: PBKDF2-SHA256(PBKDF2-SHA256(password, email, 600000), password, 1)
+          mhash() { local k; k="$(openssl kdf -keylen 32 -kdfopt digest:SHA256 -kdfopt pass:"$1" -kdfopt salt:"$EMAIL" -kdfopt iter:600000 PBKDF2 | tr -d ':')"; openssl kdf -keylen 32 -kdfopt digest:SHA256 -kdfopt hexpass:"$k" -kdfopt salt:"$1" -kdfopt iter:1 -binary PBKDF2 | base64 -w0; }
           ENC='2.c21va2VpdjEyMzQ1Njc4OQ==|c21va2VjdA==|c21va2VtYWNtYWNtYWNtYWNtYWNtYWNtYWNtYWM='
           token() { curl "${C[@]}" -w '\n%{http_code}' "$H/identity/connect/token" --data-urlencode grant_type=password \
             --data-urlencode "username=$EMAIL" --data-urlencode "password=$(mhash "$1")" --data-urlencode 'scope=api offline_access' \
@@ -75,7 +76,7 @@ jobs:
           # 3. A wrong password is refused; the right one logs in and stores a cipher.
           code="$(token wrong-pass | tail -1)"; echo "wrong password: $code"; test "$code" = 400
           tok="$(token gate-master-pass-2026 | head -1 | jq -er '.access_token')"
-          sub="$(python3 -c 'import base64,json,sys; s=sys.argv[1].split(".")[1]; print(json.loads(base64.urlsafe_b64decode(s+"="*(-len(s)%4)))["sub"])' "$tok")"
+          sub="$(cut -d. -f2 <<<"$tok" | tr '_-' '/+' | awk '{l=length($0)%4; if(l) $0=$0 substr("===",1,4-l); print}' | base64 -d | jq -er .sub)"
           curl -f "${C[@]}" -H "Authorization: Bearer $tok" -H 'Content-Type: application/json' "$H/api/ciphers" \
             -d "{\"type\":2,\"name\":\"$ENC\",\"secureNote\":{\"type\":0},\"favorite\":false,\"encryptedFor\":\"$sub\"}" >/dev/null
           test "$(ciphers "$tok")" = 1; echo "cipher stored"

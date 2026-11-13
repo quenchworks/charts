@@ -46,7 +46,7 @@ jobs:
         run: |
           set -o pipefail
           # A one-JSP WAR, mounted from a ConfigMap the way the README shows.
-          python3 -c "import zipfile; z=zipfile.ZipFile('/tmp/quench.war','w'); z.writestr('index.jsp','<%= \"quench-\" + (6*7) %>\n'); z.close()"
+          mkdir -p /tmp/war && printf '%s\n' '<%= "quench-" + (6*7) %>' > /tmp/war/index.jsp && (cd /tmp/war && zip -q /tmp/quench.war index.jsp)
           kubectl create configmap wildfly-gate-war --from-file=quench.war=/tmp/quench.war
           helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
           kubectl rollout status deployment/rtest-wildfly --timeout=300s
