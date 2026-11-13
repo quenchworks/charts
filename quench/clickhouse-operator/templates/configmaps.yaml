@@ -1,0 +1,19 @@
+{{- /* Upstream's operator and ClickHouse/Keeper default configuration, verbatim from the
+     release tag's install bundle (files/<ConfigMap name>/<key>). */ -}}
+{{- $root := . -}}
+{{- range (include "clickhouse-operator.configDirs" . | fromJsonArray) }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" $root }}-{{ .dir }}
+  labels:
+    {{- include "quench-common.labels" $root | nindent 4 }}
+{{- $files := $root.Files.Glob (printf "files/%s/*" .dir) }}
+{{- if $files }}
+data:
+  {{- ($files).AsConfig | nindent 2 }}
+{{- else }}
+data: {}
+{{- end }}
+{{- end }}

@@ -1,0 +1,167 @@
+name: release-clickhouse-operator
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/clickhouse-operator/**"
+      - ".github/workflows/release-clickhouse-operator.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/clickhouse-operator
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          exporter="$(awk '/^metricsExporter:/{f=1} f&&/repository:/{r=$2} f&&/digest:/{gsub(/"/,"",$2); print r"@"$2; exit}' "${CHART_DIR}/values.yaml")"
+
+          # --- PROVE THE OPERATOR RUNS CLICKHOUSE AND MANAGES IT WITH ITS OWN LOGIN. ---
+          # 1. The four CRDs, and both containers on our images.
+          test "$(kubectl get crd -o name | grep -c 'altinity.com')" -eq 4
+          imgs="$(kubectl get deploy rtest-clickhouse-operator -o jsonpath='{range .spec.template.spec.containers[*]}{.image}{"\n"}{end}')"
+          grep -qxF "$exporter" <<<"$imgs" || { echo "FAIL: metrics-exporter is not ours: $imgs"; exit 1; }
+
+          # 2. A one-node ClickHouseInstallation.
+          kubectl apply -f - <<'YAML'
+          apiVersion: clickhouse.altinity.com/v1
+          kind: ClickHouseInstallation
+          metadata: { name: gate }
+          spec:
+            configuration:
+              clusters: [{ name: main, layout: { shardsCount: 1, replicasCount: 1 } }]
+          YAML
+
+          # 3. The operator reports Completed: it created the StatefulSet, the pod is ready, and it
+          #    logged in to ClickHouse with the clickhouse_operator user from the chart's Secret.
+          for i in $(seq 1 120); do
+            st="$(kubectl get chi gate -o jsonpath='{.status.status}' 2>/dev/null || true)"
+            [ "$st" = Completed ] && break; sleep 5
+          done
+          test "$st" = Completed || { kubectl get chi gate -o yaml | tail -40; echo "FAIL: ClickHouseInstallation is $st"; exit 1; }
+          echo "ClickHouseInstallation reconciled: Completed"
+
+          # 4. ClickHouse answers queries: create a table, insert, read the rows back.
+          pod="$(kubectl get pod -l clickhouse.altinity.com/chi=gate -o jsonpath='{.items[0].metadata.name}')"
+          kubectl exec "$pod" -- clickhouse-client -q "CREATE TABLE gate (n UInt32) ENGINE = MergeTree ORDER BY n"
+          kubectl exec "$pod" -- clickhouse-client -q "INSERT INTO gate SELECT number FROM numbers(1000)"
+          n="$(kubectl exec "$pod" -- clickhouse-client -q "SELECT count() FROM gate")"
+          test "$n" = 1000 || { echo "FAIL: read back $n rows, not 1000"; exit 1; }
+          echo "ClickHouse stored and returned 1000 rows"
+
+          # 5. ClickHouse holds the operator's login from the chart's Secret (its sha256, not upstream's
+          #    fixed password), allowed only from the operator pod's IP.
+          users="$(kubectl exec "$pod" -- cat /etc/clickhouse-server/users.d/chop-generated-users.xml)"
+          want="$(kubectl get secret clickhouse-operator -o jsonpath='{.data.password}' | python3 -c 'import sys,base64,hashlib;print(hashlib.sha256(base64.b64decode(sys.stdin.read())).hexdigest())')"
+          grep -qF "<password_sha256_hex>${want}</password_sha256_hex>" <<<"$users" || { echo "FAIL: ClickHouse does not hold the chart's operator password"; exit 1; }
+          opip="$(kubectl get pod -l app.kubernetes.io/instance=rtest -o jsonpath='{.items[0].status.podIP}')"
+          grep -qF "<ip>${opip}</ip>" <<<"$users" || { echo "FAIL: clickhouse_operator is not limited to the operator pod ($opip)"; exit 1; }
+          echo "ClickHouse holds the generated operator password, allowed from $opip only"
+
+          restarts="$(kubectl get pods -l app.kubernetes.io/instance=rtest -o jsonpath='{range .items[*]}{.status.containerStatuses[*].restartCount}{"\n"}{end}' | tr -d '\n' | tr -s ' ')"
+          case "$restarts" in *[1-9]*) kubectl get pods; echo "FAIL: the operator restarted"; exit 1 ;; esac
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/clickhouse-operator-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/clickhouse-operator@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/clickhouse-operator:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

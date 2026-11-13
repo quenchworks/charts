@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmaps.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "clickhouse-operator.serviceAccountName" . }}
+      # The operator talks to the API server; quench-common leaves the token off.
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: clickhouse-operator
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          # glog writes files to /tmp by default, which is read-only here; log to stderr instead.
+          args: [-logtostderr=true]
+          env:
+            {{- include "clickhouse-operator.env" . | nindent 12 }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          ports:
+            - { name: op-metrics, containerPort: 9999, protocol: TCP }
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" (dict "tcpSocket" (dict "port" "op-metrics") "periodSeconds" 15)) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" (dict "tcpSocket" (dict "port" "op-metrics") "periodSeconds" 10)) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "clickhouse-operator.mounts" . | nindent 12 }}
+        {{- if .Values.metricsExporter.enabled }}
+        - name: metrics-exporter
+          image: {{ include "clickhouse-operator.exporterImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          # glog writes files to /tmp by default, which is read-only here; log to stderr instead.
+          args: [-logtostderr=true]
+          env:
+            {{- include "clickhouse-operator.env" . | nindent 12 }}
+          ports:
+            - { name: ch-metrics, containerPort: 8888, protocol: TCP }
+          resources:
+            {{- toYaml .Values.metricsExporter.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "clickhouse-operator.mounts" . | nindent 12 }}
+        {{- end }}
+      volumes:
+        {{- range (include "clickhouse-operator.configDirs" . | fromJsonArray) }}
+        - name: {{ .dir }}
+          configMap: { name: {{ include "quench-common.fullname" $ }}-{{ .dir }} }
+        {{- end }}
+        - name: ipc
+          emptyDir: { medium: Memory, sizeLimit: 1Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}-metrics
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - { name: op-metrics, port: 9999, targetPort: op-metrics, protocol: TCP }
+    {{- if .Values.metricsExporter.enabled }}
+    - { name: ch-metrics, port: 8888, targetPort: ch-metrics, protocol: TCP }
+    {{- end }}
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}

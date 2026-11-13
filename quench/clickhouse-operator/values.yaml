@@ -1,0 +1,60 @@
+# The digests below are the contract with the image factory. CI rewrites them from the
+# image-published dispatch after every green image build. Never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/clickhouse-operator
+  digest: "sha256:3da687aa7c9639b41bfcf4a20c7c90e72d17223a511884ef8588edefe0e6cd2b"
+  pullPolicy: IfNotPresent
+
+# The metrics exporter that runs beside the operator and scrapes every ClickHouse it manages
+# (port 8888). Our image, pinned by digest.
+metricsExporter:
+  enabled: true
+  image:
+    repository: ghcr.io/quenchworks/images/clickhouse-operator-metrics-exporter
+    digest: "sha256:da2501806c0d8d2de8101a9c67f8625af53fb710d2da37d9b0419ecdb919ddb6"
+  resources:
+    requests: { cpu: 20m, memory: 32Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+nameOverride: ""
+
+# Namespaces to watch (WATCH_NAMESPACES, literal names or regexps). Empty: every namespace.
+watchNamespaces: []
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

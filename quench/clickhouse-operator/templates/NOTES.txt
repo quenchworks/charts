@@ -1,0 +1,19 @@
+The Altinity ClickHouse Operator is running as {{ include "quench-common.fullname" . }} and watches
+{{ if .Values.watchNamespaces }}{{ join ", " .Values.watchNamespaces }}{{ else }}every namespace{{ end }} for ClickHouseInstallation, ClickHouseKeeperInstallation and
+ClickHouseInstallationTemplate resources (CRDs installed with the chart).
+
+A one-node ClickHouse:
+
+  apiVersion: clickhouse.altinity.com/v1
+  kind: ClickHouseInstallation
+  metadata: { name: main }
+  spec:
+    configuration:
+      clusters: [{ name: main, layout: { shardsCount: 1, replicasCount: 1 } }]
+
+Its pods run upstream's clickhouse/clickhouse-server image unless a podTemplate sets one.
+The operator connects to every ClickHouse as user clickhouse_operator with the password in
+Secret clickhouse-operator (generated once by this chart).
+
+Helm installs the CRDs once and never upgrades or deletes them: apply the new
+crds/crds.yaml yourself before upgrading the chart across operator releases.
