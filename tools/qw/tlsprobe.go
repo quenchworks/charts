@@ -34,6 +34,7 @@ func cmdTLSProbe(args []string) int {
 	fs.Var(&expects, "expect", "reply must contain this text (repeatable)")
 	retries := fs.Int("retry", 1, "dial and handshake attempts, 3s apart")
 	label := fs.String("label", "TLS", "name printed on success")
+	print := fs.Bool("print", false, "print the reply (trailing NULs trimmed) instead of the ok line")
 	plain := fs.Bool("plain", false, "no TLS: speak the protocol over plain TCP (--ca and --name not needed)")
 	if fs.Parse(args) != nil || *addr == "" || (!*plain && (*ca == "" || *name == "")) {
 		fmt.Fprintln(os.Stderr, "usage: qw tlsprobe --addr host:port (--ca ca.crt --name server | --plain) [--alpn h2] [--banner P] [--send S | --send-hex H] [--read N] [--expect T]... [--expect-hex-prefix H] [--reject-hex-prefix H] [--retry N] [--label L]")
@@ -92,7 +93,7 @@ func cmdTLSProbe(args []string) int {
 			return fail("write: %v", err)
 		}
 	}
-	if *hexPrefix != "" || *notHexPrefix != "" || len(expects) > 0 {
+	if *hexPrefix != "" || *notHexPrefix != "" || len(expects) > 0 || *print {
 		t.SetReadDeadline(time.Now().Add(10 * time.Second))
 		got, err := readReply(t, *readN, expects)
 		if err != nil {
@@ -108,6 +109,10 @@ func cmdTLSProbe(args []string) int {
 			if !bytes.Contains(got, []byte(e)) {
 				return fail("reply %q lacks %q", got, e)
 			}
+		}
+		if *print {
+			fmt.Println(string(bytes.TrimRight(got, "\x00")))
+			return 0
 		}
 	}
 	fmt.Printf("%s ok: %s\n", *label, version)
