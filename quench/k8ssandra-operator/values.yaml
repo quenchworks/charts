@@ -1,0 +1,130 @@
+# The digests below are the contract with the image factory. CI rewrites them from the
+# image-published dispatch after every green image build. Never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/k8ssandra-operator
+  digest: "sha256:4d838ad84508bfe2be660958147533f1a9ccb8414a9208f89dbdeb09c81ee783"
+  pullPolicy: IfNotPresent
+
+# cass-operator runs the CassandraDatacenter resources K8ssandra Operator creates; it ships in the
+# same release, in the same namespace.
+cassOperator:
+  image:
+    repository: ghcr.io/quenchworks/images/cass-operator
+    digest: "sha256:3c00647f20889987b8beeb6ea67cf4da8c8200bdd0ef100b406de22013fba7db"
+    pullPolicy: IfNotPresent
+  resources:
+    requests: { cpu: 100m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+# Mutating and validating webhooks for both operators. The chart generates one CA and a serving
+# certificate per webhook service once, and keeps them across upgrades (no cert-manager needed).
+webhook:
+  failurePolicy: Fail   # Fail or Ignore
+
+nameOverride: ""
+
+# Namespaces to watch (WATCH_NAMESPACE, comma separated). Empty: every namespace.
+watchNamespaces: []
+
+# Leader election is always on; extra replicas are warm standbys.
+replicaCount: 1
+
+resources:
+  requests: { cpu: 100m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+# The ImageConfig both operators read (upstream's default): the Cassandra (management-api), Medusa,
+# Reaper, logger and config-builder images the operators put in Cassandra pods. These are upstream
+# images, not QuenchWorks builds. Empty string: no ConfigMap (bring your own, labelled
+# k8ssandra.io/config=image, in the release namespace).
+imageConfig: |
+  apiVersion: config.k8ssandra.io/v1beta2
+  kind: ImageConfig
+  metadata:
+      name: image-config
+  images:
+      system-logger:
+          repository: "k8ssandra"
+          name: "system-logger"
+          tag: "v1.33.1"
+      config-builder:
+          repository: "datastax"
+          name: "cass-config-builder"
+          tag: "1.0-ubi"
+      k8ssandra-client:
+          repository: "k8ssandra"
+          name: "k8ssandra-client"
+          tag: "v0.9.2"
+          # pullSecret: "k8ssandra-client-pull-secret" # Use of pullSecret removes the default pullSecrets for this image
+          # pullPolicy: Always
+      medusa:
+          registry: "docker.io"
+          repository: "k8ssandra"
+          name: "medusa"
+          tag: "0.31.1"
+      reaper:
+          registry: "docker.io"
+          repository: "thelastpickle"
+          name: "cassandra-reaper"
+          tag: "5.1.0"
+  # -- defaults are used when other no override is present for the configured image or image type. All these values can be overridden under any image or image type.
+  defaults:
+      registry: "ghcr.io"
+      pullPolicy: IfNotPresent
+      # -- pullSecrets allow configuring the secret to use for pulling images from private registries.
+      # pullSecrets:
+      #   - my-secret-pull-registry
+  # -- overrides will apply to all images discarding the settings in defaults or what individual images might have.
+  # overrides:
+  # -- registry to pull from
+  # registry: "private-registry.local"
+  # -- repository to use discarding all the other settings. If set to empty, repository part will be removed from the image path.
+  # repository: "enterprise"
+  # -- pullPolicy override the pullPolicy of images
+  # pullPolicy: Never
+  # -- pullSecrets removes all the other pullSecrets when used. Setting as empty array will remove pullSecrets from use.
+  # pullSecrets:
+  #   - "my-secret-pull-registry"
+  # -- types are used as building blocks when serverVersion + serverType in the CassandraDatacenter is used
+  types:
+      cassandra:
+          repository: "k8ssandra"
+          name: "cass-management-api"
+          suffix: "-ubi"
+      hcd:
+          registry: "cp.icr.io"
+          repository: "cp/ibm-ds-mission-control"
+          name: "hcd"
+          suffix: "-ubi"
+      dse:
+          registry: "docker.io"
+          repository: "datastax"
+          name: "dse-mgmtapi-6_8"
+          suffix: "-ubi"
+
+
+# --- Common production knobs for the k8ssandra-operator pod, wired through quench-common ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 10
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}

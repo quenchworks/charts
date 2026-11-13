@@ -1,0 +1,116 @@
+{{- /* Webhooks for both operators (upstream config/webhook manifests at the release tags). One CA and
+     a serving certificate per webhook service are generated once and kept across upgrades, in place
+     of upstream's cert-manager Issuers and Certificates. */ -}}
+{{- $fn := include "quench-common.fullname" . -}}
+{{- $ns := .Release.Namespace -}}
+{{- $ca := "" -}}{{- $caObj := dict -}}
+{{- $old := lookup "v1" "Secret" $ns (printf "%s-webhook-tls" $fn) -}}
+{{- if and $old $old.data (index $old.data "ca.crt") -}}
+{{- $ca = index $old.data "ca.crt" -}}
+{{- else -}}
+{{- $caObj = genCA (printf "%s-webhook-ca" $fn) 3650 -}}
+{{- $ca = $caObj.Cert | b64enc -}}
+{{- end -}}
+{{- range $c := list (dict "secret" (printf "%s-webhook-tls" $fn) "svc" (printf "%s-webhook" $fn) "component" "k8ssandra-operator")
+                      (dict "secret" (printf "%s-cass-operator-webhook-tls" $fn) "svc" (printf "%s-cass-operator-webhook" $fn) "component" "cass-operator") }}
+{{- $existing := lookup "v1" "Secret" $ns $c.secret -}}
+{{- $crt := "" -}}{{- $key := "" -}}
+{{- if and $existing $existing.data (index $existing.data "ca.crt") (eq (index $existing.data "ca.crt") $ca) -}}
+{{- $crt = index $existing.data "tls.crt" -}}{{- $key = index $existing.data "tls.key" -}}
+{{- else -}}
+{{- $cert := genSignedCert $c.svc nil (list $c.svc (printf "%s.%s" $c.svc $ns) (printf "%s.%s.svc" $c.svc $ns) (printf "%s.%s.svc.cluster.local" $c.svc $ns)) 3650 $caObj -}}
+{{- $crt = $cert.Cert | b64enc -}}{{- $key = $cert.Key | b64enc -}}
+{{- end }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $c.secret }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $crt }}
+  tls.key: {{ $key }}
+  ca.crt: {{ $ca }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $c.svc }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - { name: webhook, port: 443, targetPort: webhook, protocol: TCP }
+  selector:
+    {{- include "quench-common.selectorLabels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $c.component }}
+{{- end }}
+{{- $k8s := printf "%s-webhook" $fn -}}
+{{- $cass := printf "%s-cass-operator-webhook" $fn }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ $fn }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+webhooks:
+  - name: mcassandradatacenter.kb.io
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      caBundle: {{ $ca }}
+      service: { name: {{ $cass }}, namespace: {{ $ns }}, path: /mutate-cassandra-datastax-com-v1beta1-cassandradatacenter }
+    rules:
+      - { apiGroups: [cassandra.datastax.com], apiVersions: [v1beta1], operations: [CREATE, UPDATE], resources: [cassandradatacenters] }
+  # injects secrets into the Cassandra pods cass-operator creates
+  - name: mpod.kb.io
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      caBundle: {{ $ca }}
+      service: { name: {{ $k8s }}, namespace: {{ $ns }}, path: /mutate-v1-pod-secrets-inject }
+    objectSelector:
+      matchLabels: { app.kubernetes.io/created-by: cass-operator }
+    rules:
+      - { apiGroups: [""], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [pods] }
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ $fn }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+webhooks:
+  - name: vcassandradatacenter.kb.io
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      caBundle: {{ $ca }}
+      service: { name: {{ $cass }}, namespace: {{ $ns }}, path: /validate-cassandra-datastax-com-v1beta1-cassandradatacenter }
+    rules:
+      - { apiGroups: [cassandra.datastax.com], apiVersions: [v1beta1], operations: [CREATE, UPDATE], resources: [cassandradatacenters] }
+  - name: vk8ssandracluster.kb.io
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      caBundle: {{ $ca }}
+      service: { name: {{ $k8s }}, namespace: {{ $ns }}, path: /validate-k8ssandra-io-v1alpha1-k8ssandracluster }
+    rules:
+      - { apiGroups: [k8ssandra.io], apiVersions: [v1alpha1], operations: [CREATE, UPDATE], resources: [k8ssandraclusters] }
+  - name: vmedusabackupschedule.kb.io
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      caBundle: {{ $ca }}
+      service: { name: {{ $k8s }}, namespace: {{ $ns }}, path: /validate-medusa-k8ssandra-io-v1alpha1-medusabackupschedule }
+    rules:
+      - { apiGroups: [medusa.k8ssandra.io], apiVersions: [v1alpha1], operations: [CREATE, UPDATE], resources: [medusabackupschedules] }

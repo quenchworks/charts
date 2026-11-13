@@ -1,0 +1,145 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: k8ssandra-operator
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: k8ssandra-operator
+  template:
+    metadata:
+      annotations:
+        checksum/webhook-tls: {{ include (print $.Template.BasePath "/webhook.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+        app.kubernetes.io/component: k8ssandra-operator
+    spec:
+      # upstream's service account name (rbac.yaml); SERVICE_ACCOUNT_NAME below reads it back
+      serviceAccountName: k8ssandra-operator
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: k8ssandra-operator
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - --leader-elect
+            - --health-probe-bind-address=:8081
+          env:
+            - { name: WATCH_NAMESPACE, value: {{ join "," .Values.watchNamespaces | quote }} }
+            # control-plane mode: this cluster runs the K8ssandraCluster controllers
+            - { name: K8SSANDRA_CONTROL_PLANE, value: "true" }
+            - name: SERVICE_ACCOUNT_NAME
+              valueFrom: { fieldRef: { fieldPath: spec.serviceAccountName } }
+            - name: OPERATOR_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - { name: probe, containerPort: 8081, protocol: TCP }
+            - { name: webhook, containerPort: 9443, protocol: TCP }
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" (dict "httpGet" (dict "path" "/healthz" "port" "probe") "initialDelaySeconds" 15 "periodSeconds" 20)) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" (dict "httpGet" (dict "path" "/readyz" "port" "probe") "initialDelaySeconds" 5 "periodSeconds" 10)) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            # controller-runtime's default CertDir
+            - { name: webhook-tls, mountPath: /tmp/k8s-webhook-server/serving-certs, readOnly: true }
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: webhook-tls
+          secret: { secretName: {{ include "quench-common.fullname" . }}-webhook-tls }
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}-cass-operator
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cass-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: cass-operator
+  template:
+    metadata:
+      annotations:
+        checksum/webhook-tls: {{ include (print $.Template.BasePath "/webhook.yaml") . | sha256sum }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: cass-operator
+    spec:
+      serviceAccountName: cass-operator-controller-manager
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: manager
+          image: "{{ .Values.cassOperator.image.repository }}@{{ .Values.cassOperator.image.digest }}"
+          imagePullPolicy: {{ .Values.cassOperator.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          args:
+            - --leader-elect
+            - --metrics-bind-address=:8443
+            - --health-probe-bind-address=:8081
+            - --webhook-cert-path=/tmp/k8s-webhook-server/serving-certs
+          env:
+            - { name: WATCH_NAMESPACE, value: {{ join "," .Values.watchNamespaces | quote }} }
+          ports:
+            - { name: probe, containerPort: 8081, protocol: TCP }
+            - { name: metrics, containerPort: 8443, protocol: TCP }
+            - { name: webhook, containerPort: 9443, protocol: TCP }
+          livenessProbe:
+            httpGet: { path: /healthz, port: probe }
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet: { path: /readyz, port: probe }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.cassOperator.resources | nindent 12 }}
+          volumeMounts:
+            # the secure metrics server writes a self-signed certificate under TMPDIR
+            - { name: tmp, mountPath: /tmp }
+            - { name: webhook-tls, mountPath: /tmp/k8s-webhook-server/serving-certs, readOnly: true }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: webhook-tls
+          secret: { secretName: {{ include "quench-common.fullname" . }}-cass-operator-webhook-tls }

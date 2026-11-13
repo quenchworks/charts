@@ -1,0 +1,625 @@
+{{- /* Upstream RBAC for both operators (k8ssandra-operator v1.34.0 config/deployments/control-plane/cluster-scope,
+     rendered with kubectl kustomize), namespace templated. Cluster-scoped names stay upstream: one install per cluster. */ -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: cass-operator
+  name: cass-operator-controller-manager
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: k8ssandra-operator
+  namespace: {{ .Release.Namespace }}
+secrets:
+- name: k8ssandra-operator-token
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: cass-operator
+  name: cass-operator-leader-election-role
+  namespace: {{ .Release.Namespace }}
+rules:
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: leader-election-role
+  namespace: {{ .Release.Namespace }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: cass-operator
+  name: cass-operator-manager-crrole
+  namespace: {{ .Release.Namespace }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - events
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - endpoints
+  - endpoints/restricted
+  verbs:
+  - delete
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  - secrets
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - cassandra.datastax.com
+  resources:
+  - cassandradatacenters
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - cassandra.datastax.com
+  resources:
+  - cassandradatacenters/finalizers
+  verbs:
+  - delete
+  - update
+- apiGroups:
+  - cassandra.datastax.com
+  resources:
+  - cassandradatacenters/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - control.k8ssandra.io
+  resources:
+  - cassandratasks
+  - scheduledtasks
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - control.k8ssandra.io
+  resources:
+  - cassandratasks/finalizers
+  - scheduledtasks/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - control.k8ssandra.io
+  resources:
+  - cassandratasks/status
+  - scheduledtasks/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  - endpointslices/restricted
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - policy
+  resources:
+  - poddisruptionbudgets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: k8ssandra-operator
+  namespace: {{ .Release.Namespace }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - endpoints
+  - endpoints/restricted
+  - secrets
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - statefulsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - cronjobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - cassandra.datastax.com
+  resources:
+  - cassandradatacenters
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - config.k8ssandra.io
+  resources:
+  - clientconfigs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - control.k8ssandra.io
+  resources:
+  - cassandratasks
+  - k8ssandratasks
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - control.k8ssandra.io
+  resources:
+  - cassandratasks/status
+  verbs:
+  - get
+- apiGroups:
+  - control.k8ssandra.io
+  resources:
+  - k8ssandratasks/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - control.k8ssandra.io
+  resources:
+  - k8ssandratasks/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  - endpointslices/restricted
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - k8ssandra.io
+  resources:
+  - clientconfigs
+  - k8ssandraclusters
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - k8ssandra.io
+  resources:
+  - k8ssandraclusters/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - k8ssandra.io
+  resources:
+  - k8ssandraclusters/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - medusa.k8ssandra.io
+  resources:
+  - medusabackupjobs
+  - medusabackups
+  - medusabackupschedules
+  - medusaconfigurations
+  - medusatasks
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - medusa.k8ssandra.io
+  resources:
+  - medusabackupjobs/finalizers
+  - medusabackups/finalizers
+  - medusabackupschedules/finalizers
+  - medusaconfigurations/finalizers
+  - medusatasks/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - medusa.k8ssandra.io
+  resources:
+  - medusabackupjobs/status
+  - medusabackups/status
+  - medusabackupschedules/status
+  - medusaconfigurations/status
+  - medusarestorejobs/status
+  - medusatasks/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - medusa.k8ssandra.io
+  resources:
+  - medusarestorejobs
+  verbs:
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - servicemonitors
+  verbs:
+  - create
+  - delete
+  - deletecollection
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - reaper.k8ssandra.io
+  resources:
+  - reapers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - reaper.k8ssandra.io
+  resources:
+  - reapers/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - reaper.k8ssandra.io
+  resources:
+  - reapers/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - replication.k8ssandra.io
+  resources:
+  - replicatedsecrets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - replication.k8ssandra.io
+  resources:
+  - replicatedsecrets/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - replication.k8ssandra.io
+  resources:
+  - replicatedsecrets/status
+  verbs:
+  - get
+  - patch
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: cass-operator
+  name: cass-operator-manager-role
+rules:
+- apiGroups:
+  - storage.k8s.io
+  resources:
+  - storageclasses
+  verbs:
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: cass-operator
+  name: cass-operator-leader-election-rolebinding
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cass-operator-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: cass-operator-controller-manager
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: leader-election-rolebinding
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: leader-election-role
+subjects:
+- kind: ServiceAccount
+  # upstream source says controller-manager; kustomize renamed it to cass-operator's account,
+  # which left k8ssandra-operator unable to take its lease
+  name: k8ssandra-operator
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: cass-operator
+  name: cass-operator-manager-rolebinding
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cass-operator-manager-crrole
+subjects:
+- kind: ServiceAccount
+  name: cass-operator-controller-manager
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: k8ssandra-operator
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: k8ssandra-operator
+subjects:
+- kind: ServiceAccount
+  name: k8ssandra-operator
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: cass-operator
+  name: cass-operator-manager-res-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cass-operator-manager-crrole
+subjects:
+- kind: ServiceAccount
+  name: cass-operator-manager
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  annotations:
+    kubernetes.io/service-account.name: k8ssandra-operator
+  name: k8ssandra-operator-token
+  namespace: {{ .Release.Namespace }}
+type: kubernetes.io/service-account-token

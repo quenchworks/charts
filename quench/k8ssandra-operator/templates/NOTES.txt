@@ -1,0 +1,22 @@
+K8ssandra Operator {{ .Chart.AppVersion }} and cass-operator are running in {{ .Release.Namespace }}.
+
+Create a cluster (the Cassandra pods run k8ssandra's management-api image from imageConfig):
+
+  kubectl apply -n {{ .Release.Namespace }} -f - <<'YAML'
+  apiVersion: k8ssandra.io/v1alpha1
+  kind: K8ssandraCluster
+  metadata: { name: demo }
+  spec:
+    cassandra:
+      serverVersion: "4.1.8"
+      datacenters:
+        - metadata: { name: dc1 }
+          size: 1
+          storageConfig:
+            cassandraDataVolumeClaimSpec:
+              accessModes: [ReadWriteOnce]
+              resources: { requests: { storage: 5Gi } }
+  YAML
+
+Watch it come up: kubectl get k8ssandracluster,cassandradatacenter -n {{ .Release.Namespace }}
+The superuser password is in the Secret demo-superuser.
