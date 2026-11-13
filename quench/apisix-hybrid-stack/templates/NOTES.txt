@@ -1,0 +1,17 @@
+QuenchWorks apisix-hybrid-stack is installed in {{ .Release.Namespace }}.
+
+  control plane   apisix-control-plane:9180   Admin API, key in Secret apisix-control-plane-admin
+  data plane      apisix-data-plane:9080      proxy ({{ .Values.dataPlane.replicaCount }} replicas, Service {{ .Values.dataPlane.service.type }})
+  etcd            https://apisix-etcd:2379    mutual TLS, client cert in Secret apisix-etcd-client-tls
+{{- if (index .Values "apisix-ingress-controller").enabled }}
+  ingress         IngressClass apisix; Ingress and ApisixRoute objects are written through the control plane
+{{- end }}
+
+Write a route through the control plane:
+
+  KEY=$(kubectl -n {{ .Release.Namespace }} get secret apisix-control-plane-admin -o jsonpath='{.data.admin-key}' | base64 -d)
+  kubectl -n {{ .Release.Namespace }} port-forward svc/apisix-control-plane 9180 &
+  curl -X PUT http://127.0.0.1:9180/apisix/admin/routes/1 -H "X-API-KEY: $KEY" \
+    -d '{"uri":"/*","upstream":{"type":"roundrobin","nodes":{"my-svc:80":1}}}'
+
+Every data plane serves it within a second, and keeps serving it if the control plane is down.

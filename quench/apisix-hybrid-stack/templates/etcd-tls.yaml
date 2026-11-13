@@ -1,0 +1,47 @@
+{{- /* The etcd CA and the server + client certificates signed by it, generated once and reused. */ -}}
+{{- if .Values.etcdTLS.create }}
+{{- $ns := .Release.Namespace -}}
+{{- $fn := .Values.etcd.fullnameOverride -}}
+{{- $srvName := .Values.etcd.tls.existingSecret -}}
+{{- $cliName := .Values.controlPlane.etcdClient.tls.existingSecret -}}
+{{- if ne $cliName .Values.dataPlane.etcdClient.tls.existingSecret -}}
+{{- fail "controlPlane and dataPlane must use the same etcdClient.tls.existingSecret when etcdTLS.create=true" -}}
+{{- end -}}
+{{- $srv := lookup "v1" "Secret" $ns $srvName -}}
+{{- $cli := lookup "v1" "Secret" $ns $cliName -}}
+{{- $srvData := dict -}}{{- $cliData := dict -}}
+{{- if and $srv $cli $srv.data $cli.data -}}
+{{- $srvData = $srv.data -}}{{- $cliData = $cli.data -}}
+{{- else -}}
+{{- $days := int .Values.etcdTLS.validityDays -}}
+{{- $ca := genCA (printf "%s-ca" $fn) $days -}}
+{{- $dns := list $fn (printf "%s.%s" $fn $ns) (printf "%s.%s.svc" $fn $ns) (printf "%s.%s.svc.cluster.local" $fn $ns) (printf "*.%s-headless.%s.svc" $fn $ns) (printf "*.%s-headless.%s.svc.cluster.local" $fn $ns) "localhost" -}}
+{{- $server := genSignedCert $fn (list "127.0.0.1") $dns $days $ca -}}
+{{- $client := genSignedCert "apisix" nil nil $days $ca -}}
+{{- $srvData = dict "tls.crt" ($server.Cert | b64enc) "tls.key" ($server.Key | b64enc) "ca.crt" ($ca.Cert | b64enc) -}}
+{{- $cliData = dict "tls.crt" ($client.Cert | b64enc) "tls.key" ($client.Key | b64enc) "ca.crt" ($ca.Cert | b64enc) -}}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $srvName }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+type: kubernetes.io/tls
+data:
+  {{- toYaml $srvData | nindent 2 }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $cliName }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+type: kubernetes.io/tls
+data:
+  {{- toYaml $cliData | nindent 2 }}
+{{- end }}

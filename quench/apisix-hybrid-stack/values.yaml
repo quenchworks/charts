@@ -1,0 +1,89 @@
+# apisix-hybrid-stack: APISIX in decoupled (hybrid) mode.
+#
+#   apisix-control-plane   Admin API (9180) only, writes routes into etcd. ClusterIP, never exposed.
+#   apisix-data-plane      proxy (9080 / 9443) only, reads routes from etcd. No Admin API.
+#   apisix-etcd            3 members; clients must present a certificate from the stack's CA.
+#   ingress controller     turns Ingress / ApisixRoute objects into Admin API calls on the
+#                          control plane (IngressClass apisix).
+#
+# Object names are fixed (fullnameOverride below) so the subcharts can find each other
+# without templating, which means ONE stack per namespace.
+
+# The etcd CA, server and client certificates. The stack generates them on install into
+# the two Secrets named below and reuses them on every upgrade. To bring your own, set
+# create=false and provide both Secrets (tls.crt, tls.key, ca.crt; the server certificate
+# must cover apisix-etcd and the *.apisix-etcd-headless names).
+# Rotate generated ones: delete both Secrets, helm upgrade, then restart etcd and APISIX.
+etcdTLS:
+  create: true
+  validityDays: 3650
+
+etcd:
+  fullnameOverride: apisix-etcd
+  replicaCount: 3
+  tls:
+    enabled: true
+    existingSecret: apisix-etcd-server-tls
+    clientAuth: true
+
+controlPlane:
+  fullnameOverride: apisix-control-plane
+  role: control_plane
+  replicaCount: 2
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels: { app.kubernetes.io/name: controlPlane }
+  etcd:
+    enabled: false
+  etcdClient:
+    hosts: ["https://apisix-etcd:2379"]
+    tls:
+      existingSecret: apisix-etcd-client-tls
+      verify: true
+      sni: apisix-etcd
+
+dataPlane:
+  fullnameOverride: apisix-data-plane
+  role: data_plane
+  replicaCount: 3
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: kubernetes.io/hostname
+      whenUnsatisfiable: ScheduleAnyway
+      labelSelector:
+        matchLabels: { app.kubernetes.io/name: dataPlane }
+  config:
+    extra:
+      nginx_config:
+        http:
+          # APISIX's default 0 ("no limit") rejects chunked request bodies. Raise it as needed.
+          client_max_body_size: 100m
+  etcd:
+    enabled: false
+  etcdClient:
+    hosts: ["https://apisix-etcd:2379"]
+    tls:
+      existingSecret: apisix-etcd-client-tls
+      verify: true
+      sni: apisix-etcd
+  # Expose the proxy: LoadBalancer, or front it with your own Ingress / Gateway.
+  service:
+    type: ClusterIP
+
+apisix-ingress-controller:
+  enabled: true
+  dataPlane:
+    endpoints: ["http://apisix-control-plane:9180"]
+    adminKey:
+      existingSecret: apisix-control-plane-admin
+      existingSecretKey: admin-key
+
+# The Gateway API CRDs (cluster-scoped, kept on uninstall). The controller needs them even
+# for plain Ingress: with Gateway API off, 2.2.0 fails every Ingress with
+# "Index with name field:targetRefs does not exist". Set false only when another release
+# already owns these CRDs.
+gatewayAPICRDs:
+  enabled: true
