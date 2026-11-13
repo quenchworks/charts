@@ -46,37 +46,16 @@ jobs:
           kubectl rollout status statefulset/rtest-rethinkdb --timeout=300s
           test "$(kubectl get pvc data-rtest-rethinkdb-0 -o jsonpath='{.status.phase}')" = Bound
           PW="$(kubectl get secret rtest-rethinkdb -o jsonpath='{.data.password}' | base64 -d)"
-          python3 -m venv /tmp/rdb && /tmp/rdb/bin/pip install -q rethinkdb==2.4.10.post1
           pf() { kubectl port-forward svc/rtest-rethinkdb 28015:28015 >/tmp/pf.log 2>&1 & echo $!; }
           PF=$(pf); sleep 5
           # the admin password works, a wrong one is refused, and a write lands
-          RDB_PW="$PW" /tmp/rdb/bin/python - <<'PYEOF'
-          import os
-          from rethinkdb import r
-          from rethinkdb.errors import ReqlAuthError
-          c = r.connect(host="127.0.0.1", port=28015, user="admin", password=os.environ["RDB_PW"])
-          r.db_create("gate").run(c); r.db("gate").table_create("t").run(c)
-          r.db("gate").table("t").insert({"id": 1, "name": "quench"}).run(c)
-          print(r.db("rethinkdb").table("server_status").nth(0)["process"]["version"].run(c))
-          try:
-              r.connect(host="127.0.0.1", port=28015, user="admin", password="wrong")
-              raise SystemExit("a wrong password was accepted")
-          except ReqlAuthError:
-              print("wrong password refused")
-          PYEOF
+          RDB_PW="$PW" go -C tools/qw run . rethinkdb-gate write
           kill $PF
           # the data is on the PVC: delete the pod and read the document back
           kubectl delete pod rtest-rethinkdb-0 --wait
           kubectl rollout status statefulset/rtest-rethinkdb --timeout=300s
           PF=$(pf); sleep 5
-          RDB_PW="$PW" /tmp/rdb/bin/python - <<'PYEOF'
-          import os
-          from rethinkdb import r
-          c = r.connect(host="127.0.0.1", port=28015, user="admin", password=os.environ["RDB_PW"])
-          doc = r.db("gate").table("t").get(1).run(c)
-          assert doc == {"id": 1, "name": "quench"}, doc
-          print("after restart:", doc)
-          PYEOF
+          RDB_PW="$PW" go -C tools/qw run . rethinkdb-gate read
           kill $PF
           # native TLS: the driver port is TLS-only; the document must come back over a session
           # that verifies the certificate (localhost is in its names)
@@ -84,20 +63,7 @@ jobs:
           kubectl rollout status statefulset/rtest-rethinkdb --timeout=300s
           kubectl get secret rtest-rethinkdb-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/rdb-ca.crt
           PF=$(pf); sleep 5
-          RDB_PW="$PW" /tmp/rdb/bin/python - <<'PYEOF'
-          import os
-          from rethinkdb import r
-          c = r.connect(host="localhost", port=28015, user="admin", password=os.environ["RDB_PW"],
-                        ssl={"ca_certs": "/tmp/rdb-ca.crt"})
-          doc = r.db("gate").table("t").get(1).run(c)
-          assert doc == {"id": 1, "name": "quench"}, doc
-          print("over TLS:", doc)
-          try:
-              r.connect(host="localhost", port=28015, user="admin", password=os.environ["RDB_PW"], timeout=5)
-              raise SystemExit("plaintext driver connection accepted")
-          except Exception as e:
-              print("plaintext refused:", type(e).__name__)
-          PYEOF
+          RDB_PW="$PW" go -C tools/qw run . rethinkdb-gate --addr localhost:28015 --ca /tmp/rdb-ca.crt tls
           kill $PF
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

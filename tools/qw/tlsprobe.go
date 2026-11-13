@@ -168,7 +168,7 @@ func readReply(r io.Reader, n int, expects []string) ([]byte, error) {
 }
 
 func fail(f string, a ...any) int {
-	fmt.Fprintf(os.Stderr, "tlsprobe: "+f+"\n", a...)
+	fmt.Fprintf(os.Stderr, "qw: "+f+"\n", a...)
 	return 1
 }
 

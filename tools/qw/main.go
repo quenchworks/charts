@@ -50,6 +50,10 @@ func main() {
 		os.Exit(cmdTLSProbe(os.Args[2:]))
 	case "serve":
 		os.Exit(cmdServe(os.Args[2:]))
+	case "mongo-roundtrip":
+		os.Exit(cmdMongoRoundtrip(os.Args[2:]))
+	case "rethinkdb-gate":
+		os.Exit(cmdRethinkGate(os.Args[2:]))
 	default:
 		fmt.Fprintf(os.Stderr, "qw: unknown command %q\n", os.Args[1])
 		os.Exit(2)

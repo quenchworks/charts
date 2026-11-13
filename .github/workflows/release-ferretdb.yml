@@ -68,19 +68,8 @@ jobs:
           kubectl get secret fdb-ferretdb-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/fdb-ca.crt
           kubectl port-forward svc/fdb-ferretdb 27018:27018 >/tmp/pf-tls.log 2>&1 &
           pf=$!; sleep 5
-          python3 - <<'PY'
-          import socket, ssl, struct
-          name, db = b"hello\0", b"admin\0"
-          body = b"\x10" + name + struct.pack("<i", 1) + b"\x02$db\0" + struct.pack("<i", len(db)) + db + b"\0"
-          doc = struct.pack("<i", len(body) + 4) + body
-          msg = struct.pack("<I", 0) + b"\0" + doc
-          t = ssl.create_default_context(cafile="/tmp/fdb-ca.crt").wrap_socket(
-              socket.create_connection(("127.0.0.1", 27018), 10), server_hostname="fdb-ferretdb")
-          t.sendall(struct.pack("<iiii", 16 + len(msg), 1, 0, 2013) + msg)
-          r = t.recv(4096)
-          assert b"ok" in r and b"maxWireVersion" in r, r[:200]
-          print("ferretdb TLS hello ok:", t.version())
-          PY
+          # OP_MSG hello against admin: the reply must carry ok and maxWireVersion
+          go -C tools/qw run . tlsprobe --addr 127.0.0.1:27018 --ca /tmp/fdb-ca.crt --name fdb-ferretdb --send-hex 340000000100000000000000dd07000000000000001f0000001068656c6c6f000100000002246462000600000061646d696e0000 --expect ok --expect maxWireVersion --label 'ferretdb TLS hello'
           kill "$pf" 2>/dev/null || true
 
       # A push that edits this workflow re-runs the whole release, including for a
