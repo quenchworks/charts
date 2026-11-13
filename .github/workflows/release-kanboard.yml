@@ -55,7 +55,7 @@ jobs:
           H=https://rtest-kanboard:18443
           # JSON-RPC as the seeded admin (admin/admin on a fresh install)
           rpc() { curl -fsS -m 20 -u admin:admin -H 'Content-Type: application/json' "${@:3}" "$1/jsonrpc.php" -d "$2"; }
-          res() { python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit("rpc error: %s" % d["error"]) if "error" in d else print(d["result"])'; }
+          res() { jq -r 'if has("error") then ("rpc error: \(.error)\n" | halt_error(1)) else .result end'; }
 
           # --- PROVE KANBOARD KEEPS PROJECTS ON ITS VOLUME. ---
           # 1. The release's version through nginx + php-fpm, and the login page over HTTPS.

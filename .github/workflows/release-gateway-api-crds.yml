@@ -106,7 +106,7 @@ jobs:
           # a user's `helm install` with an opaque "data: Too long". The fix when it
           # trips is in the chart README, "Known ceiling".
           sz="$(kubectl get secret -n gateway-system -o json \
-                | python3 -c 'import json,sys; print(max((sum(len(v) for v in i["data"].values()) for i in json.load(sys.stdin)["items"] if i["metadata"]["name"].startswith("sh.helm.release")), default=0))')"
+                | jq '[.items[] | select(.metadata.name | startswith("sh.helm.release")) | [.data[] | length] | add] | max // 0')"
           echo "release Secret: ${sz} of 1048576 bytes ($((sz * 100 / 1048576))%)"
           test "$sz" -lt 1048576 || { echo "::error::release Secret exceeds the 1 MiB cap"; exit 1; }
           test "$sz" -lt 943718  || echo "::warning::release Secret is over 90% of the 1 MiB cap (${sz}); see the chart README, 'Known ceiling'"

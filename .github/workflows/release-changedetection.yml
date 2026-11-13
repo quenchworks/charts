@@ -80,7 +80,7 @@ jobs:
           # last_checked proves nothing (a BLOCKED fetch sets it too): the snapshot must hold
           # nginx's page. The page is in-cluster, so ci values allow private addresses.
           # by URL: first start also adds a default watch (news.ycombinator.com)
-          uuid="$(watches | python3 -c 'import json,sys; print(next(u for u, w in json.load(sys.stdin).items() if w.get("url") == "http://gate-page/"))')"
+          uuid="$(watches | jq -er 'first(to_entries[] | select(.value.url == "http://gate-page/") | .key)')"
           snap=""
           for i in $(seq 1 60); do
             snap="$(curl -fsS "${C[@]}" -H "x-api-key: $k" "$H/api/v1/watch/$uuid/history/latest" 2>/dev/null || true)"

@@ -54,8 +54,8 @@ jobs:
             local r n
             r="$(curl -fsS "${QC[@]}" -X POST -H 'X-Trino-User: ci' --data "$1" "$QB/v1/statement")"
             while :; do
-              python3 -c 'import json,sys; j=json.loads(sys.argv[1]); e=j.get("error"); sys.exit("query failed: "+e["message"]) if e else None; d=j.get("data"); print(json.dumps(d)) if d else None' "$r"
-              n="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("nextUri",""))' "$r")"
+              jq -c 'if .error then ("query failed: " + .error.message + "\n" | halt_error(1)) else (.data // empty) end' <<<"$r"
+              n="$(jq -r '.nextUri // ""' <<<"$r")"
               [ -z "$n" ] && return 0
               r="$(curl -fsS "${QC[@]}" -H 'X-Trino-User: ci' "$n")"
             done

@@ -63,7 +63,7 @@ jobs:
           # --- PROVE TWO SYNCTHING PODS SYNC A FILE. ---
           # 1. HTTPS with the chart CA, the release's version, the key and the GUI password enforced.
           api a 18384 "$(url a 18384 system/version)" | tee /tmp/ver.json; echo
-          python3 -c "import json,sys; assert json.load(open(\"/tmp/ver.json\"))[\"version\"] == \"v$want\""
+          test "$(jq -er .version /tmp/ver.json)" = "v$want"
           code="$(curl -s -m 20 -o /dev/null -w '%{http_code}' --cacert /tmp/ca-a.crt --resolve a-syncthing:18384:127.0.0.1 "$(url a 18384 system/status)")"
           echo "no key: $code"; test "$code" = 403 -o "$code" = 401
           # the GUI login (session cookie) takes the generated password and refuses a wrong one

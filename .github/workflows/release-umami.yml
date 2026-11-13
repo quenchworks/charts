@@ -71,7 +71,7 @@ jobs:
           curl -fsS -m 20 -A 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36' "${J[@]}" $B/api/send \
             -d "{\"type\":\"event\",\"payload\":{\"website\":\"$id\",\"hostname\":\"gate.example\",\"url\":\"/hello\",\"language\":\"en-US\",\"screen\":\"1920x1080\"}}" >/dev/null
           now=$(($(date +%s) * 1000))
-          views() { curl -fsS -m 20 "${A[@]}" "$1/api/websites/$id/stats?startAt=$((now - 3600000))&endAt=$((now + 600000))" "${@:2}" | python3 -c 'import json,sys; v=json.load(sys.stdin)["pageviews"]; print(v["value"] if isinstance(v,dict) else v)'; }
+          views() { curl -fsS -m 20 "${A[@]}" "$1/api/websites/$id/stats?startAt=$((now - 3600000))&endAt=$((now + 600000))" "${@:2}" | jq -er '.pageviews | if type == "object" then .value else . end'; }
           n=0; for i in $(seq 1 15); do n="$(views $B)"; [ "$n" -ge 1 ] && break; sleep 2; done
           echo "page views: $n"; test "$n" -ge 1
 

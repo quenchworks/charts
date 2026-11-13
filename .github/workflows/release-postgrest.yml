@@ -60,7 +60,7 @@ jobs:
           pf=$!; trap 'kill $pf' EXIT; sleep 8
           # Query the table through the API and get rows back -- the point of the app.
           curl -fsS http://127.0.0.1:3000/todos | tee /tmp/todos.json
-          test "$(python3 -c 'import json;print(len(json.load(open("/tmp/todos.json"))))')" = "2"
+          test "$(jq length /tmp/todos.json)" = "2"
           grep -q '"task":"write the chart"' /tmp/todos.json
           # filtering and projection go through PostgREST's query planner, not a static file
           curl -fsS 'http://127.0.0.1:3000/todos?done=eq.false&select=task' | >/dev/null grep '\[{"task":"gate the chart"}\]'
@@ -68,8 +68,9 @@ jobs:
           curl -fsS -X POST http://127.0.0.1:3000/todos \
             -H 'Content-Type: application/json' -H 'Prefer: return=representation' \
             -d '{"task":"posted by the gate"}' | >/dev/null grep '"task":"posted by the gate"'
-          curl -fsS 'http://127.0.0.1:3000/todos?select=id' | python3 -c \
-            'import json,sys; rows=json.load(sys.stdin); assert len(rows)==3, rows; print("rows after POST:", len(rows))'
+          rows="$(curl -fsS 'http://127.0.0.1:3000/todos?select=id' | jq length)"
+          test "$rows" = 3 || { echo "rows after POST: $rows, expected 3"; exit 1; }
+          echo "rows after POST: $rows"
           # OpenAPI description is generated from the live schema
           curl -fsS http://127.0.0.1:3000/ | >/dev/null grep '"/todos"'
           # no crash-looping

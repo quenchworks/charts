@@ -59,14 +59,14 @@ jobs:
           grep -q '"status":"ok"' /tmp/health.json
           curl -fsS -m 20 $B/api/session/properties > /tmp/props.json
           want="v$(sed -n 's/^appVersion: *"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "${CHART_DIR}/Chart.yaml")"
-          tag="$(python3 -c 'import json; print(json.load(open("/tmp/props.json"))["version"]["tag"])')"
+          tag="$(jq -er '.version.tag' /tmp/props.json)"
           echo "version $tag (want $want)"
           test "$tag" = "$want"
 
           # 2. The first-run setup writes an admin user and a session into the
           #    application database; reading the user back with that session
           #    proves the writes landed in PostgreSQL.
-          token="$(python3 -c 'import json; print(json.load(open("/tmp/props.json"))["setup-token"])')"
+          token="$(jq -er '.["setup-token"]' /tmp/props.json)"
           sid="$(curl -fsS -m 60 -H 'Content-Type: application/json' -X POST $B/api/setup -d "{\"token\":\"$token\",\"user\":{\"email\":\"gate@quench.test\",\"password\":\"Gate-Pass-2026-quench\",\"first_name\":\"Gate\",\"last_name\":\"Check\",\"site_name\":\"Gate\"},\"prefs\":{\"site_name\":\"Gate\",\"site_locale\":\"en\",\"allow_tracking\":false}}" | jq -er '.id')"
           test -n "$sid"
           curl -fsS -m 20 -H "X-Metabase-Session: $sid" $B/api/user/current | tee /tmp/user.json; echo
