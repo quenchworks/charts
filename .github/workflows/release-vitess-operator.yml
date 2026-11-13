@@ -41,6 +41,15 @@ jobs:
           helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
           helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
 
+      # GitHub runners ship MySQL with an AppArmor profile for /usr/sbin/mysqld, and it also
+      # confines mysqld inside the kind node: the tablet's mysqld cannot open the my.cnf it is
+      # given ("Failed to open required defaults file") although the file is its own, 0600.
+      - name: Unload the runner's mysqld AppArmor profile
+        run: |
+          if [ -f /etc/apparmor.d/usr.sbin.mysqld ]; then
+            sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.mysqld || true
+          fi
+
       - name: Install gate (kind)
         run: |
           set -o pipefail
