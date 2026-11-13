@@ -1,0 +1,17 @@
+The Dragonfly Operator is running in {{ .Release.Namespace }} (Deployment dragonfly-operator-controller-manager)
+and watches {{ if .Values.watchCurrentNamespace }}{{ .Release.Namespace }}{{ else }}every namespace{{ end }} for Dragonfly resources.
+
+A primary and one replica:
+
+  apiVersion: dragonflydb.io/v1alpha1
+  kind: Dragonfly
+  metadata: { name: main }
+  spec: { replicas: 2 }
+
+Clients connect to Service main on port 6379 (Redis protocol); it follows the current primary.
+{{- with .Values.dragonflyImage }}
+Dragonfly pods without spec.image run {{ .repository }}:{{ .tag }}@{{ .digest }}.
+{{- end }}
+
+Helm installs the CRD once and never upgrades or deletes it: apply the new
+crds/crds.yaml yourself before upgrading the chart across operator releases.
