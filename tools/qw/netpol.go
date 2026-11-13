@@ -166,7 +166,7 @@ func cmdNetpolPorts(args []string) int {
 		}
 	}
 	if bad > 0 {
-		fmt.Fprintf(os.Stderr, "\n%d chart(s) open ports their NetworkPolicy drops; admit them or add them to ALLOW with the reason.\n", bad)
+		fmt.Fprintf(os.Stderr, "\n%d chart(s) open ports their NetworkPolicy drops; admit them or add them to netpolAllow (tools/qw/netpol.go) with the reason.\n", bad)
 		return 1
 	}
 	fmt.Printf("all %d NetworkPolicies admit every container port (or document why not)\n", len(charts))
