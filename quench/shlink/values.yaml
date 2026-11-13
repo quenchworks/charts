@@ -1,0 +1,114 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/shlink
+  digest: "sha256:1975b88f1de2ee2bff788439dab781ae841621da30ddeecc04e60a4412815933"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The domain short URLs live on, e.g. s.example.com (DEFAULT_DOMAIN). Required.
+defaultDomain: ""
+# Whether short URLs are built with https:// (IS_HTTPS_ENABLED): true when a TLS-terminating
+# Ingress or the tls sidecar below serves the domain.
+httpsEnabled: true
+
+# The REST API key Shlink creates on its first start (INITIAL_API_KEY). Generated once into a
+# Secret <fullname>-api-key and kept across upgrades, or your own Secret.
+apiKey:
+  existingSecret: ""
+  existingSecretKey: api-key
+
+# RoadRunner worker pools (WEB_WORKER_NUM / TASK_WORKER_NUM). Shlink's default 0 means one PHP
+# worker per CPU of the NODE for each pool, which OOM-killed a 512Mi pod on a 16-CPU node.
+workers:
+  web: 4
+  task: 2
+
+# More Shlink settings as environment variables (https://shlink.io/documentation/environment-variables/),
+# e.g. DB_DRIVER: postgres with DB_HOST/DB_NAME/DB_USER (DB_PASSWORD through extraEnvVarsSecret),
+# GEOLITE_LICENSE_KEY, REDIS_SERVERS, TIMEZONE. Default: SQLite on the data volume.
+settings: {}
+
+# /var/www/app/data: the SQLite database, uploaded files and cache.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 25m, memory: 64Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  # HTTPS Service port (to the TLS sidecar's 8443), only with tls.enabled
+  httpsPort: 443
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# TLS: Shlink (RoadRunner) serves plain HTTP here, so with tls.enabled a caddy sidecar terminates HTTPS on 8443
+# (Service port service.httpsPort) and proxies to it over localhost. Certificate: existingSecret,
+# then certManager, else a Helm-generated CA.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# The TLS sidecar (our caddy image, pinned by digest).
+proxy:
+  image:
+    repository: ghcr.io/quenchworks/images/caddy
+    digest: "sha256:6377c513134e78bd41fad0819c9d45830b1868398c1805a5b3ee8494f93072d7"
+  resources:
+    requests: { cpu: 10m, memory: 16Mi }
+    limits: { cpu: 500m, memory: 128Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

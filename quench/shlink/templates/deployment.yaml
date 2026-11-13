@@ -1,0 +1,115 @@
+{{- $probe := dict "httpGet" (dict "path" "/rest/health" "port" "http") "periodSeconds" 10 "timeoutSeconds" 5 -}}
+{{- $tls := include "quench-common.tls.enabled" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  # One pod per volume: the default SQLite database, cache and locks live in data/.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # settings are read at start: a change rolls the pod
+        checksum/settings: {{ toJson (list .Values.settings .Values.defaultDomain .Values.httpsEnabled .Values.workers) | sha256sum }}
+        {{- if $tls }}
+        checksum/proxy: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: shlink
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - { name: DEFAULT_DOMAIN, value: {{ required "defaultDomain is required: the domain short URLs are served on" .Values.defaultDomain | quote }} }
+            - { name: IS_HTTPS_ENABLED, value: {{ .Values.httpsEnabled | quote }} }
+            - { name: WEB_WORKER_NUM, value: {{ .Values.workers.web | quote }} }
+            - { name: TASK_WORKER_NUM, value: {{ .Values.workers.task | quote }} }
+            # Shlink creates this key on its first start; later starts leave existing keys alone
+            - name: INITIAL_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "shlink.apiKeySecret" . }}
+                  key: {{ .Values.apiKey.existingSecretKey }}
+            {{- range $k, $v := .Values.settings }}
+            - { name: {{ $k }}, value: {{ $v | quote }} }
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - { name: http, containerPort: 8080, protocol: TCP }
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /etc/shlink/data }
+            - { name: tmp, mountPath: /tmp }
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- if $tls }}
+        - name: tls-proxy
+          image: "{{ .Values.proxy.image.repository }}@{{ .Values.proxy.image.digest }}"
+          imagePullPolicy: IfNotPresent
+          command: [/usr/bin/caddy, run, --config, /etc/caddy/Caddyfile, --adapter, caddyfile]
+          env:
+            - { name: XDG_CONFIG_HOME, value: /tmp }
+            - { name: XDG_DATA_HOME, value: /tmp }
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - { name: https, containerPort: 8443, protocol: TCP }
+          readinessProbe:
+            tcpSocket: { port: https }
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.proxy.resources | nindent 12 }}
+          volumeMounts:
+            - { name: proxy-config, mountPath: /etc/caddy/Caddyfile, subPath: Caddyfile, readOnly: true }
+            - { name: proxy-tmp, mountPath: /tmp }
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+        {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "shlink.pvcName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if $tls }}
+        - name: proxy-config
+          configMap:
+            name: {{ include "quench-common.fullname" . }}-proxy
+        - name: proxy-tmp
+          emptyDir: {}
+        {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

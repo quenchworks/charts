@@ -1,0 +1,13 @@
+Shlink is on {{ include "quench-common.fullname" . }}:{{ .Values.service.port }}{{ if include "quench-common.tls.enabled" . }} (HTTPS on {{ .Values.service.httpsPort }}){{ end }}, serving short URLs for {{ .Values.defaultDomain }}.
+
+Point {{ .Values.defaultDomain }} at this Service (an Ingress or a LoadBalancer). Read the REST API key:
+
+  kubectl get secret {{ include "shlink.apiKeySecret" . }} -n {{ .Release.Namespace }} \
+    -o jsonpath='{.data.{{ .Values.apiKey.existingSecretKey }}}' | base64 -d; echo
+
+Create a short URL:
+
+  curl -H "X-Api-Key: $KEY" -H 'Content-Type: application/json' \
+    http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}/rest/v3/short-urls -d '{"longUrl":"https://example.com"}'
+
+Use that key from shlink-web-client or the CLI (kubectl exec deploy/{{ include "quench-common.fullname" . }} -- shlink short-url:list).
