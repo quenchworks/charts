@@ -1,0 +1,18 @@
+Node Feature Discovery is running in {{ .Release.Namespace }}: nfd-master, the nfd-worker DaemonSet and nfd-gc.
+
+Within a minute every node carries feature.node.kubernetes.io/* labels:
+
+  kubectl get node -o jsonpath='{.items[0].metadata.labels}' | tr ',' '\n' | grep feature.node
+
+Add your own labels with a NodeFeatureRule:
+
+  apiVersion: nfd.k8s-sigs.io/v1alpha1
+  kind: NodeFeatureRule
+  metadata: { name: avx2-nodes }
+  spec:
+    rules:
+      - name: avx2
+        labels: { example.com/avx2: "true" }
+        matchFeatures:
+          - feature: cpu.cpuid
+            matchExpressions: { AVX2: { op: Exists } }
