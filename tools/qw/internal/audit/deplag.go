@@ -1,36 +1,34 @@
-package main
-
-// qw audit-dep-lag [--strict] lists parents whose subchart pin is older than the
-// subchart's current version: such a parent deploys an OLD subchart, which pins an OLD
-// image digest. --strict exits 1 when any lag.
+package audit
 
 import (
 	"fmt"
 	"regexp"
 
+	"github.com/quenchworks/charts/tools/qw/internal/checkpins"
+	"github.com/quenchworks/charts/tools/qw/internal/core"
 	"gopkg.in/yaml.v3"
 )
 
-func cmdDepLag(args []string) int {
+func DepLag(args []string) int {
 	strict := false
 	for _, a := range args {
 		strict = strict || a == "--strict"
 	}
 	verRe := regexp.MustCompile(`(?m)^version:\s*(\S+)`)
 	chartVersion := func(slug string) string {
-		if m := verRe.FindStringSubmatch(readFile(chartsRoot, "quench", slug, "Chart.yaml")); m != nil {
+		if m := verRe.FindStringSubmatch(core.ReadFile(core.ChartsRoot, "quench", slug, "Chart.yaml")); m != nil {
 			return m[1]
 		}
 		return ""
 	}
 	type lag struct{ parent, dep, pinned, actual string }
 	var lagging []lag
-	for _, d := range chartDirs() {
-		text := readFile(chartsRoot, "quench", d, "Chart.yaml")
+	for _, d := range core.ChartDirs() {
+		text := core.ReadFile(core.ChartsRoot, "quench", d, "Chart.yaml")
 		if text == "" {
 			continue
 		}
-		var doc chartMeta
+		var doc checkpins.ChartMeta
 		_ = yaml.Unmarshal([]byte(text), &doc)
 		for _, dep := range doc.Dependencies {
 			if actual := chartVersion(dep.Name); actual != "" && fmt.Sprint(dep.Version) != actual {

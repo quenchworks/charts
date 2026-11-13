@@ -1,10 +1,4 @@
-package main
-
-// qw repin-stacks [--audit] | <image> <sha256:...> [<image> <sha256:...>...]
-// A stack pins sibling images in its own values.yaml AND advertises them in
-// artifacthub.io/images; a re-pin must move both or ArtifactHub reports one image while
-// the cluster runs another. --audit (the default) lists mismatches; with pairs, every
-// stack pinning one of those images is re-pinned and patch-bumped.
+package repin
 
 import (
 	"fmt"
@@ -13,14 +7,17 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/quenchworks/charts/tools/qw/internal/common"
+	"github.com/quenchworks/charts/tools/qw/internal/core"
 )
 
 const imgRepo = "ghcr.io/quenchworks/images"
 
 func stackDirs() []string {
 	var out []string
-	for _, d := range chartDirs() {
-		if strings.HasSuffix(d, "-stack") && fileExists(filepath.Join(chartsRoot, "quench", d, "Chart.yaml")) {
+	for _, d := range core.ChartDirs() {
+		if strings.HasSuffix(d, "-stack") && core.FileExists(filepath.Join(core.ChartsRoot, "quench", d, "Chart.yaml")) {
 			out = append(out, d)
 		}
 	}
@@ -58,8 +55,8 @@ func stackChartPins(text string) map[string]string {
 
 func repinOneStack(st, image, digest string) ([]string, error) {
 	var changed []string
-	vp, cp := filepath.Join(chartsRoot, "quench", st, "values.yaml"), filepath.Join(chartsRoot, "quench", st, "Chart.yaml")
-	vt := readFile(vp)
+	vp, cp := filepath.Join(core.ChartsRoot, "quench", st, "values.yaml"), filepath.Join(core.ChartsRoot, "quench", st, "Chart.yaml")
+	vt := core.ReadFile(vp)
 	if old := stackValuesPins(vt)[image]; old != "" && old != digest {
 		lines := strings.SplitAfter(vt, "\n")
 		own := regexp.MustCompile(`image:\s*` + regexp.QuoteMeta(imgRepo) + `/` + regexp.QuoteMeta(image) + `\s*$`)
@@ -82,7 +79,7 @@ func repinOneStack(st, image, digest string) ([]string, error) {
 			changed = append(changed, fmt.Sprintf("values.yaml %s -> %s", old[7:19], digest[7:19]))
 		}
 	}
-	ct := readFile(cp)
+	ct := core.ReadFile(cp)
 	if oldc := stackChartPins(ct)[image]; oldc != "" && oldc != digest {
 		ct = strings.ReplaceAll(ct, imgRepo+"/"+image+"@"+oldc, imgRepo+"/"+image+"@"+digest)
 		if err := os.WriteFile(cp, []byte(ct), 0o644); err != nil {
@@ -94,14 +91,14 @@ func repinOneStack(st, image, digest string) ([]string, error) {
 }
 
 func bumpStackVersion(st, note string) (string, error) {
-	cp := filepath.Join(chartsRoot, "quench", st, "Chart.yaml")
-	t := readFile(cp)
+	cp := filepath.Join(core.ChartsRoot, "quench", st, "Chart.yaml")
+	t := core.ReadFile(cp)
 	m := regexp.MustCompile(`(?m)^version:\s*(\S+)`).FindStringSubmatch(t)
 	nv := bumpPatch(m[1])
-	t = replaceFirst(regexp.MustCompile(`(?m)^version:\s*\S+`), t, "version: "+nv)
+	t = common.ReplaceFirst(regexp.MustCompile(`(?m)^version:\s*\S+`), t, "version: "+nv)
 	block := "  artifacthub.io/changes: |\n    - kind: security\n      description: \"" + note + "\"\n"
 	if strings.Contains(t, "artifacthub.io/changes:") {
-		t = replaceFirst(regexp.MustCompile(`  artifacthub\.io/changes: \|\n(?:    .*\n)+`), t, block)
+		t = common.ReplaceFirst(regexp.MustCompile(`  artifacthub\.io/changes: \|\n(?:    .*\n)+`), t, block)
 	} else {
 		t = strings.Replace(t, "  artifacthub.io/images:", block+"  artifacthub.io/images:", 1)
 	}
@@ -111,8 +108,8 @@ func bumpStackVersion(st, note string) (string, error) {
 func auditStacks() int {
 	bad := 0
 	for _, st := range stackDirs() {
-		vp := stackValuesPins(readFile(chartsRoot, "quench", st, "values.yaml"))
-		cp := stackChartPins(readFile(chartsRoot, "quench", st, "Chart.yaml"))
+		vp := stackValuesPins(core.ReadFile(core.ChartsRoot, "quench", st, "values.yaml"))
+		cp := stackChartPins(core.ReadFile(core.ChartsRoot, "quench", st, "Chart.yaml"))
 		fmt.Printf("%s: %d deployed pin(s), %d advertised\n", st, len(vp), len(cp))
 		names := map[string]bool{}
 		for k := range vp {
@@ -121,7 +118,7 @@ func auditStacks() int {
 		for k := range cp {
 			names[k] = true
 		}
-		for _, n := range keys(names) {
+		for _, n := range common.Keys(names) {
 			v, c := vp[n], cp[n]
 			switch {
 			case v != "" && c != "" && v != c:
@@ -141,7 +138,7 @@ func auditStacks() int {
 	return 0
 }
 
-func cmdRepinStacks(args []string) int {
+func Stacks(args []string) int {
 	if len(args) == 0 || args[0] == "--audit" {
 		return auditStacks()
 	}
@@ -178,7 +175,7 @@ func cmdRepinStacks(args []string) int {
 			for _, n := range notes {
 				set[strings.SplitN(n, ":", 2)[0]] = true
 			}
-			names := keys(set)
+			names := common.Keys(set)
 			sort.Strings(names)
 			v, err := bumpStackVersion(st, "Re-pinned "+strings.Join(names, ", ")+" to rebuilt image digests.")
 			if err != nil {

@@ -1,4 +1,4 @@
-package main
+package probe
 
 import (
 	"crypto/ecdsa"
@@ -48,16 +48,16 @@ func TestTLSProbe(t *testing.T) {
 	}()
 	a := ln.Addr().String()
 	base := []string{"--addr", a, "--ca", ca, "--banner", "INFO ", "--send", `PING\r\n`}
-	if rc := cmdTLSProbe(append(base, "--name", "rtest-app", "--expect", "PONG")); rc != 0 {
+	if rc := TLSProbe(append(base, "--name", "rtest-app", "--expect", "PONG")); rc != 0 {
 		t.Fatalf("good probe: rc %d", rc)
 	}
-	if rc := cmdTLSProbe(append(base, "--name", "rtest-app", "--expect-hex-prefix", "504f4e47")); rc != 0 {
+	if rc := TLSProbe(append(base, "--name", "rtest-app", "--expect-hex-prefix", "504f4e47")); rc != 0 {
 		t.Fatalf("hex prefix: rc %d", rc)
 	}
-	if rc := cmdTLSProbe(append(base, "--name", "wrong-name", "--expect", "PONG")); rc != 1 {
+	if rc := TLSProbe(append(base, "--name", "wrong-name", "--expect", "PONG")); rc != 1 {
 		t.Fatalf("wrong server name must fail verification: rc %d", rc)
 	}
-	if rc := cmdTLSProbe(append(base, "--name", "rtest-app", "--expect", "NOPE")); rc != 1 {
+	if rc := TLSProbe(append(base, "--name", "rtest-app", "--expect", "NOPE")); rc != 1 {
 		t.Fatalf("missing reply text must fail: rc %d", rc)
 	}
 
@@ -71,7 +71,7 @@ func TestTLSProbe(t *testing.T) {
 			c.Close()
 		}
 	}()
-	if rc := cmdTLSProbe([]string{"--plain", "--addr", pl.Addr().String(), "--send", "6.select,3.rdp;", "--expect-hex-prefix", "342e617267732c"}); rc != 0 {
+	if rc := TLSProbe([]string{"--plain", "--addr", pl.Addr().String(), "--send", "6.select,3.rdp;", "--expect-hex-prefix", "342e617267732c"}); rc != 0 {
 		t.Fatalf("plain probe: rc %d", rc)
 	}
 }

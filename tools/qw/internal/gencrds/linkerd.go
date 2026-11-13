@@ -1,12 +1,4 @@
-package main
-
-// qw gen-linkerd-crds <edge-version> [--check] vendors the linkerd-ONLY CRDs into
-// quench/linkerd-crds/templates/crds.yaml. Upstream's bundle also ships the Gateway API
-// route CRDs (696KB of its 707KB): quench/gateway-api-crds owns those, a cluster-scoped
-// CRD with two owners belongs to whichever applied last, and 707KB crowds Helm's 1 MiB
-// release Secret. Each CRD spec is vendored byte for byte; only the metadata block
-// (which needs upstream's own library chart) is replaced. --check is what the release
-// workflow runs so a hand-edit cannot ship.
+package gencrds
 
 import (
 	"fmt"
@@ -15,6 +7,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/quenchworks/charts/tools/qw/internal/core"
 )
 
 const linkerdBase = "https://raw.githubusercontent.com/linkerd/linkerd2/edge-%s/charts/linkerd-crds/templates"
@@ -81,7 +75,7 @@ func genLinkerdCRDs(ver string) (string, error) {
 	nameRe := regexp.MustCompile(`(?m)^  name: (\S+)$`)
 	for _, f := range linkerdFiles {
 		url := fmt.Sprintf(linkerdBase, ver) + "/" + f
-		b, err := fetchURL(url)
+		b, err := core.FetchURL(url)
 		if err != nil || strings.TrimSpace(string(b)) == "" {
 			return "", fmt.Errorf("!! could not fetch %s", url)
 		}
@@ -124,7 +118,7 @@ func genLinkerdCRDs(ver string) (string, error) {
 	return strings.Join(out, ""), nil
 }
 
-func cmdGenLinkerdCRDs(args []string) int {
+func Linkerd(args []string) int {
 	check := false
 	var pos []string
 	for _, a := range args {
@@ -139,7 +133,7 @@ func cmdGenLinkerdCRDs(args []string) int {
 		return 2
 	}
 	ver := pos[0]
-	target := filepath.Join(chartsRoot, "quench", "linkerd-crds", "templates", "crds.yaml")
+	target := filepath.Join(core.ChartsRoot, "quench", "linkerd-crds", "templates", "crds.yaml")
 	gen, err := genLinkerdCRDs(ver)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

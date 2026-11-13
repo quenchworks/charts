@@ -1,4 +1,4 @@
-package main
+package probe
 
 import (
 	"flag"
@@ -9,7 +9,7 @@ import (
 
 // cmdServe serves a directory over plain HTTP, for gates that need a local upstream
 // (sish tunnels one to the cluster).
-func cmdServe(args []string) int {
+func Serve(args []string) int {
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	dir := fs.String("dir", ".", "directory to serve")
 	addr := fs.String("addr", "127.0.0.1:18888", "listen address")

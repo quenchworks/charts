@@ -1,10 +1,4 @@
-package main
-
-// qw check-pins fails when a chart pins an image digest the catalog no longer publishes,
-// or bundles a quench subchart older than the current chart. A rebuilt image's old digest
-// still resolves in GHCR, so a stale pin installs cleanly and ships the CVEs the rebuild
-// fixed: 45 pins across 37 charts went stale that way before 2026-09-20. The invariant is
-// deliberately weak: every pinned digest must be in catalog.lock.yaml.
+package checkpins
 
 import (
 	"fmt"
@@ -14,6 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/quenchworks/charts/tools/qw/internal/common"
+	"github.com/quenchworks/charts/tools/qw/internal/core"
 	"gopkg.in/yaml.v3"
 )
 
@@ -59,7 +55,7 @@ type lockFile struct {
 	} `yaml:"apps"`
 }
 
-type chartMeta struct {
+type ChartMeta struct {
 	Version      any `yaml:"version"`
 	Dependencies []struct {
 		Name       string `yaml:"name"`
@@ -68,8 +64,8 @@ type chartMeta struct {
 	} `yaml:"dependencies"`
 }
 
-func cmdCheckPins(args []string) int {
-	lockPath := filepath.Join(chartsRoot, "..", "images", "catalog.lock.yaml")
+func Run(args []string) int {
+	lockPath := filepath.Join(core.ChartsRoot, "..", "images", "catalog.lock.yaml")
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--lock" && i+1 < len(args) {
 			i++
@@ -96,19 +92,19 @@ func cmdCheckPins(args []string) int {
 	}
 	total := 0
 	var stale [][3]string
-	charts := map[string]chartMeta{}
-	for _, c := range chartDirs() {
+	charts := map[string]ChartMeta{}
+	for _, c := range core.ChartDirs() {
 		found := map[pin]bool{}
-		if v := readFile(chartsRoot, "quench", c, "values.yaml"); v != "" {
+		if v := core.ReadFile(core.ChartsRoot, "quench", c, "values.yaml"); v != "" {
 			for _, p := range append(valuesPins(v), inlinePins(v)...) {
 				found[p] = true
 			}
 		}
-		if meta := readFile(chartsRoot, "quench", c, "Chart.yaml"); meta != "" {
+		if meta := core.ReadFile(core.ChartsRoot, "quench", c, "Chart.yaml"); meta != "" {
 			for _, p := range inlinePins(meta) {
 				found[p] = true
 			}
-			var cm chartMeta
+			var cm ChartMeta
 			if yaml.Unmarshal([]byte(meta), &cm) == nil {
 				charts[c] = cm
 			}
@@ -131,7 +127,7 @@ func cmdCheckPins(args []string) int {
 		}
 	}
 	lagging := 0
-	for _, name := range keys(charts) {
+	for _, name := range common.Keys(charts) {
 		for _, d := range charts[name].Dependencies {
 			sub, ok := charts[d.Name]
 			if d.Name == "quench-common" || !ok || strings.TrimRight(d.Repository, "/") != "oci://ghcr.io/quenchworks/charts" {

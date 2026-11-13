@@ -1,4 +1,4 @@
-package main
+package core
 
 import (
 	"bytes"
@@ -12,18 +12,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-func helm(args ...string) (string, string, error) {
+func Helm(args ...string) (string, string, error) {
 	var out, errb bytes.Buffer
 	c := exec.Command("helm", args...)
-	c.Dir, c.Stdout, c.Stderr = chartsRoot, &out, &errb
+	c.Dir, c.Stdout, c.Stderr = ChartsRoot, &out, &errb
 	err := c.Run()
 	return out.String(), errb.String(), err
 }
 
-func depBuild(chart string) { _, _, _ = helm("dependency", "build", filepath.Join("quench", chart)) }
+func DepBuild(chart string) { _, _, _ = Helm("dependency", "build", filepath.Join("quench", chart)) }
 
-// docs splits rendered multi-document YAML; empty documents are dropped.
-func docs(s string) []map[string]any {
+// Docs splits rendered multi-document YAML; empty documents are dropped.
+func Docs(s string) []map[string]any {
 	var out []map[string]any
 	dec := yaml.NewDecoder(bytes.NewBufferString(s))
 	for {
@@ -38,8 +38,8 @@ func docs(s string) []map[string]any {
 	}
 }
 
-// get walks decoded YAML by string keys.
-func get(d any, ks ...string) any {
+// Get walks decoded YAML by string keys.
+func Get(d any, ks ...string) any {
 	for _, k := range ks {
 		m, _ := d.(map[string]any)
 		d = m[k]
@@ -47,10 +47,11 @@ func get(d any, ks ...string) any {
 	return d
 }
 
-func list(d any) []any { a, _ := d.([]any); return a }
-func str(d any) string { s, _ := d.(string); return s }
+func List(d any) []any { a, _ := d.([]any); return a }
 
-func fetchURL(url string) ([]byte, error) {
+func Str(d any) string { s, _ := d.(string); return s }
+
+func FetchURL(url string) ([]byte, error) {
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err

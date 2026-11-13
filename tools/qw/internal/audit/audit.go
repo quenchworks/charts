@@ -1,12 +1,4 @@
-package main
-
-// qw audit [--drift] [--stale] finds charts that lint, install and release green while
-// being wrong about their image (both found by hand on 2026-09-17):
-//   DRIFT  artifacthub.io/images pins one digest and values.yaml another, so ArtifactHub's
-//          CVE report describes an image nobody runs (5 of 166 charts had drifted).
-//   STALE  appVersion is a version the recipe no longer builds, so nothing rebuilds the
-//          pinned image. Expected for BLOCKED apps, reported apart.
-// Sibling images live in subcharts' own values and are skipped.
+package audit
 
 import (
 	"fmt"
@@ -15,6 +7,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/quenchworks/charts/tools/qw/internal/common"
+	"github.com/quenchworks/charts/tools/qw/internal/core"
 )
 
 var annRe = regexp.MustCompile(`image: ghcr\.io/quenchworks/images/([\w.-]+)@(sha256:[0-9a-f]{64})`)
@@ -29,7 +24,7 @@ func ownDigest(slug, vtext string) string {
 }
 
 func recipeVersions(slug string) ([]string, bool, bool) {
-	dir := filepath.Join(chartsRoot, "..", "images", "apps", slug)
+	dir := filepath.Join(core.ChartsRoot, "..", "images", "apps", slug)
 	b, err := os.ReadFile(filepath.Join(dir, "build.conf"))
 	if err != nil {
 		return nil, false, false
@@ -39,7 +34,7 @@ func recipeVersions(slug string) ([]string, bool, bool) {
 	return strings.Fields(string(out)), blocked, true
 }
 
-func cmdAudit(args []string) int {
+func Run(args []string) int {
 	dflag, sflag := false, false
 	for _, a := range args {
 		dflag = dflag || a == "--drift"
@@ -49,8 +44,8 @@ func cmdAudit(args []string) int {
 	var drift, stale [][3]string
 	blockedStale, n := 0, 0
 	appRe := regexp.MustCompile(`(?m)^appVersion:\s*"?([^"\n]+)"?`)
-	for _, slug := range chartDirs() {
-		ctext, vtext := readFile(chartsRoot, "quench", slug, "Chart.yaml"), readFile(chartsRoot, "quench", slug, "values.yaml")
+	for _, slug := range core.ChartDirs() {
+		ctext, vtext := core.ReadFile(core.ChartsRoot, "quench", slug, "Chart.yaml"), core.ReadFile(core.ChartsRoot, "quench", slug, "values.yaml")
 		if ctext == "" || vtext == "" {
 			continue
 		}
@@ -69,7 +64,7 @@ func cmdAudit(args []string) int {
 		if runStale {
 			app := appRe.FindStringSubmatch(ctext)
 			vs, blocked, ok := recipeVersions(slug)
-			if app != nil && ok && len(vs) > 0 && !contains(vs, strings.TrimSpace(app[1])) {
+			if app != nil && ok && len(vs) > 0 && !common.Contains(vs, strings.TrimSpace(app[1])) {
 				if blocked {
 					blockedStale++
 				} else {
@@ -95,13 +90,4 @@ func cmdAudit(args []string) int {
 		return 1
 	}
 	return 0
-}
-
-func contains(vs []string, s string) bool {
-	for _, v := range vs {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }

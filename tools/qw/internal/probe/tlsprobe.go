@@ -1,4 +1,4 @@
-package main
+package probe
 
 import (
 	"bytes"
@@ -13,12 +13,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/quenchworks/charts/tools/qw/internal/common"
 )
 
 // cmdTLSProbe opens a TLS session that trusts only --ca and verifies --name, then optionally
 // speaks a few bytes of the app's protocol and checks the reply. Release gates use it to prove
 // an app serves its own protocol over the chart's certificate, not just that a port is open.
-func cmdTLSProbe(args []string) int {
+func TLSProbe(args []string) int {
 	fs := flag.NewFlagSet("tlsprobe", flag.ContinueOnError)
 	addr := fs.String("addr", "", "host:port to dial")
 	ca := fs.String("ca", "", "PEM CA bundle to trust (required)")
@@ -44,11 +46,11 @@ func cmdTLSProbe(args []string) int {
 	if !*plain {
 		pem, err := os.ReadFile(*ca)
 		if err != nil {
-			return fail("read CA: %v", err)
+			return common.Fail("read CA: %v", err)
 		}
 		pool := x509.NewCertPool()
 		if !pool.AppendCertsFromPEM(pem) {
-			return fail("no certificates in %s", *ca)
+			return common.Fail("no certificates in %s", *ca)
 		}
 		cfg = &tls.Config{RootCAs: pool, ServerName: *name}
 		if *alpn != "" {
@@ -65,49 +67,49 @@ func cmdTLSProbe(args []string) int {
 		time.Sleep(3 * time.Second)
 	}
 	if err != nil {
-		return fail("no session with %s: %v", *addr, err)
+		return common.Fail("no session with %s: %v", *addr, err)
 	}
 	defer t.Close()
 	version := "plain TCP"
 	if tc, ok := t.(*tls.Conn); ok {
 		st := tc.ConnectionState()
 		if *alpn != "" && st.NegotiatedProtocol != *alpn {
-			return fail("ALPN %q selected, want %q", st.NegotiatedProtocol, *alpn)
+			return common.Fail("ALPN %q selected, want %q", st.NegotiatedProtocol, *alpn)
 		}
 		version = tls.VersionName(st.Version)
 	}
 	payload := []byte(nil)
 	if *sendHex != "" {
 		if payload, err = hex.DecodeString(*sendHex); err != nil {
-			return fail("--send-hex: %v", err)
+			return common.Fail("--send-hex: %v", err)
 		}
 	} else if *send != "" {
 		s, err := strconv.Unquote(`"` + *send + `"`)
 		if err != nil {
-			return fail("--send: %v", err)
+			return common.Fail("--send: %v", err)
 		}
 		payload = []byte(s)
 	}
 	if payload != nil {
 		if _, err := t.Write(payload); err != nil {
-			return fail("write: %v", err)
+			return common.Fail("write: %v", err)
 		}
 	}
 	if *hexPrefix != "" || *notHexPrefix != "" || len(expects) > 0 || *print {
 		t.SetReadDeadline(time.Now().Add(10 * time.Second))
 		got, err := readReply(t, *readN, expects)
 		if err != nil {
-			return fail("read: %v (got %q)", err, got)
+			return common.Fail("read: %v (got %q)", err, got)
 		}
 		if p, _ := hex.DecodeString(*hexPrefix); *hexPrefix != "" && !bytes.HasPrefix(got, p) {
-			return fail("reply %x does not start with %s", got, *hexPrefix)
+			return common.Fail("reply %x does not start with %s", got, *hexPrefix)
 		}
 		if p, _ := hex.DecodeString(*notHexPrefix); *notHexPrefix != "" && bytes.HasPrefix(got, p) {
-			return fail("reply %x starts with %s", got, *notHexPrefix)
+			return common.Fail("reply %x starts with %s", got, *notHexPrefix)
 		}
 		for _, e := range expects {
 			if !bytes.Contains(got, []byte(e)) {
-				return fail("reply %q lacks %q", got, e)
+				return common.Fail("reply %q lacks %q", got, e)
 			}
 		}
 		if *print {
@@ -172,12 +174,8 @@ func readReply(r io.Reader, n int, expects []string) ([]byte, error) {
 	}
 }
 
-func fail(f string, a ...any) int {
-	fmt.Fprintf(os.Stderr, "qw: "+f+"\n", a...)
-	return 1
-}
+func (m *multi) String() string { return strings.Join(*m, ",") }
+
+func (m *multi) Set(s string) error { *m = append(*m, s); return nil }
 
 type multi []string
-
-func (m *multi) String() string     { return strings.Join(*m, ",") }
-func (m *multi) Set(s string) error { *m = append(*m, s); return nil }

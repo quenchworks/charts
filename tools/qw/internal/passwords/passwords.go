@@ -1,10 +1,4 @@
-package main
-
-// qw check-default-passwords: a chart that copies a bundled database's password into its
-// own Secret gets two DIFFERENT random values on a default install (lookup finds nothing
-// yet), and every ci values file sets explicit passwords, so no gate sees it. Render each
-// DB-bundling chart with no values and flag any own Secret holding a DB credential the
-// subchart does not use.
+package passwords
 
 import (
 	"encoding/base64"
@@ -14,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/quenchworks/charts/tools/qw/internal/core"
 	"gopkg.in/yaml.v3"
 )
 
@@ -26,8 +21,8 @@ var (
 	randomish = regexp.MustCompile(`^[A-Za-z0-9]{16,}$`)
 )
 
-func cmdDefaultPasswords() int {
-	files, _ := filepath.Glob(filepath.Join(chartsRoot, "quench", "*", "Chart.yaml"))
+func Run() int {
+	files, _ := filepath.Glob(filepath.Join(core.ChartsRoot, "quench", "*", "Chart.yaml"))
 	sort.Strings(files)
 	bad := 0
 	for _, f := range files {
@@ -35,7 +30,7 @@ func cmdDefaultPasswords() int {
 		var cm struct {
 			Dependencies []struct{ Name string } `yaml:"dependencies"`
 		}
-		_ = yaml.Unmarshal([]byte(readFile(f)), &cm)
+		_ = yaml.Unmarshal([]byte(core.ReadFile(f)), &cm)
 		var dbs []string
 		for _, d := range cm.Dependencies {
 			if dbCharts[d.Name] {
@@ -45,8 +40,8 @@ func cmdDefaultPasswords() int {
 		if len(dbs) == 0 || sharedDBs[chart] {
 			continue
 		}
-		depBuild(chart)
-		out, errs, err := helm("template", "r", filepath.Join("quench", chart))
+		core.DepBuild(chart)
+		out, errs, err := core.Helm("template", "r", filepath.Join("quench", chart))
 		if err != nil {
 			first := strings.SplitN(strings.TrimSpace(errs), "\n", 2)[0]
 			fmt.Printf("  %s: skipped, needs values to render (%s)\n", chart, first[:min(100, len(first))])
@@ -55,16 +50,16 @@ func cmdDefaultPasswords() int {
 		subPw := map[string]bool{}
 		type cred struct{ name, key, val string }
 		var own []cred
-		for _, d := range docs(out) {
+		for _, d := range core.Docs(out) {
 			if d["kind"] != "Secret" {
 				continue
 			}
-			name := str(get(d, "metadata", "name"))
+			name := core.Str(core.Get(d, "metadata", "name"))
 			data := map[string]string{}
 			var order []string
 			if m, ok := d["data"].(map[string]any); ok {
 				for k, v := range m {
-					b, _ := base64.StdEncoding.DecodeString(str(v))
+					b, _ := base64.StdEncoding.DecodeString(core.Str(v))
 					data[k] = strings.ToValidUTF8(string(b), "�")
 					order = append(order, k)
 				}

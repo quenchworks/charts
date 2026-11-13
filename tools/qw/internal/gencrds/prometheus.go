@@ -1,11 +1,4 @@
-package main
-
-// qw gen-prometheus-crds <version> [--check] vendors the Prometheus Operator CRDs into
-// quench/prometheus-operator/crds/crds.yaml with every `description` removed from their
-// schemas. Upstream's ten CRDs are 4.6 MB, and Helm keeps the chart, crds/ included, in a
-// release Secret capped at 1 MiB: the full set fails `helm install` outright ("Secret ... is
-// invalid: data: Too long"). Types, validation and defaults are untouched, so the API is
-// the same; `kubectl explain` loses its prose. --check keeps a hand edit from shipping.
+package gencrds
 
 import (
 	"bytes"
@@ -14,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/quenchworks/charts/tools/qw/internal/core"
 	"gopkg.in/yaml.v3"
 )
 
@@ -49,7 +43,7 @@ func genPromCRDs(ver string) (string, error) {
 	for _, c := range promCRDs {
 		url := "https://raw.githubusercontent.com/prometheus-operator/prometheus-operator/v" + ver +
 			"/example/prometheus-operator-crd/monitoring.coreos.com_" + c + ".yaml"
-		b, err := fetchURL(url)
+		b, err := core.FetchURL(url)
 		if err != nil {
 			return "", err
 		}
@@ -69,7 +63,7 @@ func genPromCRDs(ver string) (string, error) {
 	return out.String(), nil
 }
 
-func cmdGenPromCRDs(args []string) int {
+func Prometheus(args []string) int {
 	check := false
 	var pos []string
 	for _, a := range args {
@@ -88,7 +82,7 @@ func cmdGenPromCRDs(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	target := filepath.Join(chartsRoot, "quench", "prometheus-operator", "crds", "crds.yaml")
+	target := filepath.Join(core.ChartsRoot, "quench", "prometheus-operator", "crds", "crds.yaml")
 	if check {
 		cur, _ := os.ReadFile(target)
 		if string(cur) != gen {

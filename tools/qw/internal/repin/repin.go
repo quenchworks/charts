@@ -1,11 +1,4 @@
-package main
-
-// qw repin <chart> <appVersion> <sha256:...> [--kind K] [--desc D] [--skip-verify] re-pins a
-// chart's primary image: swaps the FIRST digest in values.yaml (and the same digest in
-// Chart.yaml), sets the image tag beside it and appVersion, bumps the chart patch version
-// and writes the ArtifactHub change note. It refuses a malformed digest, one the registry
-// does not have (a hand-typed digest), and a swap that leaves the artifacthub.io/images
-// annotation on another digest. Multi-image charts are the caller's to disambiguate.
+package repin
 
 import (
 	"fmt"
@@ -15,6 +8,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/quenchworks/charts/tools/qw/internal/common"
+	"github.com/quenchworks/charts/tools/qw/internal/core"
 )
 
 var digestRe = regexp.MustCompile(`sha256:[0-9a-f]{64}`)
@@ -26,7 +22,7 @@ func bumpPatch(v string) string {
 	return strings.Join(p, ".")
 }
 
-func cmdRepin(argv []string) int {
+func Pins(argv []string) int {
 	var args []string
 	opts := map[string]string{}
 	skip := false
@@ -51,12 +47,12 @@ func cmdRepin(argv []string) int {
 		fmt.Printf("!! refusing a malformed digest: %s\n", "'"+digest+"'")
 		return 3
 	}
-	cdir := filepath.Join(chartsRoot, "quench", chart)
+	cdir := filepath.Join(core.ChartsRoot, "quench", chart)
 	if !skip {
 		out, err := exec.Command("docker", "buildx", "imagetools", "inspect",
 			"ghcr.io/quenchworks/images/"+chart+"@"+digest, "--format", "{{.Manifest.Digest}}").CombinedOutput()
 		if err != nil {
-			names := regexp.MustCompile(`ghcr\.io/quenchworks/images/([\w.-]+)`).FindAllStringSubmatch(readFile(cdir, "values.yaml"), -1)
+			names := regexp.MustCompile(`ghcr\.io/quenchworks/images/([\w.-]+)`).FindAllStringSubmatch(core.ReadFile(cdir, "values.yaml"), -1)
 			mine := false
 			for _, n := range names {
 				mine = mine || n[1] == chart
@@ -75,11 +71,11 @@ func cmdRepin(argv []string) int {
 		}
 	}
 	cy, vy := filepath.Join(cdir, "Chart.yaml"), filepath.Join(cdir, "values.yaml")
-	if !fileExists(cy) {
+	if !core.FileExists(cy) {
 		fmt.Printf("!! no such chart: %s\n", chart)
 		return 3
 	}
-	ctext, vtext := readFile(cy), readFile(vy)
+	ctext, vtext := core.ReadFile(cy), core.ReadFile(vy)
 	old := digestRe.FindString(vtext)
 	if old == "" {
 		fmt.Printf("!! %s: no digest found in values.yaml\n", chart)
@@ -112,8 +108,8 @@ func cmdRepin(argv []string) int {
 		break
 	}
 	vtext = strings.Join(lines, "\n")
-	ctext = replaceFirst(regexp.MustCompile(`(?m)^version:\s*\S+`), ctext, "version: "+newver)
-	ctext = replaceFirst(regexp.MustCompile(`(?m)^appVersion:\s*"?[^"\n]+"?`), ctext, `appVersion: "`+appver+`"`)
+	ctext = common.ReplaceFirst(regexp.MustCompile(`(?m)^version:\s*\S+`), ctext, "version: "+newver)
+	ctext = common.ReplaceFirst(regexp.MustCompile(`(?m)^appVersion:\s*"?[^"\n]+"?`), ctext, `appVersion: "`+appver+`"`)
 	kind := opts["kind"]
 	if kind == "" {
 		kind = "changed"
@@ -128,7 +124,7 @@ func cmdRepin(argv []string) int {
 	}
 	block := "  artifacthub.io/changes: |\n    - kind: " + kind + "\n      description: \"" + desc + "\"\n"
 	if strings.Contains(ctext, "artifacthub.io/changes:") {
-		ctext = replaceFirst(regexp.MustCompile(`  artifacthub\.io/changes: \|\n(?:    .*\n)+`), ctext, block)
+		ctext = common.ReplaceFirst(regexp.MustCompile(`  artifacthub\.io/changes: \|\n(?:    .*\n)+`), ctext, block)
 	} else {
 		ctext = strings.Replace(ctext, "  artifacthub.io/images:", block+"  artifacthub.io/images:", 1)
 	}
@@ -153,12 +149,4 @@ func cmdRepin(argv []string) int {
 	}
 	fmt.Printf("ok %s: %s -> %s, appVersion %s -> %s, digest %s\n", chart, oldver, newver, oldapp, appver, digest[7:19])
 	return 0
-}
-
-func replaceFirst(re *regexp.Regexp, s, repl string) string {
-	loc := re.FindStringIndex(s)
-	if loc == nil {
-		return s
-	}
-	return s[:loc[0]] + repl + s[loc[1]:]
 }

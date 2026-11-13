@@ -1,4 +1,4 @@
-package main
+package probe
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"time"
 
+	"github.com/quenchworks/charts/tools/qw/internal/common"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -18,7 +19,7 @@ import (
 
 // cmdMongoRoundtrip connects with --uri (retrying while the server comes up), writes
 // {_id: 1, k: "v"} to gate.c and reads it back. Release gates use it on MongoDB-wire servers.
-func cmdMongoRoundtrip(args []string) int {
+func MongoRoundtrip(args []string) int {
 	fs := flag.NewFlagSet("mongo-roundtrip", flag.ContinueOnError)
 	uri := fs.String("uri", "", "mongodb:// connection string (TLS options go in it)")
 	retries := fs.Int("retry", 30, "attempts, 3s apart")
@@ -68,7 +69,7 @@ func mongoRoundtrip(uri string) error {
 //	       version, and require a wrong password to be refused
 //	read   read the document back (after a pod restart)
 //	tls    read it back over TLS verified with --ca, and require plaintext to be refused
-func cmdRethinkGate(args []string) int {
+func RethinkGate(args []string) int {
 	fs := flag.NewFlagSet("rethinkdb-gate", flag.ContinueOnError)
 	addr := fs.String("addr", "127.0.0.1:28015", "driver address")
 	pw := fs.String("password", os.Getenv("RDB_PW"), "admin password (default $RDB_PW)")
@@ -83,41 +84,41 @@ func cmdRethinkGate(args []string) int {
 	case "write":
 		s, err := r.Connect(opts)
 		if err != nil {
-			return fail("connect: %v", err)
+			return common.Fail("connect: %v", err)
 		}
 		defer s.Close()
 		for _, q := range []r.Term{r.DBCreate("gate"), r.DB("gate").TableCreate("t"), r.DB("gate").Table("t").Insert(want)} {
 			if err := q.Exec(s); err != nil {
-				return fail("%v", err)
+				return common.Fail("%v", err)
 			}
 		}
 		var v any
 		if err := r.DB("rethinkdb").Table("server_status").Nth(0).Field("process").Field("version").ReadOne(&v, s); err != nil {
-			return fail("version: %v", err)
+			return common.Fail("version: %v", err)
 		}
 		fmt.Println(v)
 		bad := opts
 		bad.Password = "wrong"
 		if s2, err := r.Connect(bad); err == nil {
 			s2.Close()
-			return fail("a wrong password was accepted")
+			return common.Fail("a wrong password was accepted")
 		}
 		fmt.Println("wrong password refused")
 	case "read", "tls":
 		if fs.Arg(0) == "tls" {
 			pem, err := os.ReadFile(*ca)
 			if err != nil {
-				return fail("read CA: %v", err)
+				return common.Fail("read CA: %v", err)
 			}
 			pool := x509.NewCertPool()
 			if !pool.AppendCertsFromPEM(pem) {
-				return fail("no certificates in %s", *ca)
+				return common.Fail("no certificates in %s", *ca)
 			}
 			plain := opts
 			plain.Timeout = 5 * time.Second
 			if s2, err := r.Connect(plain); err == nil {
 				s2.Close()
-				return fail("plaintext driver connection accepted")
+				return common.Fail("plaintext driver connection accepted")
 			}
 			fmt.Println("plaintext refused")
 			host, _, _ := splitHost(*addr)
@@ -125,19 +126,19 @@ func cmdRethinkGate(args []string) int {
 		}
 		s, err := r.Connect(opts)
 		if err != nil {
-			return fail("connect: %v", err)
+			return common.Fail("connect: %v", err)
 		}
 		defer s.Close()
 		var doc map[string]any
 		if err := r.DB("gate").Table("t").Get(1).ReadOne(&doc, s); err != nil {
-			return fail("read: %v", err)
+			return common.Fail("read: %v", err)
 		}
 		if !reflect.DeepEqual(doc, want) {
-			return fail("read back %v, want %v", doc, want)
+			return common.Fail("read back %v, want %v", doc, want)
 		}
 		fmt.Printf("%s: %v\n", fs.Arg(0), doc)
 	default:
-		return fail("unknown step %q", fs.Arg(0))
+		return common.Fail("unknown step %q", fs.Arg(0))
 	}
 	return 0
 }
