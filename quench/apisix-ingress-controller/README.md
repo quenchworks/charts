@@ -179,7 +179,7 @@ with
 | `syncPeriod` | `1h` | Upstream's default; effectively event-driven only. Lower it to repair drift faster. |
 | `initSyncDelay` | `20m` | Delay before the first full sync after start-up. |
 | `execAdcTimeout` | `15s` | Per-sync timeout on the adc call. |
-| `gatewayAPI.enabled` | `true` | Off drops the Gateway API watches *and* the Gateway API RBAC. |
+| `gatewayAPI.enabled` | `true` | Off drops the Gateway API watches *and* the Gateway API RBAC, and breaks native Ingress in 2.2.0. |
 | `config` | `{}` | Deep-merged over the rendered `config.yaml`. Full surface: upstream `config/manager/config.yaml`. |
 | `dataPlane.create` | `true` | Creates the GatewayProxy + IngressClass (+ GatewayClass). |
 | `dataPlane.mode` | `apisix` | See [Sync modes](#sync-modes). Immutable once created. |
@@ -300,13 +300,9 @@ dataPlane:
     existingSecretKey: key
 ```
 
-Run without the Gateway API at all — no `gateway-api-crds` chart needed, and the
-Gateway API RBAC is not granted:
-
-```yaml
-gatewayAPI:
-  enabled: false
-```
+Keep `gatewayAPI.enabled: true` even for native Ingress. With it off, 2.2.0
+never registers the HTTPRoutePolicy index and every Ingress fails with
+`Index with name field:targetRefs does not exist`.
 
 Be the cluster's default ingress controller:
 

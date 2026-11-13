@@ -4,14 +4,19 @@ Quenchworks Apache APISIX Ingress Controller {{ .Chart.AppVersion }} is installe
 The pod runs two containers, both nonroot on a read-only rootfs: the controller,
 and the adc sidecar it hands every sync to over
 {{ .Values.adc.socketPath }}. Neither works without the other.
+{{- if not .Values.gatewayAPI.enabled }}
+WARNING: gatewayAPI.enabled=false. Controller 2.2.0 then fails every Ingress
+("Index with name field:targetRefs does not exist"); install the quench
+gateway-api-crds chart and turn it back on.
+{{- end }}
 {{ if .Values.gatewayAPI.enabled }}
 Gateway API support is ON, and the Gateway API CRDs are NOT part of this chart.
 They are cluster-scoped singletons owned by the quench gateway-api-crds chart:
 
   helm install gateway-api-crds oci://ghcr.io/quenchworks/charts/gateway-api-crds
 
-Set gatewayAPI.enabled=false to run on the apisix.apache.org CRDs and native
-Ingress alone.
+Keep it on even for plain Ingress: with gatewayAPI.enabled=false, 2.2.0 fails
+every Ingress ("Index with name field:targetRefs does not exist").
 {{- end }}
 
 The twelve apisix.apache.org CRDs DO ship here, in crds/. Helm installs those
