@@ -1,0 +1,86 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/changedetection
+  digest: "sha256:da52e21bd6049999393ef6855386f560cd0976d0a4313f97223ba4290bdba094"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# changedetection.io environment variables, e.g. BASE_URL (the public URL used in
+# notification links), HIDE_REFERER: "true", FETCH_WORKERS, or USE_X_SETTINGS: "1" behind
+# a reverse proxy. A browser fetcher (PLAYWRIGHT_DRIVER_URL) is not bundled: this image
+# fetches with plain HTTP requests.
+settings: {}
+
+# /datastore: watches, settings (including the generated API key) and every snapshot.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 25m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+# One port: HTTP, or HTTPS with tls.enabled.
+service:
+  type: ClusterIP
+  port: 5000
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# TLS: changedetection.io serves HTTPS itself on 5000 from the certificate. Certificate: existingSecret,
+# then certManager, else a Helm-generated self-signed CA + certificate (Secret <fullname>-tls).
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

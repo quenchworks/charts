@@ -1,0 +1,11 @@
+changedetection.io is on {{ include "quench-common.fullname" . }}:{{ .Values.service.port }} ({{ if include "quench-common.tls.enabled" . }}HTTPS{{ else }}HTTP{{ end }}).
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 5000:{{ .Values.service.port }}
+
+There is no password until you set one (Settings > General). Until then anyone who reaches the
+Service can read and change every watch, so set it before exposing the Service.
+
+The REST API key is generated on first start (Settings > API). Read it from the volume:
+
+  kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "quench-common.fullname" . }} -- \
+    /opt/changedetection/bin/python -c 'import json; print(json.load(open("/datastore/changedetection.json"))["settings"]["application"]["api_access_token"])'
