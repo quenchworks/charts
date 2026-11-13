@@ -1,0 +1,49 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. Never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/nats-jetstream-controller
+  digest: "sha256:3500fa4cc58cf85c83ff8989ce76186e72d79cc3d783e420dfe7951fc4fabb9f"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The NATS server the controller manages streams on (-s). Required, e.g. nats://nats:4222.
+# With crdConnect, each resource can name its own server instead.
+natsUrl: ""
+# Read each resource's spec.servers/credentials instead of the global connection (--crd-connect).
+crdConnect: false
+# Full reconciliation loop (--control-loop): needed for KeyValue and ObjectStore resources, which
+# upstream's legacy event mode does not support, and it serves /healthz and /readyz on 8081.
+controlLoop: true
+# Watch one namespace only (--namespace). Empty: every namespace.
+watchNamespace: ""
+# Reconcile without changing anything on the NATS server (--read-only).
+readOnly: false
+# More controller flags, e.g. ["--cleanup-period=1m"]
+extraArgs: []
+
+resources:
+  requests: { cpu: 20m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+podSecurityContext: {}
+containerSecurityContext: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true

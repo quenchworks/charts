@@ -1,0 +1,37 @@
+{{- if .Values.rbac.create }}
+# Upstream's ClusterRole at the release tag (deploy/rbac.yml), verbatim rules.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, update, patch]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, watch, list]
+  - apiGroups: [jetstream.nats.io]
+    resources: [streams, streams/status, objectstores, objectstores/status, keyvalues, keyvalues/status, consumers, consumers/status, streamtemplates, streamtemplates/status, accounts, accounts/status]
+    verbs: [create, get, list, watch, patch, update, delete]
+  - apiGroups: [jetstream.nats.io]
+    resources: [streams/finalizers, keyvalues/finalizers, objectstores/finalizers, consumers/finalizers, accounts/finalizers]
+    verbs: [update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "nats-jetstream-controller.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

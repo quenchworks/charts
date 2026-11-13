@@ -1,0 +1,20 @@
+NACK is running as {{ include "quench-common.fullname" . }} and manages JetStream on {{ .Values.natsUrl }}
+{{- if .Values.watchNamespace }} for resources in {{ .Values.watchNamespace }}{{ end }}.
+
+A stream and a durable consumer:
+
+  apiVersion: jetstream.nats.io/v1beta2
+  kind: Stream
+  metadata: { name: orders }
+  spec: { name: orders, subjects: ["orders.>"], storage: file, maxAge: 24h }
+  ---
+  apiVersion: jetstream.nats.io/v1beta2
+  kind: Consumer
+  metadata: { name: orders-worker }
+  spec: { streamName: orders, durableName: orders-worker, ackPolicy: explicit }
+
+Check them with kubectl get streams,consumers: READY turns true once NATS holds them.
+Deleting a resource deletes the stream or consumer on the server.
+
+Helm installs the CRDs once and never upgrades or deletes them: apply the new
+crds/crds.yaml yourself before upgrading the chart across NACK releases.

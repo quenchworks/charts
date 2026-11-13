@@ -1,0 +1,77 @@
+{{- if not .Values.natsUrl }}{{ fail "natsUrl is required: the NATS server the controller manages, e.g. nats://nats:4222" }}{{ end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "nats-jetstream-controller.serviceAccountName" . }}
+      # The controller talks to the API server; quench-common leaves the token off.
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: jetstream-controller
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - -s={{ .Values.natsUrl }}
+            {{- if .Values.controlLoop }}
+            # credentials and TLS files from resources are written here; the root filesystem is read-only
+            - --cache-dir=/tmp/nack
+            - --control-loop
+            - --health-probe-bind-address=:8081
+            {{- end }}
+            {{- with .Values.watchNamespace }}
+            - --namespace={{ . }}
+            {{- end }}
+            {{- if .Values.crdConnect }}
+            - --crd-connect
+            {{- end }}
+            {{- if .Values.readOnly }}
+            - --read-only
+            {{- end }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- if .Values.controlLoop }}
+          ports:
+            - { name: probe, containerPort: 8081, protocol: TCP }
+          livenessProbe:
+            httpGet: { path: /healthz, port: probe }
+            periodSeconds: 15
+          readinessProbe:
+            httpGet: { path: /readyz, port: probe }
+            periodSeconds: 10
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          # legacy mode ignores --cache-dir and creates its temp dir in the working directory
+          workingDir: /tmp
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}
