@@ -198,7 +198,7 @@ jobs:
             # mysqld refuses a defaults file it cannot read or that is world-writable: show the modes
             for c in $(kubectl get pvc -o jsonpath='{.items[*].metadata.name}'); do
               kubectl run "dbg-$RANDOM" --rm -i --restart=Never --image=busybox:1.37 --overrides="$(jq -nc --arg c "$c" \
-                '{spec: {containers: [{name: "d", image: "busybox:1.37", command: ["sh", "-c", "id; ls -lan /v /v/vt_* 2>&1; cat /v/vt_*/my.cnf 2>&1 | head -5"], volumeMounts: [{name: "v", mountPath: "/v"}]}], volumes: [{name: "v", persistentVolumeClaim: {claimName: $c}}]}}')" || true
+                '{spec: {containers: [{name: "d", image: "busybox:1.37", command: ["sh", "-c", "id; ls -lan /v /v/*/ /v/*/vt_* 2>&1; ls -lan /v/*/vt_*/my.cnf 2>&1"], volumeMounts: [{name: "v", mountPath: "/v"}]}], volumes: [{name: "v", persistentVolumeClaim: {claimName: $c}}]}}')" || true
             done
             kubectl get pod -l planetscale.com/component=vttablet -o jsonpath='{.items[0].spec.securityContext}{"\n"}{.items[0].spec.containers[*].securityContext}{"\n"}' || true
             echo "FAIL: Vitess pods not ready ($n pods, $nr not ready)"; exit 1; }
