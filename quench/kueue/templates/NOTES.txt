@@ -1,0 +1,24 @@
+Kueue is running in {{ .Release.Namespace }} (Deployment kueue-controller-manager).
+
+Queue Jobs through it:
+
+  apiVersion: kueue.x-k8s.io/v1beta2
+  kind: ResourceFlavor
+  metadata: { name: default-flavor }
+  ---
+  apiVersion: kueue.x-k8s.io/v1beta2
+  kind: ClusterQueue
+  metadata: { name: main }
+  spec:
+    namespaceSelector: {}
+    resourceGroups:
+      - coveredResources: [cpu, memory]
+        flavors: [{ name: default-flavor, resources: [{ name: cpu, nominalQuota: 4 }, { name: memory, nominalQuota: 8Gi }] }]
+  ---
+  apiVersion: kueue.x-k8s.io/v1beta2
+  kind: LocalQueue
+  metadata: { name: main, namespace: default }
+  spec: { clusterQueue: main }
+
+Then label a Job with kueue.x-k8s.io/queue-name: main and create it suspended; Kueue starts it
+when the queue has room.
