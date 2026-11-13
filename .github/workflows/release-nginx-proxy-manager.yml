@@ -56,11 +56,11 @@ jobs:
           # real function: log in as the chart's admin, create a proxy host, and fetch through it
           token="$(curl -fsS -H 'Content-Type: application/json' \
             -d "{\"identity\":\"admin@quench.test\",\"secret\":\"$pw\"}" \
-            http://127.0.0.1:8181/api/tokens | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+            http://127.0.0.1:8181/api/tokens | jq -er '.token')"
           created="$(curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
             -d '{"domain_names":["gate.test"],"forward_scheme":"http","forward_host":"127.0.0.1","forward_port":8181,"meta":{}}' \
             http://127.0.0.1:8181/api/nginx/proxy-hosts)"
-          id="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["id"])' "$created")"
+          id="$(jq -er '.id' <<<"$created")"
           # the backend writes the config, runs nginx -t and reloads after answering, then
           # records the outcome in the host's meta
           ok=0
@@ -95,7 +95,7 @@ jobs:
           # switch it through the API and fetch through it again
           token="$(curl -fsS $C -H 'Content-Type: application/json' \
             -d "{\"identity\":\"admin@quench.test\",\"secret\":\"$pw\"}" \
-            $A/api/tokens | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+            $A/api/tokens | jq -er '.token')"
           curl -fsS $C -X PUT -H "Authorization: Bearer $token" -H 'Content-Type: application/json' \
             -d '{"forward_scheme":"https"}' $A/api/nginx/proxy-hosts/$id >/dev/null
           ok=0

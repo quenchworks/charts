@@ -95,7 +95,7 @@ jobs:
             pod -l gateway.envoyproxy.io/owning-gateway-name=example
 
           proxy_image="$(helm get values rtest -a -o json \
-            | python3 -c 'import json,sys;v=json.load(sys.stdin)["envoyProxy"]["image"];print(v["repository"]+"@"+v["digest"])')"
+            | jq -er '.envoyProxy.image|.repository+"@"+.digest')"
           kubectl get pod -l gateway.envoyproxy.io/owning-gateway-name=example \
             -o jsonpath='{.items[0].spec.containers[?(@.name=="envoy")].image}' | >/dev/null grep -xF "$proxy_image"
 

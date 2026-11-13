@@ -57,7 +57,7 @@ jobs:
 
           # --- PROVE OWNCAST TAKES RTMP AND SERVES HLS. ---
           # 1. Up, the release's version, over HTTPS with the chart CA too.
-          v="$(curl -fsS -m 20 $B/api/status | python3 -c 'import json,sys; print(json.load(sys.stdin)["versionNumber"])')"
+          v="$(curl -fsS -m 20 $B/api/status | jq -er '.versionNumber')"
           echo "version $v (want $want)"; test "$v" = "$want"
           curl -fsS -m 20 "${T[@]}" $H/api/status >/dev/null
 
@@ -73,10 +73,10 @@ jobs:
             -c:v libx264 -preset veryfast -g 50 -c:a aac -f flv "rtmp://rtest-owncast-rtmp:1935/live/$(sec stream-key)"
           online=""
           for i in $(seq 1 90); do
-            online="$(curl -fsS -m 10 $B/api/status | python3 -c 'import json,sys; print(json.load(sys.stdin)["online"])' || true)"
-            [ "$online" = True ] && break; sleep 2
+            online="$(curl -fsS -m 10 $B/api/status | jq -er '.online' || true)"
+            [ "$online" = true ] && break; sleep 2
           done
-          echo "online: $online"; test "$online" = True
+          echo "online: $online"; test "$online" = true
 
           # 4. HLS: the master playlist names a variant whose playlist lists segments, over HTTPS.
           seg=""

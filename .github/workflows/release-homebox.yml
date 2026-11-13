@@ -54,11 +54,11 @@ jobs:
           T=(--cacert /tmp/ca.crt --resolve rtest-homebox:18443:127.0.0.1)
           H=https://rtest-homebox:18443
           J=(-H 'Content-Type: application/json')
-          login() { curl -fsS -m 20 "${J[@]}" $B/api/v1/users/login -d '{"username":"gate@quench.test","password":"gate-pass-2026"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])'; }
+          login() { curl -fsS -m 20 "${J[@]}" $B/api/v1/users/login -d '{"username":"gate@quench.test","password":"gate-pass-2026"}' | jq -er '.token'; }
 
           # --- PROVE HOMEBOX STORES ITEMS ON ITS VOLUME. ---
           # 1. The release's version, over HTTPS with the chart CA too.
-          v="$(curl -fsS -m 20 $B/api/v1/status | python3 -c 'import json,sys; print(json.load(sys.stdin)["build"]["version"])')"
+          v="$(curl -fsS -m 20 $B/api/v1/status | jq -er '.build.version')"
           echo "version $v (want $want)"; test "$v" = "$want"
           curl -fsS -m 20 "${T[@]}" $H/api/v1/status >/dev/null
 

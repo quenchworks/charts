@@ -67,7 +67,7 @@ jobs:
           #    application database; reading the user back with that session
           #    proves the writes landed in PostgreSQL.
           token="$(python3 -c 'import json; print(json.load(open("/tmp/props.json"))["setup-token"])')"
-          sid="$(curl -fsS -m 60 -H 'Content-Type: application/json' -X POST $B/api/setup -d "{\"token\":\"$token\",\"user\":{\"email\":\"gate@quench.test\",\"password\":\"Gate-Pass-2026-quench\",\"first_name\":\"Gate\",\"last_name\":\"Check\",\"site_name\":\"Gate\"},\"prefs\":{\"site_name\":\"Gate\",\"site_locale\":\"en\",\"allow_tracking\":false}}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+          sid="$(curl -fsS -m 60 -H 'Content-Type: application/json' -X POST $B/api/setup -d "{\"token\":\"$token\",\"user\":{\"email\":\"gate@quench.test\",\"password\":\"Gate-Pass-2026-quench\",\"first_name\":\"Gate\",\"last_name\":\"Check\",\"site_name\":\"Gate\"},\"prefs\":{\"site_name\":\"Gate\",\"site_locale\":\"en\",\"allow_tracking\":false}}" | jq -er '.id')"
           test -n "$sid"
           curl -fsS -m 20 -H "X-Metabase-Session: $sid" $B/api/user/current | tee /tmp/user.json; echo
           grep -q 'gate@quench.test' /tmp/user.json

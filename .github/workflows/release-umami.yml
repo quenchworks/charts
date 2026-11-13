@@ -63,11 +63,11 @@ jobs:
           # 2. A wrong password is refused; the seeded admin logs in.
           code="$(curl -sS -m 20 -o /dev/null -w '%{http_code}' "${J[@]}" $B/api/auth/login -d '{"username":"admin","password":"wrong"}')"
           test "$code" = 401
-          token="$(curl -fsS -m 20 "${J[@]}" $B/api/auth/login -d '{"username":"admin","password":"umami"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+          token="$(curl -fsS -m 20 "${J[@]}" $B/api/auth/login -d '{"username":"admin","password":"umami"}' | jq -er '.token')"
           A=(-H "Authorization: Bearer $token" "${J[@]}")
 
           # 3. A website, a page view sent the way the tracker sends it, read back from stats.
-          id="$(curl -fsS -m 20 "${A[@]}" $B/api/websites -d '{"name":"gate","domain":"gate.example"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')"
+          id="$(curl -fsS -m 20 "${A[@]}" $B/api/websites -d '{"name":"gate","domain":"gate.example"}' | jq -er '.id')"
           curl -fsS -m 20 -A 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36' "${J[@]}" $B/api/send \
             -d "{\"type\":\"event\",\"payload\":{\"website\":\"$id\",\"hostname\":\"gate.example\",\"url\":\"/hello\",\"language\":\"en-US\",\"screen\":\"1920x1080\"}}" >/dev/null
           now=$(($(date +%s) * 1000))

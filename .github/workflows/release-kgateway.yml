@@ -115,7 +115,7 @@ jobs:
           # kgateway would fall back to <KGW_DEFAULT_IMAGE_REGISTRY>/envoy-wrapper:<tag>
           # and this is the assertion that catches it.
           dp_image="$(helm get values rtest -a -o json \
-            | python3 -c 'import json,sys;v=json.load(sys.stdin)["dataPlane"]["image"];print(v["repository"]+"@"+v["digest"])')"
+            | jq -er '.dataPlane.image|.repository+"@"+.digest')"
           kubectl get pod -l gateway.networking.k8s.io/gateway-name=example \
             -o jsonpath='{.items[0].spec.containers[?(@.name=="kgateway-proxy")].image}' | >/dev/null grep -xF "$dp_image"
 

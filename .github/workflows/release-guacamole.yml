@@ -51,7 +51,7 @@ jobs:
           p2=$!; trap 'kill $p1 $p2' EXIT; sleep 5
           # 1. The init created the schema and set the configured admin password.
           tok="$(curl -fsS -X POST -d 'username=guacadmin&password=ci-admin-pass' http://127.0.0.1:8080/guacamole/api/tokens)"
-          token="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["authToken"])' "$tok")"
+          token="$(jq -er '.authToken' <<<"$tok")"
           [ -n "$token" ] || { echo "login failed: $tok"; exit 1; }
           # 2. Upstream's default guacadmin/guacadmin must not work.
           code="$(curl -s -o /dev/null -w '%{http_code}' -X POST -d 'username=guacadmin&password=guacadmin' http://127.0.0.1:8080/guacamole/api/tokens)"

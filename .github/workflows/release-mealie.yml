@@ -53,11 +53,11 @@ jobs:
           B=http://127.0.0.1:19000
           T=(--cacert /tmp/ca.crt --resolve rtest-mealie:18443:127.0.0.1)
           H=https://rtest-mealie:18443
-          login() { curl -fsS -m 30 "$B/api/auth/token" -d username=changeme@example.com -d password=MyPassword | python3 -c 'import json,sys; print(json.load(sys.stdin)["access_token"])'; }
+          login() { curl -fsS -m 30 "$B/api/auth/token" -d username=changeme@example.com -d password=MyPassword | jq -er '.access_token'; }
 
           # --- PROVE MEALIE STORES RECIPES ON ITS VOLUME. ---
           # 1. The release's version, and the frontend over HTTPS with the chart CA.
-          v="$(curl -fsS -m 20 $B/api/app/about | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')"
+          v="$(curl -fsS -m 20 $B/api/app/about | jq -er '.version')"
           echo "version $v (want $want)"; test "${v#v}" = "$want"
           grep -qi '<html' <<<"$(curl -fsS -m 20 "${T[@]}" "$H/")"
 

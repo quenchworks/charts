@@ -130,7 +130,7 @@ jobs:
           # the chart splits the digest across repository@sha256 + tag -- so this is
           # also the check that the split produced a real reference.
           want="$(helm get values rtest -a -o json \
-            | python3 -c 'import json,sys;v=json.load(sys.stdin)["nginx"]["image"];print(v["repository"]+"@"+v["digest"])')"
+            | jq -er '.nginx.image|.repository+"@"+.digest')"
           got="$(kubectl get pod -l gateway.networking.k8s.io/gateway-name=example \
             -o jsonpath='{.items[0].spec.containers[?(@.name=="nginx")].image}')"
           echo "data plane image: $got"
@@ -140,7 +140,7 @@ jobs:
           # its own IMAGE_NAME env var, so a wrong value gives every nginx pod an
           # Init:ImagePullBackOff.
           cp_want="$(helm get values rtest -a -o json \
-            | python3 -c 'import json,sys;v=json.load(sys.stdin)["image"];print(v["repository"]+"@"+v["digest"])')"
+            | jq -er '.image|.repository+"@"+.digest')"
           cp_got="$(kubectl get pod -l gateway.networking.k8s.io/gateway-name=example \
             -o jsonpath='{.items[0].spec.initContainers[0].image}')"
           echo "init container image: $cp_got"
