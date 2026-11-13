@@ -1,0 +1,288 @@
+name: release-vitess-operator
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/vitess-operator/**"
+      - ".github/workflows/release-vitess-operator.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/vitess-operator
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      # cosign signs by pushing to GHCR and reads ~/.docker/config.json for creds.
+      # docker/login-action writes there (helm/oras logins do not).
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+
+          # --- PROVE THE OPERATOR RUNS A VITESS CLUSTER THAT ANSWERS SQL THROUGH VTGATE. ---
+          kubectl get crd vitessclusters.planetscale.com >/dev/null
+
+          # 1. One cell, one unsharded keyspace with one tablet, vtorc to elect the primary.
+          #    init_db.sql is upstream's test/endtoend/operator/101_initial_cluster.yaml secret.
+          kubectl apply -f - <<'YAML'
+          apiVersion: v1
+          kind: Secret
+          metadata: { name: gate-config }
+          type: Opaque
+          stringData:
+            users.json: '{"gate": [{"UserData": "gate", "Password": "gate-pass"}]}'
+            init_db.sql: |
+              # This file is executed immediately after initializing a fresh data directory.
+
+              ###############################################################################
+              # Equivalent of mysql_secure_installation
+              ###############################################################################
+
+              # We need to ensure that super_read_only is disabled so that we can execute
+              # these commands. Note that disabling it does NOT disable read_only.
+              # We save the current value so that we only re-enable it at the end if it was
+              # enabled before.
+              SET @original_super_read_only=IF(@@global.super_read_only=1, 'ON', 'OFF');
+              SET GLOBAL super_read_only='OFF';
+
+              # Changes during the init db should not make it to the binlog.
+              # They could potentially create errant transactions on replicas.
+              SET sql_log_bin = 0;
+              # Remove anonymous users & disable remote root access (only allow UNIX socket).
+              DROP USER IF EXISTS ''@'%', ''@'localhost', 'root'@'%';
+
+              # Remove test database.
+              DROP DATABASE IF EXISTS test;
+
+              ###############################################################################
+              # Vitess defaults
+              ###############################################################################
+
+              # Vitess-internal database.
+              CREATE DATABASE IF NOT EXISTS _vt;
+
+              # Admin user with all privileges.
+              CREATE USER 'vt_dba'@'localhost';
+              GRANT ALL ON *.* TO 'vt_dba'@'localhost';
+              GRANT GRANT OPTION ON *.* TO 'vt_dba'@'localhost';
+              GRANT PROXY ON ''@'' TO 'vt_dba'@'localhost' WITH GRANT OPTION;
+
+              # User for app traffic, with global read-write access.
+              CREATE USER 'vt_app'@'localhost';
+              GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, RELOAD, PROCESS, FILE,
+                REFERENCES, INDEX, ALTER, SHOW DATABASES, CREATE TEMPORARY TABLES,
+                LOCK TABLES, EXECUTE, REPLICATION CLIENT, CREATE VIEW,
+                SHOW VIEW, CREATE ROUTINE, ALTER ROUTINE, CREATE USER, EVENT, TRIGGER
+                ON *.* TO 'vt_app'@'localhost';
+
+              # User for app debug traffic, with global read access.
+              CREATE USER 'vt_appdebug'@'localhost';
+              GRANT SELECT, SHOW DATABASES, PROCESS ON *.* TO 'vt_appdebug'@'localhost';
+
+              # User for administrative operations that need to be executed as non-SUPER.
+              # Same permissions as vt_app here.
+              CREATE USER 'vt_allprivs'@'localhost';
+              GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, RELOAD, PROCESS, FILE,
+                REFERENCES, INDEX, ALTER, SHOW DATABASES, CREATE TEMPORARY TABLES,
+                LOCK TABLES, EXECUTE, REPLICATION SLAVE, REPLICATION CLIENT, CREATE VIEW,
+                SHOW VIEW, CREATE ROUTINE, ALTER ROUTINE, CREATE USER, EVENT, TRIGGER
+                ON *.* TO 'vt_allprivs'@'localhost';
+
+              # User for slave replication connections.
+              CREATE USER 'vt_repl'@'%';
+              GRANT REPLICATION SLAVE ON *.* TO 'vt_repl'@'%';
+
+              # User for Vitess VReplication (base vstreamers and vplayer).
+              CREATE USER 'vt_filtered'@'localhost';
+              GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, RELOAD, PROCESS, FILE,
+                REFERENCES, INDEX, ALTER, SHOW DATABASES, CREATE TEMPORARY TABLES,
+                LOCK TABLES, EXECUTE, REPLICATION SLAVE, REPLICATION CLIENT, CREATE VIEW,
+                SHOW VIEW, CREATE ROUTINE, ALTER ROUTINE, CREATE USER, EVENT, TRIGGER
+                ON *.* TO 'vt_filtered'@'localhost';
+
+              # User for general MySQL monitoring.
+              CREATE USER 'vt_monitoring'@'localhost';
+              GRANT SELECT, PROCESS, SUPER, REPLICATION CLIENT, RELOAD
+                ON *.* TO 'vt_monitoring'@'localhost';
+              GRANT SELECT, UPDATE, DELETE, DROP
+                ON performance_schema.* TO 'vt_monitoring'@'localhost';
+
+              # custom sql is used to add custom scripts like creating users/passwords. We use it in our tests
+              # {{custom_sql}}
+
+              # We need to set super_read_only back to what it was before
+              SET GLOBAL super_read_only=IFNULL(@original_super_read_only, 'ON');
+          ---
+          apiVersion: planetscale.com/v2
+          kind: VitessCluster
+          metadata: { name: gate }
+          spec:
+            images:
+              vtctld: vitess/lite:v24.0.5-mysql80
+              vtgate: vitess/lite:v24.0.5-mysql80
+              vttablet: vitess/lite:v24.0.5-mysql80
+              vtorc: vitess/lite:v24.0.5-mysql80
+              vtbackup: vitess/lite:v24.0.5-mysql80
+              mysqld: { mysql80Compatible: vitess/lite:v24.0.5-mysql80 }
+            cells:
+              - name: zone1
+                gateway:
+                  authentication: { static: { secret: { name: gate-config, key: users.json } } }
+                  replicas: 1
+                  resources: { requests: { cpu: 50m, memory: 128Mi }, limits: { memory: 256Mi } }
+            vitessDashboard:
+              cells: [zone1]
+              replicas: 1
+              resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { memory: 128Mi } }
+            keyspaces:
+              - name: gate
+                durabilityPolicy: none
+                turndownPolicy: Immediate
+                vitessOrchestrator:
+                  resources: { requests: { cpu: 50m, memory: 64Mi }, limits: { memory: 128Mi } }
+                partitionings:
+                  - equal:
+                      parts: 1
+                      shardTemplate:
+                        databaseInitScriptSecret: { name: gate-config, key: init_db.sql }
+                        tabletPools:
+                          - cell: zone1
+                            type: replica
+                            replicas: 1
+                            vttablet:
+                              resources: { requests: { cpu: 100m, memory: 128Mi }, limits: { memory: 256Mi } }
+                            mysqld:
+                              resources: { requests: { cpu: 100m, memory: 512Mi }, limits: { memory: 1Gi } }
+                            dataVolumeClaimTemplate:
+                              accessModes: [ReadWriteOnce]
+                              resources: { requests: { storage: 2Gi } }
+            updateStrategy: { type: Immediate }
+          YAML
+
+          # 2. Every Vitess pod ready: etcd, vtctld, vtgate, vtorc and the tablet.
+          for i in $(seq 1 90); do
+            n="$(kubectl get pods -l planetscale.com/cluster=gate --no-headers 2>/dev/null | wc -l)"
+            nr="$(kubectl get pods -l planetscale.com/cluster=gate --no-headers 2>/dev/null | awk '{split($2,a,"/"); if (a[1]!=a[2]) print}' | wc -l)"
+            [ "$n" -ge 5 ] && [ "$nr" -eq 0 ] && break; sleep 10
+          done
+          kubectl get pods -l planetscale.com/cluster=gate -o wide
+          [ "$n" -ge 5 ] && [ "$nr" -eq 0 ] || { kubectl get vitesscluster gate -o yaml | tail -30; echo "FAIL: Vitess pods not ready ($n pods, $nr not ready)"; exit 1; }
+          op="$(awk '/^image:/{f=1} f&&/repository:/{r=$2} f&&/digest:/{gsub(/"/,"",$2); print r"@"$2; exit}' "${CHART_DIR}/values.yaml")"
+          test "$(kubectl get deploy -l app.kubernetes.io/name=vitess-operator -o jsonpath='{.items[0].spec.template.spec.containers[0].image}')" = "$op"
+          echo "VitessCluster pods ready ($n)"
+
+          # 3. A table created, written and read back through vtgate once the tablet is the primary.
+          gw="$(kubectl get svc -l planetscale.com/cluster=gate,planetscale.com/component=vtgate -o jsonpath='{.items[0].metadata.name}')"
+          test -n "$gw" || { kubectl get svc --show-labels; echo "FAIL: no vtgate Service"; exit 1; }
+          kubectl run gate-client --image=mysql:8.0 --restart=Never --command -- sleep 900
+          kubectl wait --for=condition=ready pod/gate-client --timeout=300s
+          sql() { kubectl exec gate-client -- mysql -h "$gw" -P 3306 -u gate -pgate-pass -N -e "$1" gate; }
+          for i in $(seq 1 30); do sql 'CREATE TABLE IF NOT EXISTS t (id INT PRIMARY KEY, v VARCHAR(32))' 2>/dev/null && break; sleep 10; done
+          sql "INSERT INTO t VALUES (1, 'quench-works')"
+          got="$(sql 'SELECT v FROM t WHERE id = 1')"
+          test "$got" = quench-works || { echo "FAIL: read back '$got'"; exit 1; }
+          echo "CREATE, INSERT and SELECT through vtgate"
+
+          restarts="$(kubectl get pods -l app.kubernetes.io/name=vitess-operator -o jsonpath='{range .items[*]}{.status.containerStatuses[*].restartCount}{"\n"}{end}' | tr -d '\n' | tr -s ' ')"
+          case "$restarts" in *[1-9]*) kubectl get pods; echo "FAIL: the operator restarted"; exit 1 ;; esac
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/vitess-operator-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/vitess-operator@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/vitess-operator:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

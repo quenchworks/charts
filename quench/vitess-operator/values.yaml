@@ -1,0 +1,79 @@
+# The digests below are the contract with the image factory. CI rewrites them from the
+# image-published dispatch after every green image build. Never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/vitess-operator
+  digest: "sha256:0219cee83d46669a5d29486f64e3771f63aa6231d8dd16d56e84deadd336eb56"
+  pullPolicy: IfNotPresent
+
+# etcd image for EtcdLockserver resources that do not set one (--default_etcd_image).
+# Empty keeps upstream's default, quay.io/coreos/etcd: the operator runs /usr/local/bin/etcd,
+# a path the QuenchWorks etcd image does not have yet.
+defaultEtcdImage: ""
+
+# The PriorityClasses vitess-operator-control-plane and vitess (cluster-wide, one set per cluster).
+priorityClasses:
+  create: true
+
+nameOverride: ""
+
+# false watches only the release namespace, as upstream's deploy does; true watches all.
+watchAllNamespaces: false
+
+logVerbosity: 2    # glog -v level
+
+# More operator flags, e.g. ["--cache_invalidate_interval=5m"]
+extraArgs: []
+
+# Leader election is always on; extra replicas are warm standbys.
+replicaCount: 1
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 8383
+  annotations: {}
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
