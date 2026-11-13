@@ -1,0 +1,76 @@
+# The digests below are the contract with the image factory. CI rewrites them from the
+# image-published dispatch after every green image build. Never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/grafana-operator
+  digest: "sha256:4b5bd3d08fac151197270c8f42d5b51ac8697b3761208195739071c0fdac7986"
+  pullPolicy: IfNotPresent
+
+# The Grafana image every Grafana resource gets unless it sets spec.version itself
+# (RELATED_IMAGE_GRAFANA). Our hardened Grafana, pinned by digest.
+grafanaImage:
+  repository: ghcr.io/quenchworks/images/grafana
+  digest: "sha256:b57a376c691e019e391fcb472247c14a8c825879bcf9a5d760590b0d887bbd72"
+
+nameOverride: ""
+
+# Namespaces to watch (WATCH_NAMESPACE). Empty: every namespace.
+watchNamespaces: []
+
+logLevel: info      # --zap-log-level: debug, info, error
+logFormat: console  # --zap-encoder: console or json
+# More operator flags, e.g. ["--max-concurrent-reconciles=4", "--default-resync-period=5m"]
+extraArgs: []
+
+# More than 1 turns on leader election; extra replicas are warm standbys.
+replicaCount: 1
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

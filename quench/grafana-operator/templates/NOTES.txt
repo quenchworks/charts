@@ -1,0 +1,23 @@
+The Grafana Operator is running as {{ include "quench-common.fullname" . }} and watches
+{{ if .Values.watchNamespaces }}{{ join ", " .Values.watchNamespaces }}{{ else }}every namespace{{ end }} for Grafana, GrafanaDashboard, GrafanaDatasource, GrafanaFolder
+and the other grafana.integreatly.org resources (CRDs installed with the chart).
+
+A Grafana instance and a dashboard pushed into it:
+
+  apiVersion: grafana.integreatly.org/v1beta1
+  kind: Grafana
+  metadata: { name: main, labels: { dashboards: main } }
+  spec: {}
+  ---
+  apiVersion: grafana.integreatly.org/v1beta1
+  kind: GrafanaDashboard
+  metadata: { name: hello }
+  spec:
+    instanceSelector: { matchLabels: { dashboards: main } }
+    json: '{"title": "Hello", "panels": []}'
+
+A Grafana without spec.version runs {{ include "grafana-operator.grafanaImage" . }}.
+Its admin login is in Secret <name>-admin-credentials.
+
+Helm installs the CRDs once and never upgrades or deletes them: apply the new
+crds/crds.yaml yourself before upgrading the chart across operator releases.
