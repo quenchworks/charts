@@ -61,7 +61,7 @@ jobs:
           grep -q '^{' /tmp/conns.json
           # 4. guacd loads each protocol plugin.
           for p in rdp vnc ssh; do
-            r="$(python3 -c 'import socket,sys; p=sys.argv[1]; s=socket.create_connection(("127.0.0.1",4822),5); s.sendall(f"6.select,{len(p)}.{p};".encode()); s.settimeout(10); print(s.recv(4096).decode(errors="replace"))' "$p")"
+            r="$(go -C tools/qw run . tlsprobe --plain --addr 127.0.0.1:4822 --send "6.select,${#p}.$p;" --expect-hex-prefix 342e617267732c --label "$p")"
             echo "$p: ${r:0:60}"
             grep -q '^4\.args,' <<<"$r"
           done

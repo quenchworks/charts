@@ -67,16 +67,12 @@ jobs:
           # A full in-cluster audit with only the chart's ClusterRole: any kind it cannot
           # list fails the whole audit, so a 200 here proves the RBAC is complete.
           curl -fsS http://127.0.0.1:8080/results.json -o /tmp/results.json
-          python3 - <<'PY'
-          import json
-          d = json.load(open("/tmp/results.json"))
-          r = [x for x in d["Results"] if x["Name"] == "weak" and x["Namespace"] == "weak"]
-          assert r, "weak Deployment missing from the audit"
-          res = r[0]["PodResult"]["ContainerResults"][0]["Results"]
-          for c in ("runAsPrivileged", "tagNotSpecified", "livenessProbeMissing"):
-              assert res[c]["Success"] is False, (c, res[c])
-          print("audit flags the weak Deployment:", sorted(k for k, v in res.items() if not v["Success"]))
-          PY
+          jq -e '[.Results[] | select(.Name == "weak" and .Namespace == "weak")] | length > 0' /tmp/results.json >/dev/null || { echo "weak Deployment missing from the audit"; exit 1; }
+          res="$(jq -c '[.Results[] | select(.Name == "weak" and .Namespace == "weak")][0].PodResult.ContainerResults[0].Results' /tmp/results.json)"
+          for c in runAsPrivileged tagNotSpecified livenessProbeMissing; do
+            jq -e --arg c "$c" '.[$c].Success == false' <<<"$res" >/dev/null || { echo "$c not flagged: $(jq -c --arg c "$c" '.[$c]' <<<"$res")"; exit 1; }
+          done
+          echo "audit flags the weak Deployment: $(jq -c '[to_entries[] | select(.value.Success == false) | .key] | sort' <<<"$res")"
           page="$(curl -fsS http://127.0.0.1:8080/)"
           grep -q "<title>Fairwinds Polaris</title>" <<<"$page"
 

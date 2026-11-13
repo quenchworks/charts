@@ -34,23 +34,28 @@ func cmdTLSProbe(args []string) int {
 	fs.Var(&expects, "expect", "reply must contain this text (repeatable)")
 	retries := fs.Int("retry", 1, "dial and handshake attempts, 3s apart")
 	label := fs.String("label", "TLS", "name printed on success")
-	if fs.Parse(args) != nil || *addr == "" || *ca == "" || *name == "" {
-		fmt.Fprintln(os.Stderr, "usage: qw tlsprobe --addr host:port --ca ca.crt --name server [--alpn h2] [--banner P] [--send S | --send-hex H] [--read N] [--expect T]... [--expect-hex-prefix H] [--reject-hex-prefix H] [--retry N] [--label L]")
+	plain := fs.Bool("plain", false, "no TLS: speak the protocol over plain TCP (--ca and --name not needed)")
+	if fs.Parse(args) != nil || *addr == "" || (!*plain && (*ca == "" || *name == "")) {
+		fmt.Fprintln(os.Stderr, "usage: qw tlsprobe --addr host:port (--ca ca.crt --name server | --plain) [--alpn h2] [--banner P] [--send S | --send-hex H] [--read N] [--expect T]... [--expect-hex-prefix H] [--reject-hex-prefix H] [--retry N] [--label L]")
 		return 2
 	}
-	pem, err := os.ReadFile(*ca)
-	if err != nil {
-		return fail("read CA: %v", err)
+	var cfg *tls.Config
+	if !*plain {
+		pem, err := os.ReadFile(*ca)
+		if err != nil {
+			return fail("read CA: %v", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return fail("no certificates in %s", *ca)
+		}
+		cfg = &tls.Config{RootCAs: pool, ServerName: *name}
+		if *alpn != "" {
+			cfg.NextProtos = []string{*alpn}
+		}
 	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(pem) {
-		return fail("no certificates in %s", *ca)
-	}
-	cfg := &tls.Config{RootCAs: pool, ServerName: *name}
-	if *alpn != "" {
-		cfg.NextProtos = []string{*alpn}
-	}
-	var t *tls.Conn
+	var t net.Conn
+	var err error
 	for i := 1; ; i++ {
 		t, err = handshake(*addr, *banner, cfg)
 		if err == nil || i >= *retries {
@@ -59,12 +64,16 @@ func cmdTLSProbe(args []string) int {
 		time.Sleep(3 * time.Second)
 	}
 	if err != nil {
-		return fail("no TLS session with %s: %v", *addr, err)
+		return fail("no session with %s: %v", *addr, err)
 	}
 	defer t.Close()
-	st := t.ConnectionState()
-	if *alpn != "" && st.NegotiatedProtocol != *alpn {
-		return fail("ALPN %q selected, want %q", st.NegotiatedProtocol, *alpn)
+	version := "plain TCP"
+	if tc, ok := t.(*tls.Conn); ok {
+		st := tc.ConnectionState()
+		if *alpn != "" && st.NegotiatedProtocol != *alpn {
+			return fail("ALPN %q selected, want %q", st.NegotiatedProtocol, *alpn)
+		}
+		version = tls.VersionName(st.Version)
 	}
 	payload := []byte(nil)
 	if *sendHex != "" {
@@ -101,11 +110,12 @@ func cmdTLSProbe(args []string) int {
 			}
 		}
 	}
-	fmt.Printf("%s ok: %s\n", *label, tls.VersionName(st.Version))
+	fmt.Printf("%s ok: %s\n", *label, version)
 	return 0
 }
 
-func handshake(addr, banner string, cfg *tls.Config) (*tls.Conn, error) {
+// handshake dials addr, reads the plaintext banner if asked, and starts TLS unless cfg is nil.
+func handshake(addr, banner string, cfg *tls.Config) (net.Conn, error) {
 	c, err := net.DialTimeout("tcp", addr, 10*time.Second)
 	if err != nil {
 		return nil, err
@@ -118,6 +128,10 @@ func handshake(addr, banner string, cfg *tls.Config) (*tls.Conn, error) {
 			c.Close()
 			return nil, fmt.Errorf("plaintext banner %q, want prefix %q (%v)", b[:n], banner, err)
 		}
+	}
+	if cfg == nil {
+		c.SetDeadline(time.Time{})
+		return c, nil
 	}
 	t := tls.Client(c, cfg)
 	if err := t.Handshake(); err != nil {

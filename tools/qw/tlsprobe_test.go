@@ -60,4 +60,18 @@ func TestTLSProbe(t *testing.T) {
 	if rc := cmdTLSProbe(append(base, "--name", "rtest-app", "--expect", "NOPE")); rc != 1 {
 		t.Fatalf("missing reply text must fail: rc %d", rc)
 	}
+
+	// --plain: the same exchange without TLS against a plaintext echo of the banner.
+	pl, _ := net.Listen("tcp", "127.0.0.1:0")
+	defer pl.Close()
+	go func() {
+		c, err := pl.Accept()
+		if err == nil {
+			c.Write([]byte("4.args,13.VERSION_1_5_0;"))
+			c.Close()
+		}
+	}()
+	if rc := cmdTLSProbe([]string{"--plain", "--addr", pl.Addr().String(), "--send", "6.select,3.rdp;", "--expect-hex-prefix", "342e617267732c"}); rc != 0 {
+		t.Fatalf("plain probe: rc %d", rc)
+	}
 }

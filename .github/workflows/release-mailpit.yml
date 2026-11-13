@@ -55,17 +55,9 @@ jobs:
           [ "$code" = "401" ] || { echo "expected 401 without credentials, got $code"; exit 1; }
           # Prove the round trip the app exists for: send a real message over SMTP,
           # then read it back through the HTTP API.
-          python3 - <<'PY'
-          import smtplib, email.message
-          m = email.message.EmailMessage()
-          m["From"] = "ci@quench-works.com"
-          m["To"] = "inbox@example.com"
-          m["Subject"] = "quench-ci-probe"
-          m.set_content("delivered by the install gate")
-          with smtplib.SMTP("127.0.0.1", 1025, timeout=20) as s:
-              s.send_message(m)
-          print("smtp: message accepted")
-          PY
+          printf 'From: ci@quench-works.com\r\nTo: inbox@example.com\r\nSubject: quench-ci-probe\r\n\r\ndelivered by the install gate\r\n' \
+            | curl -sS --max-time 20 --url smtp://127.0.0.1:1025 --mail-from ci@quench-works.com --mail-rcpt inbox@example.com -T -
+          echo "smtp: message accepted"
           sleep 3
           curl -fsS -u quench-ci:quench-ci-pass http://127.0.0.1:8025/api/v1/messages \
             | tee /tmp/messages.json | >/dev/null grep '"Subject":"quench-ci-probe"'

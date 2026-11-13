@@ -82,15 +82,9 @@ jobs:
           echo "Kyverno audit -> PolicyReport -> Policy Reporter: ok"
           # Polaris audits the whole cluster with its chart's ClusterRole and flags the weak Deployment.
           curl -fsS http://127.0.0.1:8080/results.json -o /tmp/results.json
-          python3 - <<'PY'
-          import json
-          d = json.load(open("/tmp/results.json"))
-          r = [x for x in d["Results"] if x["Name"] == "weak" and x["Namespace"] == "app"]
-          assert r, "weak Deployment missing from the Polaris audit"
-          res = r[0]["PodResult"]["ContainerResults"][0]["Results"]
-          assert res["runAsPrivileged"]["Success"] is False, res["runAsPrivileged"]
-          print("Polaris flags the weak Deployment")
-          PY
+          jq -e '[.Results[] | select(.Name == "weak" and .Namespace == "app")] | length > 0' /tmp/results.json >/dev/null || { echo "weak Deployment missing from the Polaris audit"; exit 1; }
+          jq -e '[.Results[] | select(.Name == "weak" and .Namespace == "app")][0].PodResult.ContainerResults[0].Results.runAsPrivileged.Success == false' /tmp/results.json >/dev/null || { echo "runAsPrivileged not flagged"; exit 1; }
+          echo "Polaris flags the weak Deployment"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

@@ -56,21 +56,14 @@ jobs:
           # FOUND with that signature name means the ConfigMap reached the
           # database directory and clamd loaded it; OK for a clean payload means
           # it is not flagging everything.
-          cat > /tmp/clamd.py <<'PY'
-          import socket, struct, sys
-          def ask(payload=None):
-              s = socket.create_connection(("127.0.0.1", 13310), timeout=15)
-              if payload is None:
-                  s.sendall(b"zPING\0")
-              else:
-                  s.sendall(b"zINSTREAM\0" + struct.pack(">I", len(payload)) + payload + struct.pack(">I", 0))
-              return s.recv(4096).rstrip(b"\0").decode()
-          eicar = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR" + b"-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
-          r = ask(); print("PING ->", r); assert r == "PONG", r
-          r = ask(eicar); print("EICAR ->", r); assert "Quench.Test.EICAR" in r and r.endswith("FOUND"), r
-          r = ask(b"nothing to see here\n"); print("clean ->", r); assert r == "stream: OK", r
-          PY
-          python3 /tmp/clamd.py
+          # clamd speaks z-terminated commands on 3310; INSTREAM sends <len:4 BE><bytes>, then a zero length.
+          ask() { go -C tools/qw run . tlsprobe --plain --addr 127.0.0.1:13310 --label clamd "$@"; }
+          hex() { od -An -tx1 -v | tr -d ' \n'; }
+          instream() { printf '7a494e53545245414d00%08x%s00000000' "$(printf '%s' "$1" | wc -c)" "$(printf '%s' "$1" | hex)"; }
+          eicar='X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*'
+          ask --send 'zPING\x00' --expect PONG
+          ask --send-hex "$(instream "$eicar")" --expect Quench.Test.EICAR --expect FOUND
+          ask --send-hex "$(instream $'nothing to see here\n')" --expect 'stream: OK'
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
