@@ -1,0 +1,18 @@
+The RabbitMQ Cluster Operator is running as {{ include "quench-common.fullname" . }} and watches
+{{ if .Values.watchNamespaces }}{{ join ", " .Values.watchNamespaces }}{{ else }}every namespace{{ end }} for RabbitmqCluster resources (CRD installed with the chart).
+
+A three-node cluster:
+
+  apiVersion: rabbitmq.com/v1beta1
+  kind: RabbitmqCluster
+  metadata: { name: main }
+  spec: { replicas: 3 }
+
+Its AMQP Service is main (5672), the management UI is on 15672, and the generated login is in
+Secret main-default-user (username, password).
+
+RabbitMQ pods run {{ .Values.rabbitmqImage | default "upstream's rabbitmq:4.3.4-management (Docker Hub)" }}.
+Set spec.image or rabbitmqImage to change it.
+
+Helm installs the CRD once and never upgrades or deletes it: apply the new
+crds/crds.yaml yourself before upgrading the chart across operator releases.

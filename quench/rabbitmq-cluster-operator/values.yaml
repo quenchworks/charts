@@ -1,0 +1,74 @@
+# The digests below are the contract with the image factory. CI rewrites them from the
+# image-published dispatch after every green image build. Never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/rabbitmq-cluster-operator
+  digest: "sha256:46f6153d80cd3d8c9072b0ed782cd1482585c0b2fdb01001cdc40b6733a0480f"
+  pullPolicy: IfNotPresent
+
+# The image every RabbitmqCluster without spec.image runs (DEFAULT_RABBITMQ_IMAGE). Empty keeps
+# upstream's default, rabbitmq:4.3.4-management from Docker Hub: the operator runs RabbitMQ as
+# uid 999 with the official image's layout, which the QuenchWorks rabbitmq image does not have yet.
+rabbitmqImage: ""
+
+nameOverride: ""
+
+# Namespaces to watch (OPERATOR_SCOPE_NAMESPACE). Empty: every namespace.
+watchNamespaces: []
+
+logLevel: info      # --zap-log-level: debug, info, error
+# More operator flags, e.g. ["--metrics-secure"]
+extraArgs: []
+
+# Leader election is always on; extra replicas are warm standbys.
+replicaCount: 1
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

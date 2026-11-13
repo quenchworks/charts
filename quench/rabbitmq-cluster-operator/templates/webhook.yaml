@@ -1,0 +1,64 @@
+{{- /* The defaulting/validating webhook. It is the only place the operator fills spec.image, so it is
+     not optional. The CA and serving certificate are generated once and kept across upgrades. */ -}}
+{{- $fn := include "quench-common.fullname" . -}}
+{{- $svc := printf "%s-webhook" $fn -}}
+{{- $secret := printf "%s-webhook-tls" $fn -}}
+{{- $ns := .Release.Namespace -}}
+{{- $existing := lookup "v1" "Secret" $ns $secret -}}
+{{- $crt := "" -}}{{- $key := "" -}}{{- $ca := "" -}}
+{{- if and $existing $existing.data (index $existing.data "ca.crt") -}}
+{{- $crt = index $existing.data "tls.crt" -}}{{- $key = index $existing.data "tls.key" -}}{{- $ca = index $existing.data "ca.crt" -}}
+{{- else -}}
+{{- $caCert := genCA (printf "%s-webhook-ca" $fn) 3650 -}}
+{{- $cert := genSignedCert $svc nil (list $svc (printf "%s.%s" $svc $ns) (printf "%s.%s.svc" $svc $ns) (printf "%s.%s.svc.cluster.local" $svc $ns)) 3650 $caCert -}}
+{{- $crt = $cert.Cert | b64enc -}}{{- $key = $cert.Key | b64enc -}}{{- $ca = $caCert.Cert | b64enc -}}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secret }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $crt }}
+  tls.key: {{ $key }}
+  ca.crt: {{ $ca }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - { name: webhook, port: 443, targetPort: webhook, protocol: TCP }
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+{{- range $kind := list "Mutating" "Validating" }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: {{ $kind }}WebhookConfiguration
+metadata:
+  name: {{ $fn }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+webhooks:
+  - name: {{ ternary "m" "v" (eq $kind "Mutating") }}rabbitmqcluster-v1beta1.kb.io
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: Fail
+    clientConfig:
+      caBundle: {{ $ca }}
+      service:
+        name: {{ $svc }}
+        namespace: {{ $ns }}
+        path: /{{ ternary "mutate" "validate" (eq $kind "Mutating") }}-rabbitmq-com-v1beta1-rabbitmqcluster
+    rules:
+      - apiGroups: [rabbitmq.com]
+        apiVersions: [v1beta1]
+        operations: [CREATE, UPDATE]
+        resources: [rabbitmqclusters]
+{{- end }}
