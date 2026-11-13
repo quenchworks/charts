@@ -1,0 +1,22 @@
+The Prometheus Operator is running as {{ include "quench-common.fullname" . }} and watches
+{{ if .Values.watchNamespaces }}{{ join ", " .Values.watchNamespaces }}{{ else }}every namespace{{ end }} for Prometheus, Alertmanager, ServiceMonitor, PodMonitor,
+PrometheusRule and the other monitoring.coreos.com resources (CRDs installed with the chart).
+
+A minimal Prometheus scraping every ServiceMonitor in its namespace:
+
+  apiVersion: monitoring.coreos.com/v1
+  kind: Prometheus
+  metadata: { name: main }
+  spec:
+    image: ghcr.io/quenchworks/images/prometheus@sha256:<digest>
+    serviceAccountName: prometheus      # needs RBAC to list pods, services, endpoints
+    serviceMonitorSelector: {}
+    serviceMonitorNamespaceSelector: {}
+    containers:                         # with the QuenchWorks prometheus image: run the binary
+      - name: prometheus                # directly, its entrypoint script repeats the operator's flags
+        command: [/usr/bin/prometheus]
+
+Its pods get the config-reloader sidecar {{ include "prometheus-operator.reloaderImage" . }}.
+
+Helm installs the CRDs once and never upgrades or deletes them: apply the new
+crds/crds.yaml yourself before upgrading the chart across operator releases.

@@ -30,6 +30,8 @@ func main() {
 	switch os.Args[1] {
 	case "check-pins":
 		os.Exit(cmdCheckPins(os.Args[2:]))
+	case "gen-prometheus-crds":
+		os.Exit(cmdGenPromCRDs(os.Args[2:]))
 	case "gen-linkerd-crds":
 		os.Exit(cmdGenLinkerdCRDs(os.Args[2:]))
 	case "audit-dep-lag":

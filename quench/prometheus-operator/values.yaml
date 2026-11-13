@@ -1,0 +1,83 @@
+# The digests below are the contract with the image factory. Never tags.
+image:
+  repository: ghcr.io/quenchworks/images/prometheus-operator
+  digest: "sha256:b950e5a438c81b578be5ca03013fb8f293101a71aaccfcae413c6155a55e4d51"
+  pullPolicy: IfNotPresent
+
+# The sidecar the operator adds to every Prometheus and Alertmanager pod it runs: renders
+# the configuration and reloads the server when it changes. Passed as
+# --prometheus-config-reloader, pinned by digest like the operator.
+configReloader:
+  repository: ghcr.io/quenchworks/images/prometheus-config-reloader
+  digest: "sha256:315429e2e5184ae007027a68525b0141c868c2d36ec46e89c7d4603ddaab4bc1"
+
+nameOverride: ""
+
+# Namespaces whose custom resources the operator watches. Empty = every namespace
+# (it then needs the cluster-wide RBAC below either way: it lists nodes and namespaces).
+watchNamespaces: []
+
+# Keep a kube-system Service whose endpoints are every node's kubelet, so Prometheus
+# can scrape kubelet and cAdvisor metrics (--kubelet-service). Off by default: it writes
+# into kube-system.
+kubeletService:
+  enabled: false
+  name: kube-system/kubelet
+
+logLevel: info
+# Anything else the operator takes, e.g. ["--prometheus-default-base-image=..."].
+extraArgs: []
+
+replicaCount: 1
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+# Operator metrics on http :8080 (/metrics), the target a ServiceMonitor for the operator scrapes.
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

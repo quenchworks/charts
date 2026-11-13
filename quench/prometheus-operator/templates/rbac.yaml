@@ -1,0 +1,71 @@
+{{- if .Values.rbac.create }}
+# Upstream's own ClusterRole at the release tag (example/rbac/prometheus-operator), plus
+# discovery.k8s.io endpointslices for --kubelet-endpointslice.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [monitoring.coreos.com]
+    resources: [alertmanagers, alertmanagers/finalizers, prometheusagents, prometheusagents/finalizers, prometheuses, prometheuses/finalizers, thanosrulers, thanosrulers/finalizers]
+    verbs: [patch]
+  - apiGroups: [monitoring.coreos.com]
+    resources: [alertmanagers/finalizers, prometheusagents/finalizers, prometheuses/finalizers, thanosrulers/finalizers]
+    verbs: [update]
+  - apiGroups: [monitoring.coreos.com]
+    resources: [alertmanagers/status, alertmanagerconfigs/status, podmonitors/status, probes/status, prometheuses/status, prometheusagents/status, prometheusrules/status, scrapeconfigs/status, servicemonitors/status, thanosrulers/status]
+    verbs: [create, update, patch, delete]
+  - apiGroups: [monitoring.coreos.com]
+    resources: [alertmanagers, alertmanagerconfigs, podmonitors, probes, prometheusagents, prometheuses, prometheusrules, servicemonitors, scrapeconfigs, thanosrulers]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [configmaps, secrets]
+    verbs: [get, list, watch, create, update, delete]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [list]
+  - apiGroups: [""]
+    resources: [services, services/finalizers]
+    verbs: [get, create, update, delete]
+  - apiGroups: [""]
+    resources: [endpoints]
+    verbs: [get, create, update, delete]
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, create, update, delete]
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [nodes]
+    verbs: [list, watch]
+  - apiGroups: [events.k8s.io]
+    resources: [events]
+    verbs: [patch, create]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch]
+  - apiGroups: [storage.k8s.io]
+    resources: [storageclasses]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "quench-common.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "prometheus-operator.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
