@@ -1,0 +1,27 @@
+The VictoriaMetrics Operator is running as {{ include "quench-common.fullname" . }} and watches
+{{ if .Values.watchNamespaces }}{{ join ", " .Values.watchNamespaces }}{{ else }}every namespace{{ end }} for VMSingle, VMCluster, VMAgent, VMAlert, VMAuth,
+VMServiceScrape and the other operator.victoriametrics.com resources (CRDs installed with the chart).
+
+A single-node VictoriaMetrics and an agent that scrapes every VMServiceScrape into it:
+
+  apiVersion: operator.victoriametrics.com/v1beta1
+  kind: VMSingle
+  metadata: { name: main }
+  spec: { retentionPeriod: "1" }
+  ---
+  apiVersion: operator.victoriametrics.com/v1beta1
+  kind: VMAgent
+  metadata: { name: main }
+  spec:
+    selectAllByDefault: true
+    remoteWrite: [{ url: "http://vmsingle-main:8429/api/v1/write" }]
+
+{{- with .Values.vmsingleImage }}
+A VMSingle without spec.image runs {{ .repository }}:{{ .tag }}@{{ .digest }}.
+{{- end }}
+Pods it runs get the config-reloader {{ include "victoriametrics-operator.reloaderImage" . }}.
+VMAgent, VMAlert, VMAuth and the cluster components keep upstream's victoriametrics/* images
+unless you set spec.image on them.
+
+Helm installs the CRDs once and never upgrades or deletes them: apply the new
+crds/crds.yaml yourself before upgrading the chart across operator releases.

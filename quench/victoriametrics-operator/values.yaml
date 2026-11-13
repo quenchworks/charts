@@ -1,0 +1,82 @@
+# The digests below are the contract with the image factory. CI rewrites them from the
+# image-published dispatch after every green image build. Never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/victoriametrics-operator
+  digest: "sha256:250859be754e08a9e22776bb386ad4ba458bce3d6268392fe19d74ed2db167f5"
+  pullPolicy: IfNotPresent
+
+# The config-reloader sidecar the operator injects into VMAgent, VMAlert, VMAuth, ...
+# (VM_CONFIG_RELOADER_IMAGE). Our image, pinned by digest.
+configReloader:
+  repository: ghcr.io/quenchworks/images/victoriametrics-operator-config-reloader
+  digest: "sha256:ccba2a92e8abf96594ae2f195757879169304e8325cfcc8491e295556df2a21f"
+
+# The image every VMSingle gets unless it sets spec.image itself (VM_VMSINGLEDEFAULT_IMAGE and
+# _VERSION). Our hardened single-node VictoriaMetrics. Set to null to keep upstream's default.
+vmsingleImage:
+  repository: ghcr.io/quenchworks/images/victoriametrics
+  tag: "1.156.0"
+  digest: "sha256:38a95f9c0716d520b45e5215d8aa9575cdc534d3107f9400386cfcb7c3e8bfdf"
+
+nameOverride: ""
+
+# Namespaces to watch (WATCH_NAMESPACE). Empty: every namespace.
+watchNamespaces: []
+
+logLevel: info      # --zap-log-level: debug, info, error
+# More operator flags, e.g. ["--client.qps=100", "--client.burst=200"]
+extraArgs: []
+
+# More than 1 turns on leader election; extra replicas are warm standbys.
+replicaCount: 1
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: true
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
