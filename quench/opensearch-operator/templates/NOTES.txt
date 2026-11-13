@@ -1,0 +1,21 @@
+The OpenSearch Operator {{ .Chart.AppVersion }} is running in {{ .Release.Namespace }}{{ with .Values.watchNamespaces }} and watches {{ join ", " . }}{{ else }} and watches every namespace{{ end }}.
+
+Create a cluster:
+
+  kubectl apply -f - <<'YAML'
+  apiVersion: opensearch.org/v1
+  kind: OpenSearchCluster
+  metadata: { name: my-cluster }
+  spec:
+    general: { serviceName: my-cluster, version: "3.2.0" }
+    security:
+      tls:
+        transport: { generate: true, perNode: true }
+        http: { generate: true }
+    nodePools:
+      - { component: nodes, replicas: 3, diskSize: 30Gi, roles: [cluster_manager, data] }
+  YAML
+
+  kubectl get opensearchcluster my-cluster -w      # phase RUNNING when ready
+
+The admin login is in the Secret my-cluster-admin-password.

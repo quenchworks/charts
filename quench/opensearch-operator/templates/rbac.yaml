@@ -1,0 +1,124 @@
+{{- if .Values.rbac.create }}
+{{- $fn := include "quench-common.fullname" . }}
+{{- $sa := include "opensearch-operator.serviceAccountName" . }}
+# Upstream's manager ClusterRole at the release tag (config/rbac/role.yaml), rules verbatim.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fn }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ['']
+    resources: [configmaps, persistentvolumeclaims, pods, secrets, serviceaccounts, services]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: ['']
+    resources: [events]
+    verbs: [create, patch, update]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [apps]
+    resources: [statefulsets/status]
+    verbs: [get, patch, update]
+  - apiGroups: [batch]
+    resources: [jobs]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [monitoring.coreos.com]
+    resources: [servicemonitors]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [opensearch.opster.io, opensearch.org]
+    resources: [opensearchactiongroups, opensearchclusters, opensearchcomponenttemplates, opensearchindextemplates, opensearchismpolicies, opensearchroles, opensearchsnapshotpolicies, opensearchtenants, opensearchuserrolebindings,
+      opensearchusers]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [opensearch.opster.io, opensearch.org]
+    resources: [opensearchactiongroups/finalizers, opensearchclusters/finalizers, opensearchcomponenttemplates/finalizers, opensearchindextemplates/finalizers, opensearchismpolicies/finalizers, opensearchroles/finalizers,
+      opensearchsnapshotpolicies/finalizers, opensearchtenants/finalizers, opensearchuserrolebindings/finalizers, opensearchusers/finalizers]
+    verbs: [update]
+  - apiGroups: [opensearch.opster.io, opensearch.org]
+    resources: [opensearchactiongroups/status, opensearchclusters/status, opensearchcomponenttemplates/status, opensearchindextemplates/status, opensearchismpolicies/status, opensearchroles/status, opensearchsnapshotpolicies/status,
+      opensearchtenants/status, opensearchuserrolebindings/status, opensearchusers/status]
+    verbs: [get, patch, update]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterrolebindings]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resourceNames: [opensearch-node-attributes]
+    resources: [clusterroles]
+    verbs: [bind]
+  # Metrics are served over HTTPS behind token authn/authz (upstream config/rbac/auth_proxy_role.yaml).
+  - apiGroups: [authentication.k8s.io]
+    resources: [tokenreviews]
+    verbs: [create]
+  - apiGroups: [authorization.k8s.io]
+    resources: [subjectaccessreviews]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $fn }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: {{ $fn }} }
+subjects:
+  - { kind: ServiceAccount, name: {{ $sa }}, namespace: {{ .Release.Namespace }} }
+---
+# Bound by the operator to each cluster's ServiceAccount when nodeAttributes are on
+# (--node-attributes-cluster-role-name). Upstream config/rbac/node_attributes_role.yaml.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $fn }}-node-attributes
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ['']
+    resources: [nodes]
+    verbs: [get]
+---
+# Upstream config/rbac/leader_election_role.yaml.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $fn }}-leader-election
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ['']
+    resources: [configmaps]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: ['']
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $fn }}-leader-election
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $fn }}-leader-election }
+subjects:
+  - { kind: ServiceAccount, name: {{ $sa }}, namespace: {{ .Release.Namespace }} }
+{{- end }}
+{{- if .Values.serviceAccount.create }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "opensearch-operator.serviceAccountName" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+automountServiceAccountToken: false
+{{- end }}

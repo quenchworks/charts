@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "opensearch-operator.serviceAccountName" . }}
+      # The operator talks to the API server; quench-common leaves the token off.
+      automountServiceAccountToken: true
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: operator
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - --leader-elect
+            - --metrics-bind-address=:8443
+            - --health-probe-bind-address=:8081
+            - --enable-webhooks={{ .Values.webhook.enabled }}
+            # Only the current opensearch.org API: the CRDs for the deprecated opensearch.opster.io group do not ship.
+            - --enable-legacy-api=false
+            - --watch-namespace={{ join "," .Values.watchNamespaces }}
+            - --loglevel={{ .Values.logLevel }}
+            - --node-attributes-cluster-role-name={{ include "quench-common.fullname" . }}-node-attributes
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+          env:
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - { name: metrics, containerPort: 8443, protocol: TCP }
+            - { name: probe, containerPort: 8081, protocol: TCP }
+            - { name: webhook, containerPort: 9443, protocol: TCP }
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" (dict "httpGet" (dict "path" "/healthz" "port" "probe") "periodSeconds" 10)) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" (dict "httpGet" (dict "path" "/readyz" "port" "probe") "periodSeconds" 10)) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # the secure metrics server writes a self-signed certificate under TMPDIR
+            - { name: tmp, mountPath: /tmp }
+            {{- if .Values.webhook.enabled }}
+            # controller-runtime's default CertDir
+            - { name: webhook-tls, mountPath: /tmp/k8s-webhook-server/serving-certs, readOnly: true }
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if .Values.webhook.enabled }}
+        - name: webhook-tls
+          secret: { secretName: {{ include "quench-common.fullname" . }}-webhook-tls }
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}

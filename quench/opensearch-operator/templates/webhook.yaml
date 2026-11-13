@@ -1,0 +1,140 @@
+{{- /* Validating webhooks for the opensearch.org API. The CA and serving certificate are generated
+     once and kept across upgrades. */ -}}
+{{- if .Values.webhook.enabled }}
+{{- $fn := include "quench-common.fullname" . -}}
+{{- $svc := printf "%s-webhook" $fn -}}
+{{- $secret := printf "%s-webhook-tls" $fn -}}
+{{- $ns := .Release.Namespace -}}
+{{- $existing := lookup "v1" "Secret" $ns $secret -}}
+{{- $crt := "" -}}{{- $key := "" -}}{{- $ca := "" -}}
+{{- if and $existing $existing.data (index $existing.data "ca.crt") -}}
+{{- $crt = index $existing.data "tls.crt" -}}{{- $key = index $existing.data "tls.key" -}}{{- $ca = index $existing.data "ca.crt" -}}
+{{- else -}}
+{{- $caCert := genCA (printf "%s-webhook-ca" $fn) 3650 -}}
+{{- $cert := genSignedCert $svc nil (list $svc (printf "%s.%s" $svc $ns) (printf "%s.%s.svc" $svc $ns) (printf "%s.%s.svc.cluster.local" $svc $ns)) 3650 $caCert -}}
+{{- $crt = $cert.Cert | b64enc -}}{{- $key = $cert.Key | b64enc -}}{{- $ca = $caCert.Cert | b64enc -}}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secret }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $crt }}
+  tls.key: {{ $key }}
+  ca.crt: {{ $ca }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - { name: webhook, port: 443, targetPort: webhook, protocol: TCP }
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+---
+# Upstream config/webhook/manifests.yaml at the release tag, opensearch.org group only.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ $fn }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+webhooks:
+  - name: vopensearchactiongroup.opensearch.org
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      caBundle: {{ $ca }}
+      service: { name: {{ $svc }}, namespace: {{ $ns }}, path: /validate-opensearch-org-v1-opensearchactiongroup }
+    rules:
+      - { apiGroups: [opensearch.org], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [opensearchactiongroups] }
+  - name: vopensearchcluster.opensearch.org
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      caBundle: {{ $ca }}
+      service: { name: {{ $svc }}, namespace: {{ $ns }}, path: /validate-opensearch-org-v1-opensearchcluster }
+    rules:
+      - { apiGroups: [opensearch.org], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [opensearchclusters] }
+  - name: vopensearchcomponenttemplate.opensearch.org
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      caBundle: {{ $ca }}
+      service: { name: {{ $svc }}, namespace: {{ $ns }}, path: /validate-opensearch-org-v1-opensearchcomponenttemplate }
+    rules:
+      - { apiGroups: [opensearch.org], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [opensearchcomponenttemplates] }
+  - name: vopensearchindextemplate.opensearch.org
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      caBundle: {{ $ca }}
+      service: { name: {{ $svc }}, namespace: {{ $ns }}, path: /validate-opensearch-org-v1-opensearchindextemplate }
+    rules:
+      - { apiGroups: [opensearch.org], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [opensearchindextemplates] }
+  - name: vopensearchismpolicy.opensearch.org
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      caBundle: {{ $ca }}
+      service: { name: {{ $svc }}, namespace: {{ $ns }}, path: /validate-opensearch-org-v1-opensearchismpolicy }
+    rules:
+      - { apiGroups: [opensearch.org], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [opensearchismpolicies] }
+  - name: vopensearchrole.opensearch.org
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      caBundle: {{ $ca }}
+      service: { name: {{ $svc }}, namespace: {{ $ns }}, path: /validate-opensearch-org-v1-opensearchrole }
+    rules:
+      - { apiGroups: [opensearch.org], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [opensearchroles] }
+  - name: vopensearchsnapshotpolicy.opensearch.org
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      caBundle: {{ $ca }}
+      service: { name: {{ $svc }}, namespace: {{ $ns }}, path: /validate-opensearch-org-v1-opensearchsnapshotpolicy }
+    rules:
+      - { apiGroups: [opensearch.org], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [opensearchsnapshotpolicies] }
+  - name: vopensearchtenant.opensearch.org
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      caBundle: {{ $ca }}
+      service: { name: {{ $svc }}, namespace: {{ $ns }}, path: /validate-opensearch-org-v1-opensearchtenant }
+    rules:
+      - { apiGroups: [opensearch.org], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [opensearchtenants] }
+  - name: vopensearchuser.opensearch.org
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      caBundle: {{ $ca }}
+      service: { name: {{ $svc }}, namespace: {{ $ns }}, path: /validate-opensearch-org-v1-opensearchuser }
+    rules:
+      - { apiGroups: [opensearch.org], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [opensearchusers] }
+  - name: vopensearchuserrolebinding.opensearch.org
+    admissionReviewVersions: [v1]
+    sideEffects: None
+    failurePolicy: {{ .Values.webhook.failurePolicy }}
+    clientConfig:
+      caBundle: {{ $ca }}
+      service: { name: {{ $svc }}, namespace: {{ $ns }}, path: /validate-opensearch-org-v1-opensearchuserrolebinding }
+    rules:
+      - { apiGroups: [opensearch.org], apiVersions: [v1], operations: [CREATE, UPDATE], resources: [opensearchuserrolebindings] }
+{{- end }}
