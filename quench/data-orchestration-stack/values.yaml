@@ -1,0 +1,29 @@
+# data-orchestration-stack: Dagster + PostgreSQL + Garage (S3).
+#
+#   people --> Dagster webserver <release>-dagster-webserver:3000 --> run/event storage in PostgreSQL <release>-postgresql
+#              Dagster daemon (schedules, sensors, run queue)
+#   your code locations --S3--> Garage data-garage:3900, bucket "dagster", region "garage"
+#
+# Garage has the fixed name data-garage (garage.fullnameOverride): its Secret data-garage holds the
+# generated S3 key pair (keys access-key, secret-key), and the ConfigMap data-s3 holds the
+# endpoint, region and bucket. Point your code locations' IO managers there. One stack per namespace.
+
+# Dagster (subchart): webserver, daemon and the bundled PostgreSQL. Values pass through to the
+# dagster chart; list your code-location servers in dagster.codeLocations.
+dagster:
+  # the S3 settings, also on the webserver and daemon (for sensors and tooling that read S3)
+  extraEnvVars:
+    - name: AWS_ACCESS_KEY_ID
+      valueFrom: { secretKeyRef: { name: data-garage, key: access-key } }
+    - name: AWS_SECRET_ACCESS_KEY
+      valueFrom: { secretKeyRef: { name: data-garage, key: secret-key } }
+    - { name: AWS_ENDPOINT_URL, value: "http://data-garage:3900" }
+    - { name: AWS_REGION, value: garage }
+    - { name: DAGSTER_S3_BUCKET, value: dagster }
+
+# Garage (subchart), single node. The bucket is created and granted to the generated key on
+# first boot.
+garage:
+  fullnameOverride: data-garage
+  config:
+    defaultBucket: dagster
