@@ -57,20 +57,20 @@ jobs:
           online() {
             for i in $(seq 1 60); do
               $Z edge login "$H:1280" -u admin -p "$PW" -y >/dev/null 2>&1 \
-                && $Z edge list edge-routers -j | grep -q '"isOnline": *true' && return 0
+                && grep -q '"isOnline": *true' <<<"$($Z edge list edge-routers -j)" && return 0
               sleep 2
             done
             return 1
           }
           online
           $Z edge create identity gate-client -o /tmp/gate-client.jwt
-          $Z edge list identities -j | grep -q '"name": *"gate-client"'
+          grep -q '"name": *"gate-client"' <<<"$($Z edge list identities -j)"
 
           # restart: the network (PKI, database, router identity) lives on the volume
           kubectl delete pod rtest-openziti-0 --wait
           kubectl rollout status statefulset/rtest-openziti --timeout=300s
           online
-          $Z edge list identities -j | grep -q '"name": *"gate-client"'
+          grep -q '"name": *"gate-client"' <<<"$($Z edge list identities -j)"
           kubectl logs rtest-openziti-0 > /tmp/ziti.log
           if grep -qiE '"level":"fatal"|panic:|permission denied|read-only file system' /tmp/ziti.log; then
             cat /tmp/ziti.log; exit 1
