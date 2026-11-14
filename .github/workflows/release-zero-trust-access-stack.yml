@@ -1,0 +1,186 @@
+name: release-zero-trust-access-stack
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/zero-trust-access-stack/**"
+      - ".github/workflows/release-zero-trust-access-stack.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/zero-trust-access-stack
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          kubectl create namespace zt
+          kubectl config set-context --current --namespace=zt
+          helm install zt "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 15m
+          tok() { kubectl get secret zt-secrets -o jsonpath="{.data.$1}" | base64 -d; }
+
+          # --- A TAILSCALE CLIENT REGISTERS BY SIGNING IN THROUGH AUTHENTIK. ---
+          # the client prints the registration URL; the script below does what the browser does
+          kubectl run ts --restart=Never --image=ghcr.io/quenchworks/images/tailscale@sha256:3510ec19dba605b809796c9910185a520e6786d9b961469c108236f0a9c65e6b \
+            --env=TS_USERSPACE=true --env=TS_STATE_DIR=/tmp/ts --env=TS_KUBE_SECRET= \
+            --env='TS_EXTRA_ARGS=--login-server=http://zt-headscale.zt.svc:8080'
+          u=""
+          for _ in $(seq 1 40); do u="$(kubectl logs ts 2>/dev/null | grep -o '/register/hskey-authreq-[A-Za-z0-9_-]*' | head -1 || true)"; [ -n "$u" ] && break; sleep 3; done
+          test -n "$u" || { echo "FAIL: no registration URL"; kubectl logs ts; exit 1; }
+          kubectl port-forward svc/zt-headscale 8080:8080 >/tmp/pf1.log 2>&1 &
+          p1=$!
+          kubectl port-forward svc/zt-authentik 9000:80 >/tmp/pf2.log 2>&1 &
+          p2=$!; trap 'kill $p1 $p2 2>/dev/null || true' EXIT
+          sleep 5
+          cat > /tmp/sso.sh <<'SH'
+          #!/usr/bin/env bash
+          # sso.sh <headscale /register/... path> <akadmin password>
+          # Signs in to Authentik through its flow executor (as a browser would) and completes Headscale's
+          # OIDC callback. Needs port-forwards: Headscale on 127.0.0.1:8080, Authentik on 127.0.0.1:9000.
+          set -euo pipefail
+          J=$(mktemp); trap 'rm -f "$J"' EXIT
+          local_url() { sed -E 's#^https?://[^/]+##' <<<"$1"; }
+          loc=$(curl -s -c "$J" -b "$J" -o /dev/null -w '%{redirect_url}' "http://127.0.0.1:8080$1")
+          flow=$(curl -s -c "$J" -b "$J" -o /dev/null -w '%{redirect_url}' "http://127.0.0.1:9000$(local_url "$loc")")
+          q="${flow#*\?}"
+          E="http://127.0.0.1:9000/api/v3/flows/executor/default-authentication-flow/?query=$(jq -rn --arg q "$q" '$q|@uri')"
+          # each POST answers 302 to the executor URL for the next stage (with next= added): follow it
+          step() { curl -s -L -c "$J" -b "$J" -H 'Content-Type: application/json' -d "$1" "$E"; }
+          curl -s -c "$J" -b "$J" "$E" | jq -r .component
+          step '{"component":"ak-stage-identification","uid_field":"akadmin"}' | jq -r .component
+          r=$(step "$(jq -nc --arg p "$2" '{component:"ak-stage-password",password:$p}')")
+          jq -r .component <<<"$r"
+          to=$(jq -r '.to' <<<"$r")
+          # the authorize URL again, now signed in: implicit consent redirects to Headscale's callback
+          cb=$(curl -s -c "$J" -b "$J" -o /dev/null -w '%{redirect_url}' "http://127.0.0.1:9000$(local_url "$to")")
+          echo "callback: $(cut -c1-60 <<<"$cb")"
+          confirm=$(curl -s -c "$J" -b "$J" -o /dev/null -w '%{redirect_url}' "http://127.0.0.1:8080$(local_url "$cb")")
+          echo "confirm: $(local_url "$confirm")"
+          # Headscale 0.29 asks the user to confirm the registration: the page sets a CSRF cookie that the
+          # form posts back
+          curl -s -c "$J" -b "$J" -o /dev/null "http://127.0.0.1:8080$(local_url "$confirm")"
+          csrf=$(awk '$6=="headscale_register_confirm"{print $7}' "$J")
+          curl -s -c "$J" -b "$J" -o /dev/null -w 'headscale confirm: %{http_code}\n' \
+            --data-urlencode "headscale_register_confirm=$csrf" "http://127.0.0.1:8080$(local_url "$confirm")"
+          SH
+          out="$(bash /tmp/sso.sh "$u" "$(tok bootstrap-password)")"
+          echo "$out"
+          grep -q 'headscale confirm: 200' <<<"$out" || { echo "FAIL: sign-in did not complete"; exit 1; }
+          n=""
+          for _ in $(seq 1 20); do
+            n="$(kubectl exec zt-headscale-0 -c headscale -- headscale nodes list -o json 2>/dev/null || true)"
+            jq -e '.[]|select(.user.name=="akadmin")' <<<"$n" >/dev/null 2>&1 && break
+            sleep 3
+          done
+          jq -e '.[]|select(.user.name=="akadmin")' <<<"$n" >/dev/null || { echo "FAIL: no node for akadmin: $n"; exit 1; }
+
+          # --- AN UPGRADE KEEPS THE CLIENT SECRET (the registered client keeps working). ---
+          sec="$(tok oidc-client-secret)"
+          kill $p1 $p2 2>/dev/null || true
+          helm upgrade zt "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          [ "$(tok oidc-client-secret)" = "$sec" ] || { echo "FAIL: upgrade changed the OIDC client secret"; exit 1; }
+          restarts="$(kubectl get pods -l 'app.kubernetes.io/instance=zt' -o jsonpath='{range .items[*]}{.status.containerStatuses[*].restartCount}{"\n"}{end}' | tr -d '\n' | tr -s ' ')"
+          case "$restarts" in *[1-9]*) kubectl get pods; echo "FAIL: a pod restarted"; exit 1 ;; esac
+          echo "gate passed: a Tailscale client registered in Headscale by signing in through Authentik (user akadmin); secrets kept across upgrade"
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/zero-trust-access-stack-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/zero-trust-access-stack@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/zero-trust-access-stack:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
