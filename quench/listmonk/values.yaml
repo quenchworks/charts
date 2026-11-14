@@ -1,0 +1,125 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/listmonk
+  digest: "sha256:a101bc48086097599373c44e45823610d6c1e23c992154af3e760b8eaab90e8d"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# One replica: media uploads live on a ReadWriteOnce volume (or point settings at S3 and scale).
+replicaCount: 1
+
+# The first administrator, created by `listmonk --install` on an empty database only. Its
+# password is generated into the Secret <fullname> (admin-password) unless set here or
+# admin.existingSecret names a Secret.
+admin:
+  username: admin
+  password: ""
+  existingSecret: ""
+  existingSecretKey: admin-password
+
+# More listmonk settings as LISTMONK_* environment variables (TOML keys with __ for nesting,
+# https://listmonk.app/docs/configuration/), e.g. LISTMONK_app__public_subscription: "false".
+# Most settings (root URL, SMTP, media provider) live in the database and are set in the UI.
+settings: {}
+
+# Media uploads (the filesystem upload provider) at /listmonk/uploads.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 2Gi
+  storageClass: ""
+  annotations: {}
+
+# --- DATABASE, mode 1 (default): the bundled PostgreSQL subchart. ---
+postgresql:
+  enabled: true
+  auth:
+    # username and database MUST differ: the bundled PostgreSQL only creates the
+    # application database when its name differs from the superuser's.
+    username: listmonkdb
+    password: ""              # generated if empty; in the Secret <release>-postgresql
+    database: listmonk
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- DATABASE, mode 2: external PostgreSQL (postgresql.enabled=false). ---
+externalDatabase:
+  host: ""
+  port: 5432
+  database: listmonk
+  username: listmonk
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: password
+  # sslmode in the connection URL (disable, require, verify-full, ...); the bundled PostgreSQL uses it too
+  sslMode: disable
+
+# Waits for the database before the install init container runs against it. Uses our
+# postgresql image for pg_isready (a parent chart cannot read a subchart's pin).
+waitForDatabase:
+  enabled: true
+  image:
+    repository: ghcr.io/quenchworks/images/postgresql
+    digest: "sha256:f2aadd3d9651056f67735ec100ce255fabc86121bfa45f20fa2a06df82886d46"
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 9000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy:
+  type: Recreate
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

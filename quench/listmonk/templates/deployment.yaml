@@ -1,0 +1,133 @@
+{{/* /api/health needs auth since listmonk v4; the login page is public and served by the
+     same process once it is up. The schema is installed and upgraded by init containers. */}}
+{{- $hc := dict "httpGet" (dict "path" "/admin/login" "port" "http") -}}
+{{- $liveness := merge (dict "periodSeconds" 20 "timeoutSeconds" 5 "failureThreshold" 6) (deepCopy $hc) -}}
+{{- $readiness := merge (dict "periodSeconds" 10 "timeoutSeconds" 5) (deepCopy $hc) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # restart when the generated admin password changes
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "listmonk.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        {{- if .Values.waitForDatabase.enabled }}
+        - name: wait-for-database
+          image: "{{ .Values.waitForDatabase.image.repository }}@{{ .Values.waitForDatabase.image.digest }}"
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/bin/sh", "-c", "until pg_isready -h \"$DB_HOST\" -p \"$DB_PORT\" -t 3; do echo waiting for $DB_HOST:$DB_PORT; sleep 3; done"]
+          env:
+            - { name: DB_HOST, value: {{ include "listmonk.db.host" . | quote }} }
+            - { name: DB_PORT, value: {{ include "listmonk.db.port" . | quote }} }
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+        {{- end }}
+        # creates the schema and the first admin on an empty database; a no-op afterwards
+        - name: install
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args: ["--config=", "--install", "--idempotent", "--yes"]
+          env:
+            {{- include "listmonk.dbEnv" . | nindent 12 }}
+            - { name: LISTMONK_ADMIN_USER, value: {{ .Values.admin.username | quote }} }
+            - name: LISTMONK_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "listmonk.adminSecretName" . }}
+                  key: {{ .Values.admin.existingSecretKey }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        # applies the migrations of a newer listmonk to an existing schema
+        - name: upgrade
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args: ["--config=", "--upgrade", "--yes"]
+          env:
+            {{- include "listmonk.dbEnv" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: listmonk
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "listmonk.dbEnv" . | nindent 12 }}
+            - { name: LISTMONK_app__address, value: "0.0.0.0:9000" }
+            {{- range $k, $v := .Values.settings }}
+            - { name: {{ $k }}, value: {{ $v | quote }} }
+            {{- end }}
+            {{- with .Values.extraEnvVars }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+            {{- end }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: http
+              containerPort: 9000
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          startupProbe:
+            {{- if .Values.customStartupProbe }}
+            {{- toYaml .Values.customStartupProbe | nindent 12 }}
+            {{- else }}
+            httpGet: { path: /admin/login, port: http }
+            periodSeconds: 5
+            failureThreshold: 24
+            {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            # media uploads (the filesystem upload provider)
+            - name: uploads
+              mountPath: /listmonk/uploads
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: uploads
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "listmonk.pvcName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
