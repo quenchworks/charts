@@ -34,6 +34,36 @@ config:
     enabled: false
     port: 22
 
+# Database. sqlite3 keeps it on the data volume; postgres points at an existing PostgreSQL
+# (the database must exist). Written into app.ini on first boot only.
+database:
+  type: sqlite3              # sqlite3 | postgres
+  postgres:
+    host: ""                 # host:port, e.g. pg.example.svc:5432
+    name: forgejo
+    user: forgejo
+    sslMode: disable
+    existingSecret: ""       # Secret holding the password
+    passwordKey: password
+
+# Valkey/Redis for cache, sessions and queues (several Forgejo replicas need it). Off: the
+# defaults (memory cache, file sessions, level queue on the data volume). Written into
+# app.ini on first boot only.
+redis:
+  enabled: false
+  host: ""                   # host:port
+  db: 0
+  existingSecret: ""         # Secret holding the password; empty means no password
+  passwordKey: password
+
+# The first administrator, created on first boot with the forgejo CLI (after migrating the
+# database). Off when username is empty. The password comes from a Secret.
+admin:
+  username: ""
+  email: ""
+  existingSecret: ""
+  passwordKey: password
+
 persistence:
   enabled: true
   # Repos + SQLite DB + generated app.ini + storage all live here.

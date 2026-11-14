@@ -93,6 +93,31 @@ Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 `customLivenessProbe`/`customReadinessProbe`/`customStartupProbe`
 replacements).
 
+## PostgreSQL, Valkey and the first administrator
+
+By default Forgejo keeps SQLite on the data volume. For an existing PostgreSQL and a Valkey (or
+Redis) for cache, sessions and queues:
+
+```yaml
+database:
+  type: postgres
+  postgres: { host: pg-postgresql:5432, name: forgejo, user: forgejo, existingSecret: forgejo-db, passwordKey: password }
+redis:
+  enabled: true
+  host: valkey:6379
+  existingSecret: forgejo-valkey
+  passwordKey: password
+admin:
+  username: root
+  email: root@example.com
+  existingSecret: forgejo-admin   # key: password
+```
+
+These are written into app.ini on the first boot only, like the rest of the seeded config. The
+administrator is created with `forgejo admin user create` after migrating the database, and the
+init container retries it on every boot until it exists (for a database that was not ready on the
+first one).
+
 ## Architecture
 
 Forgejo runs as a single-replica StatefulSet. Everything lives locally: a SQLite

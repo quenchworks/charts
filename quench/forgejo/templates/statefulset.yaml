@@ -43,6 +43,17 @@ spec:
           securityContext:
             {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
           command: ["/usr/bin/bash", "/scripts/seed.sh"]
+          {{- $envs := list }}
+          {{- if and (eq .Values.database.type "postgres") .Values.database.postgres.existingSecret }}{{ $envs = append $envs (list "DB_PASSWORD" .Values.database.postgres.existingSecret .Values.database.postgres.passwordKey) }}{{ end }}
+          {{- if and .Values.redis.enabled .Values.redis.existingSecret }}{{ $envs = append $envs (list "REDIS_PASSWORD" .Values.redis.existingSecret .Values.redis.passwordKey) }}{{ end }}
+          {{- if and .Values.admin.username .Values.admin.existingSecret }}{{ $envs = append $envs (list "ADMIN_PASSWORD" .Values.admin.existingSecret .Values.admin.passwordKey) }}{{ end }}
+          {{- with $envs }}
+          env:
+            {{- range . }}
+            - name: {{ index . 0 }}
+              valueFrom: { secretKeyRef: { name: {{ index . 1 }}, key: {{ index . 2 }} } }
+            {{- end }}
+          {{- end }}
           volumeMounts:
             - name: data
               mountPath: {{ $mp }}

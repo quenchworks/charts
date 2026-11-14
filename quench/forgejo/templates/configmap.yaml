@@ -48,9 +48,26 @@ data:
       printf '%s\n' "${out[@]}" > "$CONF"
       echo "forgejo: [server] ${want[*]}"
     }
+    # The first administrator: on every boot until it exists (a database that was not ready on
+    # the first boot still gets it), then a marker on the data volume skips it.
+    ensure_admin() {
+      {{- if .Values.admin.username }}
+      [ -f "{{ $mp }}/.admin-created" ] && return 0
+      /usr/bin/forgejo migrate -c "$CONF"
+      out="$(/usr/bin/forgejo admin user create -c "$CONF" --admin --username {{ .Values.admin.username | quote }} \
+        --email {{ required "admin.email is required with admin.username" .Values.admin.email | quote }} \
+        --password "${ADMIN_PASSWORD:?admin.existingSecret is required with admin.username}" --must-change-password=false 2>&1)" \
+        || [[ $out == *"already exists"* ]] || { echo "$out"; return 1; }
+      : > "{{ $mp }}/.admin-created"
+      echo "forgejo: administrator {{ .Values.admin.username }} ready"
+      {{- else }}
+      return 0
+      {{- end }}
+    }
     if [ -f "$CONF" ]; then
       echo "forgejo: keeping existing ${CONF}"
       reconcile_tls
+      ensure_admin
       exit 0
     fi
     echo "forgejo: seeding install-locked ${CONF} with fresh secrets"
@@ -81,9 +98,33 @@ data:
       'LFS_START_SERVER = false' \
       '' \
       '[database]' \
+      {{- if eq .Values.database.type "postgres" }}
+      'DB_TYPE = postgres' \
+      'HOST = {{ required "database.postgres.host is required for database.type=postgres" .Values.database.postgres.host }}' \
+      'NAME = {{ .Values.database.postgres.name }}' \
+      'USER = {{ .Values.database.postgres.user }}' \
+      "PASSWD = \`${DB_PASSWORD:-}\`" \
+      'SSL_MODE = {{ .Values.database.postgres.sslMode }}' \
+      {{- else }}
       'DB_TYPE = sqlite3' \
       'PATH = {{ $mp }}/forgejo.db' \
+      {{- end }}
       '' \
+      {{- if .Values.redis.enabled }}
+      {{- $r := printf "redis://%s:%s@%s/%v?pool_size=100&idle_timeout=180s" "" "${REDIS_PASSWORD:-}" (required "redis.host is required with redis.enabled" .Values.redis.host) .Values.redis.db }}
+      '[cache]' \
+      'ADAPTER = redis' \
+      "HOST = {{ $r }}" \
+      '' \
+      '[session]' \
+      'PROVIDER = redis' \
+      "PROVIDER_CONFIG = {{ $r }}" \
+      '' \
+      '[queue]' \
+      'TYPE = redis' \
+      "CONN_STR = {{ $r }}" \
+      '' \
+      {{- end }}
       '[repository]' \
       'ROOT = {{ $mp }}/git/repositories' \
       '' \
@@ -100,3 +141,4 @@ data:
       'LEVEL = {{ .Values.config.logLevel }}' \
       > "$CONF"
     echo "forgejo: wrote ${CONF}"
+    ensure_admin
