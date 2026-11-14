@@ -1,0 +1,50 @@
+# status-stack: Gatus + ntfy + Uptime Kuma.
+#
+#   Gatus status-gatus:8080 --checks--> your endpoints, status-ntfy, status-uptime-kuma
+#         \--alerts (topic "status")--> ntfy status-ntfy:8080 --push--> phones, browsers, curl
+#   Uptime Kuma status-uptime-kuma:3001 (monitors you add in its UI)
+#
+# The three Services have fixed names (fullnameOverride) so Gatus's config can name them from
+# plain values: one stack per namespace. Subscribe to alerts: the ntfy app on topic "status"
+# with server http://status-ntfy:8080 (or your ingress for ntfy).
+
+# Gatus (subchart). Its config is upstream's config.yaml; add your endpoints under
+# gatus.config.endpoints and give each `alerts: [{type: ntfy}]` to alert on it.
+gatus:
+  fullnameOverride: status-gatus
+  config:
+    ui:
+      title: Status
+    alerting:
+      ntfy:
+        url: http://status-ntfy:8080
+        topic: status
+        priority: 4
+        default-alert:
+          failure-threshold: 3
+          success-threshold: 2
+          send-on-resolved: true
+    endpoints:
+      - name: ntfy
+        group: status-stack
+        url: http://status-ntfy:8080/v1/health
+        interval: 1m
+        conditions: ["[STATUS] == 200", "[BODY].healthy == true"]
+      - name: uptime-kuma
+        group: status-stack
+        url: http://status-uptime-kuma:3001/
+        interval: 1m
+        conditions: ["[STATUS] == 200"]
+        alerts: [{ type: ntfy }]
+
+# ntfy (subchart). Its server.yml goes in ntfy.config.yaml; the defaults let anyone in the
+# cluster publish and subscribe. Set auth-default-access there to lock it down (Gatus then needs
+# a token: gatus.config.alerting.ntfy.token).
+ntfy:
+  fullnameOverride: status-ntfy
+
+# Uptime Kuma (subchart). Monitors and its own notifications are set up in its UI; to send
+# them to ntfy, add an ntfy notification with server http://status-ntfy:8080 and topic status.
+uptime-kuma:
+  enabled: true
+  fullnameOverride: status-uptime-kuma

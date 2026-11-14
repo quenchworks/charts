@@ -1,0 +1,41 @@
+# Install gate on kind: the stack's own checks plus one endpoint that is always down, alerting
+# after one failure every 10 s, so the gate can read its alert from the ntfy topic.
+gatus:
+  config:
+    ui:
+      title: Status
+    alerting:
+      ntfy:
+        url: http://status-ntfy:8080
+        topic: status
+        priority: 4
+        default-alert:
+          failure-threshold: 1
+          success-threshold: 1
+          send-on-resolved: true
+    endpoints:
+      - name: ntfy
+        group: status-stack
+        url: http://status-ntfy:8080/v1/health
+        interval: 10s
+        conditions: ["[STATUS] == 200", "[BODY].healthy == true"]
+      - name: uptime-kuma
+        group: status-stack
+        url: http://status-uptime-kuma:3001/
+        interval: 10s
+        conditions: ["[STATUS] == 200"]
+        alerts: [{ type: ntfy }]
+      - name: gate-down
+        group: gate
+        url: http://gate-nothing-here:9/
+        interval: 10s
+        conditions: ["[STATUS] == 200"]
+        alerts: [{ type: ntfy, description: "gate alert" }]
+  persistence:
+    enabled: false
+ntfy:
+  persistence:
+    enabled: false
+uptime-kuma:
+  persistence:
+    enabled: false
