@@ -1,0 +1,229 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: volcano-scheduler
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: volcano-scheduler-configmap
+  namespace: {{ .Release.Namespace }}
+data:
+  volcano-scheduler.conf: |
+    actions: "enqueue, allocate, backfill"
+    tiers:
+    - plugins:
+      - name: priority
+      - name: gang
+        enablePreemptable: false
+      - name: conformance
+    - plugins:
+      - name: overcommit
+      - name: drf
+        enablePreemptable: false
+      - name: predicates
+      - name: proportion
+      - name: nodeorder
+      - name: binpack
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: volcano-scheduler
+rules:
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: ["batch.volcano.sh"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "update", "delete"]
+  - apiGroups: ["batch.volcano.sh"]
+    resources: ["jobs/status"]
+    verbs: ["update", "patch"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "list", "watch", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/status"]
+    verbs: ["update"]
+  - apiGroups: [""]
+    resources: ["pods/binding"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["list", "watch", "update"]
+  - apiGroups: [""]
+    resources: ["persistentvolumes"]
+    verbs: ["list", "watch", "update"]
+  - apiGroups: [""]
+    resources: ["namespaces", "services", "replicationcontrollers"]
+    verbs: ["list", "watch", "get"]
+  - apiGroups: [""]
+    resources: ["resourcequotas"]
+    verbs: ["list", "watch"]
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get","list", "watch","update","patch"]
+  - apiGroups: [ "storage.k8s.io" ]
+    resources: ["storageclasses", "csinodes", "csidrivers", "csistoragecapacities", "volumeattachments"]
+    verbs: [ "list", "watch" ]
+  - apiGroups: ["policy"]
+    resources: ["poddisruptionbudgets"]
+    verbs: ["list", "watch"]
+  - apiGroups: ["scheduling.k8s.io"]
+    resources: ["priorityclasses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["scheduling.incubator.k8s.io", "scheduling.volcano.sh"]
+    resources: ["queues"]
+    verbs: ["get", "list", "watch", "create", "delete", "update"]
+  - apiGroups: ["scheduling.incubator.k8s.io", "scheduling.volcano.sh"]
+    resources: ["queues/status"]
+    verbs: ["update"]
+  - apiGroups: ["scheduling.volcano.sh"]
+    resources: ["namespacequeues"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["scheduling.volcano.sh"]
+    resources: ["namespacequeues/status"]
+    verbs: ["update"]
+  - apiGroups: ["scheduling.incubator.k8s.io", "scheduling.volcano.sh"]
+    resources: ["podgroups"]
+    verbs: ["list", "watch", "update"]
+  - apiGroups: ["nodeinfo.volcano.sh"]
+    resources: ["numatopologies"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: ["topology.volcano.sh"]
+    resources: ["hypernodes", "hypernodes/status"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "delete", "update"]
+  - apiGroups: ["apps"]
+    resources: ["daemonsets", "replicasets", "statefulsets"]
+    verbs: ["list", "watch", "get"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update", "watch"]
+  - apiGroups: ["resource.k8s.io"]
+    resources: ["resourceclaims"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["resource.k8s.io"]
+    resources: ["resourceclaims/status"]
+    verbs: ["update"]
+  - apiGroups: ["resource.k8s.io"]
+    resources: ["resourceclaims/binding"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["resource.k8s.io"]
+    resources: ["deviceclasses","resourceslices"]
+    verbs: ["get", "list", "watch", "create"]
+  - apiGroups: [ "resource.k8s.io" ]
+    resources: [ "devicetaintrules" ]
+    verbs: [ "get", "list", "watch" ]
+  - apiGroups: ["shard.volcano.sh"]
+    resources: ["nodeshards"]
+    verbs: ["list", "watch", "get"]
+  - apiGroups: ["shard.volcano.sh"]
+    resources: ["nodeshards/status"]
+    verbs: ["update"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: volcano-scheduler-role
+subjects:
+  - kind: ServiceAccount
+    name: volcano-scheduler
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: volcano-scheduler
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    prometheus.io/path: /metrics
+    prometheus.io/port: "8080"
+    prometheus.io/scrape: "true"
+  name: volcano-scheduler-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: volcano-scheduler
+spec:
+  ports:
+  - port: 8080
+    protocol: TCP
+    targetPort: 8080
+    name: "metrics"
+  selector:
+    app: volcano-scheduler
+  type: ClusterIP
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: volcano-scheduler
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: volcano-scheduler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: volcano-scheduler
+  template:
+    metadata:
+      labels:
+        app: volcano-scheduler
+    spec:
+      securityContext:
+        seLinuxOptions:
+          level: s0:c123,c456
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccount: volcano-scheduler
+      priorityClassName: system-cluster-critical
+      containers:
+        - name: volcano-scheduler
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          command: ["/vc-scheduler"]
+          args:
+            - --logtostderr
+            - --scheduler-conf=/volcano.scheduler/volcano-scheduler.conf
+            - --enable-healthz=true
+            - --enable-metrics=true
+            - --leader-elect=false
+            - --kube-api-qps=2000
+            - --kube-api-burst=2000
+            - --schedule-period=1s
+            - --node-worker-threads=20
+            - -v=3
+            - 2>&1
+          env:
+            - name: DEBUG_SOCKET_DIR
+              value: /tmp/klog-socks
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          volumeMounts:
+            - name: scheduler-config
+              mountPath: /volcano.scheduler
+            - name: klog-sock
+              mountPath: /tmp/klog-socks
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              add:
+              - DAC_OVERRIDE
+              drop:
+              - ALL
+            runAsNonRoot: true
+      volumes:
+        - name: scheduler-config
+          configMap:
+            name: volcano-scheduler-configmap
+        - name: klog-sock
+          emptyDir: {}

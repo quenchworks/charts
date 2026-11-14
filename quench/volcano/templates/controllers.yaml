@@ -1,0 +1,206 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: volcano-controllers
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: volcano-sharding-configmap
+  namespace: {{ .Release.Namespace }}
+data:
+  sharding.yaml: |
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: volcano-controllers
+rules:
+  - apiGroups: ["apiextensions.k8s.io"]
+    resources: ["customresourcedefinitions"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: ["batch.volcano.sh"]
+    resources: ["jobs"]
+    verbs: ["create", "get", "list", "watch", "update", "delete"]
+  - apiGroups: ["batch.volcano.sh"]
+    resources: ["jobs/status", "jobs/finalizers"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["batch.volcano.sh"]
+    resources: ["cronjobs"]
+    verbs: ["create", "get", "list", "watch", "update", "delete"]
+  - apiGroups: ["batch.volcano.sh"]
+    resources: ["cronjobs/status", "cronjobs/finalizers"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["bus.volcano.sh"]
+    resources: ["commands"]
+    verbs: ["get", "list", "watch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "list", "watch", "update", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["create", "get", "list", "watch", "delete", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods/finalizers"]
+    verbs: ["update", "patch"]
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "delete", "update"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "delete", "update"]
+  - apiGroups: ["scheduling.incubator.k8s.io", "scheduling.volcano.sh"]
+    resources: ["podgroups", "queues", "queues/status"]
+    verbs: ["get", "list", "watch", "create", "delete", "update", "patch"]
+  - apiGroups: ["scheduling.volcano.sh"]
+    resources: ["namespacequeues"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["scheduling.volcano.sh"]
+    resources: ["namespacequeues/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["scheduling.volcano.sh"]
+    resources: ["namespacequeues/finalizers"]
+    verbs: ["update", "patch"]
+  - apiGroups: ["flow.volcano.sh"]
+    resources: ["jobflows", "jobtemplates"]
+    verbs: ["get", "list", "watch", "create", "delete", "update"]
+  - apiGroups: [ "flow.volcano.sh" ]
+    resources: [ "jobflows/status", "jobs/finalizers","jobtemplates/status", "jobtemplates/finalizers" ]
+    verbs: [ "update", "patch" ]
+  - apiGroups: ["scheduling.k8s.io"]
+    resources: ["priorityclasses"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "create", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "create", "update", "watch"]
+  - apiGroups: ["topology.volcano.sh"]
+    resources: ["hypernodes", "hypernodes/status"]
+    verbs: ["list", "watch", "get", "create", "delete", "update", "patch"]
+  - apiGroups: [ "" ]
+    resources: [ "nodes" ]
+    verbs: [ "list", "watch" ]
+  - apiGroups: ["shard.volcano.sh"]
+    resources: ["nodeshards", "nodeshards/status"]
+    verbs: ["list", "watch", "get", "create", "delete", "update", "patch"]
+  - apiGroups: ["config.volcano.sh"]
+    resources: ["colocationconfigurations"]
+    verbs: ["get", "list", "watch"]
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: volcano-controllers-role
+subjects:
+  - kind: ServiceAccount
+    name: volcano-controllers
+    namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: ClusterRole
+  name: volcano-controllers
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    prometheus.io/path: /metrics
+    prometheus.io/port: "8081"
+    prometheus.io/scrape: "true"
+  name: volcano-controllers-service
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: volcano-controller
+spec:
+  ports:
+    - port: 8081
+      protocol: TCP
+      targetPort: 8081
+      name: "metrics"
+  selector:
+    app: volcano-controller
+  type: ClusterIP
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: volcano-controllers
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: volcano-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: volcano-controller
+  template:
+    metadata:
+      labels:
+        app: volcano-controller
+    spec:
+      securityContext:
+        seLinuxOptions:
+          level: s0:c123,c456
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccount: volcano-controllers
+      priorityClassName: system-cluster-critical
+      containers:
+        - name: volcano-controllers
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          command: ["/vc-controller-manager"]
+          args:
+            - --logtostderr
+            - --enable-healthz=true
+            - --enable-metrics=true
+            - --leader-elect=false
+            - --kube-api-qps=50
+            - --kube-api-burst=100
+            - --worker-threads=3
+            - --worker-threads-for-gc=5
+            - --worker-threads-for-podgroup=5
+            - --sharding-configmap=volcano-sharding-configmap
+            - --sharding-configmap-namespace={{ .Release.Namespace }}
+            - -v=4
+            - 2>&1
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+              allowPrivilegeEscalation: false
+              capabilities:
+                add:
+                - DAC_OVERRIDE
+                drop:
+                - ALL
+              runAsNonRoot: true
+          env:
+          - name: KUBE_POD_NAMESPACE
+            value: {{ .Release.Namespace }}
+          - name: HELM_RELEASE_NAME
+            value: volcano
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: volcano-controller-configmap
+  namespace: {{ .Release.Namespace }}
+data:
+  volcano-controller.conf: |

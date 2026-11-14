@@ -1,0 +1,23 @@
+Volcano {{ .Chart.AppVersion }} (scheduler, controllers and admission webhooks) is running in {{ .Release.Namespace }}.
+
+Run a gang-scheduled job: every task starts together or none does.
+
+  kubectl apply -f - <<'YAML'
+  apiVersion: batch.volcano.sh/v1alpha1
+  kind: Job
+  metadata: { name: demo }
+  spec:
+    minAvailable: 2
+    schedulerName: volcano
+    queue: default
+    tasks:
+      - replicas: 2
+        name: worker
+        template:
+          spec:
+            restartPolicy: Never
+            containers:
+              - { name: c, image: busybox, command: ["sh", "-c", "echo hi"] }
+  YAML
+
+Watch it: kubectl get vcjob demo

@@ -1,0 +1,289 @@
+{{- /* The admission certificate, generated once and kept across upgrades, in place of upstream's
+     volcano-admission-init Job (kubectl + openssl, absent from our image). The webhook manager also
+     patches caBundle at startup; setting it here keeps it correct across helm upgrades. */ -}}
+{{- $ns := .Release.Namespace -}}
+{{- $svc := "volcano-admission-service" -}}
+{{- $old := lookup "v1" "Secret" $ns "volcano-admission-secret" -}}
+{{- $crt := "" -}}{{- $key := "" -}}{{- $ca := "" -}}
+{{- if and $old $old.data (index $old.data "ca.crt") -}}
+{{- $crt = index $old.data "tls.crt" -}}{{- $key = index $old.data "tls.key" -}}{{- $ca = index $old.data "ca.crt" -}}
+{{- else -}}
+{{- $caCert := genCA "volcano-admission-ca" 3650 -}}
+{{- $cert := genSignedCert $svc nil (list $svc (printf "%s.%s" $svc $ns) (printf "%s.%s.svc" $svc $ns) (printf "%s.%s.svc.cluster.local" $svc $ns)) 3650 $caCert -}}
+{{- $crt = $cert.Cert | b64enc -}}{{- $key = $cert.Key | b64enc -}}{{- $ca = $caCert.Cert | b64enc -}}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: volcano-admission-secret
+  namespace: {{ $ns }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $crt }}
+  tls.key: {{ $key }}
+  ca.crt: {{ $ca }}
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: volcano-admission-service-queues-mutate
+webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      caBundle: {{ $ca }}
+      service:
+        name: volcano-admission-service
+        namespace: {{ .Release.Namespace }}
+        path: /queues/mutate
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: mutatequeue.volcano.sh
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - {{ .Release.Namespace }}
+            - kube-system
+    objectSelector: {}
+    reinvocationPolicy: Never
+    rules:
+      - apiGroups:
+          - scheduling.volcano.sh
+        apiVersions:
+          - v1beta1
+        operations:
+          - CREATE
+        resources:
+          - queues
+        scope: '*'
+    sideEffects: NoneOnDryRun
+    timeoutSeconds: 10
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: volcano-admission-service-jobs-mutate
+webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      caBundle: {{ $ca }}
+      service:
+        name: volcano-admission-service
+        namespace: {{ .Release.Namespace }}
+        path: /jobs/mutate
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: mutatejob.volcano.sh
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - {{ .Release.Namespace }}
+            - kube-system
+    objectSelector: {}
+    reinvocationPolicy: Never
+    rules:
+      - apiGroups:
+          - batch.volcano.sh
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+        resources:
+          - jobs
+        scope: '*'
+    sideEffects: NoneOnDryRun
+    timeoutSeconds: 10
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: volcano-admission-service-jobs-validate
+webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      caBundle: {{ $ca }}
+      service:
+        name: volcano-admission-service
+        namespace: {{ .Release.Namespace }}
+        path: /jobs/validate
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: validatejob.volcano.sh
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - {{ .Release.Namespace }}
+            - kube-system
+    objectSelector: {}
+    rules:
+      - apiGroups:
+          - batch.volcano.sh
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - jobs
+        scope: '*'
+    sideEffects: NoneOnDryRun
+    timeoutSeconds: 10
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: volcano-admission-service-queues-validate
+webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      caBundle: {{ $ca }}
+      service:
+        name: volcano-admission-service
+        namespace: {{ .Release.Namespace }}
+        path: /queues/validate
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: validatequeue.volcano.sh
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - {{ .Release.Namespace }}
+            - kube-system
+    objectSelector: {}
+    rules:
+      - apiGroups:
+          - scheduling.volcano.sh
+        apiVersions:
+          - v1beta1
+        operations:
+          - CREATE
+          - UPDATE
+          - DELETE
+        resources:
+          - queues
+        scope: '*'
+    sideEffects: NoneOnDryRun
+    timeoutSeconds: 10
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: volcano-admission-service-podgroups-validate
+webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      caBundle: {{ $ca }}
+      service:
+        name: volcano-admission-service
+        namespace: {{ .Release.Namespace }}
+        path: /podgroups/validate
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: validatepodgroup.volcano.sh
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - {{ .Release.Namespace }}
+            - kube-system
+    objectSelector: {}
+    rules:
+      - apiGroups:
+          - scheduling.volcano.sh
+        apiVersions:
+          - v1beta1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - podgroups
+        scope: '*'
+    sideEffects: NoneOnDryRun
+    timeoutSeconds: 10
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: volcano-admission-service-hypernodes-validate
+webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      caBundle: {{ $ca }}
+      service:
+        name: volcano-admission-service
+        namespace: {{ .Release.Namespace }}
+        path: /hypernodes/validate
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: validatehypernodes.volcano.sh
+    rules:
+      - apiGroups:
+          - topology.volcano.sh
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - hypernodes
+    sideEffects: None
+    timeoutSeconds: 10
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: volcano-admission-service-cronjobs-validate
+webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      caBundle: {{ $ca }}
+      service:
+        name: volcano-admission-service
+        namespace: {{ .Release.Namespace }}
+        path: /cronjobs/validate
+        port: 443
+    failurePolicy: Fail
+    matchPolicy: Equivalent
+    name: validatecronjob.volcano.sh
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - {{ .Release.Namespace }}
+            - kube-system
+    objectSelector: {}
+    rules:
+      - apiGroups:
+          - batch.volcano.sh
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - cronjobs
+        scope: '*'
+    sideEffects: NoneOnDryRun
+    timeoutSeconds: 10
