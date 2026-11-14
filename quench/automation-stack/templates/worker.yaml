@@ -1,0 +1,80 @@
+{{- /* n8n workers: the same image and database, encryption key and queue settings as the main
+instance (values.n8n), running `n8n worker`. /healthz on 5678 answers once the worker is up. */ -}}
+{{- $pg := .Values.n8n.database.postgresql -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-worker
+  labels:
+    {{- include "automation-stack.labels" . | nindent 4 }}
+    app.kubernetes.io/name: n8n-worker
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/name: n8n-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/name: n8n-worker
+        app.kubernetes.io/part-of: automation-stack
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        fsGroup: 1001
+        seccompProfile: { type: RuntimeDefault }
+      {{- with .Values.worker.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.worker.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: worker
+          image: "{{ .Values.worker.image.repository }}@{{ .Values.worker.image.digest }}"
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+          command: ["/usr/bin/node", "/opt/n8n/bin/n8n", "worker", "--concurrency={{ .Values.worker.concurrency }}"]
+          env:
+            - name: N8N_ENCRYPTION_KEY
+              valueFrom: { secretKeyRef: { name: {{ .Values.n8n.n8n.existingSecret }}, key: {{ .Values.n8n.n8n.existingSecretKey }} } }
+            - { name: DB_TYPE, value: postgresdb }
+            - { name: DB_POSTGRESDB_HOST, value: {{ $pg.host | quote }} }
+            - { name: DB_POSTGRESDB_PORT, value: {{ $pg.port | quote }} }
+            - { name: DB_POSTGRESDB_DATABASE, value: {{ $pg.database | quote }} }
+            - { name: DB_POSTGRESDB_USER, value: {{ $pg.user | quote }} }
+            - name: DB_POSTGRESDB_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ $pg.existingSecret }}, key: {{ $pg.existingSecretPasswordKey }} } }
+            - { name: QUEUE_HEALTH_CHECK_ACTIVE, value: "true" }
+            {{- toYaml .Values.n8n.extraEnvVars | nindent 12 }}
+          ports:
+            - { name: health, containerPort: 5678 }
+          startupProbe:
+            httpGet: { path: /healthz, port: health }
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /healthz, port: health }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /healthz, port: health }
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: home, mountPath: /home/node/.n8n }
+            - { name: cache, mountPath: /home/node/.cache }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: home, emptyDir: {} }
+        - { name: cache, emptyDir: {} }
+        - { name: tmp, emptyDir: {} }

@@ -1,0 +1,70 @@
+# automation-stack: n8n in queue mode + PostgreSQL + Valkey.
+#
+#   editor, webhooks --> n8n main  <release>-n8n:5678 --enqueue--> Valkey automation-valkey:6379
+#                                                                    |
+#   n8n workers (Deployment <release>-worker) <--------- jobs ------+
+#   main and workers --> PostgreSQL automation-postgresql:5432 (database n8n)
+#
+# The stack generates the PostgreSQL password, the Valkey password and n8n's encryption key once,
+# into the Secret automation-secrets, and keeps them across upgrades (and on uninstall: the key
+# decrypts every stored credential). PostgreSQL and Valkey have fixed names so the subcharts can be
+# wired from plain values: one stack per namespace.
+
+# n8n main instance (subchart): editor, REST API, webhooks, schedules. Values pass through to the
+# n8n chart. n8n.host / n8n.webhookUrl must be the public address for webhook URLs to be right.
+n8n:
+  n8n:
+    existingSecret: automation-secrets
+    existingSecretKey: encryption-key
+  database:
+    type: postgresdb
+    postgresql:
+      host: automation-postgresql
+      port: 5432
+      database: n8n
+      user: postgres
+      existingSecret: automation-secrets
+      existingSecretPasswordKey: postgres-password
+  # queue mode; the same block is set on the workers
+  extraEnvVars:
+    - { name: EXECUTIONS_MODE, value: queue }
+    - { name: QUEUE_BULL_REDIS_HOST, value: automation-valkey }
+    - { name: QUEUE_BULL_REDIS_PORT, value: "6379" }
+    # wait up to 2 minutes for Valkey at startup instead of exiting after 10 s (n8n's default)
+    - { name: QUEUE_BULL_REDIS_TIMEOUT_THRESHOLD, value: "120000" }
+    - name: QUEUE_BULL_REDIS_PASSWORD
+      valueFrom: { secretKeyRef: { name: automation-secrets, key: valkey-password } }
+    # manual runs from the editor also go to the workers
+    - { name: OFFLOAD_MANUAL_EXECUTIONS_TO_WORKERS, value: "true" }
+
+# n8n workers: run executions taken from the queue. Stateless; scale with replicas.
+worker:
+  replicas: 2
+  # n8n jobs each worker runs at once
+  concurrency: 10
+  # The n8n image; keep it equal to the n8n subchart's image.
+  image:
+    repository: ghcr.io/quenchworks/images/n8n
+    digest: "sha256:be42e5bebe77affa5d80091dad768355c71288b10c4081984fbca4a9b46f75bd"
+    pullPolicy: IfNotPresent
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: "2", memory: 1Gi }
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# PostgreSQL (subchart), the n8n database.
+postgresql:
+  fullnameOverride: automation-postgresql
+  auth:
+    database: n8n
+    existingSecret: automation-secrets
+    existingSecretPasswordKey: postgres-password
+
+# Valkey (subchart), the job queue.
+valkey:
+  fullnameOverride: automation-valkey
+  auth:
+    existingSecret: automation-secrets
+    existingSecretPasswordKey: valkey-password
