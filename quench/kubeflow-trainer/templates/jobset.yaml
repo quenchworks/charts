@@ -1,0 +1,619 @@
+{{- /* Upstream kubeflow/trainer v2.4.0 manifests/overlays/manager (kubectl kustomize), namespace templated, images ours. */ -}}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: jobset
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+    app.kubernetes.io/part-of: jobset
+  name: jobset-controller-manager
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: jobset
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+    app.kubernetes.io/part-of: jobset
+  name: jobset-leader-election-role
+  namespace: {{ .Release.Namespace }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+  - create
+  - update
+  - patch
+  - delete
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: jobset
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+    app.kubernetes.io/part-of: jobset
+  name: jobset-manager-secrets-role
+  namespace: {{ .Release.Namespace }}
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+  name: jobset-manager-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  - events.k8s.io
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - admissionregistration.k8s.io
+  resources:
+  - mutatingwebhookconfigurations
+  - validatingwebhookconfigurations
+  verbs:
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - jobset.x-k8s.io
+  resources:
+  - jobsets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - jobset.x-k8s.io
+  resources:
+  - jobsets/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - jobset.x-k8s.io
+  resources:
+  - jobsets/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - scheduling.k8s.io
+  resources:
+  - podgroups
+  - workloads
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/created-by: jobset
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+    app.kubernetes.io/part-of: jobset
+  name: jobset-metrics-reader
+rules:
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/created-by: jobset
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+    app.kubernetes.io/part-of: jobset
+  name: jobset-proxy-role
+rules:
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: jobset
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+    app.kubernetes.io/part-of: jobset
+  name: jobset-leader-election-rolebinding
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jobset-leader-election-role
+subjects:
+- kind: ServiceAccount
+  name: jobset-controller-manager
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: jobset
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+    app.kubernetes.io/part-of: jobset
+  name: jobset-manager-secrets-rolebinding
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jobset-manager-secrets-role
+subjects:
+- kind: ServiceAccount
+  name: jobset-controller-manager
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: jobset
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+    app.kubernetes.io/part-of: jobset
+  name: jobset-manager-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: jobset-manager-role
+subjects:
+- kind: ServiceAccount
+  name: jobset-controller-manager
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+  name: jobset-metrics-reader-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: jobset-metrics-reader
+subjects:
+- kind: ServiceAccount
+  name: jobset-controller-manager
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/created-by: jobset
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+    app.kubernetes.io/part-of: jobset
+  name: jobset-proxy-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: jobset-proxy-role
+subjects:
+- kind: ServiceAccount
+  name: jobset-controller-manager
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+data:
+  controller_manager_config.yaml: |
+    apiVersion: config.jobset.x-k8s.io/v1alpha1
+    kind: Configuration
+    leaderElection:
+      leaderElect: true
+    internalCertManagement:
+      enable: true
+kind: ConfigMap
+metadata:
+  labels:
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+  name: jobset-manager-config
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+  name: jobset-webhook-server-cert
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+    control-plane: controller-manager
+  name: jobset-controller-manager-metrics-service
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+  - name: https
+    port: 8443
+    protocol: TCP
+    targetPort: 8443
+  selector:
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+    control-plane: controller-manager
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app.kubernetes.io/component: webhook
+    app.kubernetes.io/created-by: jobset
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+    app.kubernetes.io/part-of: jobset
+  name: jobset-webhook-service
+  namespace: {{ .Release.Namespace }}
+spec:
+  ports:
+  - port: 443
+    protocol: TCP
+    targetPort: 9443
+  selector:
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+    control-plane: controller-manager
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app.kubernetes.io/component: manager
+    app.kubernetes.io/created-by: jobset
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+    app.kubernetes.io/part-of: jobset
+    control-plane: controller-manager
+  name: jobset-controller-manager
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: jobset
+      app.kubernetes.io/managed-by: kustomize
+      app.kubernetes.io/name: jobset
+      control-plane: controller-manager
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+      labels:
+        app.kubernetes.io/instance: jobset
+        app.kubernetes.io/managed-by: kustomize
+        app.kubernetes.io/name: jobset
+        control-plane: controller-manager
+    spec:
+      containers:
+      - args:
+        - --config=/controller_manager_config.yaml
+        - --zap-log-level=2
+        command:
+        - /manager
+        image: "{{ .Values.jobset.image.repository }}@{{ .Values.jobset.image.digest }}"
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 30
+          periodSeconds: 20
+        name: manager
+        ports:
+        - containerPort: 8443
+          name: metrics
+          protocol: TCP
+        - containerPort: 9443
+          name: webhook-server
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          limits:
+            memory: 4Gi
+          requests:
+            cpu: 500m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /controller_manager_config.yaml
+          name: manager-config
+          subPath: controller_manager_config.yaml
+        - mountPath: /tmp/k8s-webhook-server/serving-certs
+          name: cert
+          readOnly: true
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: jobset-controller-manager
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - configMap:
+          name: jobset-manager-config
+        name: manager-config
+      - name: cert
+        secret:
+          defaultMode: 420
+          secretName: jobset-webhook-server-cert
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  labels:
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+  name: jobset-mutating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: jobset-webhook-service
+      namespace: {{ .Release.Namespace }}
+      path: /mutate-jobset-x-k8s-io-v1alpha2-jobset
+  failurePolicy: Fail
+  name: mjobset.kb.io
+  rules:
+  - apiGroups:
+    - jobset.x-k8s.io
+    apiVersions:
+    - v1alpha2
+    operations:
+    - CREATE
+    resources:
+    - jobsets
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: jobset-webhook-service
+      namespace: {{ .Release.Namespace }}
+      path: /mutate--v1-pod
+  failurePolicy: Fail
+  name: mpod.kb.io
+  objectSelector:
+    matchExpressions:
+    - key: jobset.sigs.k8s.io/jobset-name
+      operator: Exists
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    resources:
+    - pods
+  sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  labels:
+    app.kubernetes.io/instance: jobset
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: jobset
+  name: jobset-validating-webhook-configuration
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: jobset-webhook-service
+      namespace: {{ .Release.Namespace }}
+      path: /validate-jobset-x-k8s-io-v1alpha2-jobset
+  failurePolicy: Fail
+  name: vjobset.kb.io
+  rules:
+  - apiGroups:
+    - jobset.x-k8s.io
+    apiVersions:
+    - v1alpha2
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - jobsets
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: jobset-webhook-service
+      namespace: {{ .Release.Namespace }}
+      path: /validate--v1-pod
+  failurePolicy: Fail
+  name: vpod.kb.io
+  objectSelector:
+    matchExpressions:
+    - key: jobset.sigs.k8s.io/jobset-name
+      operator: Exists
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    resources:
+    - pods
+  sideEffects: None
