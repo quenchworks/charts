@@ -1,0 +1,104 @@
+# dev-platform-stack: Forgejo + Woodpecker CI + PostgreSQL + Valkey.
+#
+#   people --> Forgejo devplat-forgejo:80 --> PostgreSQL devplat-postgresql (database forgejo)
+#                                        \--> Valkey devplat-valkey (cache, sessions, queues)
+#   people --> Woodpecker devplat-woodpecker:80 --sign in (OAuth)--> Forgejo
+#
+# The stack generates the database, Valkey, Forgejo administrator and Woodpecker agent passwords
+# once, into the Secret devplat-secrets. A Job then signs in to Forgejo as that administrator,
+# creates the OAuth app "woodpecker", and stores its client ID and secret in the Secret
+# devplat-woodpecker-oauth, which Woodpecker reads; Woodpecker waits for it. The components have
+# fixed names (fullnameOverride) so they can be wired from plain values: one stack per namespace.
+#
+# Set the two public addresses for real use (behind your ingress): forgejo.config.rootUrl and
+# woodpecker.host, and the matching urls.* below, which the wiring uses.
+
+urls:
+  # where Woodpecker and its OAuth redirect find Forgejo; browsers are sent here to sign in
+  forgejo: http://devplat-forgejo
+  # Woodpecker's own address; the OAuth app's redirect URI is <woodpecker>/authorize
+  woodpecker: http://devplat-woodpecker
+
+# The Forgejo administrator the stack creates (password generated into devplat-secrets).
+# "admin" is a name Forgejo reserves.
+admin:
+  username: forgejo-admin
+  email: admin@example.com
+
+# Forgejo (subchart). Values pass through to the forgejo chart.
+forgejo:
+  fullnameOverride: devplat-forgejo
+  config:
+    rootUrl: http://devplat-forgejo/
+  database:
+    type: postgres
+    postgres:
+      host: devplat-postgresql:5432
+      name: forgejo
+      user: postgres
+      existingSecret: devplat-secrets
+      passwordKey: postgres-password
+  redis:
+    enabled: true
+    host: devplat-valkey:6379
+    existingSecret: devplat-secrets
+    passwordKey: valkey-password
+  admin:
+    username: forgejo-admin
+    email: admin@example.com
+    existingSecret: devplat-secrets
+    passwordKey: forgejo-admin-password
+
+# Woodpecker CI server (subchart). Pipelines run on Woodpecker agents you add (not part of this
+# stack), connecting to devplat-woodpecker:9000 with the agent secret in devplat-secrets.
+woodpecker:
+  fullnameOverride: devplat-woodpecker
+  host: http://devplat-woodpecker
+  agentSecret:
+    existingSecret: devplat-secrets
+    existingSecretKey: woodpecker-agent-secret
+  extraEnvVars:
+    - { name: WOODPECKER_FORGEJO, value: "true" }
+    - { name: WOODPECKER_FORGEJO_URL, value: "http://devplat-forgejo" }
+    - name: WOODPECKER_FORGEJO_CLIENT
+      valueFrom: { secretKeyRef: { name: devplat-woodpecker-oauth, key: client-id } }
+    - name: WOODPECKER_FORGEJO_SECRET
+      valueFrom: { secretKeyRef: { name: devplat-woodpecker-oauth, key: client-secret } }
+    # the Forgejo administrator is a Woodpecker administrator too
+    - { name: WOODPECKER_ADMIN, value: forgejo-admin }
+  # the OAuth app is created by the stack's Job after Forgejo is up; wait for its Secret
+  extraVolumes:
+    - name: oauth
+      secret: { secretName: devplat-woodpecker-oauth, optional: true }
+  initContainers:
+    - name: wait-for-oauth-app
+      image: ghcr.io/quenchworks/images/kubectl@sha256:3e927b57c5edfc14cdfeec6c80d8b30973c732023c203b18b02344e8f310e211
+      command: ["/bin/sh", "-c", "until [ -s /oauth/client-id ]; do echo waiting for the Forgejo OAuth app; sleep 5; done"]
+      volumeMounts:
+        - { name: oauth, mountPath: /oauth, readOnly: true }
+      securityContext:
+        runAsNonRoot: true
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities: { drop: [ALL] }
+
+# PostgreSQL (subchart), Forgejo's database.
+postgresql:
+  fullnameOverride: devplat-postgresql
+  auth:
+    database: forgejo
+    existingSecret: devplat-secrets
+    existingSecretPasswordKey: postgres-password
+
+# Valkey (subchart), Forgejo's cache, sessions and queues.
+valkey:
+  fullnameOverride: devplat-valkey
+  auth:
+    existingSecret: devplat-secrets
+    existingSecretPasswordKey: valkey-password
+
+# Images the OAuth Job runs: bash in the forgejo image talks to Forgejo's API, kubectl stores the
+# result. Keep them equal to the forgejo subchart's image and the kubectl image above.
+oauthJob:
+  forgejoImage: ghcr.io/quenchworks/images/forgejo@sha256:b07e41f0cb9d14c07ea19615858c5c9361592a3ad8de77b0daa7b10f1c6ec2d8
+  kubectlImage: ghcr.io/quenchworks/images/kubectl@sha256:3e927b57c5edfc14cdfeec6c80d8b30973c732023c203b18b02344e8f310e211

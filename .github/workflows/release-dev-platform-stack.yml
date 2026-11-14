@@ -1,0 +1,182 @@
+name: release-dev-platform-stack
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/dev-platform-stack/**"
+      - ".github/workflows/release-dev-platform-stack.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/dev-platform-stack
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          kubectl create namespace dev
+          kubectl config set-context --current --namespace=dev
+          helm install dp "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 15m
+          tok() { kubectl get secret "$1" -o jsonpath="{.data.$2}" | base64 -d; }
+          kubectl wait --for=condition=complete job/dp-oauth-1 --timeout=10m
+
+          # --- THE OAUTH APP EXISTS IN FORGEJO, WOODPECKER HAS IT, AND SIGNING IN TO WOODPECKER THROUGH FORGEJO WORKS. ---
+          kubectl port-forward svc/devplat-forgejo 3000:80 >/tmp/pf1.log 2>&1 &
+          p1=$!
+          kubectl port-forward svc/devplat-woodpecker 8000:80 >/tmp/pf2.log 2>&1 &
+          p2=$!; trap 'kill $p1 $p2 2>/dev/null || true' EXIT
+          sleep 5
+          cid="$(tok devplat-woodpecker-oauth client-id)"
+          apps="$(curl -fsS -H "Authorization: Basic $(tok devplat-secrets forgejo-admin-basic)" http://127.0.0.1:3000/api/v1/user/applications/oauth2)"
+          jq -e --arg c "$cid" '.[]|select(.client_id==$c and .redirect_uris==["http://devplat-woodpecker/authorize"])' <<<"$apps" >/dev/null \
+            || { echo "FAIL: OAuth app not in Forgejo: $apps"; exit 1; }
+          cat > /tmp/sso.sh <<'SH'
+          #!/usr/bin/env bash
+          # dp-sso.sh <admin user> <admin password>: Forgejo on 127.0.0.1:3000, Woodpecker on 127.0.0.1:8000.
+          # Signs in to Woodpecker through Forgejo OAuth as a browser would and prints Woodpecker's /api/user.
+          set -euo pipefail
+          F=http://127.0.0.1:3000 W=http://127.0.0.1:8000
+          FJ=$(mktemp) WJ=$(mktemp); trap 'rm -f "$FJ" "$WJ"' EXIT
+          path() { sed -E 's#^https?://[^/]+##' <<<"$1"; }
+          # Woodpecker starts the flow (state cookie) and sends the browser to Forgejo
+          auth=$(curl -s -c "$WJ" -b "$WJ" -o /dev/null -w '%{redirect_url}' "$W/authorize")
+          # Forgejo login form
+          page=$(curl -s -c "$FJ" -b "$FJ" "$F/user/login")
+          # older Forgejo puts a _csrf field in its forms; 15.x relies on cross-origin checks instead
+          csrf=$(grep -o 'name="_csrf" value="[^"]*"' <<<"$page" | head -1 | sed 's/.*value="//; s/"$//' || true)
+          curl -s -c "$FJ" -b "$FJ" -o /dev/null --data-urlencode "_csrf=$csrf" --data-urlencode "user_name=$1" --data-urlencode "password=$2" "$F/user/login"
+          # authorize: a first-time app shows the grant page; post its form
+          grant=$(curl -s -c "$FJ" -b "$FJ" -w '\n%{http_code} %{redirect_url}' "$F$(path "$auth")")
+          code_line=$(tail -1 <<<"$grant")
+          if [[ $code_line == 200* ]]; then
+            form=$(sed '$d' <<<"$grant")
+            field() { { grep -o "name=\"$1\" value=\"[^\"]*\"" <<<"$form" || true; } | head -1 | sed 's/.*value="//; s/"$//' | sed 's/&amp;/\&/g'; }
+            back=$(curl -s -c "$FJ" -b "$FJ" -o /dev/null -w '%{redirect_url}' \
+              --data-urlencode "_csrf=$(field _csrf)" --data-urlencode "client_id=$(field client_id)" --data-urlencode "state=$(field state)" \
+              --data-urlencode "scope=$(field scope)" --data-urlencode "nonce=$(field nonce)" --data-urlencode "redirect_uri=$(field redirect_uri)" \
+              --data-urlencode "granted=true" "$F/login/oauth/grant")
+          else
+            back=${code_line#* }
+          fi
+          echo "forgejo -> $(cut -c1-60 <<<"$back")"
+          # Woodpecker exchanges the code with Forgejo and starts a session
+          curl -s -c "$WJ" -b "$WJ" -o /dev/null -w 'woodpecker callback: %{http_code}\n' "$W$(path "$back")"
+          curl -s -b "$WJ" "$W/api/user"; echo
+          SH
+          user="$(bash /tmp/sso.sh forgejo-admin "$(tok devplat-secrets forgejo-admin-password)" | tail -1)"
+          echo "$user"
+          jq -e '.login=="forgejo-admin" and .admin==true' <<<"$user" >/dev/null || { echo "FAIL: Woodpecker sign-in through Forgejo"; exit 1; }
+
+          # --- FORGEJO RUNS ON POSTGRESQL AND VALKEY. ---
+          kubectl exec devplat-postgresql-0 -- env PGPASSWORD="$(tok devplat-secrets postgres-password)" psql -h 127.0.0.1 -U postgres -d forgejo -tAc \
+            "select count(*) from \"user\" where name='forgejo-admin'" | grep -qx 1 || { echo "FAIL: Forgejo admin not in PostgreSQL"; exit 1; }
+
+          # --- AN UPGRADE KEEPS THE APP: the revision-2 Job finds the Secret and does nothing. ---
+          kill $p1 $p2 2>/dev/null || true
+          helm upgrade dp "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          kubectl wait --for=condition=complete job/dp-oauth-2 --timeout=5m
+          [ "$(tok devplat-woodpecker-oauth client-id)" = "$cid" ] || { echo "FAIL: upgrade changed the OAuth client"; exit 1; }
+          kubectl logs job/dp-oauth-2 -c check | grep -q 'already stored' || { echo "FAIL: revision-2 Job did not skip"; exit 1; }
+          echo "gate passed: OAuth app created at install, Woodpecker signs in through Forgejo (forgejo-admin, admin), Forgejo on PostgreSQL, upgrade keeps the app"
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/dev-platform-stack-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/dev-platform-stack@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/dev-platform-stack:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

@@ -1,0 +1,118 @@
+{{- /*
+Creates the Forgejo OAuth app for Woodpecker and stores its client ID and secret in the Secret
+devplat-woodpecker-oauth. A plain Job (not a hook) so `helm install --wait` does not wait on
+Woodpecker, which waits on this; named per revision so an upgrade runs a fresh, idempotent one
+(it does nothing when the Secret already exists).
+  1. check (kubectl image): the Secret exists -> mark /work/skip
+  2. create (forgejo image, bash /dev/tcp, no curl there): wait for Forgejo, POST the app as the
+     administrator, keep the JSON reply
+  3. store (kubectl image): jq the reply, create the Secret
+*/ -}}
+{{- $sa := printf "%s-oauth" .Release.Name -}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $sa }}
+  labels:
+    {{- include "devplat.labels" . | nindent 4 }}
+automountServiceAccountToken: false
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $sa }}
+  labels:
+    {{- include "devplat.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $sa }}
+  labels:
+    {{- include "devplat.labels" . | nindent 4 }}
+roleRef: { apiGroup: rbac.authorization.k8s.io, kind: Role, name: {{ $sa }} }
+subjects:
+  - { kind: ServiceAccount, name: {{ $sa }}, namespace: {{ .Release.Namespace }} }
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-oauth-%d" .Release.Name .Release.Revision }}
+  labels:
+    {{- include "devplat.labels" . | nindent 4 }}
+spec:
+  # the backoff (10 s, 20 s, 40 s ... doubling) is the wait for Forgejo's first start
+  backoffLimit: 8
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "devplat.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ $sa }}
+      automountServiceAccountToken: true
+      restartPolicy: Never
+      securityContext: { runAsNonRoot: true, runAsUser: 1001, runAsGroup: 1001, seccompProfile: { type: RuntimeDefault } }
+      volumes:
+        - { name: work, emptyDir: {} }
+      initContainers:
+        - name: check
+          image: {{ .Values.oauthJob.kubectlImage }}
+          command: ["/bin/sh", "-c", "if kubectl get secret devplat-woodpecker-oauth >/dev/null 2>&1; then echo 'OAuth app already stored'; : > /work/skip; fi"]
+          volumeMounts: [{ name: work, mountPath: /work }]
+          securityContext: &sc
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+        - name: create
+          image: {{ .Values.oauthJob.forgejoImage }}
+          command: ["/usr/bin/bash", "-c"]
+          args:
+            - |
+              set -eu
+              [ -e /work/skip ] && exit 0
+              host={{ trimPrefix "http://" .Values.urls.forgejo | trimSuffix "/" | quote }}
+              # one HTTP/1.0 request (no chunked replies) over bash's /dev/tcp, builtins only: the
+              # forgejo image has no coreutils. Sets status (the status line) and body.
+              req() {
+                exec 3<>"/dev/tcp/${host%%:*}/$( [[ $host == *:* ]] && echo "${host##*:}" || echo 80 )" || return 1
+                printf '%s %s HTTP/1.0\r\nHost: %s\r\nAuthorization: Basic %s\r\nContent-Type: application/json\r\nContent-Length: %s\r\n\r\n%s' \
+                  "$1" "$2" "$host" "$BASIC" "${#3}" "$3" >&3
+                local line="" inbody=""; status=""; body=""
+                while IFS= read -r -u 3 line || [ -n "$line" ]; do
+                  if [ -z "$status" ]; then status="$line"
+                  elif [ -z "$inbody" ]; then [ "$line" = $'\r' ] && inbody=1
+                  else body+="$line"; fi
+                done
+                exec 3<&-
+              }
+              # Forgejo not up yet (it migrates on first start): fail, and the Job's backoff retries
+              req GET /api/healthz "" || { echo "Forgejo not reachable yet"; exit 1; }
+              [[ $status == *" 200 "* ]] || { echo "Forgejo not ready yet: $status"; exit 1; }
+              req POST /api/v1/user/applications/oauth2 \
+                '{"name":"woodpecker","redirect_uris":["{{ trimSuffix "/" .Values.urls.woodpecker }}/authorize"],"confidential_client":true}'
+              [[ $status == *" 201 "* ]] || { echo "creating the OAuth app failed: $status $body"; exit 1; }
+              printf '%s' "$body" > /work/app.json
+              echo "OAuth app created"
+          env:
+            - name: BASIC
+              valueFrom: { secretKeyRef: { name: devplat-secrets, key: forgejo-admin-basic } }
+          volumeMounts: [{ name: work, mountPath: /work }]
+          securityContext: *sc
+      containers:
+        - name: store
+          image: {{ .Values.oauthJob.kubectlImage }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              [ -e /work/skip ] && exit 0
+              kubectl create secret generic devplat-woodpecker-oauth \
+                --from-literal=client-id="$(jq -er .client_id /work/app.json)" \
+                --from-literal=client-secret="$(jq -er .client_secret /work/app.json)"
+          volumeMounts: [{ name: work, mountPath: /work }]
+          securityContext: *sc
