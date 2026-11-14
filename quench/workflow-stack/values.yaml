@@ -1,0 +1,31 @@
+# workflow-stack: Temporal + PostgreSQL + Temporal UI.
+#
+#   workers and clients --gRPC--> Temporal frontend  workflow-temporal:7233 --> PostgreSQL <release>-postgresql
+#   people --------------HTTP--> Temporal UI         <release>-temporal-ui:80 --gRPC--> workflow-temporal:7233
+#
+# The Temporal Service has the fixed name workflow-temporal (temporal.fullnameOverride) so the UI
+# can be pointed at it from plain values: one stack per namespace. A post-install Job registers
+# the namespaces in `namespaces` with the temporal CLI.
+
+# Temporal (subchart): server, bundled PostgreSQL and the schema-setup Job. Values pass straight
+# through to the temporal chart.
+temporal:
+  fullnameOverride: workflow-temporal
+
+# Temporal UI (subchart). Values pass straight through to the temporal-ui chart.
+temporal-ui:
+  enabled: true
+  temporal:
+    address: workflow-temporal:7233
+  defaultNamespace: default
+
+# Namespaces registered at install (post-install hook; existing ones are not touched on upgrade).
+namespaces:
+  - name: default
+    retention: 72h
+
+# The temporal CLI image the registration Job runs.
+cli:
+  image:
+    repository: ghcr.io/quenchworks/images/temporal-cli
+    digest: "sha256:e13d335ffd8f17214009e98e6f143970fbd396ba5d9a47a8b81d93677a4ddbae"

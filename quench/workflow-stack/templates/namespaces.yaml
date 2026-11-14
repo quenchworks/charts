@@ -1,0 +1,48 @@
+{{- /*
+One Job per namespace, after install only: the CLI image has no shell, so each Job runs one
+`temporal operator namespace create` and retries through backoffLimit until the frontend answers.
+An upgrade does not rerun them (create fails on an existing namespace).
+*/ -}}
+{{- range $i, $ns := .Values.namespaces }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-ns-%s" $.Release.Name $ns.name | trunc 63 | trimSuffix "-" }}
+  labels:
+    app.kubernetes.io/managed-by: {{ $.Release.Service }}
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    app.kubernetes.io/part-of: workflow-stack
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 30
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ $.Release.Name }}
+        app.kubernetes.io/part-of: workflow-stack
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext: { runAsNonRoot: true, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: create
+          image: "{{ $.Values.cli.image.repository }}@{{ $.Values.cli.image.digest }}"
+          args: ["operator", "namespace", "create", "--namespace", {{ $ns.name | quote }},
+                 "--retention", {{ $ns.retention | default "72h" | quote }},
+                 "--address", {{ index $.Values "temporal-ui" "temporal" "address" | quote }}]
+          # the CLI may write its config under $HOME; the root filesystem is read-only
+          env: [{ name: HOME, value: /tmp }]
+          volumeMounts: [{ name: tmp, mountPath: /tmp }]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+      volumes: [{ name: tmp, emptyDir: {} }]
+{{- end }}
