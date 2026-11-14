@@ -1,0 +1,42 @@
+{{- if .Values.admin.create }}
+{{- /* The first administrator. A post-install hook: GoAlert's add-user refuses a user that
+exists, so it runs once. The image has no shell; the Job's backoff is the wait for GoAlert's
+first start to migrate the database. */}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "quench-common.fullname" . }}-add-admin
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 8
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: add-admin
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args: ["add-user", "--user", {{ .Values.admin.username | quote }}, "--pass", "$(ADMIN_PASSWORD)", "--admin"]
+          env:
+            {{- include "goalert.dbEnv" . | nindent 12 }}
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "goalert.adminSecretName" . }}
+                  key: {{ .Values.admin.existingSecretKey }}
+          resources:
+            requests: { cpu: 10m, memory: 32Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+{{- end }}

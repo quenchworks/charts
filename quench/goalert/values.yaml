@@ -1,0 +1,145 @@
+# The digest below is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/goalert
+  digest: "sha256:3e053e1b015f6ffa79fdf8cc4dafc3e6ade509ad46e4d3dc8bf38d3504541bd2"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# GoAlert runs several replicas against one database (it elects its engine leader in
+# PostgreSQL); one is enough for most teams.
+replicaCount: 1
+
+# Encrypts sensitive data GoAlert stores (signing keys, provider credentials). Losing it makes
+# them unreadable. Empty: generated once and kept across upgrades in the Secret <fullname>
+# (data-encryption-key). Or set it, or bring a Secret.
+dataEncryptionKey:
+  value: ""
+  existingSecret: ""
+  existingSecretKey: data-encryption-key
+
+# Externally routable URL (GOALERT_PUBLIC_URL): login redirects, links in notifications, and the
+# referer check on sign-in all use it. Set it to the address people open, e.g.
+# https://goalert.example.com. Empty: http://<fullname>:<service.port>.
+publicUrl: ""
+
+# The first administrator, created once by a post-install Job (goalert add-user). Its password is
+# generated into the Secret <fullname> (admin-password) unless admin.existingSecret is set.
+admin:
+  create: true
+  username: admin
+  existingSecret: ""
+  existingSecretKey: admin-password
+
+# --- DATABASE, mode 1 (default): the bundled PostgreSQL subchart. ---
+postgresql:
+  enabled: true
+  auth:
+    # username and database MUST differ: the bundled PostgreSQL only creates the
+    # application database when its name differs from the superuser's.
+    username: goalertdb
+    password: ""              # generated if empty; in the Secret <release>-postgresql
+    database: goalert
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- DATABASE, mode 2: external PostgreSQL (postgresql.enabled=false). ---
+externalDatabase:
+  host: ""
+  port: 5432
+  database: goalert
+  username: goalert
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: password
+  # sslmode in the connection URL (disable, require, verify-full, ...); the bundled PostgreSQL uses it too
+  sslMode: disable
+
+# Waits for the database before GoAlert starts, so the first boot does not burn
+# its startup attempts on a PostgreSQL that is still initialising. Uses our
+# postgresql image for pg_isready (a parent chart cannot read a subchart's pin).
+waitForDatabase:
+  enabled: true
+  image:
+    repository: ghcr.io/quenchworks/images/postgresql
+    digest: "sha256:f2aadd3d9651056f67735ec100ce255fabc86121bfa45f20fa2a06df82886d46"
+
+resources:
+  requests: { cpu: 100m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8081
+  # HTTPS Service port (to the container's 8443), only with tls.enabled
+  httpsPort: 443
+
+# Native TLS: GoAlert also serves HTTPS on 8443 (Service service.httpsPort) from the PEM pair at
+# /tls, beside HTTP on 8081, which the probes keep. The certificate comes from the first source
+# set: existingSecret, then a cert-manager Certificate, else a Helm-generated CA + certificate.
+# Point publicUrl at the https address.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+updateStrategy:
+  type: Recreate
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
