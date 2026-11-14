@@ -1,0 +1,75 @@
+{{- /*
+Metabase first-run setup and the ClickHouse data source. A plain Job (not a hook), named per
+revision; every step checks first, so a re-run changes nothing:
+  1. wait for /api/health
+  2. setup (only while has-user-setup is false): administrator + site name
+  3. sign in as the administrator; add ClickHouse unless a clickhouse database exists
+Busybox wget only: no curl or jq in the image, so replies are matched with case and sed.
+*/ -}}
+{{- $j := .Values.setupJob -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-setup-%d" .Release.Name .Release.Revision }}
+  labels:
+    {{- include "bi.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "bi.labels" . | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext: { runAsNonRoot: true, runAsUser: 1001, runAsGroup: 1001, seccompProfile: { type: RuntimeDefault } }
+      containers:
+        - name: setup
+          image: {{ $j.image }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              mb={{ $j.metabaseUrl | trimSuffix "/" | quote }}
+              ct='Content-Type: application/json'
+              post() { wget -qO- --header "$ct" "$@"; }
+              n=0
+              until wget -qO- "$mb/api/health" 2>/dev/null | grep -q '"ok"'; do
+                n=$((n+1)); [ "$n" -lt 120 ] || { echo "Metabase did not come up"; exit 1; }
+                sleep 5
+              done
+              props="$(wget -qO- "$mb/api/session/properties")"
+              case "$props" in
+                *'"has-user-setup":false'*)
+                  token="$(printf '%s' "$props" | sed -n 's/.*"setup-token":"\([^"]*\)".*/\1/p')"
+                  post --post-data "{\"token\":\"$token\",\"user\":{\"first_name\":\"$FIRST\",\"last_name\":\"$LAST\",\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"},\"prefs\":{\"site_name\":\"$SITE\",\"allow_tracking\":false}}" "$mb/api/setup" >/dev/null
+                  echo "Metabase set up, administrator $EMAIL" ;;
+                *) echo "Metabase already set up" ;;
+              esac
+              sid="$(post --post-data "{\"username\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" "$mb/api/session" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')"
+              [ -n "$sid" ] || { echo "could not sign in to Metabase as $EMAIL"; exit 1; }
+              case "$(wget -qO- --header "X-Metabase-Session: $sid" "$mb/api/database")" in
+                *'"engine":"clickhouse"'*) echo "ClickHouse data source already there"; exit 0 ;;
+              esac
+              post --header "X-Metabase-Session: $sid" --post-data "{\"engine\":\"clickhouse\",\"name\":\"ClickHouse\",\"details\":{\"host\":\"$CH_HOST\",\"port\":$CH_PORT,\"user\":\"$CH_USER\",\"password\":\"$CH_PASSWORD\",\"dbname\":\"$CH_DB\",\"ssl\":false}}" "$mb/api/database" >/dev/null
+              echo "ClickHouse data source added"
+          env:
+            - { name: EMAIL, value: {{ .Values.admin.email | quote }} }
+            - { name: FIRST, value: {{ .Values.admin.firstName | quote }} }
+            - { name: LAST, value: {{ .Values.admin.lastName | quote }} }
+            - { name: SITE, value: {{ .Values.admin.siteName | quote }} }
+            - name: PASSWORD
+              valueFrom: { secretKeyRef: { name: bi-secrets, key: metabase-admin-password } }
+            - { name: CH_HOST, value: {{ $j.clickhouse.host | quote }} }
+            - { name: CH_PORT, value: {{ $j.clickhouse.port | quote }} }
+            - { name: CH_USER, value: {{ $j.clickhouse.user | quote }} }
+            - { name: CH_DB, value: {{ $j.clickhouse.database | quote }} }
+            - name: CH_PASSWORD
+              valueFrom: { secretKeyRef: { name: bi-secrets, key: clickhouse-password } }
+          resources:
+            {{- toYaml $j.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }

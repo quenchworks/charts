@@ -1,0 +1,44 @@
+# bi-stack: Metabase + ClickHouse + PostgreSQL.
+#
+#   people --> Metabase bi-metabase:3000 --> PostgreSQL <release>-postgresql (Metabase's own data)
+#                                       \--> ClickHouse bi-clickhouse:8123 (the data you analyse)
+#
+# The stack generates the ClickHouse and Metabase administrator passwords once, into the Secret
+# bi-secrets. A Job then runs Metabase's first-run setup (administrator from `admin` below) and
+# adds ClickHouse as a data source named "ClickHouse"; it does nothing on later runs. Metabase and
+# ClickHouse have fixed names (fullnameOverride) so they can be wired from plain values: one stack
+# per namespace.
+#
+# Sign in to Metabase as admin.email with the password in bi-secrets (key metabase-admin-password).
+
+# The Metabase administrator the setup Job creates.
+admin:
+  email: admin@example.com
+  firstName: Metabase
+  lastName: Admin
+  siteName: QuenchWorks BI
+
+# Metabase (subchart). Values pass through to the metabase chart; its PostgreSQL subchart stays
+# enabled and holds Metabase's application database.
+metabase:
+  fullnameOverride: bi-metabase
+
+# ClickHouse (subchart), added to Metabase as a data source.
+clickhouse:
+  fullnameOverride: bi-clickhouse
+  auth:
+    existingSecret: bi-secrets
+    existingSecretPasswordKey: clickhouse-password
+
+# The setup Job: busybox wget against Metabase's API. Keep the URLs equal to the names above.
+setupJob:
+  image: ghcr.io/quenchworks/images/busybox@sha256:041302c8da3a2e182ecc2eac3c56c4f47a13c03cc284d255489c0be741893b64
+  metabaseUrl: http://bi-metabase:3000
+  clickhouse:
+    host: bi-clickhouse
+    port: 8123
+    user: default
+    database: default
+  resources:
+    requests: { cpu: 10m, memory: 16Mi }
+    limits: { cpu: 100m, memory: 64Mi }
