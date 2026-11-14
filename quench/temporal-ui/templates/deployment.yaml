@@ -1,0 +1,99 @@
+{{- $tls := include "quench-common.tls.enabled" . -}}
+{{- $port := ternary "https" "http" (eq $tls "true") -}}
+{{- $scheme := ternary "HTTPS" "HTTP" (eq $tls "true") -}}
+{{- $liveness := dict "httpGet" (dict "path" "/healthz" "port" $port "scheme" $scheme) "initialDelaySeconds" 5 "periodSeconds" 15 -}}
+{{- $readiness := dict "httpGet" (dict "path" "/healthz" "port" $port "scheme" $scheme) "initialDelaySeconds" 2 "periodSeconds" 10 -}}
+{{- if not .Values.temporal.address }}{{ fail "temporal.address is required: the Temporal frontend gRPC address, host:port" }}{{ end -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- include "quench-common.podAnnotations" . | nindent 6 }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "temporal-ui.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- include "quench-common.initContainers" . | nindent 6 }}
+      containers:
+        - name: temporal-ui
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          # the server renders config/docker.yaml from these (upstream's env names)
+          env:
+            - { name: TEMPORAL_ADDRESS, value: {{ .Values.temporal.address | quote }} }
+            - { name: TEMPORAL_UI_PORT, value: "8080" }
+            - { name: TEMPORAL_DEFAULT_NAMESPACE, value: {{ .Values.defaultNamespace | quote }} }
+            - { name: TEMPORAL_UI_PUBLIC_PATH, value: {{ .Values.publicPath | quote }} }
+            - { name: TEMPORAL_CORS_ORIGINS, value: {{ join "," .Values.corsOrigins | quote }} }
+            - { name: TEMPORAL_DISABLE_WRITE_ACTIONS, value: {{ .Values.readOnly | quote }} }
+            - { name: TEMPORAL_NOTIFY_ON_NEW_VERSION, value: "false" }
+            - { name: TEMPORAL_DISABLE_NEWS_FETCH, value: "true" }
+            {{- if eq $tls "true" }}
+            - { name: TEMPORAL_UI_SERVER_TLS_CERT, value: /tls/tls.crt }
+            - { name: TEMPORAL_UI_SERVER_TLS_KEY, value: /tls/tls.key }
+            {{- end }}
+            {{- with .Values.temporal.tls.caSecret }}
+            # TLS to the Temporal frontend, verified against this CA
+            - { name: TEMPORAL_TLS_CA, value: /temporal-ca/{{ $.Values.temporal.tls.caKey }} }
+            - { name: TEMPORAL_TLS_ENABLE_HOST_VERIFICATION, value: "true" }
+            {{- with $.Values.temporal.tls.serverName }}
+            - { name: TEMPORAL_TLS_SERVER_NAME, value: {{ . | quote }} }
+            {{- end }}
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            - name: {{ $port }}
+              containerPort: 8080
+              protocol: TCP
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $liveness) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $readiness) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- if .Values.temporal.tls.caSecret }}
+            - name: temporal-ca
+              mountPath: /temporal-ca
+              readOnly: true
+            {{- end }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- with .Values.temporal.tls.caSecret }}
+        - name: temporal-ca
+          secret:
+            secretName: {{ . }}
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

@@ -1,0 +1,121 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/temporal-ui
+  digest: "sha256:8d5ebbf3e961a3c305846cb973b2781e4f19b8ce0aeecb952c4775e1eeea2714"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The UI is stateless: a Deployment behind a ClusterIP Service, scaled horizontally.
+replicaCount: 1
+
+# The Temporal cluster the UI talks to (its frontend gRPC port). Required.
+temporal:
+  address: ""            # e.g. temporal-temporal:7233 (release "temporal" of the temporal chart)
+  # TLS to the frontend: a Secret holding the CA that signed the frontend's certificate.
+  # Empty: plain gRPC.
+  tls:
+    caSecret: ""
+    caKey: ca.crt
+    serverName: ""       # override the name checked against the certificate
+
+# The namespace the UI opens on.
+defaultNamespace: default
+# Path prefix when the UI is served under a sub-path, e.g. /temporal.
+publicPath: ""
+# Browser origins allowed to call the UI API (CORS); empty keeps upstream's default.
+corsOrigins: []
+# Hide every write action (start, signal, cancel, terminate, reset, batch).
+readOnly: false
+
+resources:
+  requests: { cpu: 25m, memory: 48Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  # The container serves on 8080 (nonroot); the Service exposes standard HTTP 80.
+  port: 80
+  # With tls.enabled the Service publishes the TLS listener here.
+  httpsPort: 443
+
+# Native TLS on the UI's own listener (8080, HTTPS when on). Off by default. The first source
+# set wins: existingSecret, then certManager, else a Helm-generated self-signed CA +
+# certificate (kept across upgrades). The Secret is mounted at /tls.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# Optional horizontal autoscaling on CPU.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Optional Ingress (HTTP only). Disabled by default, so enabling it is an explicit
+# operator decision and this chart's behaviour is unchanged until then.
+ingress:
+  enabled: false
+  # IngressClass to claim this Ingress. Empty -> the cluster default applies.
+  className: ""
+  annotations: {}
+  # Service port to route to. Unset -> resolved from service.port, then
+  # service.ports.http / .https.
+  servicePort: null
+  # e.g. [{host: app.example.com, paths: [{path: /, pathType: Prefix}]}]
+  # `paths` may be omitted for the common "/" Prefix case.
+  hosts: []
+  # Standard Ingress TLS list, e.g. [{hosts: [app.example.com], secretName: app-tls}]
+  tls: []
