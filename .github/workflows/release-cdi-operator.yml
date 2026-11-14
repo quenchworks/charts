@@ -1,0 +1,186 @@
+name: release-cdi-operator
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/cdi-operator/**"
+      - ".github/workflows/release-cdi-operator.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/cdi-operator
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          kubectl create namespace cdi
+          kubectl config set-context --current --namespace=cdi
+          helm install cdi "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          kubectl wait cdi cdi --for=condition=Available --timeout=10m
+          kubectl get deploy
+
+          # --- A DATAVOLUME IMPORTS A QCOW2 OVER HTTP INTO A PVC, AS A RAW DISK. ---
+          imp="$(yq -r '.images["cdi-importer"].repository + "@" + .images["cdi-importer"].digest' "${CHART_DIR}/values.yaml")"
+          bb="ghcr.io/quenchworks/images/busybox@sha256:041302c8da3a2e182ecc2eac3c56c4f47a13c03cc284d255489c0be741893b64"
+          kubectl create namespace dv
+          cat <<EOF | kubectl -n dv apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata: { name: disk-server, labels: { app: disk-server } }
+          spec:
+            securityContext: { runAsNonRoot: true, runAsUser: 1001, seccompProfile: { type: RuntimeDefault } }
+            volumes: [{ name: srv, emptyDir: {} }]
+            initContainers:
+              - name: make-disk
+                image: ${imp}
+                command: ["qemu-img", "create", "-f", "qcow2", "/srv/disk.qcow2", "64M"]
+                volumeMounts: [{ name: srv, mountPath: /srv }]
+            containers:
+              - name: httpd
+                image: ${bb}
+                command: ["/bin/busybox", "httpd", "-f", "-p", "8080", "-h", "/srv"]
+                volumeMounts: [{ name: srv, mountPath: /srv }]
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata: { name: disk-server }
+          spec: { selector: { app: disk-server }, ports: [{ port: 8080 }] }
+          ---
+          apiVersion: cdi.kubevirt.io/v1beta1
+          kind: DataVolume
+          metadata: { name: gate-disk }
+          spec:
+            source: { http: { url: "http://disk-server.dv.svc:8080/disk.qcow2" } }
+            # kind's local-path class has no CDI StorageProfile defaults: name the modes
+            storage: { accessModes: [ReadWriteOnce], volumeMode: Filesystem, resources: { requests: { storage: 256Mi } } }
+          EOF
+          kubectl -n dv wait pod/disk-server --for=condition=Ready --timeout=5m
+          if ! kubectl -n dv wait dv/gate-disk --for=jsonpath='{.status.phase}'=Succeeded --timeout=10m; then
+            kubectl -n dv get dv,pvc,pods -o wide; kubectl -n dv describe dv gate-disk
+            for p in $(kubectl -n dv get pods -o name); do kubectl -n dv logs "$p" --all-containers --tail=100 || true; done
+            echo "FAIL: DataVolume import did not succeed"; exit 1
+          fi
+          cat <<EOF | kubectl -n dv apply -f -
+          apiVersion: v1
+          kind: Pod
+          metadata: { name: check-disk }
+          spec:
+            restartPolicy: Never
+            # CDI writes disk.img as uid 107, the user its importer pods run as
+            securityContext: { runAsNonRoot: true, runAsUser: 107, runAsGroup: 107, seccompProfile: { type: RuntimeDefault } }
+            volumes: [{ name: disk, persistentVolumeClaim: { claimName: gate-disk } }]
+            containers:
+              - name: info
+                image: ${imp}
+                command: ["qemu-img", "info", "/disk/disk.img"]
+                volumeMounts: [{ name: disk, mountPath: /disk, readOnly: true }]
+          EOF
+          kubectl -n dv wait pod/check-disk --for=jsonpath='{.status.phase}'=Succeeded --timeout=5m || { kubectl -n dv logs check-disk; exit 1; }
+          info="$(kubectl -n dv logs check-disk)"; echo "$info"
+          # CDI converts to raw, then grows the image to fill the PVC (256Mi requested)
+          grep -q 'file format: raw' <<<"$info" && grep -q 'virtual size: 256 MiB' <<<"$info" \
+            || { echo "FAIL: the PVC does not hold the converted raw disk grown to the PVC size"; exit 1; }
+          echo "gate passed: CDI Available, a qcow2 served over HTTP imported through a DataVolume into a PVC as a raw disk"
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/cdi-operator-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/cdi-operator@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/cdi-operator:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

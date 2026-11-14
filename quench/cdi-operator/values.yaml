@@ -1,0 +1,52 @@
+# CDI operator chart: the operator installs and upgrades the rest of CDI (controller, API server,
+# upload proxy) from the CDI resource below, in this release's namespace. CDI is one per cluster.
+#
+# The digests are the contract with the image factory: every component image is QuenchWorks-built
+# and pinned by digest. The operator hands the importer, cloner and upload server images to the
+# pods CDI starts per DataVolume.
+images:
+  cdi-operator:
+    repository: ghcr.io/quenchworks/images/cdi-operator
+    digest: "sha256:70ecaa6c6efb95825dd5c9f79c68e1bf0cf03bf78309cf4d75aa8ab5e11847b7"
+  cdi-controller:
+    repository: ghcr.io/quenchworks/images/cdi-controller
+    digest: "sha256:bba8720f4024b647ed89bf4ab4c9444dc142d273c0a60d7eaeeffadff7b529e2"
+  cdi-apiserver:
+    repository: ghcr.io/quenchworks/images/cdi-apiserver
+    digest: "sha256:653da7ee6e80ebb3e7e30f03a63fc242e6e6c27187a32a427dbc1e8d31b9fb80"
+  cdi-uploadproxy:
+    repository: ghcr.io/quenchworks/images/cdi-uploadproxy
+    digest: "sha256:86af7dc8041295c87d1cb9e1e9359e7bf63a9b5a2580a68cbd455670ae64716f"
+  cdi-uploadserver:
+    repository: ghcr.io/quenchworks/images/cdi-uploadserver
+    digest: "sha256:af0eac6e02a97d6e673d14fc6f18d56720461f24ace90a067b60c387d74e16e0"
+  cdi-importer:
+    repository: ghcr.io/quenchworks/images/cdi-importer
+    digest: "sha256:ece522166145c2aa7ac1e21bde6c0375a5d3d7845b2ca718297016738e753584"
+  cdi-cloner:
+    repository: ghcr.io/quenchworks/images/cdi-cloner
+    digest: "sha256:e0134466695d70adba27bde362ffff889deb221d375b8889b43233ada542bfb5"
+
+imagePullPolicy: IfNotPresent
+# klog verbosity of the CDI components
+verbosity: 1
+
+resources:
+  requests: { cpu: 100m, memory: 150Mi }
+  limits: { memory: 512Mi }
+
+# The CDI resource (cluster-scoped, name "cdi") that tells the operator to deploy CDI. Its spec is
+# passed through as written: see the CDI API (config, infra, workload, certConfig, ...).
+cdi:
+  create: true
+  spec:
+    config:
+      featureGates:
+        - HonorWaitForFirstConsumer
+    imagePullPolicy: IfNotPresent
+    infra:
+      nodeSelector:
+        kubernetes.io/os: linux
+    workload:
+      nodeSelector:
+        kubernetes.io/os: linux
