@@ -119,8 +119,13 @@ jobs:
             [ "$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d '{"gate":true}' http://127.0.0.1:12000/hook)" = 200 ] && break
             sleep 2
           done
-          # the event crossed the bus and the sensor's trigger created the ConfigMap
-          for i in $(seq 1 60); do kubectl get configmap gate-fired >/dev/null 2>&1 && break; sleep 2; done
+          # the event crossed the bus and the sensor's trigger created the ConfigMap. Re-post while
+          # waiting: an event published before the sensor subscribed to the bus is not delivered.
+          for i in $(seq 1 60); do
+            kubectl get configmap gate-fired >/dev/null 2>&1 && break
+            [ $((i % 10)) = 0 ] && curl -s -o /dev/null -X POST -H 'Content-Type: application/json' -d '{"gate":true}' http://127.0.0.1:12000/hook
+            sleep 2
+          done
           test "$(kubectl get configmap gate-fired -o jsonpath='{.data.from}')" = argo-events
           ! kubectl logs deployment/rtest-argo-events-controller | grep -E '"level":"fatal"|panic:' || exit 1
       # A failed install gate otherwise reports only "Progress deadline exceeded",
