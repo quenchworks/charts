@@ -1,0 +1,254 @@
+################################################################################
+#  Licensed to the Apache Software Foundation (ASF) under one
+#  or more contributor license agreements.  See the NOTICE file
+#  distributed with this work for additional information
+#  regarding copyright ownership.  The ASF licenses this file
+#  to you under the Apache License, Version 2.0 (the
+#  "License"); you may not use this file except in compliance
+#  with the License.  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+# limitations under the License.
+################################################################################
+
+---
+
+# List of kubernetes namespaces to watch for FlinkDeployment changes, empty means all namespaces.
+# When enabled RBAC is only created for said namespaces, otherwise it is done for the cluster scope.
+watchNamespaces: []
+# - flink
+
+# QuenchWorks: the digest is the contract with the image factory. CI rewrites it from the
+# image-published dispatch after every green image build. Never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/flink-kubernetes-operator
+  pullPolicy: IfNotPresent
+  tag: ""
+  # If image digest is set then it takes precedence and the image tag will be ignored
+  digest: "sha256:762f47f9f18d0b8e5de49fa9814913dbde911c96de1da9ec05feddb1c10c47cd"
+
+imagePullSecrets: []
+
+# Replicas must be 1 unless operator leader election is configured
+replicas: 1
+
+# Strategy type must be Recreate unless leader election is configured
+strategy:
+  type: Recreate
+
+rbac:
+  create: true
+  # kubernetes.rest-service.exposed.type: NodePort requires
+  # list permission for nodes at the cluster scope.
+  # Set create to true if you are using NodePort type.
+  nodesRule:
+    create: false
+  operatorRole:
+    create: true
+    name: "flink-operator"
+  operatorRoleBinding:
+    create: true
+    name: "flink-operator-role-binding"
+  jobRole:
+    create: true
+    name: "flink"
+  jobRoleBinding:
+    create: true
+    name: "flink-role-binding"
+
+operatorPod:
+  priorityClassName: null
+  annotations: {}
+  labels: {}
+  # The env variables only apply to the operator container in the operator pod
+  # TODO: consider making this pod level env variables
+  env:
+  # - name: ""
+  #   value: ""
+  # - name: ""
+  #   valueFrom:
+  #     configMapKeyRef:
+  #       name: ""
+  #       key: ""
+  dnsPolicy: ""
+  dnsConfig: {}
+  # Node labels and affinity for operator pod assignment
+  # https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/
+  envFrom:
+  # - configMapRef:
+  #     name: ""
+  nodeSelector: {}
+
+  affinity: {}
+  # Node tolerations for operator pod assignment
+  # https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
+  tolerations: []
+  # Topology spread constrains
+  # https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/
+  topologySpreadConstraints: []
+  resources: {}
+  # resources:
+  #   limits:
+  #     cpu: "250m"
+  #     memory: "512Mi"
+  #   requests:
+  #     cpu: "250m"
+  #     memory: "512Mi"
+  webhook:
+    resources: {}
+    container:
+      env:
+      # - name: ""
+      #   value: ""
+  # optional init containers for operator pod
+  initContainers: []
+
+  # optional extra containers for operator pod
+  sidecarContainers: []
+
+operatorServiceAccount:
+  create: true
+  annotations: {}
+  name: "flink-operator"
+
+jobServiceAccount:
+  create: true
+  annotations:
+    "helm.sh/resource-policy": keep
+  name: "flink"
+
+operatorVolumeMounts:
+  create: false
+  data:
+    - name: flink-artifacts
+      mountPath: /opt/flink/artifacts
+
+operatorVolumes:
+  create: false
+  data:
+    - name: flink-artifacts
+      hostPath:
+        path: /tmp/flink/artifacts
+        type: DirectoryOrCreate
+#    - name: flink-artifacts
+#      persistentVolumeClaim:
+#        claimName: flink-artifacts
+
+podSecurityContext:
+  # QuenchWorks image user (upstream's image uses 9999)
+  runAsUser: 1001
+  runAsGroup: 1001
+  # fsGroup: 9999
+
+operatorSecurityContext: {}
+
+webhookSecurityContext: {}
+
+# QuenchWorks: off by default, because its certificate comes from cert-manager
+# (templates/cert-manager). Install cert-manager, then set webhook.create=true.
+webhook:
+  create: false
+  # validator:
+  #   create: true
+  # mutator:
+  #   create: true
+  keystore:
+    useDefaultPassword: true
+    passwordSecretRef:
+    # name: jks-password-secret
+    # key: password-key
+    # PKCS12 encryption profile for the webhook certificate.
+    # Options: Modern2023, LegacyDES, LegacyRC2
+    # Modern2023 uses AES-256-CBC and is required for FIPS-compliant environments.
+    pkcs12Profile: ""
+  serviceLabels: {}
+
+defaultConfiguration:
+  # If set to true, creates ConfigMaps/VolumeMounts. If set to false, no configuration will be created.
+  # All below fields will be ignored if create is set to false.
+  create: true
+  # If set to true,
+  #      (1) loads the built-in default configuration
+  #      (2) appends the below flink-conf and logging configuration overrides
+  # If set to false, loads just the overrides as in (2).
+  # This option has not effect, if create is equal to false.
+  append: true
+
+# Operator configuration overrides go under ONE of the two keys below. If both are set,
+# config.yaml wins; either way the operator mounts the result as config.yaml.
+#
+#   config.yaml      - modern YAML 1.2 format (Flink 1.19+, required by Flink 2.0). Recommended.
+#   flink-conf.yaml  - legacy flat "key: value" format (shipped as the default below).
+#
+# Prefer the nested config.yaml form: a flat, dotted-key override of a key the chart already
+# ships (e.g. the Java 17 opts in conf/config.yaml) would be a duplicate key under Flink's
+# strict YAML parser and fail at operator startup. Example, equivalent to the default below:
+#
+#  config.yaml: |+
+#    kubernetes.operator:
+#      metrics.reporter.slf4j:
+#        factory.class: org.apache.flink.metrics.slf4j.Slf4jReporterFactory
+#        interval: 5 MINUTE
+#      reconcile.interval: 15 s
+#      observer.progress-check.interval: 5 s
+
+  flink-conf.yaml: |+
+    # Flink Config Overrides
+    kubernetes.operator.metrics.reporter.slf4j.factory.class: org.apache.flink.metrics.slf4j.Slf4jReporterFactory
+    kubernetes.operator.metrics.reporter.slf4j.interval: 5 MINUTE
+
+    kubernetes.operator.reconcile.interval: 15 s
+    kubernetes.operator.observer.progress-check.interval: 5 s
+  log4j-operator.properties: |+
+    # Flink Operator Logging Overrides
+    # rootLogger.level = DEBUG
+    # logger.operator.name= org.apache.flink.kubernetes.operator
+    # logger.operator.level = DEBUG
+  log4j-console.properties: |+
+    # Flink Deployment Logging Overrides
+    # rootLogger.level = DEBUG
+  logback-operator.xml:
+  logback-console.xml:
+
+# Logging framework to use for the operator. Supported values: "log4j2", "logback".
+# This controls which config file is passed to the JVM and which files are mounted.
+logging:
+  framework: "log4j2"
+
+# (Optional) Exposes metrics port on the container if defined
+metrics:
+  port:
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Set the jvm start up options for webhook and operator
+jvmArgs:
+  webhook: ""
+  operator: ""
+
+# Configure health probes for the operator
+operatorHealth:
+  port: 8085
+  livenessProbe:
+    periodSeconds: 10
+    initialDelaySeconds: 30
+  startupProbe:
+    failureThreshold: 30
+    periodSeconds: 10
+
+# Set postStart hook of the main container
+postStart: {}
+
+# Configuration for tls
+tls:
+  create: false
+  secretName: flink-operator-cert
+  secretKeyRef:
+    name: operator-certificate-password
+    key: password
