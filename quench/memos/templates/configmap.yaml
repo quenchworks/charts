@@ -1,0 +1,19 @@
+{{- /* Declarative configuration Memos applies at start (--config-dir, default /etc/memos/config):
+       the admin user, so a fresh install has no open first sign-up. The password comes from the
+       Secret through ${env:...}; writeOnlyVersion 1 sends it once. */}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  admin.json: |
+    {
+      "users": [
+        { "name": "users/{{ .Values.admin.username }}", "username": "{{ .Values.admin.username }}", "role": "ADMIN", "password": "${env:MEMOS_ADMIN_PASSWORD}" }
+      ],
+      "lifecycle": [
+        { "resource": "users/{{ .Values.admin.username }}", "preventDestroy": true, "writeOnlyVersion": 1 }
+      ]
+    }

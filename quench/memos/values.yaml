@@ -1,0 +1,92 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/memos
+  digest: "sha256:5b1d251bec25c7931294b6170862ad73ba8837ace44f6ec8d0057e08734fb415"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Memos keeps its SQLite database and attachments in /var/opt/memos: run one replica
+# (Recreate with the volume). With PostgreSQL or MySQL the volume still holds local attachments.
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The admin, declared in Memos' configuration directory so a fresh install has no open first
+# sign-up. Empty password: generated into a Secret and kept across upgrades
+# (kubectl get secret <release>-memos-admin -o jsonpath='{.data.password}'). Memos sets it once;
+# a password changed later in the UI stays.
+admin:
+  username: admin
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+
+# SQLite on the data volume (default). For PostgreSQL or MySQL, set driver and name a Secret
+# holding the DSN, e.g. postgresql://memos:<pw>@db:5432/memos?sslmode=disable or
+# memos:<pw>@tcp(db:3306)/memos
+database:
+  driver: ""          # postgres | mysql, with existingSecret
+  existingSecret: ""
+  dsnKey: dsn
+
+# More Memos settings as environment variables (MEMOS_<FLAG>), e.g. MEMOS_INSTANCE_URL: https://memos.example.com
+settings: {}
+
+# The data volume: SQLite database and local attachments.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 2Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 20m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 5230
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
