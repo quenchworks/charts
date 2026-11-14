@@ -1,0 +1,91 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/shiori
+  digest: "sha256:87b96025ea29c03074fd47717466b7f175c2d2d41704404b5e8c110774561aff"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Shiori keeps its SQLite database, archives and thumbnails in /shiori: run one replica
+# (Recreate with the volume). With an external database the volume still holds archives and
+# thumbnails.
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The first owner, created on the first start only. Empty password: generated into a Secret and
+# kept across upgrades (kubectl get secret <release>-shiori-owner -o jsonpath='{.data.password}').
+owner:
+  username: shiori
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+
+# SQLite on the data volume (default). For PostgreSQL or MySQL, name a Secret holding the full
+# SHIORI_DATABASE_URL, e.g. postgres://shiori:<pw>@db:5432/shiori?sslmode=disable or
+# mysql://shiori:<pw>@(db:3306)/shiori?charset=utf8mb4
+database:
+  existingSecret: ""
+  urlKey: url
+
+# More Shiori settings as environment variables
+# (https://github.com/go-shiori/shiori/blob/master/docs/Configuration.md), e.g. SHIORI_HTTP_ROOT_PATH: /shiori/
+settings: {}
+
+# The data volume: SQLite database, archives, thumbnails, ebooks.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 2Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 20m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
