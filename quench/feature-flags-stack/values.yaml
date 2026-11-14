@@ -1,0 +1,31 @@
+# feature-flags-stack: Unleash + PostgreSQL.
+#
+#   your services (server SDKs)  --backend token-->  Unleash <release>-unleash:4242  --> PostgreSQL
+#   your front ends (web/mobile) --frontend token--> Unleash /api/frontend
+#
+# The stack generates API tokens once, into the Secret feature-flags-api-tokens, and keeps them
+# across upgrades. Unleash creates them on start (INIT_*_API_TOKENS):
+#   backend-development, backend-production   server SDKs, one per environment
+#   frontend-development, frontend-production front-end SDKs, one per environment
+#   admin                                      the Admin API (automation, CI)
+# Unleash stores a token the first time it sees it; changing one in the Secret later adds a new
+# token and leaves the old one valid until you delete it in the UI.
+
+# Unleash (subchart). Values pass straight through to the unleash chart, including its bundled
+# PostgreSQL (unleash.postgresql).
+unleash:
+  extraEnvVars:
+    - name: QW_BACKEND_DEV
+      valueFrom: { secretKeyRef: { name: feature-flags-api-tokens, key: backend-development } }
+    - name: QW_BACKEND_PROD
+      valueFrom: { secretKeyRef: { name: feature-flags-api-tokens, key: backend-production } }
+    - name: QW_FRONTEND_DEV
+      valueFrom: { secretKeyRef: { name: feature-flags-api-tokens, key: frontend-development } }
+    - name: QW_FRONTEND_PROD
+      valueFrom: { secretKeyRef: { name: feature-flags-api-tokens, key: frontend-production } }
+    - name: INIT_BACKEND_API_TOKENS
+      value: "$(QW_BACKEND_DEV),$(QW_BACKEND_PROD)"
+    - name: INIT_FRONTEND_API_TOKENS
+      value: "$(QW_FRONTEND_DEV),$(QW_FRONTEND_PROD)"
+    - name: INIT_ADMIN_API_TOKENS
+      valueFrom: { secretKeyRef: { name: feature-flags-api-tokens, key: admin } }

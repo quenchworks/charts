@@ -1,0 +1,29 @@
+{{- /*
+API tokens in Unleash's format, project:environment.secret. Generated once and kept: an
+existing Secret is reused on upgrade, so services keep working. The name is fixed because the
+unleash subchart reads it from plain values; one stack per namespace.
+*/ -}}
+{{- $name := "feature-flags-api-tokens" -}}
+{{- $old := (lookup "v1" "Secret" .Release.Namespace $name).data | default dict -}}
+{{- $tok := dict
+  "backend-development" (printf "default:development.%s" (randAlphaNum 48 | lower))
+  "backend-production" (printf "default:production.%s" (randAlphaNum 48 | lower))
+  "frontend-development" (printf "default:development.%s" (randAlphaNum 48 | lower))
+  "frontend-production" (printf "default:production.%s" (randAlphaNum 48 | lower))
+  "admin" (printf "*:*.%s" (randAlphaNum 48 | lower)) -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $name }}
+  labels:
+    helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/part-of: feature-flags-stack
+  annotations:
+    helm.sh/resource-policy: keep
+type: Opaque
+data:
+  {{- range $k := list "backend-development" "backend-production" "frontend-development" "frontend-production" "admin" }}
+  {{ $k }}: {{ index $old $k | default (index $tok $k | b64enc) }}
+  {{- end }}
