@@ -1,0 +1,94 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/mercure
+  digest: "sha256:6a43d8c770869b3879c62d9a97df42edd33dd8c4fc1ec36b2e92b295ec6bd517"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The local transport keeps updates and history in memory, per pod: run one replica.
+replicaCount: 1
+updateStrategy:
+  type: RollingUpdate
+
+# The issuers your app names in the iss claim of its tokens (required). Tokens must be modern access
+# tokens: header typ "at+jwt", iss, aud (https://<host>/.well-known/mercure), exp, and an
+# authorization_details entry of type https://mercure.rocks/authorization-detail. See the README.
+trustedIssuers: []
+
+# The HS256 keys tokens are signed with. Empty: generated into the Secret <fullname>.
+jwt:
+  publisherKey: ""
+  subscriberKey: ""
+  existingSecret: ""   # keys publisher-key and subscriber-key instead
+
+# Let clients subscribe to public updates without a token.
+anonymous: false
+# Origins allowed to subscribe from a browser (cors_origins), e.g. https://app.example.com.
+corsOrigins: []
+# More lines for the mercure block (MERCURE_EXTRA_DIRECTIVES), e.g. "subscriptions" or a transport.
+extraDirectives: ""
+
+resources:
+  requests: { cpu: 10m, memory: 16Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: Caddy serves HTTPS instead of HTTP on 8080 from the PEM pair at /tls (the
+# probes switch to HTTPS). The certificate comes from the first source set: existingSecret, then a
+# cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
