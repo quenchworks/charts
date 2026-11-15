@@ -1,0 +1,82 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/privatebin
+  digest: "sha256:ff8b9ef4a991710f7b76ddd6efbd0f6679d093ea532fb042dfa5ff68a164c297"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# PrivateBin stores pastes as files in /srv/data: run one replica (Recreate with the volume),
+# or switch [model] to the Database class in config for more.
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# Your conf.php (PrivateBin's INI-style settings: expiry options, size limit, discussions,
+# burn-after-reading, traffic limits). Empty: the image's copy of upstream's sample, with pastes
+# in /srv/data. Start from https://github.com/PrivateBin/PrivateBin/blob/master/cfg/conf.sample.php
+# and keep [model_options] dir = "/srv/data".
+config: ""
+
+# More environment variables for php-fpm (passed through to PrivateBin).
+settings: {}
+
+# The data volume: the pastes and discussions (/srv/data).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 1Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 20m, memory: 48Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
