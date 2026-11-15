@@ -1,0 +1,54 @@
+{{- /* Optional: the agent on every node, from the same image, connecting out to the hub. KEY and
+       TOKEN come from the hub's "Add system" dialog after the first sign-in. It reads the node's
+       stats through the host network and the host's /proc (hostPID). */}}
+{{- if .Values.agent.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "quench-common.fullname" . }}-agent
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: agent
+spec:
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: agent
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: agent
+    spec:
+      hostNetwork: true
+      hostPID: true
+      dnsPolicy: ClusterFirstWithHostNet
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.agent.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: agent
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/usr/bin/beszel-agent"]
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - { name: LISTEN, value: {{ .Values.agent.listen | quote }} }
+            - { name: HUB_URL, value: {{ .Values.agent.hubUrl | default (printf "http://%s:%v" (include "quench-common.fullname" .) .Values.service.port) | quote }} }
+            - name: KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "agent.existingSecret: a Secret with the hub's public key (key) and token (token)" .Values.agent.existingSecret }}
+                  key: key
+            - name: TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.agent.existingSecret }}
+                  key: token
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
+{{- end }}

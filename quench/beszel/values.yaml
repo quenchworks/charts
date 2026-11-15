@@ -1,0 +1,97 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/beszel
+  digest: "sha256:333a3776d996f588ee31621200c5cebd1c722dbbd6a662d2b187935b3a51171f"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The hub keeps its PocketBase SQLite database in /beszel_data: run one replica (Recreate with the
+# volume).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The first admin, created on the first start only: the PocketBase superuser and a Beszel admin
+# user with this email. Empty password: generated into a Secret and kept across upgrades
+# (kubectl get secret <release>-beszel-admin -o jsonpath='{.data.password}').
+admin:
+  email: admin@example.com
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+
+# More hub settings as environment variables (https://beszel.dev/guide/environment-variables),
+# e.g. APP_URL: https://beszel.example.com
+settings: {}
+
+# The data volume: the PocketBase database and backups.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 2Gi
+  storageClass: ""
+  annotations: {}
+
+# The agent on every node (a DaemonSet from the same image, host network and host PID). Off by
+# default: after the first sign-in, open "Add system" in the hub, copy the public key and token
+# into a Secret (keys "key" and "token") and name it here.
+agent:
+  enabled: false
+  existingSecret: ""
+  hubUrl: ""           # default http://<fullname>:<service.port>
+  listen: "45876"
+  tolerations: []
+  resources:
+    requests: { cpu: 10m, memory: 16Mi }
+    limits: { cpu: 200m, memory: 128Mi }
+
+resources:
+  requests: { cpu: 20m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8090
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
