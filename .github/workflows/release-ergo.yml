@@ -44,46 +44,26 @@ jobs:
           set -o pipefail
           helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
           kubectl rollout status deployment/rtest-ergo --timeout=300s
-          # irc PORT plain|tls NICK EXPECT [LINE...]: connect, send the lines after 001, wait for EXPECT (a numeric or text)
-          irc() { python3 - "$@" <<'PY'
-          import socket, ssl, sys, time
-          port, tls, nick, expect, cmds = int(sys.argv[1]), sys.argv[2] == "tls", sys.argv[3], sys.argv[4], sys.argv[5:]
-          s = socket.create_connection(("127.0.0.1", port), 15)
-          if tls:
-              c = ssl.create_default_context(); c.check_hostname = False; c.verify_mode = ssl.CERT_NONE
-              s = c.wrap_socket(s)
-          f = s.makefile("rwb")
-          def send(l): f.write((l + "\r\n").encode()); f.flush()
-          send("NICK " + nick); send("USER " + nick + " 0 * :gate")
-          want, end = " 001 ", time.time() + 40
-          for raw in f:
-              l = raw.decode(errors="replace").rstrip()
-              if l.startswith("PING"): send("PONG" + l[4:])
-              if want in l:
-                  if want != " 001 " or not cmds: print("ok:", l); sys.exit(0)
-                  for c in cmds: send(c)
-                  want = " " + expect + " " if expect.isdigit() else expect
-              if time.time() > end: break
-          print("no", expect, "from", nick); sys.exit(1)
-          PY
-          }
+          # irc NICK EXPECT LINE [tlsprobe flags]: register as NICK, send LINE, wait for EXPECT in the replies
+          irc() { local n=$1 e=$2 l=$3; shift 3; go -C tools/qw run . tlsprobe --plain --addr 127.0.0.1:6667 --retry 10 --label "$n" --send "NICK $n\r\nUSER $n 0 * :gate\r\n$l\r\n" --expect "$e" "$@"; }
           fwd() { kubectl port-forward svc/rtest-ergo 6667:6667 $TLSPORT >/tmp/pf.log 2>&1 & local pf=$!; sleep 3; local rc=0; "$@" || rc=$?; kill $pf 2>/dev/null || true; return $rc; }
           gate1() {
-            irc 6667 plain gate1 001 || return 1
-            irc 6667 plain gate2 381 "OPER admin quench-ci-oper-pass" || { echo "the oper password was refused"; return 1; }
-            ! irc 6667 plain gate3 381 "OPER admin wrong-password-1" || { echo "a wrong oper password was accepted"; return 1; }
-            irc 6667 plain gatenick "now logged in" "PRIVMSG NickServ :REGISTER quench-nick-pass" || { echo "NickServ register failed"; return 1; }
+            irc gate1 " 381 " "OPER admin quench-ci-oper-pass" || { echo "the oper password was refused"; return 1; }
+            irc gate2 " 491 " "OPER admin wrong-password-1" || { echo "a wrong oper password was not refused"; return 1; }
+            irc gatenick "now logged in" "PRIVMSG NickServ :REGISTER quench-nick-pass" || { echo "NickServ register failed"; return 1; }
           }
-          gate2() { irc "${1:-6667}" "${2:-plain}" gateuser "now logged in" "PRIVMSG NickServ :IDENTIFY gatenick quench-nick-pass" || { echo "the account is gone"; return 1; }; }
+          gate2() { irc gateuser "now logged in" "PRIVMSG NickServ :IDENTIFY gatenick quench-nick-pass" "$@" || { echo "the account is gone"; return 1; }; }
           fwd gate1
           # accounts live in ircd.db on the PVC: the registration must survive a pod restart
           kubectl delete pod -l app.kubernetes.io/instance=rtest --wait=true
           kubectl rollout status deployment/rtest-ergo --timeout=300s
           fwd gate2
-          # IRC over TLS on 6697 with a Helm-made certificate, plain 6667 still answers, the account is still there
+          # IRC over TLS on 6697 with the Helm-made CA, plain 6667 still answers, the account is still there
           helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
           kubectl rollout status deployment/rtest-ergo --timeout=300s
-          TLSPORT=6697:6697 fwd gate2 6697 tls
+          kubectl get secret rtest-ergo-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ergo-ca.crt
+          TLSPORT=6697:6697 fwd gate2 --plain=false --addr 127.0.0.1:6697 --ca /tmp/ergo-ca.crt --name rtest-ergo
+          fwd gate2
           echo "ergo: generated oper password enforced, NickServ account kept across a pod restart and a TLS upgrade: ok"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
