@@ -1,4 +1,4 @@
-{{- $probe := dict "httpGet" (dict "path" "/health" "port" "http") "initialDelaySeconds" 3 "periodSeconds" 10 -}}
+{{- $probe := dict "httpGet" (dict "path" "/health" "port" 8000 "scheme" (ternary "HTTPS" "HTTP" (eq (include "quench-common.tls.enabled" .) "true"))) "initialDelaySeconds" 3 "periodSeconds" 10 -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -18,7 +18,7 @@ spec:
     metadata:
       annotations:
         # Healthchecks reads its settings from the environment at start: a change rolls the pods
-        checksum/config: {{ toJson (list .Values.siteRoot .Values.settings .Values.admin.email) | sha256sum }}
+        checksum/config: {{ toJson (list .Values.siteRoot .Values.settings .Values.admin.email .Values.tls) | sha256sum }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -83,6 +83,10 @@ spec:
             {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
           env:
             {{- include "healthchecks.env" . | nindent 12 }}
+            {{- if include "quench-common.tls.enabled" . }}
+            # gunicorn serves HTTPS on its one port from the PEM pair at /tls
+            - { name: GUNICORN_CMD_ARGS, value: "--certfile /tls/tls.crt --keyfile /tls/tls.key" }
+            {{- end }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
             {{- range (include "healthchecks.ports" . | fromJsonArray) }}
@@ -104,6 +108,7 @@ spec:
               mountPath: /tmp
             - name: data
               mountPath: /data
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
             {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
         {{- include "quench-common.sidecars" . | nindent 8 }}
       volumes:
@@ -116,4 +121,5 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
         {{- include "quench-common.extraVolumes" . | nindent 8 }}

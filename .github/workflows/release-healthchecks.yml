@@ -69,7 +69,20 @@ jobs:
           kubectl delete pod -l app.kubernetes.io/instance=rtest --wait=true
           kubectl rollout status deployment/rtest-healthchecks --timeout=300s
           up || { echo "the check did not survive the pod restart"; exit 1; }
-          echo "healthchecks: admin from the init container logs in, a pinged check is up and kept across a pod restart: ok"
+          # native TLS on the same port: HTTPS answers, plain HTTP does not, the check is still there
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true \
+            --set siteRoot=https://localhost:8000 --wait --timeout 8m
+          kubectl rollout status deployment/rtest-healthchecks --timeout=300s
+          tlsgate() {
+            for _ in $(seq 1 20); do curl -kfsS -o /dev/null https://localhost:8000/health 2>/dev/null && break; sleep 1; done
+            curl -kfsS https://localhost:8000/health >/dev/null || { echo "no HTTPS after the TLS upgrade"; return 1; }
+            ! curl -fsS -o /dev/null http://localhost:8000/health 2>/dev/null || { echo "plain HTTP still answers with tls.enabled"; return 1; }
+            curl -kfsS "https://localhost:8000/ping/$(cat /tmp/uuid)" | grep -q OK || { echo "ping over HTTPS failed"; return 1; }
+          }
+          kubectl port-forward svc/rtest-healthchecks 8000:8000 >/tmp/pf.log 2>&1 & pf=$!
+          tlsgate; rc=$?; kill $pf 2>/dev/null || true; [ $rc = 0 ] || exit 1
+          up || { echo "the check did not survive the TLS upgrade"; exit 1; }
+          echo "healthchecks: admin from the init container logs in, a pinged check is up and kept across a pod restart and a native-TLS upgrade: ok"
 
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait

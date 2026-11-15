@@ -24,6 +24,7 @@ password while that email has no account. Self sign-up is off (`REGISTRATION_OPE
 | `admin.create`, `admin.email` | `true`, `admin@example.com` | The superuser the init container creates |
 | `settings` | sign-up off, 2 gunicorn workers | More env (`EMAIL_HOST`, `DB: postgres`, integrations) |
 | `persistence.size` | `1Gi` | SQLite data volume (`/data/hc.sqlite`) |
+| `tls.enabled` | `false` | gunicorn serves HTTPS on port 8000 (existing Secret, cert-manager or a Helm-made CA) |
 
 Django's `SECRET_KEY` is generated into the Secret `<fullname>` and kept across upgrades. With
 PostgreSQL (`settings.DB: postgres`, `DB_HOST`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` through

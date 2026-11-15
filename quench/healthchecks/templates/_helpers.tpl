@@ -1,6 +1,6 @@
 {{/* Every port Healthchecks listens on, as {name, port, servicePort, protocol}: container, Service and NetworkPolicy. */}}
 {{- define "healthchecks.ports" -}}
-{{- toJson (list (dict "name" "http" "port" 8000 "servicePort" (int .Values.service.port) "protocol" "TCP")) -}}
+{{- toJson (list (dict "name" (ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true")) "port" 8000 "servicePort" (int .Values.service.port) "protocol" "TCP")) -}}
 {{- end -}}
 
 {{- define "healthchecks.pvcName" -}}
