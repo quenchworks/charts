@@ -1,0 +1,90 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/wstunnel
+  digest: "sha256:b7d9d8d90c449f6954c788a50802e8073aaff762067774d7e29f0b5b834209b0"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The server is stateless: run as many replicas as you like.
+replicaCount: 2
+updateStrategy:
+  type: RollingUpdate
+
+# Clients must send this path prefix (wstunnel client --http-upgrade-path-prefix <prefix>); anything else is
+# refused. Empty value: generated into the Secret <fullname> (path-prefix). Turning it off lets anyone who
+# reaches the server tunnel to any target allowed below.
+pathPrefix:
+  enabled: true
+  value: ""
+  existingSecret: ""   # a Secret with key "path-prefix" instead
+
+# Targets clients may reach (host:port, repeatable --restrict-to). Empty: any target. Set this.
+restrictTo: []
+
+# More server flags, e.g. --restrict-config=/path or --log-lvl=DEBUG.
+extraArgs: []
+
+resources:
+  requests: { cpu: 10m, memory: 16Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: the server takes wss:// (TLS) instead of HTTP on its one port from the PEM pair at /tls. The
+# certificate comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

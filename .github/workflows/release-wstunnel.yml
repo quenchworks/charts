@@ -1,0 +1,141 @@
+name: release-wstunnel
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/wstunnel/**"
+      - ".github/workflows/release-wstunnel.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/wstunnel
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          # a tunnel target: our go-httpbin chart
+          helm install httpbin oci://ghcr.io/quenchworks/charts/go-httpbin --version 0.0.1 --set replicaCount=1 --wait --timeout 8m
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/rtest-wstunnel --timeout=300s
+          IMG="$(grep -m1 '^  repository:' "${CHART_DIR}/values.yaml" | awk '{print $2}')@$(grep -m1 '^  digest:' "${CHART_DIR}/values.yaml" | tr -d '"' | awk '{print $2}')"
+          # tunnel NAME SCHEME PREFIX TARGET: a client pod of our image forwarding its :9000 to TARGET through the server,
+          # then GET /get through a port-forward to that pod; prints the HTTP status (000 when nothing comes back)
+          tunnel() { local n=$1 sc=$2 pre=$3 tgt=$4
+            kubectl run "$n" --image="$IMG" --restart=Never --port=9000 -- client -L "tcp://0.0.0.0:9000:$tgt" \
+              --http-upgrade-path-prefix "$pre" "$sc://rtest-wstunnel:8080" >/dev/null
+            kubectl wait --for=condition=Ready "pod/$n" --timeout=120s >/dev/null
+            kubectl port-forward "pod/$n" 9000:9000 >/tmp/pf.log 2>&1 & local pf=$!; sleep 3
+            local code=000; for _ in 1 2 3 4 5; do code=$(curl -s -o /dev/null -m 5 -w '%{http_code}' http://127.0.0.1:9000/get || true); [ "$code" = 200 ] && break; sleep 2; done
+            kill $pf 2>/dev/null || true; kubectl delete pod "$n" --wait=true >/dev/null; echo "$code"; }
+          [ "$(tunnel c1 ws quench-ci-prefix httpbin-go-httpbin:8080)" = 200 ] || { echo "no HTTP through the tunnel"; exit 1; }
+          [ "$(tunnel c2 ws wrong-prefix httpbin-go-httpbin:8080)" != 200 ] || { echo "a wrong path prefix got through"; exit 1; }
+          [ "$(tunnel c3 ws quench-ci-prefix rtest-wstunnel:8080)" != 200 ] || { echo "a target outside restrictTo was allowed"; exit 1; }
+          # native TLS: the server takes wss:// on the same port and refuses plain ws://
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-wstunnel --timeout=300s
+          [ "$(tunnel c4 wss quench-ci-prefix httpbin-go-httpbin:8080)" = 200 ] || { echo "no HTTP through the wss tunnel"; exit 1; }
+          [ "$(tunnel c5 ws quench-ci-prefix httpbin-go-httpbin:8080)" != 200 ] || { echo "plain ws still works with tls.enabled"; exit 1; }
+          echo "wstunnel: HTTP tunneled to go-httpbin, wrong prefix and a disallowed target refused, wss with native TLS: ok"
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/wstunnel-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/wstunnel@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/wstunnel:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

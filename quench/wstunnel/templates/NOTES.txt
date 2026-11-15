@@ -1,0 +1,11 @@
+The wstunnel server listens on {{ ternary "wss" "ws" (eq (include "quench-common.tls.enabled" .) "true") }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}{{ if not .Values.restrictTo }} and allows ANY target (set restrictTo){{ end }}.
+{{- if .Values.pathPrefix.enabled }}
+
+The path prefix clients must send:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "wstunnel.secretName" . }} -o jsonpath='{.data.path-prefix}' | base64 -d
+{{- end }}
+
+Client example (forward local 5432 to a target through the server):
+
+  wstunnel client -L tcp://5432:<target-host>:5432 --http-upgrade-path-prefix <prefix> {{ ternary "wss" "ws" (eq (include "quench-common.tls.enabled" .) "true") }}://<server>:{{ .Values.service.port }}
