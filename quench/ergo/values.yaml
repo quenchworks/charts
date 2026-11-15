@@ -1,0 +1,99 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/ergo
+  digest: "sha256:cdf29101ff55b9dc934c1cf2b93ec8740929a6c683d8f9aef3a36face01a4c10"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Ergo keeps accounts and channel registrations in /ircd/ircd.db on the volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The network name shown to clients, and this server's host name (required).
+networkName: QuenchIRC
+serverName: ""
+
+# The IRC operator account "admin". Empty password: generated into the Secret <fullname>
+# (oper-password, with its bcrypt hash in oper-password-hash). Clients become operators with /OPER admin <password>.
+oper:
+  password: ""
+  existingSecret: ""   # keys oper-password and oper-password-hash instead
+
+# More ERGO__* overrides of the image's config (YAML values), e.g. ERGO__ACCOUNTS__REGISTRATION__ENABLED: "false".
+settings: {}
+
+# The volume at /ircd: ircd.db (accounts, channels, history).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 2Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 6667
+  tlsPort: 6697   # when tls.enabled
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: Ergo adds an IRC-over-TLS listener on 6697 from the PEM pair at /tls (the
+# probes switch to HTTPS). The certificate comes from the first source set: existingSecret, then a
+# cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
