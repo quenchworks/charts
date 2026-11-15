@@ -1,0 +1,11 @@
+Kopia's repository server and web UI are on {{ include "quench-common.fullname" . }}:{{ .Values.service.port }} ({{ ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") }}).
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 51515:{{ .Values.service.port }}
+
+Log in as "{{ .Values.ui.username }}" with:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "kopia.secretName" . }} -o jsonpath='{.data.ui-password}' | base64 -d
+
+The repository password encrypts every backup and cannot be recovered. Copy it somewhere safe:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "kopia.secretName" . }} -o jsonpath='{.data.repository-password}' | base64 -d

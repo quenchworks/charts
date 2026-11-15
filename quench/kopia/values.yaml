@@ -1,0 +1,101 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/kopia
+  digest: "sha256:008421da369ca7f3e7d30e9ee8721f318f8db5355e6cc89df52dcaf8cea322b9"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The repository lives on one volume: run one replica (Recreate with the volume).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The repository password encrypts every backup. Empty: generated into the Secret <fullname>,
+# which is kept when the release is removed. Losing it loses the backups: store it elsewhere too.
+repository:
+  password: ""
+
+# The web UI and API login (basic auth). Empty password: generated into the same Secret.
+ui:
+  username: admin
+  password: ""
+
+# A Secret with keys repository-password and ui-password instead of the generated one.
+existingSecret: ""
+
+# More Kopia settings as environment variables, e.g. KOPIA_LOG_LEVEL.
+settings: {}
+
+# The data volume: the SQLite database (/data/yarr.db).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 20Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 20m, memory: 128Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 51515
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: yarr serves HTTPS instead of HTTP on its one port from the PEM pair at /tls (the
+# probes switch to HTTPS). The certificate comes from the first source set: existingSecret, then a
+# cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
