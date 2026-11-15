@@ -1,0 +1,87 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/ezbookkeeping
+  digest: "sha256:e774388e4baf2cf5f87cfed4b9ebb1538d7a4540d209d5a7ff9b0763e0f2d90a"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# ezBookkeeping keeps its SQLite database and uploads on the volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# Users register in the web UI; ezBookkeeping has no admin role and every user has their own books.
+# Turn registration off once your accounts exist.
+registration:
+  enabled: true
+
+# The host name users reach it at (used for links in e-mails and OAuth callbacks).
+domain: ""
+
+# A Secret with key secret-key instead of a generated one (it signs sessions and tokens).
+existingSecret: ""
+
+# More settings as EBK_<SECTION>_<KEY> environment variables (see upstream's conf/ezbookkeeping.ini),
+# e.g. EBK_DATABASE_TYPE=postgres with EBK_DATABASE_HOST, _NAME, _USER, _PASSWD.
+settings: {}
+
+# The volume at /ezbookkeeping/data: ezbookkeeping.db and uploaded files.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
