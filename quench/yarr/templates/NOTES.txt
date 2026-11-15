@@ -1,0 +1,11 @@
+yarr is on {{ include "quench-common.fullname" . }}:{{ .Values.service.port }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 7070:{{ .Values.service.port }}
+
+{{- if and .Values.auth.enabled (not .Values.auth.existingSecret) }}
+Log in as "{{ .Values.auth.username }}"; its password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "yarr.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+{{- end }}
+
+Mobile apps connect through the Fever API at /fever/ with the same login.
