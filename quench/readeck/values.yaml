@@ -1,0 +1,102 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/readeck
+  digest: "sha256:c3cfdd91b6a48fb3d26a3afdb847d4fc09599d08f636b2636b1bf46d49ec228f"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Readeck keeps its SQLite database and saved articles on the /readeck volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The admin the chart creates (readeck user) and keeps in step with the Secret on every start. Empty
+# password: generated into the Secret <fullname> (password).
+admin:
+  username: admin
+  email: admin@example.com
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+
+# The public URL (READECK_SERVER_BASE_URL), the Host names Readeck answers (READECK_ALLOWED_HOSTS, empty:
+# any) and the proxies whose X-Forwarded-* it trusts (READECK_TRUSTED_PROXIES).
+baseURL: ""
+allowedHosts: []
+trustedProxies: []
+
+# More READECK_* environment variables, e.g. READECK_MAIL_HOST.
+settings: {}
+
+# The data volume: config.toml, the database and saved articles (/readeck).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 1, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8000
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: Readeck serves HTTPS instead of HTTP on its one port from the PEM pair at /tls. The
+# certificate comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
