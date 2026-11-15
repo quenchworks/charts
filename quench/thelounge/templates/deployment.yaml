@@ -1,0 +1,115 @@
+{{- $probe := dict "tcpSocket" (dict "port" 9000) "initialDelaySeconds" 3 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.updateStrategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # The Lounge reads its -c overrides at start, and the init container syncs the admin password
+        checksum/config: {{ toJson (list (include "thelounge.args" .) .Values.admin) | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        # writes the default config.js and creates the admin user (thelounge add), or resets its password
+        # when it exists; node, no shell
+        - name: admin
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command:
+            - /usr/bin/node
+            - -e
+            - |
+              const fs = require("fs"), cp = require("child_process");
+              const home = process.env.THELOUNGE_HOME, user = process.env.ADMIN_USER;
+              fs.mkdirSync(home + "/users", { recursive: true });
+              // upstream's first start chmods THELOUNGE_HOME to 0700, which a volume root owned by root refuses:
+              // write the default config.js here so start skips that step
+              const cfg = home + "/config.js";
+              if (!fs.existsSync(cfg)) fs.copyFileSync("/app/node_modules/thelounge/dist/defaults/config.js", cfg);
+              const verb = fs.existsSync(home + "/users/" + user + ".json") ? "reset" : "add";
+              const r = cp.spawnSync(process.execPath, ["/app/node_modules/thelounge/index.js", verb, user, "--password", process.env.ADMIN_PASSWORD], { stdio: "inherit" });
+              process.exit(r.status === 0 && fs.existsSync(home + "/users/" + user + ".json") ? 0 : 1);
+          env:
+            - { name: ADMIN_USER, value: {{ .Values.admin.username | quote }} }
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ include "thelounge.secretName" . }}, key: password }
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /var/opt/thelounge
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: thelounge
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            {{- include "thelounge.args" . | nindent 12 }}
+          env:
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            {{- range (include "thelounge.ports" . | fromJsonArray) }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ .protocol }}
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /var/opt/thelounge
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "thelounge.pvcName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

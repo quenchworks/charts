@@ -1,0 +1,9 @@
+The Lounge serves its web UI on {{ ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/ ({{ ternary "public mode: no accounts" "private mode" .Values.public }}).
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 9000:{{ .Values.service.port }}
+
+Sign in as {{ .Values.admin.username }}; the password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "thelounge.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+
+New networks default to {{ .Values.defaults.host }}:{{ .Values.defaults.port }}{{ if .Values.lockNetwork }} (locked){{ end }}.

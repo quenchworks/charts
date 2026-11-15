@@ -1,0 +1,114 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/thelounge
+  digest: "sha256:60e6e29a9ca82678ddca421d31df8992b3a44df22ebd7235d7b9e784cf124540"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The Lounge keeps users, logs and uploads on its volume and stays connected for them: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The account the chart creates (thelounge add) and keeps in step with the Secret on every start. Empty
+# password: generated into the Secret <fullname> (password). Add more users with
+# kubectl exec deploy/<fullname> -- /usr/bin/node /app/node_modules/thelounge/index.js add <name>.
+admin:
+  username: admin
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+
+# public: anyone can use the client without an account (and nothing is kept). reverseProxy: trust
+# X-Forwarded-For from an ingress. fileUpload: let users upload files and share links to them.
+public: false
+reverseProxy: false
+fileUpload: false
+
+# The network a new connection starts from (config.js "defaults"); lockNetwork pins users to it.
+# Point it at the Ergo chart, e.g. host: irc-ergo.<namespace>, port: 6697, tls: true.
+defaults:
+  name: QuenchIRC
+  host: irc.libera.chat
+  port: 6697
+  tls: true
+  rejectUnauthorized: true
+  nick: lounge%%
+  join: "#thelounge"
+lockNetwork: false
+
+# More config.js entries as -c overrides, e.g. maxHistory: 5000, prefetch: true.
+settings: {}
+
+# The data volume: THELOUNGE_HOME (config.js, users, logs, uploads).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 2Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 96Mi }
+  limits: { cpu: 500m, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 9000
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: The Lounge serves HTTPS instead of HTTP on its one port from the PEM pair at /tls. The
+# certificate comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
