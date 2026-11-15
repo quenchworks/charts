@@ -1,0 +1,93 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/cloudreve
+  digest: "sha256:59e1f9b6c3ac597c3752d62498bfd9c49b9e5464a4eb3d94a3571c37c5e4ad64"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Cloudreve keeps conf.ini, its SQLite database and uploads on the volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The administrator: Cloudreve makes the first registered account the admin, so a post-install Job
+# registers this one with a generated password (Secret <fullname>, key admin-password).
+admin:
+  email: admin@example.com
+  password: ""
+  existingSecret: ""   # a Secret with key admin-password instead
+
+# Open self-registration for other users. Off by default: the bootstrap Job turns it off after creating
+# the admin (re-applied on every upgrade, so set it here, not only in the UI).
+registration:
+  enabled: false
+
+# More settings as environment variables, e.g. CR_SETTING_DEFAULT_<name>=<value> defaults for new installs.
+settings: {}
+
+# Helper image for the bootstrap Job (wget and nc). Pinned by digest.
+busybox:
+  repository: ghcr.io/quenchworks/images/busybox
+  digest: "sha256:041302c8da3a2e182ecc2eac3c56c4f47a13c03cc284d255489c0be741893b64"
+  pullPolicy: IfNotPresent
+
+# The volume at /cloudreve/data: conf.ini, cloudreve.db and uploaded files (local storage policy).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 10Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 5212
+  annotations: {}
+  externalTrafficPolicy: ""
+
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
