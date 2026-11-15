@@ -1,0 +1,101 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/radicale
+  digest: "sha256:379b8f7cd955784e5804121e2ff4951cda61b1ccd34b830e4f3afb750ce54231"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Radicale keeps the collections on its volume: run one replica (Recreate with the volume).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The user clients sign in as (CalDAV/CardDAV at http(s)://<host>:5232/<user>/). Empty password:
+# generated into the Secret <fullname> (password, with its bcrypt line in htpasswd).
+auth:
+  username: admin
+  password: ""
+  existingSecret: ""   # a Secret with key "htpasswd" (bcrypt lines, one per user) instead
+
+# [rights] type: owner_only (each user sees only their own collections), owner_write, authenticated,
+# or from_file (with extraConfig).
+rights: owner_only
+# Largest accepted request body in bytes (upstream's default).
+maxContentLength: 100000000
+
+# More config sections appended as is (INI), e.g. "[logging]\nlevel = debug".
+extraConfig: ""
+
+# The data volume: the collections (/var/lib/radicale).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 2Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 16Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 5232
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: Radicale serves HTTPS instead of HTTP on its one port from the PEM pair at /tls. The
+# certificate comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
