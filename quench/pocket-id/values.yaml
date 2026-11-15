@@ -1,0 +1,111 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/pocket-id
+  digest: "sha256:7c9b3dd6da2ce32515ecc087dedd8cb8e3c6cc3aa93607ca67348fe8715a4208"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Pocket ID keeps its SQLite database and uploads in /app/data: run one replica (Recreate with the
+# volume). With PostgreSQL the volume still holds uploaded logos and profile pictures.
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# APP_URL: the address people open, e.g. https://id.example.com. It is the issuer in every token
+# and the base of every redirect, so set it before the first sign-in.
+# Its host becomes the WebAuthn RP ID and must be a domain (or localhost). Empty:
+# http(s)://localhost:<service.port>, for setup over a port-forward only.
+appUrl: ""
+
+# ENCRYPTION_KEY (16+ characters) encrypts the signing keys Pocket ID stores. Empty: generated once
+# into the Secret <fullname> (encryption-key) and kept across upgrades. Losing it makes the stored
+# keys unreadable: back the Secret up.
+encryptionKey:
+  value: ""
+  existingSecret: ""
+  existingSecretKey: encryption-key
+
+# SQLite on the data volume (default). For PostgreSQL, name a Secret holding the connection
+# string (DB_CONNECTION_STRING), e.g. postgres://pocketid:<pw>@db:5432/pocketid?sslmode=disable
+database:
+  existingSecret: ""
+  urlKey: url
+
+# More Pocket ID settings as environment variables
+# (https://pocket-id.org/docs/configuration/environment-variables), e.g. TRUST_PROXY: "true"
+settings: {}
+
+# The data volume: SQLite database and uploaded images.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 1Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 20m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 1411
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: Pocket ID serves HTTPS instead of HTTP on its one port from the PEM pair at /tls
+# (the probes switch to HTTPS). The certificate comes from the first source
+# set: existingSecret, then a cert-manager Certificate, else a Helm-generated CA + certificate.
+# Point appUrl at the https address.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
