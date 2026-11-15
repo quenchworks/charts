@@ -1,0 +1,108 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/rest-server
+  digest: "sha256:5e2c7e4436da149c8df413deb9ba6aa0b8a38ec35fbad05c0d42adb3230230c8"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# rest-server keeps the repositories on the /data volume: run one replica (Recreate with the volume).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The backup user restic signs in as (rest:http://<user>:<password>@<host>:8000/<repo>). Empty password:
+# generated into the Secret <fullname> (password, with its bcrypt line in htpasswd). Turning auth off lets
+# anyone who reaches the Service read and delete every repository.
+auth:
+  enabled: true
+  username: restic
+  password: ""
+  existingSecret: ""   # a Secret with key "htpasswd" (bcrypt lines, one per user) instead
+
+# Append-only: clients can add snapshots but never delete or overwrite data (ransomware-safe backups;
+# prune from a trusted host). Private repos: each user reaches only /<username>/... repositories.
+appendOnly: false
+privateRepos: false
+maxRepoSize: 0         # bytes per repository, 0 = no limit
+
+# Prometheus metrics on /metrics (behind auth unless noAuth).
+metrics:
+  enabled: false
+  noAuth: false
+
+# More rest-server flags, e.g. --debug or --log=-.
+extraArgs: []
+
+# The data volume: the restic repositories (/data).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 50Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 16Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 8000
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: rest-server serves HTTPS instead of HTTP on its one port from the PEM pair at /tls. The
+# certificate comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

@@ -1,0 +1,12 @@
+Restic REST Server serves restic repositories on {{ ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/<repo>{{ if .Values.appendOnly }} (append-only){{ end }}.
+{{- if .Values.auth.enabled }}
+
+The password of user {{ .Values.auth.username }}:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "rest-server.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+
+Back up from a client:
+
+  export RESTIC_REPOSITORY=rest:{{ ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") }}://{{ .Values.auth.username }}:<password>@{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/{{ if .Values.privateRepos }}{{ .Values.auth.username }}/{{ end }}backups
+  restic init && restic backup /path
+{{- end }}

@@ -1,0 +1,159 @@
+name: release-rest-server
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/rest-server/**"
+      - ".github/workflows/release-rest-server.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/rest-server
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+  # the gate's backup client: our restic image
+  RESTIC_IMAGE: ghcr.io/quenchworks/images/restic@sha256:346f4d3122c5a3c47cf2a41cb97b64628bd638c1fe0d850dd33a938074f85835
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/rtest-rest-server --timeout=300s
+          PW=quench-ci-backup-pass
+          # restic STEP ARGS...: our restic image as a one-shot client pod against the Service
+          restic() { local s=$1; shift; kubectl run "rc-$s" --rm -i --restart=Never --quiet --pod-running-timeout=3m \
+            --image="${RESTIC_IMAGE}" --env=RESTIC_PASSWORD=quench-ci-repo-pass \
+            --env="RESTIC_REPOSITORY=rest:${SCHEME:-http}://restic:${RPW:-$PW}@rtest-rest-server:8000/backups" -- "$@"; }
+          code() { curl -ks -o /dev/null -w '%{http_code}' "$@"; }
+          fwd() { kubectl port-forward svc/rtest-rest-server 8000:8000 >/tmp/pf.log 2>&1 & local pf=$!; sleep 3; local rc=0; "$@" || rc=$?; kill $pf 2>/dev/null || true; return $rc; }
+          auth() {
+            [ "$(code http://127.0.0.1:8000/)" = 401 ] || { echo "an anonymous request was not refused"; return 1; }
+            [ "$(code -u restic:wrong-password-1 http://127.0.0.1:8000/)" = 401 ] || { echo "a wrong password was let in"; return 1; }
+          }
+          fwd auth
+          ! RPW=wrong-password-1 restic badpw init || { echo "restic got in with a wrong password"; exit 1; }
+          restic init init
+          restic backup backup /etc/os-release
+          # the repository lives on the PVC: the snapshot must survive a pod restart
+          kubectl delete pod -l app.kubernetes.io/instance=rtest --wait=true
+          kubectl rollout status deployment/rtest-rest-server --timeout=300s
+          restic check check
+          grep -qx /etc/os-release <<<"$(restic ls ls latest)" || { echo "the snapshot is gone"; exit 1; }
+          # append-only: a new snapshot still lands, deleting snapshots is refused
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set appendOnly=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-rest-server --timeout=300s
+          restic backup2 backup /etc/os-release
+          ! restic forget forget --keep-last 1 --group-by "" --prune || { echo "append-only let a client delete snapshots"; exit 1; }
+          # native TLS on the same port with the Helm-made CA: HTTPS answers with the account, plain HTTP does not
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-rest-server --timeout=300s
+          kubectl get secret rtest-rest-server-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/rs-ca.crt
+          tlsgate() {
+            local u=https://rtest-rest-server:8000/backups/config r="--resolve rtest-rest-server:8000:127.0.0.1"
+            for _ in $(seq 1 20); do [ "$(curl -s -o /dev/null -w '%{http_code}' --cacert /tmp/rs-ca.crt $r -u restic:$PW $u)" = 200 ] && break; sleep 1; done
+            [ "$(curl -s -o /dev/null -w '%{http_code}' --cacert /tmp/rs-ca.crt $r -u restic:$PW $u)" = 200 ] || { echo "no repository over HTTPS"; return 1; }
+            ! curl -fsS -o /dev/null -u restic:$PW http://127.0.0.1:8000/backups/config 2>/dev/null || { echo "plain HTTP still answers with tls.enabled"; return 1; }
+          }
+          fwd tlsgate
+          echo "rest-server: htpasswd enforced, restic backup kept across a pod restart, append-only refuses deletes, native TLS: ok"
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/rest-server-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/rest-server@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/rest-server:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
