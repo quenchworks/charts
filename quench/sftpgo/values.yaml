@@ -1,0 +1,96 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/sftpgo
+  digest: "sha256:d9f3d79e94b3911387bf98d6574178ceeaf1d94ffb7e41f70c438c36d5e71b00"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# SFTPGo keeps its SQLite database, host keys and users' files on one volume: one replica.
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The first admin. Empty password: generated into the Secret <fullname> (admin-password) and kept
+# across upgrades. SFTPGo creates the admin on its first start only.
+admin:
+  username: admin
+  password: ""
+  existingSecret: ""   # a Secret with key "admin-password" instead
+
+# More SFTPGo settings as SFTPGO_* environment variables, e.g. SFTPGO_SFTPD__MAX_AUTH_TRIES.
+settings: {}
+
+# The volume at /var/lib/sftpgo: sftpgo.db, the SSH host keys, data/ (users' files) and backups/.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 10Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  sftpPort: 2022
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: SFTPGo serves the web UI and API over HTTPS instead of HTTP on 8080 (SFTP is SSH already) from the PEM pair at /tls (the
+# probes switch to HTTPS). The certificate comes from the first source set: existingSecret, then a
+# cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
