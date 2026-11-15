@@ -9,9 +9,9 @@ nameOverride: ""
 
 # Cadence runs as the ALL-IN-ONE server: one process runs all four roles
 # (frontend + history + matching + worker), selected by the --services flag. All
-# durable state lives in Cassandra, so the server itself is stateless — but the
+# durable state lives in Cassandra, so the server itself is stateless, but the
 # all-in-one process does not cluster trivially, so keep replicaCount at 1.
-# (Scale-out — one Deployment per role — is a future chart capability.)
+# (Scale-out, one Deployment per role, is a future chart capability.)
 replicaCount: 1
 
 # --services passed to `cadence-server start`. The default runs every role in one
@@ -26,7 +26,7 @@ numHistoryShards: 4
 
 # Bundled in-cluster Cassandra (the QuenchWorks cassandra subchart). Default true:
 # a self-contained install. Set false to point at externalCassandra. Auth is OFF by
-# default (internal deployment, NetworkPolicy is the trust boundary) — matching the
+# default (internal deployment, NetworkPolicy is the trust boundary), matching the
 # cassandra subchart's default. The keys below are forwarded to that subchart.
 cassandra:
   enabled: true
@@ -59,7 +59,7 @@ externalCassandra:
 
 # Schema bootstrap. Six shell-free init containers on the server pod run
 # `cadence-cassandra-tool` against Cassandra BEFORE the server boots, for each
-# keyspace: create-Keyspace (idempotent, also the wait-for-Cassandra gate — the
+# keyspace: create-Keyspace (idempotent, also the wait-for-Cassandra gate, the
 # kubelet restarts it until Cassandra accepts connections), setup-schema (quiet, so
 # re-runs tolerate an already-initialised keyspace), and update-schema (idempotent,
 # a no-op once current). Disable only if an external operator manages the schema.
@@ -80,7 +80,7 @@ schemaSetup:
 #
 # Notes on the bindings (the QuenchWorks clean image does NOT run dockerize, but
 # Cadence's own config loader expands ${ENV} / ${ENV:default} references at load
-# time — so ${POD_IP} below is substituted with the real pod IP, injected via the
+# time, so ${POD_IP} below is substituted with the real pod IP, injected via the
 # downward API, WITHOUT any shell/render step):
 #   - Every role binds gRPC + TChannel on the pod IP (${POD_IP}) so the kubelet TCP
 #     probe and the k8s Service (which target the pod IP) can reach the frontend, and
@@ -227,7 +227,7 @@ resources:
 
 service:
   type: ClusterIP
-  grpcPort: 7833                  # frontend gRPC — the main client/worker port
+  grpcPort: 7833                  # frontend gRPC, the main client/worker port
   tchannelPort: 7933              # frontend TChannel (legacy CLI / internal)
 
 # Native TLS: the frontend gRPC port (7833) takes TLS only, from the PEM pair at /tls, and the

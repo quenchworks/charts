@@ -20,7 +20,7 @@ quench-common.image helper.
 {{/* The shared Secret carrying all generated/persisted credentials. */}}
 {{- define "harbor.secret" -}}{{ include "quench-common.fullname" . }}{{- end -}}
 
-{{/* Component selector labels — selectorLabels + a component discriminator. */}}
+{{/* Component selector labels, selectorLabels + a component discriminator. */}}
 {{- define "harbor.componentLabels" -}}
 {{- include "quench-common.selectorLabels" .ctx }}
 app.kubernetes.io/component: {{ .component }}

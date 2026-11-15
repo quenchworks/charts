@@ -7,7 +7,7 @@ Database wiring. When postgresql.enabled the bundled subchart's primary Service 
 named "<release>-postgresql" (the subchart's quench-common.fullname resolves against
 its own chart name "postgresql"). The bundled PostgreSQL image creates POSTGRES_USER
 (= postgresql.auth.username) as the SUPERUSER and only creates the application database
-when it differs from POSTGRES_USER — so the user (mlflowuser) and database (mlflow) MUST
+when it differs from POSTGRES_USER, so the user (mlflowuser) and database (mlflow) MUST
 be distinct. MLflow connects to the backend store with that single role. When external,
 the connection details come from externalDatabase.*.
 */}}

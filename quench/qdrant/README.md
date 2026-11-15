@@ -121,7 +121,7 @@ topology and is a tracked follow-up. Keep `replicaCount` at 1 here.
 
 ## Configuration examples
 
-Port-forward and drive the REST API — create a collection, upsert a point, then
+Port-forward and drive the REST API, create a collection, upsert a point, then
 search:
 
 ```sh
@@ -186,7 +186,7 @@ helm uninstall my-qdrant
 ```
 
 The PVC provisioned by the `volumeClaimTemplate` is retained by Kubernetes on
-uninstall — delete it explicitly if you want the data gone:
+uninstall, delete it explicitly if you want the data gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=my-qdrant
@@ -201,6 +201,6 @@ replicated collections is a tracked follow-up. The chart depends on the
 (uid/gid 1001) on a read-only root filesystem with all capabilities dropped,
 `allowPrivilegeEscalation: false` and `seccompProfile: RuntimeDefault`; the
 ServiceAccount token is not auto-mounted and the image is pinned by digest.
-Qdrant serves with no auth by default — set `auth.apiKey` (or `auth.existingSecret`)
+Qdrant serves with no auth by default, set `auth.apiKey` (or `auth.existingSecret`)
 and keep the NetworkPolicy as the trust boundary before exposing it beyond the
 cluster.

@@ -1,7 +1,7 @@
 # Quenchworks Apache SkyWalking
 
 Hardened [Apache SkyWalking](https://skywalking.apache.org/) **OAP**
-(Observability Analysis Platform) backend — the APM collector that ingests
+(Observability Analysis Platform) backend, the APM collector that ingests
 trace/metric/log data from SkyWalking agents and serves it over a GraphQL query
 API. The chart deploys the OAP server only; SkyWalking 11 no longer ships a UI in
 the OAP distribution (the Horizon UI is a separate project), so there is no UI
@@ -15,8 +15,8 @@ workload here.
 
 OAP exposes two ports:
 
-- **gRPC `11800`** — SkyWalking agents push trace/metric/log data.
-- **HTTP `12800`** — GraphQL query API + health. Point a SkyWalking UI, Grafana,
+- **gRPC `11800`**: SkyWalking agents push trace/metric/log data.
+- **HTTP `12800`**: GraphQL query API + health. Point a SkyWalking UI, Grafana,
   or any GraphQL client at this port to read the data.
 
 OAP is stateless (all durable state lives in the storage backend), so it runs as
@@ -70,7 +70,7 @@ gh attestation verify oci://ghcr.io/quenchworks/images/skywalking \
 | `nameOverride` | `""` | Override the chart name in resource names. |
 | `replicaCount` | `1` | OAP replicas (stateless; scales out). |
 | `oap.javaOpts` | `-Xms256M -Xmx2048M` | OAP JVM heap options; raise the max for higher ingest. |
-| `storage.type` | `elasticsearch` | `SW_STORAGE` selector. Serves OpenSearch too — OAP has no separate `opensearch` selector. |
+| `storage.type` | `elasticsearch` | `SW_STORAGE` selector. Serves OpenSearch too: OAP has no separate `opensearch` selector. |
 | `storage.elasticsearch.clusterNodes` | `""` | External OpenSearch / Elasticsearch 8 `host:port` (used when the bundle is disabled). |
 | `storage.elasticsearch.protocol` | `http` | `http` or `https`. |
 | `storage.elasticsearch.namespace` | `""` | Index namespace prefix. |
@@ -116,7 +116,7 @@ Two ports are exposed: **gRPC (11800)** where agents push data and **HTTP
 (12800)** for the GraphQL query API and health. The gRPC port binds early, so
 liveness watches it to prove the JVM is alive; the query port opens only after
 OAP finishes module init against storage, so readiness watches that. OAP's first
-boot is slow (JVM start, then connect to storage and create/verify all indices —
+boot is slow (JVM start, then connect to storage and create/verify all indices:
 often 60-180s on a fresh store), so a startup probe gates liveness and
 readiness on the query port with up to 600s of grace (60 × 10s) before normal
 probe timing resumes.
@@ -185,7 +185,7 @@ helm uninstall apm
 ```
 
 OAP holds no PVCs. If you enabled the bundled OpenSearch, its PVCs are
-retained by Kubernetes on uninstall — delete them explicitly if you want the data
+retained by Kubernetes on uninstall, delete them explicitly if you want the data
 gone:
 
 ```bash
@@ -203,7 +203,7 @@ The chart depends on the `quench-common` library chart and, when enabled, the
 `opensearch` subchart, both pulled from `oci://ghcr.io/quenchworks/charts`. It
 used to bundle the `elasticsearch` subchart, which could not work on OAP 10.4:
 10.4 rejected Elasticsearch 9, the only major the Quenchworks Elasticsearch chart
-ships. OAP 11 accepts it as an external cluster. Nothing about the external-cluster path changed — `storage.type`
+ships. OAP 11 accepts it as an external cluster. Nothing about the external-cluster path changed, `storage.type`
 and every `storage.elasticsearch.*` key mean exactly what they did before. The
 image runs nonroot (uid 1001) on a read-only root filesystem with all
 capabilities dropped, and is pinned by digest.

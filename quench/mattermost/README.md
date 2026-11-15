@@ -1,7 +1,7 @@
 # Quenchworks Mattermost
 
-Hardened [Mattermost](https://mattermost.com/) **Team Edition** — a self-hosted team
-collaboration and messaging platform (channels, DMs, file sharing) — on a minimal,
+Hardened [Mattermost](https://mattermost.com/) **Team Edition**, a self-hosted team
+collaboration and messaging platform (channels, DMs, file sharing), on a minimal,
 nonroot, CVE-gated image pinned by digest. The server is a single static Go binary that
 runs as uid `1001` on a read-only root filesystem and listens on port `8065`.
 

@@ -4,8 +4,8 @@ A hardened, **operator-free** Kubernetes monitoring bundle: Prometheus, Grafana,
 Alertmanager, kube-state-metrics and node-exporter wired together into end-to-end
 cluster monitoring, with curated Grafana dashboards provisioned automatically.
 
-It delivers the everyday value of the [kube-prometheus-stack][kps] — metrics,
-alerting and the standard Kubernetes dashboards — **without the Prometheus
+It delivers the everyday value of the [kube-prometheus-stack][kps], metrics,
+alerting and the standard Kubernetes dashboards, **without the Prometheus
 Operator and its CRDs**. Scrape configuration is plain `kubernetes_sd_configs`
 (annotation-based pod discovery plus the kubelet, cAdvisor and the apiserver), so
 there are no `ServiceMonitor`/`PrometheusRule` CRDs to install, no admission
@@ -45,7 +45,7 @@ Open Grafana and read the generated admin password:
 ```sh
 kubectl get secret obs-grafana -o jsonpath='{.data.admin-password}' | base64 -d ; echo
 kubectl port-forward svc/obs-grafana 3000:3000
-# http://127.0.0.1:3000  (user: admin) — the "Prometheus" datasource is the default
+# http://127.0.0.1:3000  (user: admin), the "Prometheus" datasource is the default
 ```
 
 The bundled dashboards appear under **Dashboards** immediately; they populate as
@@ -58,7 +58,7 @@ helm uninstall obs
 ```
 
 This removes everything the chart created. **No CRDs are installed, so there is
-nothing to clean up afterwards** — unlike operator-based stacks, which leave
+nothing to clean up afterwards**, unlike operator-based stacks, which leave
 `*.monitoring.coreos.com` CRDs behind. PersistentVolumeClaims for Prometheus,
 Grafana and Alertmanager are retained by Helm convention; delete them by hand if
 you want the data gone:
@@ -81,26 +81,26 @@ chart version bump signals a breaking values change; check the release notes.
 The umbrella owns a thin glue layer; everything else passes straight through to
 the component charts.
 
-- **Grafana datasource** — the umbrella renders a fixed-name ConfigMap
+- **Grafana datasource**: the umbrella renders a fixed-name ConfigMap
   (`observability-stack-datasources`) pointing at `http://<release>-prometheus:9090`
   with a fixed datasource uid `prometheus`, and mounts it into Grafana's
   provisioning directory via `grafana.extraVolumes`. `grafana.datasources` stays
   empty. **Fixed names ⇒ run one observability-stack per namespace.**
-- **Dashboards** — five dashboard JSON files ship in `dashboards/`, rendered into a
+- **Dashboards**: five dashboard JSON files ship in `dashboards/`, rendered into a
   ConfigMap and provisioned through a Grafana file provider (same mount mechanism
   as the datasource). No Grafana sidecar image required.
-- **Prometheus scraping** — `kubernetes_sd_configs` jobs, all release-agnostic (no
+- **Prometheus scraping**: `kubernetes_sd_configs` jobs, all release-agnostic (no
   static service names):
   - annotation-based pod scrape (`prometheus.io/scrape: "true"`, honoring
     `prometheus.io/port` and `prometheus.io/path`);
   - the **kubelet** and **cAdvisor**, scraped through the apiserver proxy
     (`/api/v1/nodes/<node>/proxy/metrics[/cadvisor]`);
   - the **apiserver** endpoints.
-- **RBAC** — the umbrella creates a ClusterRole + binding for the
+- **RBAC**: the umbrella creates a ClusterRole + binding for the
   `<release>-prometheus` ServiceAccount granting the read access discovery needs,
   including `nodes/proxy` for the kubelet/cAdvisor scrape. It also projects the SA
   token into the Prometheus pod (the hardened prometheus chart disables automount).
-- **kube-state-metrics** — a clean (no host access) Deployment + ClusterRole +
+- **kube-state-metrics**: a clean (no host access) Deployment + ClusterRole +
   Service, annotated for discovery.
 
 ### Why no operator?
@@ -125,7 +125,7 @@ Five curated Kubernetes dashboards ship in the chart and provision automatically
 | kube-state-metrics v2 | KSM's own health + object counts | kube-state-metrics |
 | Prometheus Overview | Prometheus TSDB + scrape health | prometheus |
 
-Choose how many you want — all, some, or none:
+Choose how many you want, all, some, or none:
 
 ```yaml
 # All (default): nothing to set.
@@ -150,7 +150,7 @@ to bind their datasource to the provisioned `prometheus` uid.
 
 ## Scrape your own workloads
 
-Annotate the workload's **pod template** — the annotation-based job picks it up
+Annotate the workload's **pod template**, the annotation-based job picks it up
 with no CRD:
 
 ```yaml
@@ -164,7 +164,7 @@ spec:
 ```
 
 To change the scrape config wholesale (extra jobs, relabeling, remote_write), edit
-`prometheus.config.prometheusYaml` — it is rendered verbatim into the Prometheus
+`prometheus.config.prometheusYaml`, it is rendered verbatim into the Prometheus
 config.
 
 ## Alerting
@@ -177,13 +177,13 @@ alert rules under `prometheus.config.prometheusYaml` (`rule_files` / inline grou
 
 `nodeExporter` is **on** by default: cluster observability needs per-node metrics and
 the Node Exporter dashboard depends on them. It runs as a host DaemonSet (host
-PID/network namespaces, host `/proc` `/sys` `/` mounts) — the deliberate trade-off
+PID/network namespaces, host `/proc` `/sys` `/` mounts), the deliberate trade-off
 for this stack, which the rest of the hardened catalog otherwise avoids. Disable it
 with `nodeExporter.enabled: false`.
 
 Container metrics (`container_*`) come from the kubelet's `/metrics/cadvisor`, so
 they work with no extra pod. The standalone `cadvisor` DaemonSet is **off** by
-default — it is redundant on any cluster whose kubelet serves cAdvisor (nearly all),
+default, it is redundant on any cluster whose kubelet serves cAdvisor (nearly all),
 and its read-only rootfs cannot mount the ServiceAccount token. Enable it only if
 your kubelet does not expose cAdvisor.
 
@@ -206,7 +206,7 @@ prometheus:
       requiredDuringSchedulingIgnoredDuringExecution: [ ... ]
 ```
 
-Two replicas give availability but not cross-replica sample deduplication — for
+Two replicas give availability but not cross-replica sample deduplication, for
 global deduplicated querying, put a Thanos Query (or VictoriaMetrics) layer in front.
 The `lgtm-stack` uses VictoriaMetrics as the long-term metrics backend.
 

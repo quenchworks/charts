@@ -35,7 +35,7 @@ curl http://127.0.0.1:8080/login      # 200 once Jenkins is up
 
 This is the **core** Jenkins image (no bundled plugins). By default the chart sets
 `JAVA_OPTS=-Djenkins.install.runSetupWizard=false` (via `extraEnvVars`), so Jenkins
-boots straight to a usable state with the setup wizard skipped — convenient for an
+boots straight to a usable state with the setup wizard skipped, convenient for an
 internal/sandbox install, but it leaves **no authentication** configured. Configure
 security under _Manage Jenkins > Security_ before exposing it.
 

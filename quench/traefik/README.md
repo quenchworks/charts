@@ -42,7 +42,7 @@ kubectl port-forward deployment/edge-traefik 8080:8080
 
 `/ping` is always served (it backs the probes). The dashboard requires
 `dashboard.enabled=true`; `dashboard.insecure=true` exposes the api with no auth on
-the `traefik` entryPoint — convenient for port-forward, never expose it publicly.
+the `traefik` entryPoint, convenient for port-forward, never expose it publicly.
 Set `service.exposeDashboard=true` to publish the `traefik` port on the Service.
 
 ## Route traffic

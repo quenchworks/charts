@@ -1,6 +1,6 @@
 # Meilisearch (Quenchworks)
 
-Quenchworks-hardened [Meilisearch](https://github.com/meilisearch/meilisearch) — a
+Quenchworks-hardened [Meilisearch](https://github.com/meilisearch/meilisearch), a
 fast, typo-tolerant full-text search engine. Runs from a minimal, nonroot, CVE-gated
 image pinned by digest and cosign-signed. Single-node, with **mandatory** master-key
 auth (`MEILI_ENV=production`) backed by a generated Secret.
@@ -41,9 +41,9 @@ Authorization: Bearer <master-key>
 
 The master key is resolved in this order:
 
-1. **`auth.existingSecret`** — read the key from your own Secret (key `auth.existingSecretKey`, default `master-key`).
-2. **`auth.masterKey`** — a literal value, stored in a chart-managed Secret.
-3. **neither set (default)** — a strong 40-char key is **generated once** and
+1. **`auth.existingSecret`**: read the key from your own Secret (key `auth.existingSecretKey`, default `master-key`).
+2. **`auth.masterKey`**: a literal value, stored in a chart-managed Secret.
+3. **neither set (default)**: a strong 40-char key is **generated once** and
    **preserved across `helm upgrade`** via a `lookup` of the existing Secret.
 
 Get the key from the chart-managed Secret:
@@ -53,13 +53,13 @@ kubectl get secret <release>-meilisearch-masterkey -o jsonpath='{.data.master-ke
 ```
 
 From the master key you can mint scoped API keys via `POST /keys` for least-privilege
-clients (search-only keys, per-index keys, etc.) — see the Meilisearch security docs.
+clients (search-only keys, per-index keys, etc.), see the Meilisearch security docs.
 
 ## Storage
 
 Meilisearch keeps its index (LMDB) on local disk in `/meili_data/data.ms`, with dumps
 and snapshots as sibling dirs under `/meili_data` (the DB path must be the LMDB dir
-itself — Meilisearch's DB-version inference fails if that dir also holds sibling
+itself, Meilisearch's DB-version inference fails if that dir also holds sibling
 dirs). The chart mounts a writable volume at `/meili_data` and runs on a read-only
 root filesystem. `persistence.enabled=true` (default) provisions a PVC via a
 `volumeClaimTemplate`; set `persistence.existingClaim` to reuse a PVC, or
@@ -164,7 +164,7 @@ from the network at compile time, which is incompatible with a hermetic from-sou
 build. Instead we vendor the EXACT pinned upstream `build.zip`
 (`meilisearch/mini-dashboard` v0.4.1, sha256
 `75f1f8b4fee7ff60179f519b853fa2f0cef347df95b24d9fc705e433797ac64d`), verify its
-checksum, and feed it to the build offline via a tiny patch to `build.rs` — the
+checksum, and feed it to the build offline via a tiny patch to `build.rs`, the
 upstream sha1 integrity check is preserved, so the embedded assets are still verified
 against the value pinned in Meilisearch's own `Cargo.toml`. Result: the dashboard is
 compiled into the binary with **zero build-time network access**, reproducibly. Open

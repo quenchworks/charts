@@ -4,7 +4,7 @@
      enforces trusted_domains on EVERY request (status.php included) and 400s "Trusted domain
      error" for any Host not listed. The kubelet's httpGet probe sends the pod IP as the Host
      header, which is never a trusted domain, so the probes MUST override Host to a trusted
-     value — 127.0.0.1 is always present in .Values.nextcloud.trustedDomains (keep it there).
+     value, 127.0.0.1 is always present in .Values.nextcloud.trustedDomains (keep it there).
      The install initContainer completes maintenance:install before this container starts, so
      the instance is already installed by first boot; the startup probe (customStartupProbe)
      guards the slow first boot. The kubelet performs the GET; the image ships no HTTP client. */}}
@@ -49,11 +49,11 @@ spec:
       initContainers:
         # First-run install + trusted-domain overlay.
         #
-        # This image's entrypoint does NOT self-install (unlike upstream's Debian image) — it
+        # This image's entrypoint does NOT self-install (unlike upstream's Debian image), it
         # only boots php-fpm + nginx. So before the app container serves, this initContainer
         # (the SAME image) runs `occ maintenance:install`: it writes config.php into the config
-        # PVC and creates the schema in the database. It is idempotent — skipped once config.php
-        # exists — and retries so the bundled MariaDB has time to come up. It also (re)writes a
+        # PVC and creates the schema in the database. It is idempotent, skipped once config.php
+        # exists, and retries so the bundled MariaDB has time to come up. It also (re)writes a
         # trusted_domains overlay on every boot, since Nextcloud 400s "Access through untrusted
         # domain" for any Host not listed. The DB + admin passwords come from the managed Secret
         # (via secretKeyRef), so they never land in the pod's argv.

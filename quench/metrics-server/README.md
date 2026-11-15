@@ -10,8 +10,8 @@ source, cosign-signed and pinned by digest.
 Metrics Server scrapes every kubelet over HTTPS and, by default, **verifies the
 kubelet's serving certificate**. That only works on a cluster whose kubelets were
 issued cluster-signed serving certificates (`serverTLSBootstrap: true` plus
-something approving the CSRs). Plenty of clusters — kind, default kubeadm, k3s,
-minikube, some managed distributions — leave the kubelet on a self-signed
+something approving the CSRs). Plenty of clusters, kind, default kubeadm, k3s,
+minikube, some managed distributions, leave the kubelet on a self-signed
 certificate.
 
 On those clusters a default install of this chart **will not become Ready**. The
@@ -23,7 +23,7 @@ Your options, best first:
 
 1. Fix the kubelets: enable `serverTLSBootstrap` and approve the CSRs.
 2. Point `kubelet.certificateAuthority` at the CA that did sign them.
-3. `--set kubelet.insecureTLS=true` — the scrape stays encrypted and is still
+3. `--set kubelet.insecureTLS=true`: the scrape stays encrypted and is still
    authenticated by Metrics Server's own bearer token, but the kubelet's identity
    is no longer checked. Anything able to intercept that connection can
    impersonate a kubelet and feed you fabricated metrics, which your HPA will
@@ -54,7 +54,7 @@ kubectl top pods -A
 ```
 
 `Available: True` while `kubectl top` says "metrics not available" means the API
-is registered but no scrape has landed — read `kubectl logs deployment/metrics-metrics-server`.
+is registered but no scrape has landed, read `kubectl logs deployment/metrics-metrics-server`.
 
 ## Verify the image
 
@@ -83,7 +83,7 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/metrics-server --ow
 | `kubelet.preferredAddressTypes`               | `[InternalIP, ExternalIP, Hostname]`        | The binary's own default leads with `Hostname`, which fails where node names do not resolve.                              |
 | `kubelet.useNodeStatusPort`                   | `true`                                      | Dial the port advertised in the node status instead of assuming 10250.                                                    |
 | `kubelet.requestTimeout`                      | `10s`                                       |                                                                                                                           |
-| `apiService.create`                           | `true`                                      | Registers `v1beta1.metrics.k8s.io`. Cluster-wide singleton — see below.                                                    |
+| `apiService.create`                           | `true`                                      | Registers `v1beta1.metrics.k8s.io`. Cluster-wide singleton: see below.                                                    |
 | `apiService.insecureSkipTLSVerify`            | `true`                                      | The server self-signs its serving certificate, so the kube-apiserver cannot verify it. Set `false` only with real certs.   |
 | `apiService.caBundle`                         | `""`                                        | base64 PEM. Required when `insecureSkipTLSVerify: false`.                                                                 |
 | `extraArgs`                                   | `[]`                                        | Extra flags, e.g. `--tls-cert-file` / `--tls-private-key-file`.                                                           |
@@ -93,7 +93,7 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/metrics-server --ow
 | `service.port`                                | `443`                                       | What the APIService dials; mapped to `securePort`.                                                                        |
 | `serviceAccount.create`                       | `true`                                      |                                                                                                                           |
 | `serviceAccount.automountServiceAccountToken` | `true`                                      | Required: it is an API-server client and delegates auth back to it.                                                       |
-| `rbac.create`                                 | `true`                                      | Three grants — see `templates/rbac.yaml`. Dropping any one breaks it differently.                                         |
+| `rbac.create`                                 | `true`                                      | Three grants: see `templates/rbac.yaml`. Dropping any one breaks it differently.                                         |
 | `rbac.aggregatedMetricsReader`                | `true`                                      | Extends the built-in view/edit/admin roles so non-admins can run `kubectl top`.                                            |
 | `networkPolicy.enabled`                       | `true`                                      |                                                                                                                           |
 | `networkPolicy.allowExternal`                 | `true`                                      | Must stay `true`: the kube-apiserver dials this Service from the control-plane host, outside the pod network.              |
@@ -108,7 +108,7 @@ A Deployment runs `/usr/bin/metrics-server` serving HTTPS on container port
 `4443`; the Service maps `443` to it, and an `APIService` registers
 `v1beta1.metrics.k8s.io` so the kube-apiserver proxies metrics requests there.
 Every `metricResolution` the server scrapes each node's kubelet resource-metrics
-endpoint and keeps only the most recent sample in memory — it is a live view, not
+endpoint and keeps only the most recent sample in memory, it is a live view, not
 a time-series database, and it stores nothing.
 
 With no certificate supplied, the apiserver library generates a self-signed
@@ -139,7 +139,7 @@ dropped.
 `v1beta1.metrics.k8s.io` is a cluster-scoped singleton. A second release
 installed with `apiService.create: true` will take the object over and repoint
 the whole cluster's metrics API at itself. Managed control planes (GKE, EKS with
-the add-on, AKS) usually register it already — install with
+the add-on, AKS) usually register it already, install with
 `--set apiService.create=false`, or do not install this at all.
 
 ## Uninstall
@@ -149,7 +149,7 @@ helm uninstall metrics
 ```
 
 The APIService goes with it, and `kubectl top` stops working cluster-wide until
-something else registers `v1beta1.metrics.k8s.io`. Nothing persists — Metrics
+something else registers `v1beta1.metrics.k8s.io`. Nothing persists, Metrics
 Server holds only the last scrape, in memory.
 
 ## Notes

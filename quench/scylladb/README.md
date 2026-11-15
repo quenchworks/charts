@@ -1,8 +1,8 @@
 # Quenchworks ScyllaDB
 
-Hardened [ScyllaDB Open Source](https://github.com/scylladb/scylladb) — a
+Hardened [ScyllaDB Open Source](https://github.com/scylladb/scylladb), a
 high-throughput, low-latency wide-column store that is Cassandra-compatible (CQL)
-— on a minimal, nonroot, CVE-gated image, cosign-signed (keyless / Sigstore) and
+on a minimal, nonroot, CVE-gated image, cosign-signed (keyless / Sigstore) and
 pinned by digest. The image ships ScyllaDB's official relocatable binary on a
 hardened Wolfi base; its entrypoint seeds `scylla.yaml` from `SCYLLA_*` env on
 boot and runs Scylla in container/developer mode so it works in an unprivileged,
@@ -30,7 +30,7 @@ helm install sc oci://ghcr.io/quenchworks/charts/scylladb \
 > Seastar allocator. Seastar's available-memory probe is conservative inside a cgroup,
 > so keep `config.memory` well under `resources.requests.memory` (the default is
 > `512M` under a `1Gi` request / `2Gi` limit). If you raise `config.memory`, raise the
-> request and limit together with extra headroom — otherwise Scylla either fails its
+> request and limit together with extra headroom, otherwise Scylla either fails its
 > startup memory check or is OOMKilled.
 
 ## Verify the image
@@ -113,7 +113,7 @@ DynamoDB API (8000) are not exposed by default.
 The default topology is **single standalone node** (`replicaCount: 1`,
 `seeds = self`). Multi-node rings via `replicaCount > 1` wire the first
 `config.seedCount` pods as `SCYLLA_SEEDS` over the headless service; this path is
-a tracked follow-up and is not yet validated at scale — keep `replicaCount` at 1
+a tracked follow-up and is not yet validated at scale, keep `replicaCount` at 1
 unless you are testing it.
 
 ## Configuration examples
@@ -135,7 +135,7 @@ SELECT v FROM demo.t WHERE id = 1;
 ```
 
 Enable login auth. This sets `PasswordAuthenticator` + `CassandraAuthorizer`, and
-Scylla bootstraps the default `cassandra` / `cassandra` superuser — rotate it
+Scylla bootstraps the default `cassandra` / `cassandra` superuser, rotate it
 immediately with `ALTER ROLE cassandra WITH PASSWORD = '<new-strong-password>';`:
 
 ```yaml
@@ -163,7 +163,7 @@ helm uninstall sc
 ```
 
 PVCs provisioned by the `volumeClaimTemplate` are retained by Kubernetes on
-uninstall — delete them explicitly if you want the data gone:
+uninstall, delete them explicitly if you want the data gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=sc
@@ -173,7 +173,7 @@ kubectl delete pvc -l app.kubernetes.io/instance=sc
 
 Single standalone node by default; a validated multi-node ring
 (`SCYLLA_SEEDS` peer discovery over the headless service) and a metrics exporter
-are tracked follow-ups. Auth is off by default — the deployment is internal and
+are tracked follow-ups. Auth is off by default, the deployment is internal and
 the NetworkPolicy is the trust boundary; enable `auth.enabled` before exposing
 CQL beyond the cluster. The chart depends on the `quench-common` library chart,
 pulled from `oci://ghcr.io/quenchworks/charts/quench-common`. Every container runs

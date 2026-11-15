@@ -25,9 +25,9 @@ helm install my-tsdb oci://ghcr.io/quenchworks/charts/timescaledb \
 
 The chart ships two topologies, selected by `architecture`:
 
-- **`standalone`** (default) — a single TimescaleDB pod. Backward compatible; the
+- **`standalone`** (default): a single TimescaleDB pod. Backward compatible; the
   image runs `initdb` + `CREATE EXTENSION timescaledb` on first boot.
-- **`replication`** — a self-managed HA cluster of `ha.replicaCount` pods (default 3:
+- **`replication`**: a self-managed HA cluster of `ha.replicaCount` pods (default 3:
   **1 leader + 2 replicas**) in one StatefulSet, each running
   [Patroni](https://patroni.readthedocs.io/). Patroni elects a leader through the
   **Kubernetes API as its DCS** (no external etcd), drives PostgreSQL streaming

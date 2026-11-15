@@ -34,7 +34,7 @@ pgpool.backendList normalises both into a list of dicts {host, port, weight, fla
 {{/*
 Resolve the backend password (used to build the generated pool_passwd). With the bundled
 PG it is the deterministic postgresql.auth.password. With external backends it is the
-inline auth.password — when auth.existingSecret is used instead, pool_passwd must be
+inline auth.password, when auth.existingSecret is used instead, pool_passwd must be
 supplied via poolPasswd.existingSecret (we cannot read a Secret at render time).
 */}}
 {{- define "pgpool.db.password" -}}
@@ -65,7 +65,7 @@ Render the full pgpool.conf. If pgpool.raw is set it is used verbatim.
 
 Deliberately does NOT set logdir/work_dir: that parameter was renamed
 (logdir <= 4.6, work_dir >= 4.7) and an unknown name is a startup FATAL, so we keep
-pgpool's default of /tmp for pgpool_status and lock files — /tmp is a writable emptyDir
+pgpool's default of /tmp for pgpool_status and lock files, /tmp is a writable emptyDir
 in the Deployment. Health-check and sr-check passwords are left EMPTY on purpose:
 Pgpool-II then resolves them from pool_passwd (a Secret), so no credential ever lands in
 this ConfigMap.
@@ -142,7 +142,7 @@ failover_on_backend_error = off
 {{- end -}}
 
 {{/*
-pool_hba.conf — client authentication for connections arriving at Pgpool-II. Local
+pool_hba.conf, client authentication for connections arriving at Pgpool-II. Local
 (unix socket) connections are trusted so the in-pod pcp/psql tooling works; TCP clients
 must authenticate with pgpool.authMethod against pool_passwd.
 */}}

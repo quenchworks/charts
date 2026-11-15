@@ -5,7 +5,7 @@ privacy-respecting web analytics platform where you keep the raw data, on a mini
 nonroot, CVE-gated image built from source, cosign-signed and pinned by digest. Runs
 nginx + php-fpm from a single image as a Deployment and serves the UI on port 8080.
 
-**Bring your own MySQL or MariaDB.** No database subchart is bundled — pair this with
+**Bring your own MySQL or MariaDB.** No database subchart is bundled, pair this with
 `oci://ghcr.io/quenchworks/charts/mariadb` or point it at a managed instance.
 
 ## Install
@@ -30,7 +30,7 @@ Matomo has **no environment-variable configuration**. Everything lives in
 `config.ini.php`, which its web installer generates on first run. The chart therefore
 cannot pre-seed credentials for you.
 
-That also means the `externalDatabase.*` values are **not read by the pod at boot** —
+That also means the `externalDatabase.*` values are **not read by the pod at boot**:
 they are what you type *into* the installer, recorded here so the values file
 documents the intended target and `NOTES.txt` can print it back to you. In
 particular, setting `externalDatabase.password` buys you nothing and leaks the
@@ -47,7 +47,7 @@ The chart defaults to a 1Gi ReadWriteOnce PVC.
 ### One replica, deliberately
 
 `replicaCount` is `1` and is not a knob to turn up casually. The installer writes into
-a ReadWriteOnce volume, so a second replica on another node cannot mount it — and two
+a ReadWriteOnce volume, so a second replica on another node cannot mount it, and two
 replicas sharing one config while each runs its own archiving cron would
 double-process the same data. Scale by giving the pod more CPU, or move `config/` to a
 ReadWriteMany volume first.
@@ -78,7 +78,7 @@ Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them 
 | `externalDatabase.port`        | `3306`                              |                                                                                                |
 | `externalDatabase.database`    | `matomo`                            |                                                                                                |
 | `externalDatabase.user`        | `matomo`                            |                                                                                                |
-| `externalDatabase.password`    | `""`                                | Only printed in NOTES for the installer. Leave empty — it leaks into `helm get values`.        |
+| `externalDatabase.password`    | `""`                                | Only printed in NOTES for the installer. Leave empty: it leaks into `helm get values`.        |
 | `persistence.enabled`          | `true`                              | Holds `config.ini.php`. Disabling it means reinstalling on every restart.                       |
 | `persistence.size`             | `1Gi`                               |                                                                                                |
 | `persistence.accessModes`      | `["ReadWriteOnce"]`                 |                                                                                                |
@@ -97,7 +97,7 @@ Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them 
 | `serviceAccount.automountServiceAccountToken` | `false`              | Matomo never talks to the API server.                                                          |
 | `rbac.create`                  | `false`                             |                                                                                                |
 | `networkPolicy.enabled`        | `true`                              |                                                                                                |
-| `networkPolicy.allowExternal`  | `true`                              | Analytics must accept beacons from wherever your sites are served — unlike a datastore.         |
+| `networkPolicy.allowExternal`  | `true`                              | Analytics must accept beacons from wherever your sites are served: unlike a datastore.         |
 | `podDisruptionBudget.enabled`  | `false`                             |                                                                                                |
 | `ingress.enabled`              | `false`                             | Create an Ingress. With `tls.enabled` it routes to 443: set the controller's backend protocol to HTTPS. |
 

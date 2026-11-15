@@ -73,7 +73,7 @@ Only `/var/lib/mysql`, the socket dir, and `/tmp` are writable.
 ## Standalone vs. HA (Group Replication)
 
 The chart ships two topologies. `architecture: standalone` (the default) is a single
-primary — backward compatible and unchanged. `architecture: group-replication` runs a
+primary, backward compatible and unchanged. `architecture: group-replication` runs a
 self-managed HA cluster using **MySQL Group Replication in single-primary mode**: one
 PRIMARY (read/write) plus two SECONDARY members (read-only), with **automatic primary
 election** on failure, built on the server's own `group_replication` plugin.
@@ -87,7 +87,7 @@ helm install my-mysql oci://ghcr.io/quenchworks/charts/mysql \
 **Topology.** Three nodes (odd count for an unambiguous majority) run as one
 StatefulSet behind a headless Service for stable per-pod DNS, each with its own PVC.
 GTID-based replication is single-primary: only the elected primary accepts writes; the
-secondaries are held `super_read_only`. Two role-following Services front the group —
+secondaries are held `super_read_only`. Two role-following Services front the group:
 `<release>-mysql` targets the current **primary** (read/write) and
 `<release>-mysql-readonly` fans reads over the **secondaries**. The entrypoint stamps a
 `mysql.quench-works.com/role` label on each pod from its live GR role, so both Services
@@ -97,7 +97,7 @@ label).
 **Bootstrap vs. join.** The cold-start hazard is every node waiting for the others. The
 entrypoint breaks the tie: node-0 forms a new group
 (`group_replication_bootstrap_group=ON; START GROUP_REPLICATION`) **only** when no peer
-already reports an ONLINE member; otherwise it — and every other ordinal — joins the
+already reports an ONLINE member; otherwise it, and every other ordinal, joins the
 existing group. That same "is a peer ONLINE?" check is the split-brain guard when node-0
 restarts: it rejoins rather than forming a second group. Readiness gates on
 `MEMBER_STATE = ONLINE`, so a node mid distributed-recovery stays out of the Services.
@@ -116,14 +116,14 @@ kubectl exec <release>-mysql-0 -- \
 
 **Quorum boundary.** The PodDisruptionBudget holds `minAvailable` at the majority (2 of 3).
 Losing one node keeps the group writable and the node rejoins automatically. Losing the
-majority is **not** auto-recovered — that is a deliberate split-brain stop needing a human
+majority is **not** auto-recovered, that is a deliberate split-brain stop needing a human
 to pick the most advanced survivor. Note: all replicated tables need a primary key (a
 Group Replication requirement).
 
 ## Metrics
 
-`metrics.enabled=true` adds a `mysqld_exporter` sidecar to **every** server pod — the
-standalone primary and each Group Replication member — so metrics are per-node, not
+`metrics.enabled=true` adds a `mysqld_exporter` sidecar to **every** server pod, the
+standalone primary and each Group Replication member, so metrics are per-node, not
 per-cluster. It reaches the server over the pod's loopback and takes the root password
 from the auth Secret via `MYSQLD_EXPORTER_PASSWORD` (never a DSN, so a password with URI
 metacharacters needs no percent-encoding). A `<release>-mysql-metrics` Service exposes

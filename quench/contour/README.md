@@ -32,13 +32,13 @@ ships **no shell**, so every command in this chart is exec form.
 
 Inside the Envoy pod:
 
-* an `envoy-initconfig` initContainer runs `contour bootstrap` — a fully offline code
-  path — to write `/config/envoy.json` and the two SDS descriptor files into an
+* an `envoy-initconfig` initContainer runs `contour bootstrap`: a fully offline code
+  path, to write `/config/envoy.json` and the two SDS descriptor files into an
   `emptyDir`. Everything after that arrives over xDS.
 * `/admin` is a second `emptyDir` shared with the sidecar, because Envoy's admin
   interface here is a **unix socket**, not a port.
 * Envoy's `preStop` is an HTTP call **into** the shutdown-manager (`:8090/shutdown`),
-  not an exec — the Envoy image has neither a shell nor the contour binary. The sidecar
+  not an exec, the Envoy image has neither a shell nor the contour binary. The sidecar
   drains Envoy over the admin socket, which is why the grace period is 300s.
 * Both containers run read-only-rootfs, nonroot, all capabilities dropped.
 
@@ -80,7 +80,7 @@ Two consequences worth knowing:
 To bring your own certificates instead (cert-manager, Vault, ...), set
 `xdsTLS.contourSecretName` / `xdsTLS.envoySecretName`. Both must be
 `kubernetes.io/tls` Secrets carrying `ca.crt`, `tls.crt` and `tls.key`, and the Contour
-certificate **must** carry the DNS SAN `contour` — the Envoy bootstrap pins that exact
+certificate **must** carry the DNS SAN `contour`, the Envoy bootstrap pins that exact
 SAN and no flag changes it.
 
 ## CRDs
@@ -132,7 +132,7 @@ connection means the data plane is not listening where you think it is.
 
 ## Routing traffic here
 
-Ingress objects: set `ingressClassName: contour`, or leave the class off entirely —
+Ingress objects: set `ingressClassName: contour`, or leave the class off entirely:
 Contour with no configured class matches both. Set `ingressClass.name` to run several
 Contours in one cluster; the Deployment then passes the matching `--ingress-class-name`
 automatically. `IngressClass` is cluster-scoped, so that name must be unique.

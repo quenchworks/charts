@@ -13,16 +13,16 @@ the per-component subcommand:
 | `scheduler`     | `airflow scheduler`     | schedules DAG runs (and runs tasks in LocalExecutor) |
 | `dag-processor` | `airflow dag-processor` | standalone DAG file parser (Airflow 3)               |
 | `triggerer`     | `airflow triggerer`     | async loop for deferrable tasks                      |
-| `worker`        | `airflow celery worker` | **CeleryExecutor only** — executes tasks             |
+| `worker`        | `airflow celery worker` | **CeleryExecutor only**: executes tasks             |
 
 ## Executor
 
 Set with `executor`:
 
-- **`LocalExecutor`** (default) — the scheduler runs tasks in-process. No broker, no
+- **`LocalExecutor`** (default): the scheduler runs tasks in-process. No broker, no
   worker. The simplest topology: `api-server` + `scheduler` + `dag-processor` +
   `triggerer` + a bundled/external PostgreSQL.
-- **`CeleryExecutor`** — adds a `worker` workload and a Redis/valkey broker. Set
+- **`CeleryExecutor`**: adds a `worker` workload and a Redis/valkey broker. Set
   `executor: CeleryExecutor` and enable exactly one broker (`valkey.enabled`,
   `redis.enabled`, or `externalRedis.host`). The chart wires
   `AIRFLOW__CELERY__BROKER_URL` and `AIRFLOW__CELERY__RESULT_BACKEND` automatically.
@@ -38,7 +38,7 @@ Airflow refuses to boot without a PostgreSQL metadata database. Choose one mode:
 - **External**: `postgresql.enabled=false` + set `externalDatabase.host` (and
   `username`/`database`/`port`). Supply the password inline (`externalDatabase.password`)
   or via `externalDatabase.existingSecret` (+ `existingSecretPasswordKey`). The password
-  must be URL-safe — it is embedded in the SQLAlchemy connection string.
+  must be URL-safe, it is embedded in the SQLAlchemy connection string.
 
 The chart assembles `AIRFLOW__DATABASE__SQL_ALCHEMY_CONN` from discrete env vars using
 Kubernetes `$(VAR)` interpolation, so the password is sourced from a Secret and never
@@ -55,7 +55,7 @@ written into a ConfigMap.
 
 Airflow needs `airflow db migrate` run once before the components can serve. The chart
 runs it as a **normal Job** (`<release>-airflow-db-migrate-<revision>`), not a Helm
-pre-install hook — a pre-install hook would execute before the bundled PostgreSQL subchart
+pre-install hook, a pre-install hook would execute before the bundled PostgreSQL subchart
 exists and could never reach it. The Job retries (`migrateDatabase.backoffLimit`) until
 PostgreSQL accepts connections and the migration applies. Every component additionally
 blocks in an `airflow db check-migrations` **init container** until the schema is up to
@@ -66,7 +66,7 @@ reaches Ready for both bundled and external databases.
 
 - **Fernet key** (`AIRFLOW__CORE__FERNET_KEY`) encrypts connections/variables at rest.
 - **JWT secret** (`AIRFLOW__API_AUTH__JWT_SECRET`) must be identical across every
-  component — they authenticate to the api-server's Task Execution API with it.
+  component, they authenticate to the api-server's Task Execution API with it.
 
 Leave `secrets.fernetKey` / `secrets.jwtSecret` empty and the chart generates both once
 and preserves them across upgrades via a lookup of the existing Secret. The Fernet key is

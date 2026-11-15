@@ -3,12 +3,12 @@ Quenchworks Apache Airflow is installed as {{ include "quench-common.fullname" .
 Executor: {{ .Values.executor }}
 
 It runs these nonroot (uid 1001) workloads from the same image:
-  - api-server    ({{ include "airflow.componentFullname" (dict "ctx" . "component" "api-server") }}) — UI + REST API + Task Execution API on port 8080
+  - api-server    ({{ include "airflow.componentFullname" (dict "ctx" . "component" "api-server") }}), UI + REST API + Task Execution API on port 8080
   - scheduler     ({{ include "airflow.componentFullname" (dict "ctx" . "component" "scheduler") }})
   - dag-processor ({{ include "airflow.componentFullname" (dict "ctx" . "component" "dag-processor") }})
   - triggerer     ({{ include "airflow.componentFullname" (dict "ctx" . "component" "triggerer") }})
 {{- if include "airflow.isCelery" . }}
-  - worker        ({{ include "airflow.componentFullname" (dict "ctx" . "component" "worker") }}) — Celery task executor
+  - worker        ({{ include "airflow.componentFullname" (dict "ctx" . "component" "worker") }}), Celery task executor
 {{- end }}
 
 The schema was migrated by the Job {{ include "quench-common.fullname" . }}-db-migrate-{{ .Release.Revision }}
@@ -22,14 +22,14 @@ Reach the UI/API over a port-forward:
   curl http://127.0.0.1:{{ .Values.service.port }}/api/v2/monitor/health
 
 Backends:
-  PostgreSQL (REQUIRED): {{ if .Values.postgresql.enabled }}bundled subchart ({{ .Release.Name }}-postgresql){{ else if .Values.externalDatabase.host }}external ({{ .Values.externalDatabase.host }}){{ else }}NOT CONFIGURED — set postgresql.enabled or externalDatabase.host{{ end }}
+  PostgreSQL (REQUIRED): {{ if .Values.postgresql.enabled }}bundled subchart ({{ .Release.Name }}-postgresql){{ else if .Values.externalDatabase.host }}external ({{ .Values.externalDatabase.host }}){{ else }}NOT CONFIGURED, set postgresql.enabled or externalDatabase.host{{ end }}
 {{- if include "airflow.isCelery" . }}
-  Broker (Celery):       {{ if .Values.valkey.enabled }}bundled valkey ({{ .Release.Name }}-valkey){{ else if .Values.redis.enabled }}bundled redis ({{ .Release.Name }}-redis){{ else if .Values.externalRedis.host }}external ({{ .Values.externalRedis.host }}){{ else }}NOT CONFIGURED — set valkey.enabled, redis.enabled, or externalRedis.host{{ end }}
+  Broker (Celery):       {{ if .Values.valkey.enabled }}bundled valkey ({{ .Release.Name }}-valkey){{ else if .Values.redis.enabled }}bundled redis ({{ .Release.Name }}-redis){{ else if .Values.externalRedis.host }}external ({{ .Values.externalRedis.host }}){{ else }}NOT CONFIGURED, set valkey.enabled, redis.enabled, or externalRedis.host{{ end }}
 {{- end }}
 
 Auth: SimpleAuthManager (Airflow 3 default).
 {{- if .Values.auth.allAdmins }}
-  allAdmins=true — login is DISABLED and everyone is admin (dev/gate only).
+  allAdmins=true, login is DISABLED and everyone is admin (dev/gate only).
 {{- else }}
   Declared users: {{ .Values.auth.users }}. Each user's password is auto-generated on
   api-server boot and printed in its logs / written to

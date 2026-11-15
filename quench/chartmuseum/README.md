@@ -11,13 +11,13 @@ Sigstore) and the chart pins it by the signed digest, never a tag.
 
 `api.enabled` defaults to `true` (ChartMuseum's own default) and `auth.username`
 defaults to empty. That combination means **every `/api` route is unauthenticated**:
-anyone who can reach the Service can publish a chart —
+anyone who can reach the Service can publish a chart:
 
 ```bash
 curl --data-binary @evil-1.0.0.tgz http://<service>:8080/api/charts
 ```
 
-— and, unless `api.disableDelete=true`, delete existing ones. That is convenient
+and, unless `api.disableDelete=true`, delete existing ones. That is convenient
 for a throwaway namespace and wrong for anything else. Pick one before you expose
 this outside a trusted network:
 
@@ -65,7 +65,7 @@ uploads take `curl -u user:pass`.
 Only `local` is wired end-to-end by this chart, because it is the only backend
 that needs a Kubernetes volume: the chart provisions it (`persistence`) and
 mounts it at `storage.local.path`. Every other backend is credentials plus a
-bucket, which ChartMuseum reads from flags and environment variables — so they go
+bucket, which ChartMuseum reads from flags and environment variables, so they go
 through `extraArgs` and `extraEnvVars` rather than a bespoke value per cloud:
 
 ```yaml
@@ -180,22 +180,22 @@ flags from values (`--port`, `--listen-host=0.0.0.0`, `--storage`,
 `--storage-local-rootdir`, `--disable-api`, `--allow-overwrite`,
 `--disable-delete`, `--auth-anonymous-get`, `--context-path`, `--chart-url`) and
 appends `extraArgs`. Basic-auth credentials are injected as `BASIC_AUTH_USER` /
-`BASIC_AUTH_PASS` from a Secret — never from a ConfigMap or a command-line flag,
+`BASIC_AUTH_PASS` from a Secret, never from a ConfigMap or a command-line flag,
 so they do not show up in `kubectl describe pod`.
 
 `--listen-host=0.0.0.0` is set deliberately: the binary defaults to `[::]`, which
 fails to bind on IPv4-only nodes.
 
 Because the root filesystem is read-only, chart storage is always a mounted
-volume at `storage.local.path` — a PersistentVolumeClaim when
+volume at `storage.local.path`, a PersistentVolumeClaim when
 `persistence.enabled=true` (the default), otherwise an `emptyDir`. That mount
 exists regardless of `storage.backend`; with a cloud backend it is simply unused,
 and you can set `persistence.enabled=false` to make it ephemeral.
 
 Both probes hit `/health`, which ChartMuseum serves unauthenticated as soon as it
 is listening. The default topology is **single replica**: the `local` backend is
-one pod's ReadWriteOnce disk, so scaling out — by `replicaCount` or `autoscaling`
-— corrupts nothing but silently splits the repository across pods. Switch to a
+one pod's ReadWriteOnce disk, so scaling out, by `replicaCount` or `autoscaling`
+corrupts nothing but silently splits the repository across pods. Switch to a
 shared object-storage backend first.
 
 ## Configuration examples
@@ -235,7 +235,7 @@ helm uninstall museum
 ```
 
 The PVC provisioned with `persistence.enabled=true` is retained by Kubernetes on
-uninstall — delete it explicitly if you want the charts gone:
+uninstall, delete it explicitly if you want the charts gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=museum

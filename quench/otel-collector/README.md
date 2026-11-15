@@ -139,7 +139,7 @@ probes reach the container directly whether or not those are exposed.
 
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
 dropped; `/tmp` is a writable emptyDir. The collector has **no built-in
-authentication** — the NetworkPolicy is the trust boundary. Front the OTLP
+authentication**, the NetworkPolicy is the trust boundary. Front the OTLP
 endpoints with an authenticating proxy or mTLS if you expose them beyond the
 cluster.
 
@@ -149,7 +149,7 @@ cluster.
 helm uninstall otelcol
 ```
 
-Nothing persists — the workload is stateless and holds no PVCs.
+Nothing persists, the workload is stateless and holds no PVCs.
 
 ## Notes
 

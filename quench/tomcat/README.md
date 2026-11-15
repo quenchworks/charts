@@ -6,7 +6,7 @@ digest.
 Built from source on Wolfi (`openjdk-21-jre`, no upstream distro binaries). Listens
 on `8080` (http). Stateless: this chart runs a `Deployment` and scales horizontally.
 
-The default `ROOT` webapp is emptied, so `GET /` returns **404** on a fresh install —
+The default `ROOT` webapp is emptied, so `GET /` returns **404** on a fresh install:
 that is expected and healthy (Coyote is up and answering; there is just no app to
 serve). Deploy your own WAR to change this.
 
@@ -74,7 +74,7 @@ env/volumes, security contexts).
 
 ## Probes
 
-Liveness, readiness and startup are `tcpSocket` checks on `8080` — they gate on
+Liveness, readiness and startup are `tcpSocket` checks on `8080`, they gate on
 Coyote accepting the connection, **not** on an HTTP status, because `GET /` is a
 404 by design. The startup probe is generous (up to ~160s) to cover JVM +
 Catalina boot before liveness/readiness kick in.

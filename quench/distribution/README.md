@@ -92,7 +92,7 @@ health check enabled. Liveness and readiness both `httpGet /v2/` (the registry
 API base returns 200 once ready). The container runs nonroot on a read-only root
 filesystem: the blob store PVC and a `/tmp` emptyDir are the only writable paths,
 and the config is mounted read-only. When `persistence.enabled=false` the data
-volume falls back to an emptyDir (ephemeral — for the CI install gate).
+volume falls back to an emptyDir (ephemeral, for the CI install gate).
 
 ## Configuration examples
 
@@ -147,6 +147,6 @@ The chart depends on the `quench-common` library chart, pulled from
 on a read-only root filesystem with all capabilities dropped, and the image is
 pinned by digest. Filesystem storage is single-writer, so keep `replicaCount: 1`
 unless you switch `config.configYml` to a shared backend (S3/GCS). Distribution
-serves the registry API without authentication by default — enable auth/TLS in
+serves the registry API without authentication by default, enable auth/TLS in
 `config.configYml` and keep the NetworkPolicy as the trust boundary before
 exposing it beyond the cluster.

@@ -164,7 +164,7 @@ clickhouse:
     password: ""
     # Inline PEM CA bundle the operator uses to verify ClickHouse server TLS.
     rootCA: ""
-    # Alternate source for rootCA — a Secret in the operator's namespace.
+    # Alternate source for rootCA, a Secret in the operator's namespace.
     # Mutually exclusive with the inline rootCA above (inline wins). Empty
     # `name` = not used (no-op). When `key` is empty, the operator tries
     # "ca.crt" then "tls.crt". Resolved once at config load (an operator
@@ -301,9 +301,9 @@ keeper:
 ## override per-cluster via spec.configuration.clusters[].security.
 ##
 ## Three orthogonal axes govern this section:
-##   1. security.policy           — TLS-hardening master switch (Permissive | Enforced)
-##   2. security.fips.enforced    — FIPS cryptographic-module gate (bool)
-##   3. security.images.policy    — Workload image-tag governance   (Permissive | FIPSRequired)
+##   1. security.policy          , TLS-hardening master switch (Permissive | Enforced)
+##   2. security.fips.enforced   , FIPS cryptographic-module gate (bool)
+##   3. security.images.policy   , Workload image-tag governance   (Permissive | FIPSRequired)
 ## Each axis is independent: enabling one does not enable the others.
 ##
 ## See docs/chi-examples/70-chop-config.yaml for a fully-annotated example
@@ -321,7 +321,7 @@ security:
       serverName: ""
       # Inline PEM CA bundle (or base64-wrapped)
       rootCA: ""
-      # Alternate source — Secret in operator namespace. Mutually exclusive
+      # Alternate source, Secret in operator namespace. Mutually exclusive
       # with the inline rootCA above. Empty `name` = not used (no-op).
       # When `key` is empty, the operator tries "ca.crt" then "tls.crt".
       rootCASecretRef:
@@ -345,10 +345,10 @@ security:
     # Defaults to /etc/clickhouse-operator-ipc/token
     tokenPath: ""
   # Operator-wide TLS-hardening master switch. ONLY governs TLS posture across
-  # CH / ZK / K8s transports — NOT the FIPS cryptographic-module gate (see
+  # CH / ZK / K8s transports, NOT the FIPS cryptographic-module gate (see
   # security.fips.enforced below for that, orthogonal axis).
   #
-  # Permissive (default) preserves 0.27.0 behavior — no coercion, no rejection.
+  # Permissive (default) preserves 0.27.0 behavior, no coercion, no rejection.
   # Enforced coerces all TLS knobs above to their Strict positions at startup:
   #   - clickhouse.tls.verify=Strict, clickhouse.tls.minVersion=1.3
   #   - zookeeper.tls.verify=Strict,  zookeeper.tls.minVersion=1.3
@@ -358,16 +358,16 @@ security:
   # Enforced also rejects CHIs that cannot be served in a hardened posture
   # (e.g. plaintext external ZooKeeper, ZK digest auth).
   #
-  # Independent of the Go FIPS toolchain — works on non-FIPS builds for pure
+  # Independent of the Go FIPS toolchain, works on non-FIPS builds for pure
   # TLS hardening. Combine with security.fips.enforced=true for full FIPS
   # cryptographic-module enforcement.
   policy: Permissive
   # FIPS cryptographic-module enforcement. Orthogonal to security.policy.
-  # Default operator and metrics-exporter images are FIPS-compatible —
+  # Default operator and metrics-exporter images are FIPS-compatible:
   # built with GOFIPS140=v1.0.0 and run with GODEBUG=fips140=on, so
   # crypto/fips140.Enabled() returns true at runtime.
   # When enforced=true, the operator Fatals at startup unless the binary
-  # reports crypto/fips140 Enabled — guards against accidentally running
+  # reports crypto/fips140 Enabled, guards against accidentally running
   # a non-FIPS rebuild in a hardened deployment.
   fips:
     enforced: false
@@ -525,8 +525,8 @@ reconcile:
       # before aborting CHI reconcile. In seconds.
       readyTimeout: 120
       # Reaction when a referenced CHK resource changes:
-      #   none      — do nothing (default, backward-compatible)
-      #   reconcile — trigger CHI reconcile
+      #   none     , do nothing (default, backward-compatible)
+      #   reconcile, trigger CHI reconcile
       onKeeperResourceUpdate: none
 
   ################################################
@@ -541,24 +541,24 @@ reconcile:
     # (e.g. Failed, Broken).
     onStatus:
       # Recovery for a CHI whose .status.status is Aborted (reconcile did not complete)
-      # when one of its host pods transitions to Ready — auto-resumes the reconcile.
+      # when one of its host pods transitions to Ready, auto-resumes the reconcile.
       aborted:
         # Action when a pod belonging to an Aborted CHI transitions to Ready:
-        #   retry (default) — re-enqueue the CHI for reconcile
-        #   none            — do nothing, CHI stays Aborted
+        #   retry (default), re-enqueue the CHI for reconcile
+        #   none           , do nothing, CHI stays Aborted
         onPodReady: retry
         # Future events (not yet implemented):
-        #   onKeeperReady: retry       — retry when a referenced CHK becomes ready
-        #   onOperatorRestart: retry   — sweep Aborted CHIs on operator startup
+        #   onKeeperReady: retry      , retry when a referenced CHK becomes ready
+        #   onOperatorRestart: retry  , sweep Aborted CHIs on operator startup
       # Recovery for a CHI whose .status.status is Completed (fully reconciled) when one
       # of its host pods regresses to Ready=False and stays NotReady (sustained) without
-      # crashing — auto-heals stuck hosts.
+      # crashing, auto-heals stuck hosts.
       completed:
         # Action when a Completed CHI's pod flips Ready=True -> Ready=False and
         # stays NotReady for at least onPodNotReadyThreshold:
-        #   none (default) — do nothing
-        #   retry          — re-enqueue the CHI so the stuck host is force-restarted
-        # OFF by default: force-recreating a Completed CHI's pod is destructive — it can
+        #   none (default), do nothing
+        #   retry         , re-enqueue the CHI so the stuck host is force-restarted
+        # OFF by default: force-recreating a Completed CHI's pod is destructive, it can
         # interrupt a replica's in-progress recovery and means hard downtime for a
         # single-replica shard. Opt in with `retry` only where that trade-off is acceptable.
         onPodNotReady: none
@@ -571,7 +571,7 @@ reconcile:
       # broken:
       #   onPodReady: retry
 
-    # Future global policy knobs (not yet implemented) — flat peers of `onStatus`,
+    # Future global policy knobs (not yet implemented), flat peers of `onStatus`,
     # apply across all recovery scopes:
     #
     # Global kill-switch for auto-recovery:

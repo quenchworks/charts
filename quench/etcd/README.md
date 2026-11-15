@@ -33,7 +33,7 @@ boundaries.
 ## High availability
 
 The chart deploys a 3-node etcd cluster (a `StatefulSet` + headless `Service`)
-with automatic leader election and failover. This is native to etcd — Raft
+with automatic leader election and failover. This is native to etcd, Raft
 consensus, no sidecar or external operator.
 
 - **Quorum**: `replicaCount` defaults to `3` (tolerates 1 member down). Use an
@@ -42,14 +42,14 @@ consensus, no sidecar or external operator.
 - **Peer discovery**: members find each other over stable headless-Service DNS
   (`<sts>-N.<sts>-headless`). `--initial-cluster` is the full static peer list,
   rendered from `replicaCount` at template time.
-- **Parallel bootstrap**: `podManagementPolicy: Parallel` — all members start
+- **Parallel bootstrap**: `podManagementPolicy: Parallel`: all members start
   together to form the initial quorum (ordered startup would deadlock, since
   member 0 can't become Ready until its peers exist).
 - **Node spread**: a soft `podAntiAffinity` places members on distinct nodes
   when capacity allows (override with `.Values.affinity`).
 - **PodDisruptionBudget**: `minAvailable: 2` so a voluntary drain can never take
   the 3-node cluster below quorum.
-- **Per-pod storage**: each member gets its own PVC (`volumeClaimTemplate`) —
+- **Per-pod storage**: each member gets its own PVC (`volumeClaimTemplate`):
   never a shared disk.
 - **Two Services**: a client `Service` on `2379` load-balanced across all ready
   members, and the headless `Service` (`2379`/`2380`) for peer identity.
@@ -58,7 +58,7 @@ consensus, no sidecar or external operator.
 
 - **Member/pod loss** (T1): the StatefulSet recreates the pod; it reattaches its
   PVC and rejoins by replaying its WAL. Zero-touch. `initialClusterState` is only
-  read on a member's *first* boot with an empty data dir — on restart etcd reads
+  read on a member's *first* boot with an empty data dir, on restart etcd reads
   the WAL and rejoins regardless, so leaving it at `new` is correct.
 - **Node loss** (T2): the pod reschedules (anti-affinity spreads members) and its
   PVC reattaches.
@@ -71,7 +71,7 @@ rejoins on restart.
 
 ### Growing / re-adding members
 
-Raising `replicaCount` after bootstrap does **not** auto-join new members — etcd
+Raising `replicaCount` after bootstrap does **not** auto-join new members, etcd
 forbids implicit membership changes. To add or re-add a member (e.g. one whose
 data was wiped), register it first with `etcdctl member add`, then bring the pod
 up with `initialClusterState: existing`.

@@ -22,7 +22,7 @@ and pins a third binary from the same image into every workflow pod:
 For every workflow pod the controller injects an `init` container, a `wait`
 container, and rewrites the step's command to run through
 `/var/run/argo/argoexec`. All three come from one image, and if nobody tells the
-controller which one, it falls back to `quay.io/argoproj/argoexec:<version>` —
+controller which one, it falls back to `quay.io/argoproj/argoexec:<version>`:
 an image QuenchWorks does not build, scan or sign, and that a private or
 air-gapped cluster cannot pull.
 
@@ -81,9 +81,9 @@ the Service can list, submit and delete workflows and read pod logs. It is fine
 for a ClusterIP inside a trusted namespace. Before putting an Ingress or a
 LoadBalancer in front of it, switch to:
 
-* `server.authModes: ["client"]` — every caller presents their own Kubernetes
+* `server.authModes: ["client"]`: every caller presents their own Kubernetes
   bearer token and acts with their own identity, or
-* `server.authModes: ["sso"]` — OIDC login, configured under `controller.config.sso`.
+* `server.authModes: ["sso"]`: OIDC login, configured under `controller.config.sso`.
 
 `server.secure` is `false` by default (plain HTTP on 2746) because TLS is
 normally terminated at the ingress. Set it to `true` to have the server serve
@@ -113,7 +113,7 @@ The eight `argoproj.io` CRDs (`Workflow`, `WorkflowTemplate`,
 
 These are the project's **minimal** CRDs, which is what upstream's own install
 manifests use. The "full" variants carry the complete pod-spec schema inline and
-are 7.4 MB, with `workflows.argoproj.io` alone at 3.2 MB — past etcd's per-object
+are 7.4 MB, with `workflows.argoproj.io` alone at 3.2 MB, past etcd's per-object
 limit, never mind Helm's 1 MiB release Secret. The minimal set is 110 KB total;
 the packaged chart is 27 KB and its rendered manifest 15 KB, so the release
 Secret has essentially the whole 1 MiB to spare. Validation of the omitted

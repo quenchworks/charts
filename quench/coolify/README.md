@@ -88,10 +88,10 @@ repository).
 | `pusher.appId` / `.appKey` / `.appSecret` | generated | Shared Pusher/soketi credentials |
 | `postgresql.enabled` | `true` | Bundle PostgreSQL 15 (image overridden to `postgresql-15`) |
 | `postgresql.auth.{username,password,database}` | `coolifyadmin` / `coolify` / `coolify` | Bundled DB creds (username ≠ database required) |
-| `externalDatabase.*` | — | Used when `postgresql.enabled=false` (must be PostgreSQL 15) |
+| `externalDatabase.*` |, | Used when `postgresql.enabled=false` (must be PostgreSQL 15) |
 | `redis.enabled` | `true` | Bundle Redis |
 | `redis.auth.password` | `coolify-redis` | Bundled Redis password |
-| `externalRedis.*` | — | Used when `redis.enabled=false` |
+| `externalRedis.*` |, | Used when `redis.enabled=false` |
 | `ingress.enabled` | `false` | Optional Traefik Ingress to the app Service |
 
 ### `.env` handling (read-only rootfs)

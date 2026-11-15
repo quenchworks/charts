@@ -1,7 +1,7 @@
 # Quenchworks NATS
 
-Hardened [NATS](https://github.com/nats-io/nats-server) — a lightweight,
-high-performance messaging system for cloud-native pub/sub and request-reply — on
+Hardened [NATS](https://github.com/nats-io/nats-server), a lightweight,
+high-performance messaging system for cloud-native pub/sub and request-reply, on
 a minimal, nonroot, CVE-gated image pinned by digest. Runs a single combined server
 with JetStream persistence on by default; the chart owns the server command so
 flags are deterministic. The image is cosign-signed (keyless / Sigstore) and the
@@ -130,7 +130,7 @@ helm uninstall my-nats
 ```
 
 The PVC provisioned by the `volumeClaimTemplate` is retained by Kubernetes on
-uninstall — delete it explicitly if you want the JetStream store gone:
+uninstall, delete it explicitly if you want the JetStream store gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=my-nats

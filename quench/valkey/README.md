@@ -94,7 +94,7 @@ Standalone runs a single primary. Replication adds read replicas that follow the
 ### High availability (Sentinel)
 
 Set `architecture=replication` and `sentinel.enabled=true` for a self-managed HA topology with
-automatic failover — no operator, no managed service:
+automatic failover, no operator, no managed service:
 
 ```bash
 helm install my-valkey oci://ghcr.io/quenchworks/charts/valkey \
@@ -105,15 +105,15 @@ You get one primary (StatefulSet ordinal 0 at bootstrap), N read replicas, and a
 Sentinel** quorum. Each pod discovers the current master from Sentinel at startup, so roles stay
 correct across restarts. Two client paths:
 
-- **Write / discovery** — the `*-sentinel` Service (port 26379). Clients ask
+- **Write / discovery**: the `*-sentinel` Service (port 26379). Clients ask
   `SENTINEL get-master-addr-by-name mymaster` for the live master. This is the correct write path
   in HA mode; the current master changes on failover.
-- **Read** — the `*-replica` Service (port 6379), all replicas.
+- **Read**: the `*-replica` Service (port 6379), all replicas.
 
 **Failover.** When the primary is lost, the Sentinels reach quorum, elect a leader, and promote a
 replica to master (typically within ~10s of `downAfterMilliseconds`). Surviving replicas
 re-sync from the new master, and the old primary rejoins as a replica when it restarts. Quorum
-(majority) loss is deliberately *not* auto-rebuilt — that needs a human, to avoid split-brain.
+(majority) loss is deliberately *not* auto-rebuilt, that needs a human, to avoid split-brain.
 Per-pod PVCs, soft pod anti-affinity, and a Sentinel PodDisruptionBudget (`minAvailable: quorum`)
 back the topology. Auth (`requirepass`/`masterauth`) is carried through to Sentinel; TLS is refused with Sentinel for now (see `tls.enabled`).
 

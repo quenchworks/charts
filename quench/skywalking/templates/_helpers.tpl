@@ -3,7 +3,7 @@
 {{- end -}}
 
 {{/*
-Storage nodes OAP connects to (SW_STORAGE_ES_CLUSTER_NODES — the env name is ES-flavoured
+Storage nodes OAP connects to (SW_STORAGE_ES_CLUSTER_NODES, the env name is ES-flavoured
 because OAP drives OpenSearch with the same Elasticsearch client). When the bundled subchart is
 enabled its HTTP Service is "<release>-opensearch" on 9200 (the subchart's quench-common.fullname
 resolves against its own chart name "opensearch"). Otherwise the external cluster is taken from

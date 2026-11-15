@@ -1,11 +1,11 @@
 # Quenchworks Kratos
 
-Hardened [Ory Kratos](https://www.ory.sh/kratos/) — an API-first identity
-server (registration, login, MFA, account recovery, profile management) — on
+Hardened [Ory Kratos](https://www.ory.sh/kratos/), an API-first identity
+server (registration, login, MFA, account recovery, profile management), on
 a minimal, nonroot, CVE-gated image, cosign-signed (keyless / Sigstore) and pinned
 by digest.
 
-Kratos ships **no login/registration UI** — it is an identity API you build
+Kratos ships **no login/registration UI**, it is an identity API you build
 your own UI against. All state lives in PostgreSQL, so the server itself runs
 as a stateless Deployment. This chart bundles the Quenchworks PostgreSQL
 chart by default and can also point at an external database.

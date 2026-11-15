@@ -18,7 +18,7 @@ helm install api oci://ghcr.io/quenchworks/charts/postgrest
 
 That pulls the QuenchWorks `postgresql` subchart, builds the connection URI from
 `postgresql.auth.*`, and stores it in a Secret as `PGRST_DB_URI`. **Change
-`postgresql.auth.password` for anything real** — it is shared with the URI.
+`postgresql.auth.password` for anything real**, it is shared with the URI.
 
 Against your own server instead:
 
@@ -42,7 +42,7 @@ helm install api oci://ghcr.io/quenchworks/charts/postgrest \
   --set externalDatabase.existingSecret=postgrest-db
 ```
 
-The URI is **always** a Secret — never a ConfigMap, never a command-line flag —
+The URI is **always** a Secret, never a ConfigMap, never a command-line flag:
 because it carries a password.
 
 ## Serving your first table
@@ -61,7 +61,7 @@ kubectl port-forward svc/api-postgrest 3000:3000
 curl http://127.0.0.1:3000/todos
 ```
 
-That last call only returns rows if requests can authorize — see below.
+That last call only returns rows if requests can authorize, see below.
 
 ## Authorization: `db.anonRole` and `jwt.secret`
 
@@ -69,12 +69,12 @@ PostgREST runs every request as a database role, so who may read what is a
 question you answer with `GRANT` and row-level security, not with chart values.
 Two knobs decide how a request gets a role:
 
-- `db.anonRole` — the role used for **unauthenticated** requests. It is **empty by
+- `db.anonRole`: the role used for **unauthenticated** requests. It is **empty by
   default**, which means no anonymous access at all: every request must present a
   JWT. Setting it hands anyone who can reach the Service exactly that role's
   privileges, so point it at a dedicated, narrowly-granted role. Never the table
   owner and never a superuser.
-- `jwt.secret` (or `jwt.existingSecret`) — the key PostgREST verifies bearer
+- `jwt.secret` (or `jwt.existingSecret`): the key PostgREST verifies bearer
   tokens with, 32 characters minimum. Its `role` claim selects the database role
   for that request.
 
@@ -174,7 +174,7 @@ probe overrides (`livenessProbe`, `readinessProbe`,
 ## Architecture
 
 PostgREST runs as a **Deployment** behind a **ClusterIP** Service on container
-port `3000`. It is configured entirely through `PGRST_*` environment variables —
+port `3000`. It is configured entirely through `PGRST_*` environment variables:
 that is PostgREST's own configuration mechanism, so the chart wires the handful
 that matter (`PGRST_DB_URI`, `PGRST_DB_SCHEMAS`, `PGRST_DB_ANON_ROLE`,
 `PGRST_DB_EXTRA_SEARCH_PATH`, `PGRST_DB_POOL`, `PGRST_SERVER_PORT`,
@@ -185,14 +185,14 @@ the rest are one env var each.
 
 The **admin server** (port 3001, `adminServer.enabled`) exists so the probes have
 something honest to ask. `/live` says the process is up; `/ready` says the
-database connection is established and the schema cache is loaded — so a Ready
+database connection is established and the schema cache is loaded, so a Ready
 pod can actually answer queries. The API port has no such endpoint: `/` is the
 OpenAPI document and is subject to the same authorization as everything else, so
 probing it would fail on a locked-down instance. The admin port is deliberately
 not published by the Service.
 
 The pod mounts nothing: PostgREST is a single binary with a read-only root
-filesystem and no local state. Scaling out is safe — each replica just opens its
+filesystem and no local state. Scaling out is safe, each replica just opens its
 own pool of `db.pool` connections, which is the number to watch against the
 server's `max_connections`.
 
@@ -225,7 +225,7 @@ networkPolicy:
   allowExternal: true
 ```
 
-A PostgREST setting the chart does not expose — just use its env var:
+A PostgREST setting the chart does not expose, just use its env var:
 
 ```yaml
 extraEnvVars:
@@ -241,7 +241,7 @@ extraEnvVars:
 helm uninstall api
 ```
 
-The bundled PostgreSQL's PVC is retained by Kubernetes on uninstall — delete it
+The bundled PostgreSQL's PVC is retained by Kubernetes on uninstall, delete it
 explicitly if you want the data gone:
 
 ```bash

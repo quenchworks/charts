@@ -1,8 +1,8 @@
 # Quenchworks SpiceDB
 
-Hardened [SpiceDB](https://github.com/authzed/spicedb) — Authzed's open-source,
+Hardened [SpiceDB](https://github.com/authzed/spicedb), Authzed's open-source,
 Google Zanzibar-inspired database for fine-grained authorization (ReBAC /
-relationship-based permissions) over a gRPC API — on a minimal, nonroot, CVE-gated
+relationship-based permissions) over a gRPC API, on a minimal, nonroot, CVE-gated
 image, cosign-signed (keyless / Sigstore) and pinned by digest. It runs
 `spicedb serve` as a stateless Deployment and serves the gRPC API on port 50051.
 
@@ -88,8 +88,8 @@ containers, extra env/volumes, security contexts, update strategy).
 ## Architecture
 
 A stateless Deployment runs `spicedb serve`. The gRPC API **requires** a
-preshared key (`--grpc-preshared-key`) — the server refuses to serve without one
-— which the chart injects as `SPICEDB_GRPC_PRESHARED_KEY` from a Secret; treat it
+preshared key (`--grpc-preshared-key`), the server refuses to serve without one
+which the chart injects as `SPICEDB_GRPC_PRESHARED_KEY` from a Secret; treat it
 as the root credential to the authorization API. Liveness `httpGet /metrics` on
 the metrics port and readiness does a TCP connect to the gRPC port, so a pod
 takes traffic only once it is accepting work.
@@ -139,7 +139,7 @@ extraArgs:
 helm uninstall authz
 ```
 
-The managed preshared-key Secret is retained by Kubernetes on uninstall — delete
+The managed preshared-key Secret is retained by Kubernetes on uninstall, delete
 it explicitly if you want it gone (and it holds no state when a persistent
 datastore is used, which lives in your external database):
 
@@ -150,7 +150,7 @@ kubectl delete secret authz-spicedb
 ## Notes
 
 Default in-memory datastore for a single node; use a persistent, shared engine
-before scaling out. TLS is not enabled by default — terminate TLS at an
+before scaling out. TLS is not enabled by default, terminate TLS at an
 ingress/gateway or pass the `spicedb serve` TLS flags via `extraArgs`. The chart
 depends on the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`. The container runs nonroot on a

@@ -42,7 +42,7 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/cassandra --owner q
 
 ## Authentication
 
-Auth is **off by default** (`AllowAllAuthenticator`) — this is an internal
+Auth is **off by default** (`AllowAllAuthenticator`), this is an internal
 deployment and the NetworkPolicy is the trust boundary. Enable login auth with:
 
 ```bash

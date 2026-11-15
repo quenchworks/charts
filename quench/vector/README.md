@@ -116,7 +116,7 @@ env/volumes, security contexts).
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
 dropped; `/tmp` and the data dir (`/vector-data-dir`, `VECTOR_DATA_DIR`, used for
 disk buffers) are writable emptyDir volumes. Vector's API has **no built-in
-authentication** — the NetworkPolicy is the trust boundary. Front any receiving
+authentication**, the NetworkPolicy is the trust boundary. Front any receiving
 sources (http_server, syslog, socket, opentelemetry, vector) with an
 authenticating proxy or mTLS if you expose them beyond the cluster.
 

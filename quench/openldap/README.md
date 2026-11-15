@@ -30,7 +30,7 @@ upstream `Service`/`LoadBalancer` rather than granting `NET_BIND_SERVICE`.
 ## How it boots
 
 `slapd` cannot start without a config file, and the config has to carry the
-hashed admin password — which lives in a `Secret` the chart may never see (an
+hashed admin password, which lives in a `Secret` the chart may never see (an
 `auth.existingSecret`). So an init container does the bootstrap, and it is
 idempotent on every restart:
 
@@ -52,7 +52,7 @@ containers a soft limit of `1073741816`, so an unconstrained `slapd` tries to
 allocate roughly 56 GB of connection slots and is OOM-killed before it ever listens
 (Docker's own 1M default is small enough to hide the bug, which is why this only
 shows up in Kubernetes). The command is therefore
-`/bin/sh -c "ulimit -n <ldap.maxOpenFiles>; exec /usr/bin/slapd ..."` — `slapd` is
+`/bin/sh -c "ulimit -n <ldap.maxOpenFiles>; exec /usr/bin/slapd ..."`, `slapd` is
 `exec`ed, so it remains PID 1 and receives signals directly, and the shell exists
 only for that one line. `ldap.maxOpenFiles` doubles as the concurrent-connection
 ceiling; raise it if you need more than ~4k clients.
@@ -89,7 +89,7 @@ bootstrap hook, not a reconciler. Add entries afterwards with `ldapadd`.
 
 The defaults are a normal directory-service posture: `userPassword` is
 write-self / auth-only and never readable, everything else is readable. Tighten
-it with `ldap.extraConfig`, which is injected **before** the defaults — `slapd`
+it with `ldap.extraConfig`, which is injected **before** the defaults, `slapd`
 stops at the first matching `access to` rule:
 
 ```yaml
@@ -106,7 +106,7 @@ base-scope search on the base DN) with `customReadinessProbe`.
 
 ## TLS
 
-Not wired by default — supply the material and the directives yourself:
+Not wired by default, supply the material and the directives yourself:
 
 ```yaml
 extraVolumes:
@@ -148,7 +148,7 @@ gh attestation verify oci://ghcr.io/quenchworks/images/openldap \
 | `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
 | `ldap.baseDN` | `dc=example,dc=org` | dc-style suffix; the seeded base entry matches it. |
 | `ldap.organization` | `QuenchWorks` | `o:` of the base entry. |
-| `ldap.maxSize` | `1073741824` | LMDB map size — the hard ceiling on database size. |
+| `ldap.maxSize` | `1073741824` | LMDB map size: the hard ceiling on database size. |
 | `ldap.logLevel` | `256` | `slapd -d` level; any value keeps it in the foreground. |
 | `ldap.maxOpenFiles` | `4096` | `ulimit -n` cap; also the concurrent-connection ceiling. See below. |
 | `ldap.extraConfig` | `""` | Extra `slapd.conf` directives, injected before the default ACLs. |
@@ -176,7 +176,7 @@ dropped. Only the data volume (`/var/lib/openldap`) and the rendered-config
 
 ## Notes
 
-Single instance by design — the LMDB volume has one writer. Multi-master
+Single instance by design, the LMDB volume has one writer. Multi-master
 replication (`syncrepl` / mirrormode) and `ldaps` termination in-chart are
 tracked as follow-ups. There is no metrics exporter yet; `database monitor` is
 enabled, so `cn=Monitor` can be scraped by an external collector.

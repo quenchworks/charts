@@ -130,7 +130,7 @@ helm uninstall prom
 ```
 
 The PVC provisioned by the `volumeClaimTemplate` is retained by Kubernetes on
-uninstall — delete it explicitly if you want the TSDB gone:
+uninstall, delete it explicitly if you want the TSDB gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=prom

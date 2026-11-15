@@ -47,11 +47,11 @@ node pools, the failover table, and the quorum boundary.
 Two node pools, each its own StatefulSet, so roles are dedicated the way a real
 cluster wants them:
 
-- **`master` pool** (3 nodes) — `node.roles: [cluster_manager]`. These hold the
+- **`master` pool** (3 nodes): `node.roles: [cluster_manager]`. These hold the
   cluster state and elect the leader. Nothing else runs on them, so a data-node
   GC pause or a heavy query can't stall the election. Use an **odd** count so a
   majority is unambiguous: 3 tolerates 1 loss, 5 tolerates 2.
-- **`data` pool** (2+ nodes) — `node.roles: [data, ingest]`. These hold the shards
+- **`data` pool** (2+ nodes): `node.roles: [data, ingest]`. These hold the shards
   and their replicas. Keep it at 2 or more so every shard's replica has a home on
   a _different_ node.
 
@@ -61,23 +61,23 @@ seeds the first election. Master election and shard reallocation are native to
 OpenSearch, so there is no sidecar and no external controller.
 
 New indices default to 1 replica, so with 2 data nodes each shard is written to
-both — a green cluster you can lose a node from.
+both, a green cluster you can lose a node from.
 
-### Failover — what survives what
+### Failover, what survives what
 
 | You lose                               | What happens                                                                                                                    | Result                                                                                                                                                                 |
 | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | A **data** node                        | Its replicas on the surviving node(s) are promoted to primary; the StatefulSet recreates the pod, it rejoins and re-replicates. | Reads and writes keep working. Cluster goes **yellow** (no redundancy) until it rejoins, then back to **green**. Zero-touch.                                           |
 | The elected **cluster_manager**        | The surviving master-eligible nodes re-elect a leader (needs a quorum).                                                         | A brief election, then normal service. Data is untouched.                                                                                                              |
-| **Quorum of the master pool** (2 of 3) | OpenSearch refuses to elect a leader — this is the split-brain guard, not a bug.                                                | **Hard boundary.** The cluster will not self-rebuild. Bring the failed masters back and they rejoin. A human confirms; the chart does not auto-recover past this line. |
+| **Quorum of the master pool** (2 of 3) | OpenSearch refuses to elect a leader: this is the split-brain guard, not a bug.                                                | **Hard boundary.** The cluster will not self-rebuild. Bring the failed masters back and they rejoin. A human confirms; the chart does not auto-recover past this line. |
 
 That last row is the deliberate limit: below a master majority, recovering
 automatically would risk two halves each thinking they're in charge. Restore the
 masters instead.
 
 We tested exactly this on kind: created an index with `replicas=1`, indexed a doc,
-killed a data node — the doc stayed readable off the replica and the node rejoined
-to green; killed the elected manager — the pool re-elected within seconds and the
+killed a data node, the doc stayed readable off the replica and the node rejoined
+to green; killed the elected manager, the pool re-elected within seconds and the
 doc never went away.
 
 ### single mode
@@ -94,7 +94,7 @@ lightest thing that runs. This is the pre-0.1 layout, unchanged.
 
 OpenSearch's multi-node bootstrap check needs the host sysctl `vm.max_map_count`
 at 262144 or higher, or the node refuses to start. HA mode runs a short privileged
-init container that raises it (and _only_ raises it — it never lowers a node that's
+init container that raises it (and _only_ raises it, it never lowers a node that's
 already tuned higher). If your nodes are pre-tuned or you set it through the kubelet,
 turn it off:
 
@@ -136,7 +136,7 @@ gh attestation verify oci://ghcr.io/quenchworks/images/opensearch \
 | `data.replicaCount`           | `2`                                     | Data pool. Keep >= 2 so a replica has a home.                                             |
 | `data.heapSize`               | `512m`                                  | JVM heap (`-Xms`/`-Xmx`).                                                                 |
 | `data.persistence.size`       | `16Gi`                                  | Per-pod PVC for shards.                                                                   |
-| `single.*`                    | —                                       | heap/persistence/resources for `mode: single`.                                            |
+| `single.*`                    |,                                      | heap/persistence/resources for `mode: single`.                                            |
 | `service.httpPort`            | `9200`                                  | REST API (client Service across all nodes).                                               |
 | `service.enabled`             | `true`                                  | `false` drops the client Service (and, in single mode only, the headless one).            |
 | `service.transportPort`       | `9300`                                  | Node transport (headless Service).                                                        |
@@ -169,12 +169,12 @@ is the `vm.max_map_count` init, which is privileged on purpose and only touches 
 node sysctl.
 
 The security plugin is not bundled (its opensaml jar shades a jackson we can't
-patch to CVE-gated), so TLS/auth is off by construction — run this behind the
+patch to CVE-gated), so TLS/auth is off by construction, run this behind the
 NetworkPolicy on an internal network.
 
 ## Notes
 
-Backups are not part of failover — a replicated cluster survives node loss, not a
+Backups are not part of failover, a replicated cluster survives node loss, not a
 bad delete or a corrupt index. A snapshot CronJob to object storage is a tracked
 follow-up. Depends on the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`.

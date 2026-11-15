@@ -62,7 +62,7 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/neo4j --owner quenc
 | `image.repository`            | `ghcr.io/quenchworks/images/neo4j` |                                                                                           |
 | `image.digest`                | (CI-written)                       | Required. Charts pin by digest, never a tag.                                              |
 | `replicaCount`                | `1`                                | Single node (Community Edition).                                                          |
-| `auth.enabled`                | `true`                             | `false` disables auth (`NEO4J_AUTH=none`) — not for production.                           |
+| `auth.enabled`                | `true`                             | `false` disables auth (`NEO4J_AUTH=none`): not for production.                           |
 | `auth.username`               | `neo4j`                            | Community fixes the admin user to `neo4j`.                                                |
 | `auth.password`               | (generated)                        | 24-char random if empty; stored in the Secret.                                            |
 | `auth.existingSecret`         | `""`                               | Use an existing Secret holding the `neo4j/<pw>` string.                                   |
@@ -107,6 +107,6 @@ NetworkPolicy for internal use.
 ## Notes
 
 Single node (Community Edition; causal clustering is Enterprise-only). First-run
-auth setup is idempotent — it runs only on the first boot, so restarts and upgrades
+auth setup is idempotent, it runs only on the first boot, so restarts and upgrades
 preserve the existing password. Depends on the `quench-common` library chart, pulled
 from `oci://ghcr.io/quenchworks/charts/quench-common`.

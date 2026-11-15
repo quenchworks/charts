@@ -1,7 +1,7 @@
 # QuenchWorks Cadence
 
-Hardened [Cadence](https://cadenceworkflow.io/) — Uber's fault-tolerant, stateful
-workflow orchestration engine — on a minimal, nonroot, CVE-gated image pinned by digest.
+Hardened [Cadence](https://cadenceworkflow.io/), Uber's fault-tolerant, stateful
+workflow orchestration engine, on a minimal, nonroot, CVE-gated image pinned by digest.
 This chart runs the **all-in-one** server: one `cadence-server` process hosting all
 four roles (frontend + history + matching + worker), backed by **Cassandra**.
 
@@ -11,7 +11,7 @@ also point at an external cluster.
 
 Cadence uses **two keyspaces**: the main store and the visibility store. Six
 shell-free init containers create both keyspaces and bring their schema to the latest
-version with `cadence-cassandra-tool` before the server boots — the distroless image
+version with `cadence-cassandra-tool` before the server boots, the distroless image
 ships no shell, so each step is a single tool invocation (create-Keyspace, then
 `setup-schema`, then `update-schema`), and the first `create-Keyspace` doubles as the
 wait-for-Cassandra gate.
@@ -32,7 +32,7 @@ kubectl port-forward svc/wf-cadence 7833:7833
 # point your SDK client at 127.0.0.1:7833
 ```
 
-The bundled `cadence` CLI defaults to the **TChannel** transport — pass
+The bundled `cadence` CLI defaults to the **TChannel** transport, pass
 `--transport grpc` when talking to the gRPC port. Register the domains your workers
 use (no domain is auto-created):
 
@@ -71,10 +71,10 @@ The external account must be able to create keyspaces and tables.
 The server config is the `cadenceConfig` value (a Cassandra-backed config rendered
 through `tpl`, replacing the sample the image does not ship). It is mounted read-only
 at `/etc/cadence/config/config.yaml`; `dynamicConfig` is mounted alongside. Every
-role binds on `${POD_IP}` — Cadence's own config loader expands that from the
+role binds on `${POD_IP}`, Cadence's own config loader expands that from the
 downward-API `POD_IP` env at start, so ringpop advertises a routable address and the
 Service/probe can reach the frontend (no shell/render step). Edit either value and
-`helm upgrade` — the pod checksum annotation rolls the Deployment.
+`helm upgrade`, the pod checksum annotation rolls the Deployment.
 
 | Key | Default | Description |
 | --- | --- | --- |
@@ -84,7 +84,7 @@ Service/probe can reach the frontend (no shell/render step). Edit either value a
 | `cassandra.enabled` | `true` | Bundle the QuenchWorks Cassandra chart. |
 | `cassandra.auth.enabled` | `false` | Bootstrap the default cassandra superuser. |
 | `keyspaces.{main,visibility}` | `cadence` / `cadence_visibility` | Store keyspace names. |
-| `externalCassandra.*` | — | Used when `cassandra.enabled=false`. |
+| `externalCassandra.*` |, | Used when `cassandra.enabled=false`. |
 | `schemaSetup.enabled` | `true` | Run the schema-bootstrap init containers. |
 | `schemaSetup.replicationFactor` | `1` | RF used by create-Keyspace. |
 | `service.{grpcPort,tchannelPort}` | `7833` / `7933` | Frontend Service ports. |
@@ -103,8 +103,8 @@ supported.
 ## Scaling
 
 This release ships the all-in-one server only. `numHistoryShards` is fixed at first
-schema setup and cannot change without a fresh keyspace. Scale-out — one Deployment
-per role — is a future chart capability.
+schema setup and cannot change without a fresh keyspace. Scale-out, one Deployment
+per role, is a future chart capability.
 
 ## Security
 

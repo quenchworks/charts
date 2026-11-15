@@ -1,7 +1,7 @@
 # Quenchworks Hydra
 
-Hardened [Ory Hydra](https://www.ory.sh/hydra/) — a certified OAuth2 / OpenID
-Connect server — on a minimal, nonroot, CVE-gated image, cosign-signed (keyless /
+Hardened [Ory Hydra](https://www.ory.sh/hydra/), a certified OAuth2 / OpenID
+Connect server, on a minimal, nonroot, CVE-gated image, cosign-signed (keyless /
 Sigstore) and pinned by digest.
 
 Hydra is a **token and consent service**, not a login UI: it delegates
@@ -25,7 +25,7 @@ curl http://127.0.0.1:4444/.well-known/openid-configuration
 ```
 
 Set `urls.login` / `urls.consent` / `urls.logout` to your own login+consent
-application before issuing real tokens — the chart's defaults are placeholders
+application before issuing real tokens, the chart's defaults are placeholders
 that only let the server boot for evaluation.
 
 ## Admin API

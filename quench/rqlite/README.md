@@ -1,7 +1,7 @@
 # Quenchworks rqlite
 
-Hardened [rqlite](https://github.com/rqlite/rqlite) — a lightweight distributed
-relational database built on SQLite with Raft consensus — on a minimal, nonroot,
+Hardened [rqlite](https://github.com/rqlite/rqlite), a lightweight distributed
+relational database built on SQLite with Raft consensus, on a minimal, nonroot,
 CVE-gated image pinned by digest. It serves the HTTP API on port 4001 and Raft on
 port 4002, running on a read-only root filesystem with all capabilities dropped.
 The image is cosign-signed (keyless / Sigstore) and the chart pins it by the
@@ -109,13 +109,13 @@ dir is an `emptyDir` and does not survive a restart.
 Two ports are exposed: **HTTP (4001)** for the SQL API and **Raft (4002)** for
 inter-node consensus. Each node advertises itself over its stable headless DNS
 name (`<pod>.<headless>.<ns>.svc.cluster.local`) rather than `0.0.0.0`, which
-rqlited rejects as non-routable — this is also what lets future peers find each
+rqlited rejects as non-routable, this is also what lets future peers find each
 other. Probes: a TCP liveness check on the HTTP port and an HTTP readiness check
 against `/readyz`.
 
 The default topology is **single-node** (`replicaCount: 1`). A clustered, Raft
 consensus topology needs `-bootstrap-expect` / `-join` peer discovery wired
-through the `args` override and is not yet a first-class chart feature — keep
+through the `args` override and is not yet a first-class chart feature, keep
 `replicaCount` at 1 unless you supply your own clustering args (see below).
 
 ## Configuration examples
@@ -132,7 +132,7 @@ persistence:
 
 Advanced multi-node cluster (overrides the baked args to add Raft bootstrap
 discovery; the per-pod headless advertise addresses must be reproduced). This is
-not yet officially supported — validate carefully before relying on it:
+not yet officially supported, validate carefully before relying on it:
 
 ```yaml
 replicaCount: 3
@@ -153,7 +153,7 @@ helm uninstall my-rqlite
 ```
 
 PVCs provisioned by the `volumeClaimTemplate` are retained by Kubernetes on
-uninstall — delete them explicitly if you want the data gone:
+uninstall, delete them explicitly if you want the data gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=my-rqlite

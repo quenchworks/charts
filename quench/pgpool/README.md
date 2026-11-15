@@ -1,7 +1,7 @@
 # Quenchworks Pgpool-II
 
-Hardened [Pgpool-II](https://www.pgpool.net/) — a connection pooler, load balancer and
-query router for PostgreSQL — on a minimal, nonroot, CVE-gated image pinned by digest.
+Hardened [Pgpool-II](https://www.pgpool.net/), a connection pooler, load balancer and
+query router for PostgreSQL, on a minimal, nonroot, CVE-gated image pinned by digest.
 Pgpool-II sits between your applications and a PostgreSQL cluster: it pools connections,
 routes read-only queries across streaming-replication standbys, keeps writes on the
 primary, and detaches a node that stops answering health checks. The client listener is
@@ -45,7 +45,7 @@ kubectl run pgclient --rm -it --restart=Never \
 
 ### Pgpool-II's own SHOW commands
 
-Answered by the pooler itself on the same connection — the quickest way to confirm you are
+Answered by the pooler itself on the same connection, the quickest way to confirm you are
 really talking to Pgpool-II and to see where queries went:
 
 ```bash
@@ -58,7 +58,7 @@ psql "host=pool-pgpool port=9999 user=appuser dbname=appdb password=$PW" \
 
 `pcp_node_count`, `pcp_node_info`, `pcp_detach_node`, `pcp_attach_node` and
 `pcp_recovery_node` speak PCP on port `9898`. No users are configured by default, so the
-listener accepts nothing — add one:
+listener accepts nothing, add one:
 
 ```yaml
 pcp:
@@ -131,7 +131,7 @@ Total backend connections ≈ `replicaCount × num_init_children × max_pool`. S
 
 `pgpool.authMethod` is the method written into `pool_hba.conf` for TCP clients
 (`scram-sha-256` by default, matching the Quenchworks PostgreSQL image). The chart writes a
-`pool_passwd` Secret with `username:password` lines — an unprefixed value is treated as
+`pool_passwd` Secret with `username:password` lines, an unprefixed value is treated as
 plaintext, which is exactly what SCRAM needs: Pgpool-II uses it to verify the client **and**
 to log in to the backends. The `health_check_password` and `sr_check_password` settings are
 deliberately left empty so Pgpool-II resolves them from `pool_passwd` too, keeping every
@@ -144,7 +144,7 @@ Unix-socket and loopback connections are `trust`ed so in-pod tooling works.
 
 No `failover_command` is configured: the runtime image has no shell, so promoting a standby
 is left to Kubernetes / your PostgreSQL operator. Pgpool-II still does the pooler half of
-the job — it detaches a node that fails `health_check` and re-detects the primary via
+the job, it detaches a node that fails `health_check` and re-detects the primary via
 `sr_check`, so traffic follows the new primary once it is promoted. `pgpool_status` lives on
 an emptyDir, so node up/down state is rebuilt from health checks after a restart.
 
@@ -202,7 +202,7 @@ env/volumes, security contexts).
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities dropped. The
 only writable paths are emptyDir mounts at `/var/run/pgpool` (sockets + pidfile) and `/tmp`
 (`pgpool_status`, lock files). `pgpool.conf` and `pool_hba.conf` come from a ConfigMap;
-`pool_passwd` and `pcp.conf` from Secrets — all mounted read-only as individual files under
+`pool_passwd` and `pcp.conf` from Secrets, all mounted read-only as individual files under
 `/etc/pgpool`. A tcpSocket probe on 9999 gates readiness and liveness, deliberately: the
 pooler must stay up while a backend is down, which is exactly when it detaches nodes and
 re-detects the primary. The release install gate does the deeper check (`SELECT 1` and
@@ -215,7 +215,7 @@ helm uninstall pool
 ```
 
 The pooler itself is stateless and holds no PVCs. When the bundled PostgreSQL
-subchart is enabled, its PVC is retained by Kubernetes on uninstall — delete it
+subchart is enabled, its PVC is retained by Kubernetes on uninstall, delete it
 explicitly if you want the data gone:
 
 ```bash
@@ -226,10 +226,10 @@ kubectl delete pvc -l app.kubernetes.io/instance=pool
 
 Depends on the `quench-common` library chart and the Quenchworks `postgresql` chart, both
 pulled from `oci://ghcr.io/quenchworks/charts`. The chart supplies the real configuration
-(the image ships only bootable defaults) at the entrypoint's paths — the image runs
+(the image ships only bootable defaults) at the entrypoint's paths, the image runs
 `pgpool -n -f /etc/pgpool/pgpool.conf -F /etc/pgpool/pcp.conf -a /etc/pgpool/pool_hba.conf`
 directly, with no shell in the image.
 
 `logdir` (≤ 4.6) was renamed `work_dir` (≥ 4.7) upstream, and an unknown parameter is a
-startup FATAL, so the chart sets neither and relies on Pgpool-II's default of `/tmp` —
+startup FATAL, so the chart sets neither and relies on Pgpool-II's default of `/tmp`:
 which keeps the rendered config valid across every image tag the factory publishes.

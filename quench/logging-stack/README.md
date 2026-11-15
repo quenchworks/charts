@@ -5,8 +5,8 @@ wired together into end-to-end log aggregation, with a ready-made logs dashboard
 loaded on first boot. Vector tails every pod's logs on every node and ships them
 to Loki; Grafana queries Loki through a pre-provisioned datasource.
 
-It delivers the everyday value of a Loki/Promtail/Grafana ("LPG") stack — collect,
-store and browse cluster logs — **without a logging operator and without CRDs**. Log
+It delivers the everyday value of a Loki/Promtail/Grafana ("LPG") stack, collect,
+store and browse cluster logs, **without a logging operator and without CRDs**. Log
 collection is a plain Vector DaemonSet with the built-in `kubernetes_logs` source
 (cluster-wide, annotation-free), so there are no custom resources to install, no
 admission webhooks, and no operator pod to keep healthy. Every component image is
@@ -43,7 +43,7 @@ Open Grafana and read the generated admin password:
 ```sh
 kubectl get secret logs-grafana -o jsonpath='{.data.admin-password}' | base64 -d ; echo
 kubectl port-forward svc/logs-grafana 3000:3000
-# http://127.0.0.1:3000  (user: admin) — the "Loki" datasource is the default
+# http://127.0.0.1:3000  (user: admin), the "Loki" datasource is the default
 ```
 
 The bundled dashboard appears under **Dashboards** immediately; logs start flowing
@@ -94,29 +94,29 @@ See the `quench/loki` and `quench/grafana` component charts for per-component de
 The umbrella owns a thin glue layer; Loki and Grafana otherwise pass straight through
 to their component charts.
 
-- **Grafana datasource** — the umbrella renders a fixed-name ConfigMap
+- **Grafana datasource**: the umbrella renders a fixed-name ConfigMap
   (`logging-stack-datasources`) pointing at `http://<release>-loki:3100` with a fixed
   datasource uid `loki`, mounted into Grafana's provisioning directory via
   `grafana.extraVolumes`. `grafana.datasources` stays empty. **Fixed names ⇒ run one
   logging-stack per namespace.**
-- **Dashboard** — the "Loki Kubernetes Logs" JSON ships in `dashboards/`, rendered into
+- **Dashboard**: the "Loki Kubernetes Logs" JSON ships in `dashboards/`, rendered into
   a ConfigMap and provisioned through a Grafana file provider (same mount mechanism as
   the datasource). No Grafana sidecar image required.
-- **Vector → Loki** — Vector runs as a DaemonSet (one pod per node) templated **by this
+- **Vector → Loki**: Vector runs as a DaemonSet (one pod per node) templated **by this
   umbrella**, not the `quench/vector` component chart. It uses the built-in
   `kubernetes_logs` source to tail `/var/log/pods` on each node, enriches each event
   with pod metadata from the apiserver, and pushes to the `loki` sink at
   `http://<release>-loki:3100/loki/api/v1/push`. Logs are labelled `namespace`, `pod`,
   `container`, `node` and `stream`.
-- **RBAC** — the umbrella creates a ServiceAccount + ClusterRole + binding for Vector
-  granting read (`get`/`list`/`watch`) on `pods`, `namespaces` and `nodes` — what the
+- **RBAC**: the umbrella creates a ServiceAccount + ClusterRole + binding for Vector
+  granting read (`get`/`list`/`watch`) on `pods`, `namespaces` and `nodes`, what the
   `kubernetes_logs` source needs to enrich and discover logs cluster-wide.
 
 ### Why Vector is templated inline (not a dependency)
 
 The `quench/vector` component chart is deployment-only and renders its `vectorConfig`
 verbatim with `toYaml`, so it cannot run as a DaemonSet, cannot mount host log dirs,
-and — critically — cannot template `{{ .Release.Name }}` into the Loki sink endpoint
+and, critically, cannot template `{{ .Release.Name }}` into the Loki sink endpoint
 (the config is data, not a template). A log shipper needs all three. So this umbrella
 templates the Vector DaemonSet + its config ConfigMap + RBAC directly, exactly as the
 `observability-stack` templates `node-exporter` inline. The Vector image is the same
@@ -137,7 +137,7 @@ One curated dashboard ships in the chart and provisions automatically:
 |-----------|-------|-------|
 | Loki Kubernetes Logs | live log viewer filtered by namespace / container / stream + a match query | Loki + Vector |
 
-Choose how many you want — all, some, or none:
+Choose how many you want, all, some, or none:
 
 ```yaml
 # All (default): nothing to set.
@@ -177,7 +177,7 @@ additions: a `file` source, a `remap` (VRL) transform, extra Loki labels.
 Loki runs in **single-binary** mode with **filesystem** storage (the `quench/loki`
 chart default): one process runs every Loki target and keeps chunks/index/WAL on its
 PVC. This is the recommended topology up to a few hundred GB/day of ingest. For more,
-or for multi-tenant retention, move to scale-out Loki with an object store — a tracked
+or for multi-tenant retention, move to scale-out Loki with an object store, a tracked
 follow-up. Tune retention and limits through the `loki.lokiConfig` passthrough.
 
 ## Multiple releases

@@ -53,7 +53,7 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/openfga --owner que
 | `replicaCount`                               | `1`                                  | Stateless Deployment. Keep at `1` with the in-memory datastore.                           |
 | `datastore.engine`                           | `memory`                             | `memory`, `postgres`, or `mysql`.                                                         |
 | `datastore.uri`                              | `""`                                 | DB connection URI. Prefer a Secret via `extraEnvVarsSecret` (`OPENFGA_DATASTORE_URI`).    |
-| `playground.enabled`                         | `false`                              | Bundled developer playground (port 3000), unauthenticated — local use only.               |
+| `playground.enabled`                         | `false`                              | Bundled developer playground (port 3000), unauthenticated: local use only.               |
 | `extraArgs`                                  | `[]`                                 | Extra flags appended to the `openfga run` command.                                        |
 | `resources.requests`                         | `cpu 50m / mem 64Mi`                 |                                                                                           |
 | `resources.limits`                           | `cpu 500m / mem 256Mi`               |                                                                                           |
@@ -100,7 +100,7 @@ Service. The container serves the **HTTP API on 8080** and the **gRPC API on
 8081**; the Service maps both to the same ports.
 
 With the default `datastore.engine=memory` OpenFGA boots with no database. That
-store is per-pod and lost on restart, and it is not shared across replicas — so
+store is per-pod and lost on restart, and it is not shared across replicas, so
 keep `replicaCount` at `1` with the in-memory datastore. Setting
 `datastore.engine` to `postgres` or `mysql` and pointing at a shared database is
 what makes it safe to raise `replicaCount` or enable `autoscaling` (HPA on CPU).
@@ -142,7 +142,7 @@ extraArgs:
 helm uninstall authz
 ```
 
-Nothing persists in-cluster — the workload is stateless and holds no PVCs. An
+Nothing persists in-cluster, the workload is stateless and holds no PVCs. An
 external SQL datastore, if configured, is unaffected.
 
 ## Notes

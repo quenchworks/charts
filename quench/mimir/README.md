@@ -1,9 +1,9 @@
 # Quenchworks Mimir
 
-Hardened [Grafana Mimir](https://github.com/grafana/mimir) — horizontally scalable,
-long-term storage for Prometheus metrics — running in **single-process (monolithic)
+Hardened [Grafana Mimir](https://github.com/grafana/mimir), horizontally scalable,
+long-term storage for Prometheus metrics, running in **single-process (monolithic)
 mode** (`-target=all`, every component in one process) on a minimal, nonroot, CVE-gated
-image pinned by digest. Built from source on Wolfi. Mimir has no UI of its own —
+image pinned by digest. Built from source on Wolfi. Mimir has no UI of its own:
 Grafana is its frontend. The HTTP API (remote-write, query, `/ready`, `/metrics`)
 is on port 8080; gRPC on 9095.
 
@@ -15,7 +15,7 @@ helm install mimir oci://ghcr.io/quenchworks/charts/mimir
 
 ## Send metrics (Prometheus remote-write)
 
-Mimir does not scrape targets itself — point Prometheus, Grafana Alloy, or the
+Mimir does not scrape targets itself, point Prometheus, Grafana Alloy, or the
 OpenTelemetry Collector at the push endpoint:
 
 ```yaml
@@ -100,7 +100,7 @@ env/volumes, security contexts).
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
 dropped. The only writable state is the `/data` volume (TSDB, filesystem object
 store, compactor/ruler working dirs) and a `/tmp` emptyDir. Mimir runs single-tenant
-(`multitenancy_enabled: false`) — there is no Secret to manage. The NetworkPolicy is
+(`multitenancy_enabled: false`), there is no Secret to manage. The NetworkPolicy is
 the trust boundary; keep it enabled, and front the service with an authenticating
 proxy if you must expose it beyond the cluster.
 

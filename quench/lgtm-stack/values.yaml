@@ -1,16 +1,16 @@
-# lgtm-stack — the full LGTM observability superset in ONE install: an umbrella over
+# lgtm-stack, the full LGTM observability superset in ONE install: an umbrella over
 # the QuenchWorks victoriametrics, loki, grafana, tempo and alertmanager component
 # charts, plus a glue layer wired together so Grafana is a single pane over metrics,
 # logs AND traces out of the box.
 #
-#   L oki            — logs            (Vector ships every pod's logs here)
-#   G rafana         — the single pane (THREE datasources: VictoriaMetrics, Loki, Tempo)
-#   T empo           — traces          (the OTel Collector forwards OTLP spans here)
-#   M etrics         — VictoriaMetrics (Prometheus-compatible; scrapes pods via promscrape)
-#   + Alertmanager   — alert routing/notification
-#   + OTel Collector — OTLP ingest gateway for traces
-#   + Vector         — log shipper DaemonSet
-#   + kube-state-metrics / node-exporter — so the metrics dashboards populate
+#   L oki           , logs            (Vector ships every pod's logs here)
+#   G rafana        , the single pane (THREE datasources: VictoriaMetrics, Loki, Tempo)
+#   T empo          , traces          (the OTel Collector forwards OTLP spans here)
+#   M etrics        , VictoriaMetrics (Prometheus-compatible; scrapes pods via promscrape)
+#   + Alertmanager  , alert routing/notification
+#   + OTel Collector, OTLP ingest gateway for traces
+#   + Vector        , log shipper DaemonSet
+#   + kube-state-metrics / node-exporter, so the metrics dashboards populate
 #
 # Data flow:
 #     your app  --(prometheus.io/scrape annotations)-->  VictoriaMetrics (promscrape)
@@ -32,13 +32,13 @@
 #
 # PURPOSE / TRADE-OFF: a full observability stack needs node metrics and pod logs, so
 # node-exporter (DaemonSet, hostPID + host /proc /sys / read-only) and Vector
-# (DaemonSet, host /var/log read-only) are ON by default and DO take host access —
+# (DaemonSet, host /var/log read-only) are ON by default and DO take host access:
 # the deliberate, documented trade-off for THIS stack. Both stay toggleable.
 
 # ---------------------------------------------------------------------------
-# VictoriaMetrics (subchart) — the "M". Prometheus-compatible single-node TSDB.
+# VictoriaMetrics (subchart), the "M". Prometheus-compatible single-node TSDB.
 # Query API on :8428 (/api/v1/query, /api/v1/series, ...). It also runs an embedded
-# vmagent-style scraper (promscrape) when given -promscrape.config — we mount a
+# vmagent-style scraper (promscrape) when given -promscrape.config, we mount a
 # release-agnostic kubernetes_sd config (templates/victoriametrics-scrape.yaml) and
 # point the flag at it via config.extraArgs. The SA token is projected in (the chart
 # hardcodes automountServiceAccountToken:false) so kubernetes_sd can authenticate;
@@ -92,7 +92,7 @@ victoriametrics:
       readOnly: true
 
 # ---------------------------------------------------------------------------
-# Loki (subchart) — the "L". Single-binary / filesystem mode. Push at
+# Loki (subchart), the "L". Single-binary / filesystem mode. Push at
 # http://<release>-loki:3100/loki/api/v1/push; Vector sinks here.
 # ---------------------------------------------------------------------------
 loki:
@@ -105,10 +105,10 @@ loki:
     limits: { cpu: "1", memory: 1Gi }
 
 # ---------------------------------------------------------------------------
-# Grafana (subchart) — the single pane. THREE datasources (VictoriaMetrics default,
+# Grafana (subchart), the single pane. THREE datasources (VictoriaMetrics default,
 # Loki, Tempo) AND the bundled dashboards are provided by this umbrella's own
 # templates (templates/grafana-datasources.yaml + templates/grafana-dashboards.yaml,
-# fixed names) and mounted in via extraVolumes below — so keep datasources: [] here.
+# fixed names) and mounted in via extraVolumes below, so keep datasources: [] here.
 # adminPassword empty => generated secret.
 # ---------------------------------------------------------------------------
 grafana:
@@ -148,7 +148,7 @@ grafana:
     enabled: false
 
 # ---------------------------------------------------------------------------
-# Tempo (subchart) — the "T". HTTP query/api + /ready + /metrics on :3200; OTLP
+# Tempo (subchart), the "T". HTTP query/api + /ready + /metrics on :3200; OTLP
 # receivers on :4317 (gRPC) / :4318 (HTTP). The OTel Collector below exports to :4317.
 # ---------------------------------------------------------------------------
 tempo:
@@ -172,7 +172,7 @@ alertmanager:
     size: 2Gi
 
 # ---------------------------------------------------------------------------
-# Dashboards — which of the bundled Grafana dashboards to provision.
+# Dashboards, which of the bundled Grafana dashboards to provision.
 #   - All (default): leave enabled: true with all include flags true.
 #   - Just some: set the ones you don't want to false.
 #   - None: set enabled: false (Grafana still installs, just no bundled dashboards).
@@ -183,7 +183,7 @@ alertmanager:
 dashboards:
   enabled: true
   include:
-    # metrics (uid: metrics) — populate from VM scrape + ksm + node-exporter + kubelet/cAdvisor
+    # metrics (uid: metrics), populate from VM scrape + ksm + node-exporter + kubelet/cAdvisor
     node-exporter-full: true
     kubernetes-cluster: true
     kubernetes-cluster-monitoring: true
@@ -192,7 +192,7 @@ dashboards:
     loki-kubernetes-logs: true
 
 # ---------------------------------------------------------------------------
-# OpenTelemetry Collector — OTLP ingress gateway for TRACES. Templated INLINE by this
+# OpenTelemetry Collector, OTLP ingress gateway for TRACES. Templated INLINE by this
 # umbrella (templates/otel-collector.yaml: ServiceAccount + ConfigMap + Deployment +
 # Service) so the traces-pipeline exporter can target {{ .Release.Name }}-tempo:4317
 # (the otel-collector subchart renders config via toYaml and could not). Apps send
@@ -202,7 +202,7 @@ dashboards:
 # `config` is the WHOLE collector configuration (the image ships none) and is rendered
 # through `tpl`, so the Tempo exporter endpoint carries the release name. You can also
 # add a metrics pipeline that remote_writes to VictoriaMetrics if you prefer push over
-# the default VM promscrape pull — see the README.
+# the default VM promscrape pull, see the README.
 # ---------------------------------------------------------------------------
 otelCollector:
   enabled: true
@@ -265,13 +265,13 @@ otelCollector:
                     port: {{ .Values.otelCollector.ports.metrics }}
 
 # ---------------------------------------------------------------------------
-# Vector — the log shipper. Templated inline by this umbrella (templates/vector.yaml)
+# Vector, the log shipper. Templated inline by this umbrella (templates/vector.yaml)
 # as a DaemonSet: ServiceAccount + ClusterRole + binding + ConfigMap + DaemonSet. It
 # runs the kubernetes_logs source (tails /var/log/pods on each node, enriched with
 # pod/namespace/container/stream labels) into a `loki` sink at
 # http://<release>-loki:3100/loki/api/v1/push.
 #
-# HOST ACCESS: mounts the node's /var/log and /var/lib/docker/containers READ-ONLY —
+# HOST ACCESS: mounts the node's /var/log and /var/lib/docker/containers READ-ONLY:
 # the deliberate trade-off for a log shipper. Vector runs nonroot (uid 1001), read-only
 # rootfs. ON by default; set enabled: false to drop log collection.
 # ---------------------------------------------------------------------------
@@ -287,7 +287,7 @@ vector:
     limits: { cpu: "1", memory: 512Mi }
 
 # ---------------------------------------------------------------------------
-# kube-state-metrics — cluster object metrics (pods, deployments, nodes, ...).
+# kube-state-metrics, cluster object metrics (pods, deployments, nodes...).
 # Templated inline (templates/kube-state-metrics.yaml): SA + ClusterRole + binding +
 # Deployment + Service, annotated prometheus.io/scrape so VM's promscrape job picks it
 # up. Clean (no host access), nonroot 1001, read-only rootfs. ON by default so the
@@ -304,9 +304,9 @@ kubeStateMetrics:
     limits: { cpu: 200m, memory: 256Mi }
 
 # ---------------------------------------------------------------------------
-# node-exporter — per-node host metrics (CPU, memory, disk, filesystem). ON by default
+# node-exporter, per-node host metrics (CPU, memory, disk, filesystem). ON by default
 # for THIS stack: the Node Exporter Full dashboard needs them. DaemonSet in the host
-# PID/network namespaces, mounts host /proc, /sys, / read-only — the deliberate
+# PID/network namespaces, mounts host /proc, /sys, / read-only, the deliberate
 # trade-off. Set enabled: false to drop node metrics. Annotated prometheus.io/scrape
 # so VM's promscrape picks it up.
 # ---------------------------------------------------------------------------

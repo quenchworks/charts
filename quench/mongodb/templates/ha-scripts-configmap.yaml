@@ -12,7 +12,7 @@ data:
   # a single-node auth bootstrap) and instead runs mongod with --replSet/--keyFile.
   # mongod does its OWN election: this script only bootstraps the set once, on the
   # ordinal-0 pod, idempotently. Every member's mongod handles PRIMARY election and
-  # failover internally — there is no external failover brain.
+  # failover internally, there is no external failover brain.
   # ---------------------------------------------------------------------------
   mongodb-ha-entrypoint.sh: |
     #!/bin/bash
@@ -75,7 +75,7 @@ data:
       INITIATED="$(m --eval 'print(db.hello().setName || "")' 2>/dev/null || true)"
 
       # Split-brain guard: if this pod is fresh but the set already lives on a peer
-      # (e.g. pod-0 lost its data), do NOT form a second set — let it rejoin.
+      # (e.g. pod-0 lost its data), do NOT form a second set, let it rejoin.
       PEER_SET=""
       if [ -z "$INITIATED" ]; then
         for peer in ${PEERS//,/ }; do

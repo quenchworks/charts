@@ -41,7 +41,7 @@ the main store (databases.main) and the visibility store (databases.visibility).
 
 {{/*
 Resolve the DB password literal. Bundled: postgresql.auth.password. External: the
-inline password (or, if an existingSecret is set, the caller is responsible — we
+inline password (or, if an existingSecret is set, the caller is responsible, we
 still try the inline value). Used to render the server config and the Job env.
 */}}
 {{- define "temporal.db.password" -}}
@@ -71,7 +71,7 @@ server config must be plain YAML with no `{{ }}` directives. The ConfigMap (moun
 read-only at /etc/temporal/config-template/) carries the literal placeholder
 __POD_IP__; this initContainer substitutes the real pod IP (downward-API POD_IP)
 with busybox sed and writes the result onto the shared writable emptyDir mounted at
-/etc/temporal/config/ — which is where the server reads `--config config` under
+/etc/temporal/config/, which is where the server reads `--config config` under
 `--root /etc/temporal`. The dynamicconfig file is copied to the path the rendered
 config references (dynamicConfigClient.filepath). Runs BEFORE schema-setup.
 */}}
@@ -87,17 +87,17 @@ cat /etc/temporal/config/production.yaml
 {{/*
 Schema-setup script. Runs as an initContainer on the server pod so it executes
 AFTER the bundled PostgreSQL Deployment exists (helm installs both in one pass and
-the loop below handles ordering — a pre-install hook would run before PG is even
+the loop below handles ordering, a pre-install hook would run before PG is even
 created). Temporal needs TWO databases: the main store and the visibility store.
 The script:
-  1. waits for PostgreSQL by retrying create-database for the main DB (idempotent —
+  1. waits for PostgreSQL by retrying create-database for the main DB (idempotent:
      "already exists" is tolerated) until it succeeds, proving connectivity;
   2. ensures the visibility DB exists;
   3. setup-schema -v 0.0 (creates the version tables) then update-schema -d <dir>/versioned
      to apply every migration up to the latest, for BOTH the main and visibility
      schema dirs shipped at /etc/temporal/schema/postgresql/v12/{temporal,visibility}.
      NOTE: -d must point at the `versioned/` subdir (whose entries are vX.Y dirs), not
-     the parent (which holds schema.sql/database.sql) — else zero migrations apply.
+     the parent (which holds schema.sql/database.sql), else zero migrations apply.
 Re-running on restart/upgrade is safe (setup-schema idempotent; update-schema no-op
 when current). Reads SQL_PASSWORD from the env (Secret); never echoes it.
 */}}
@@ -109,7 +109,7 @@ MAIN_DB="{{ include "temporal.db.mainName" . }}"
 VIS_DB="{{ include "temporal.db.visibilityName" . }}"
 export SQL_PLUGIN="postgres12"
 export SQL_HOST SQL_PORT SQL_USER
-# SQL_PASSWORD comes from the env (Secret) — never echoed.
+# SQL_PASSWORD comes from the env (Secret), never echoed.
 
 run() { temporal-sql-tool "$@"; }
 

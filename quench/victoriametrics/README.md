@@ -1,8 +1,8 @@
 # Quenchworks VictoriaMetrics
 
-Hardened [VictoriaMetrics](https://github.com/VictoriaMetrics/VictoriaMetrics) —
+Hardened [VictoriaMetrics](https://github.com/VictoriaMetrics/VictoriaMetrics):
 a fast, cost-efficient single-node time-series database that speaks PromQL and
-Prometheus `remote_write` — on a minimal, nonroot, CVE-gated image pinned by digest.
+Prometheus `remote_write`, on a minimal, nonroot, CVE-gated image pinned by digest.
 A single self-contained Go binary exposes a Prometheus-compatible HTTP API on
 port 8428, running on a read-only root filesystem with all capabilities dropped.
 The image is cosign-signed (keyless / Sigstore) and the chart pins it by the
@@ -109,7 +109,7 @@ probe overrides (`livenessProbe`, `readinessProbe`,
 
 VictoriaMetrics runs as a **StatefulSet** so the TSDB keeps a stable identity and
 its own persistent volume. The container exposes a single Prometheus-compatible
-HTTP API on port **8428** — ingestion (`/api/v1/write`, `/api/v1/import/...`),
+HTTP API on port **8428**, ingestion (`/api/v1/write`, `/api/v1/import/...`),
 query (`/api/v1/query`, `/api/v1/query_range`) and management all share it. The
 entrypoint pins `-storageDataPath` to `VM_STORAGE` (`/storage`, the PVC mount)
 and `-httpListenAddr` to `VM_HTTP_LISTEN` (`:8428`); `config.retentionPeriod` and
@@ -152,7 +152,7 @@ helm uninstall vm
 ```
 
 The PVC provisioned by the `volumeClaimTemplate` is retained by Kubernetes on
-uninstall — delete it explicitly if you want the samples gone:
+uninstall, delete it explicitly if you want the samples gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=vm
@@ -161,7 +161,7 @@ kubectl delete pvc -l app.kubernetes.io/instance=vm
 ## Notes
 
 Single node. The clustered topology (`vminsert` / `vmselect` / `vmstorage`) is a
-tracked follow-up. VictoriaMetrics has **no built-in authentication** — there is
+tracked follow-up. VictoriaMetrics has **no built-in authentication**, there is
 no Secret to manage. The NetworkPolicy is the trust boundary; keep it enabled,
 and front the service with an authenticating proxy if you must expose it beyond
 the cluster. The chart depends on the `quench-common` library chart, pulled from

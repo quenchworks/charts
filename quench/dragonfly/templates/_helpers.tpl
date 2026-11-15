@@ -67,7 +67,7 @@ podAntiAffinity:
 {{/*
 Master-discovery init container (busybox image). Resolves the current master from
 Sentinel and writes a Dragonfly flagfile (/etc/dragonfly/node.flg) holding just the
-dynamic `--replicaof` — the master pod gets an empty file. The dragonfly container
+dynamic `--replicaof`, the master pod gets an empty file. The dragonfly container
 loads it via --flagfile, so a promoted replica keeps its role and a restarted old
 primary rejoins as a replica. Call: (dict "root" . "isPrimary" bool).
 */}}

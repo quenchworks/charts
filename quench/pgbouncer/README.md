@@ -1,7 +1,7 @@
 # Quenchworks PgBouncer
 
-Hardened [PgBouncer](https://www.pgbouncer.org/) — a lightweight connection pooler for
-PostgreSQL — on a minimal, nonroot, CVE-gated image pinned by digest. PgBouncer sits between
+Hardened [PgBouncer](https://www.pgbouncer.org/), a lightweight connection pooler for
+PostgreSQL, on a minimal, nonroot, CVE-gated image pinned by digest. PgBouncer sits between
 your applications and PostgreSQL, multiplexing many short-lived client connections onto a
 small pool of long-lived server connections. The pooler listens on port `6432`.
 
@@ -163,7 +163,7 @@ helm uninstall pool
 ```
 
 The pooler itself is stateless and holds no PVCs. When the bundled PostgreSQL
-subchart is enabled, its PVC is retained by Kubernetes on uninstall — delete it
+subchart is enabled, its PVC is retained by Kubernetes on uninstall, delete it
 explicitly if you want the data gone:
 
 ```bash

@@ -1,7 +1,7 @@
 # Quenchworks phpMyAdmin
 
-Hardened [phpMyAdmin](https://www.phpmyadmin.net/) — the web console for
-MySQL and MariaDB — on a minimal, nonroot, read-only-rootfs CVE-gated image pinned
+Hardened [phpMyAdmin](https://www.phpmyadmin.net/), the web console for
+MySQL and MariaDB, on a minimal, nonroot, read-only-rootfs CVE-gated image pinned
 by digest and cosign-signed. It is served by a Wolfi **PHP-FPM + nginx** runtime
 (supervisord): nginx listens on port 8080 (nonroot can't bind `<1024`) and
 FastCGI-passes `.php` to php-fpm on `127.0.0.1:9000`. It runs as uid 1001.
@@ -13,7 +13,7 @@ you already run (`externalDatabase.host` or `phpmyadmin.hosts`), or flip
 self-contained install.
 
 The chart supplies `config.inc.php` from a ConfigMap. That file reads every
-setting — server list, port, auth type — from the pod environment at request
+setting, server list, port, auth type, from the pod environment at request
 time, and takes the `blowfish_secret` (the key that signs and AES-encrypts the
 cookie holding the user's database credentials) from a managed Secret. The
 secret is **generated once and preserved across upgrades**, so a `helm upgrade`
@@ -36,7 +36,7 @@ helm install pma oci://ghcr.io/quenchworks/charts/phpmyadmin \
 ```
 
 Reach the UI over a port-forward and log in with your **database** credentials
-(cookie auth — nothing is stored server-side):
+(cookie auth, nothing is stored server-side):
 
 ```bash
 kubectl port-forward svc/pma-phpmyadmin 8080:8080
@@ -67,7 +67,7 @@ gh attestation verify oci://ghcr.io/quenchworks/images/phpmyadmin \
 | `image.digest`                         | (CI-written)                            | Required. Charts pin by digest, never a tag.                                                                        |
 | `image.pullPolicy`                     | `IfNotPresent`                          | `Always`, `IfNotPresent`, or `Never`.                                                                               |
 | `nameOverride`                         | `""`                                    | Override the chart name in resource names.                                                                          |
-| `replicaCount`                         | `1`                                     | Stateless — scale freely; the shared `blowfish_secret` keeps sessions valid on any pod.                             |
+| `replicaCount`                         | `1`                                     | Stateless: scale freely; the shared `blowfish_secret` keeps sessions valid on any pod.                             |
 | `phpmyadmin.hosts`                     | `""`                                    | Comma-separated server list shown in the login dropdown. Empty uses the bundled MariaDB or `externalDatabase.host`. |
 | `phpmyadmin.verboseNames`              | `""`                                    | Display names matching `hosts` (same order).                                                                        |
 | `phpmyadmin.authType`                  | `cookie`                                | `cookie` prompts for credentials; `config`/`http`/`signon` for the other upstream modes.                            |
@@ -121,16 +121,16 @@ Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 
 A stateless **Deployment** runs the PHP-FPM + nginx runtime; nginx serves the
 whole UI on container port 8080 and the Service maps the same port. There is no
-PVC and no database of its own — all state belongs to the servers being
+PVC and no database of its own, all state belongs to the servers being
 administered.
 
 Two volumes are mounted because the root filesystem is read-only:
 
-- **`/var/www/html/config.inc.php`** — the chart-supplied config, mounted
+- **`/var/www/html/config.inc.php`**: the chart-supplied config, mounted
   read-only from a ConfigMap via `subPath` so it doesn't shadow the docroot. It
   resolves the server list, port, auth type and `blowfish_secret` from the pod
   environment at request time (php-fpm runs with `clear_env=no`).
-- **`/tmp`** — a writable `emptyDir` for nginx pid/temp, PHP sessions and
+- **`/tmp`**: a writable `emptyDir` for nginx pid/temp, PHP sessions and
   phpMyAdmin's `TempDir` (compiled Twig templates).
 
 Liveness and readiness both `GET /`. That returns 200 as soon as nginx, php-fpm
@@ -183,7 +183,7 @@ phpmyadmin:
 helm uninstall pma
 ```
 
-Nothing of phpMyAdmin's survives — it stores nothing. A bundled MariaDB's PVC is
+Nothing of phpMyAdmin's survives, it stores nothing. A bundled MariaDB's PVC is
 retained by Kubernetes; delete it explicitly if you want the data gone:
 
 ```bash
@@ -194,7 +194,7 @@ kubectl delete pvc -l app.kubernetes.io/instance=pma
 
 phpMyAdmin is a full database administration surface: whoever reaches it can
 attempt logins against your servers. `networkPolicy.allowExternal` is `false` by
-default, restricting ingress to the release namespace — put it behind an
+default, restricting ingress to the release namespace, put it behind an
 authenticating ingress or a VPN before exposing it, and set
 `phpmyadmin.absoluteUri` so redirects are built correctly. The chart depends on
 the `quench-common` library chart, pulled from

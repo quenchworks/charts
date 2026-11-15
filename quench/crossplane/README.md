@@ -6,7 +6,7 @@ infrastructure, on a minimal, nonroot, CVE-gated image built from source,
 cosign-signed and pinned by digest.
 
 Ships the core control plane and the RBAC manager as two Deployments, cluster-wide
-clean-room RBAC, and self-generated webhook TLS — no cert-manager, no external
+clean-room RBAC, and self-generated webhook TLS, no cert-manager, no external
 dependency of any kind.
 
 ## Install
@@ -16,7 +16,7 @@ helm install crossplane oci://ghcr.io/quenchworks/charts/crossplane \
   --namespace crossplane-system --create-namespace
 ```
 
-Then install a Provider (fully qualified references only — Crossplane has no
+Then install a Provider (fully qualified references only, Crossplane has no
 default registry):
 
 ```bash
@@ -43,7 +43,7 @@ migrates their storage version on every upgrade.
 That is upstream's own design (their chart ships no `crds/` either) and it is the
 right one here: Helm applies a `crds/` directory once on install and then never
 touches it again, so a chart-shipped copy would silently drift out of step with the
-controller after the first upgrade — and the storage-version migration would never
+controller after the first upgrade, and the storage-version migration would never
 run. Keeping the CRDs in the image guarantees they are always the exact revision
 the running binary understands.
 
@@ -56,7 +56,7 @@ managed resource in the cluster.
 `rbacManager.enabled` defaults to `true`, matching upstream, and you almost
 certainly want it. It is not a nice-to-have:
 
-* it grants a freshly installed Provider the permissions its package requested —
+* it grants a freshly installed Provider the permissions its package requested:
   without it, every `Provider` you apply stalls un-`Healthy` forever;
 * it grants the *core* control plane access to the CRDs that Provider brings, by
   creating ClusterRoles labelled `rbac.crossplane.io/aggregate-to-crossplane`;
@@ -64,7 +64,7 @@ certainly want it. It is not a nice-to-have:
   can hand out one stable role name instead of tracking every composite API.
 
 It runs as a **separate Deployment under its own ServiceAccount** because it needs
-`escalate` and `bind` on ClusterRoles — rights the core control plane deliberately
+`escalate` and `bind` on ClusterRoles, rights the core control plane deliberately
 does not hold. Merging it into the core pod would hand those rights to every
 Crossplane controller.
 
@@ -122,7 +122,7 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/crossplane --owner 
 | `service.type` | `ClusterIP` | |
 | `service.port` | `9443` | Webhook Service port. Part of the TLS contract. |
 | `service.annotations` | `{}` | |
-| `serviceAccount.create` | `true` | Token IS automounted — Crossplane is an API-server client. |
+| `serviceAccount.create` | `true` | Token IS automounted: Crossplane is an API-server client. |
 | `serviceAccount.name` | `""` | Use an existing ServiceAccount. |
 | `rbac.create` | `true` | Cluster-wide RBAC for the control plane and the RBAC manager. |
 | `networkPolicy.enabled` | `false` | See [Networking](#networking). |
@@ -153,21 +153,21 @@ CRDs exist, so the RBAC manager does not crashloop while racing `core init` on a
 fresh install.
 
 Liveness and readiness are `httpGet /healthz` and `/readyz` on port `8081`.
-controller-runtime registers those handlers only after the manager — and, with
-webhooks on, the webhook server — has actually started, so they are real readiness
+controller-runtime registers those handlers only after the manager, and, with
+webhooks on, the webhook server, has actually started, so they are real readiness
 signals rather than a bound socket. The RBAC manager has no probe server, so it is
 probed on `httpGet /metrics`.
 
 Both containers run nonroot (uid 1001) on a read-only root filesystem with all
-capabilities dropped. Everything Crossplane writes is cache — `/cache/xpkg` for
-unpacked packages, `/cache/xfn` for memoised composition-function responses — plus
+capabilities dropped. Everything Crossplane writes is cache, `/cache/xpkg` for
+unpacked packages, `/cache/xfn` for memoised composition-function responses, plus
 `/tmp`; all three are `emptyDir`s, and losing them costs only a re-pull.
 
 **One Crossplane per cluster.** Its CRDs, the aggregation labels the RBAC manager
 writes, and the webhook configurations it registers are all cluster-scoped and not
 namespaced by release, so a second release would fight the first over shared state.
 That is also why the cluster-scoped RBAC names here are not namespace-suffixed the
-way they are in the other Quenchworks charts — there is no multi-release scenario to
+way they are in the other Quenchworks charts, there is no multi-release scenario to
 disambiguate, and the suffix would push `-allowed-provider-permissions` up against
 Kubernetes' 63-character name limit.
 

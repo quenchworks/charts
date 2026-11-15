@@ -113,7 +113,7 @@ env/volumes, security contexts).
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
 dropped and privilege escalation disabled. Writable `emptyDir` volumes are
 mounted at `/data` (certs/state, `$XDG_DATA_HOME`), `/config` (autosaved config,
-`$XDG_CONFIG_HOME`) and `/tmp` — the only writable paths Caddy needs. Logs go to
+`$XDG_CONFIG_HOME`) and `/tmp`, the only writable paths Caddy needs. Logs go to
 stdout/stderr. The admin API on `2019` is never exposed outside the namespace.
 The NetworkPolicy is the trust boundary.
 

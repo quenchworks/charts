@@ -1,18 +1,18 @@
 # Quenchworks CockroachDB
 
-> **LICENSE — NOT OPEN SOURCE.** CockroachDB is licensed under the **BSL-1.1
+> **LICENSE, NOT OPEN SOURCE.** CockroachDB is licensed under the **BSL-1.1
 > (Business Source License 1.1)**, which is **NOT** an OSI-approved open-source
 > license. Each released version automatically converts to Apache-2.0 three years
 > after its release date. Do not represent CockroachDB as open source. SPDX:
 > `BUSL-1.1`. This chart is **caution-tier**.
 >
-> **SECURITY — INSECURE BY DEFAULT.** This chart runs a **single-node, insecure**
+> **SECURITY, INSECURE BY DEFAULT.** This chart runs a **single-node, insecure**
 > CockroachDB (no TLS, no auth). There are **no credentials**. The NetworkPolicy
 > is the only access boundary. Secure mode (TLS/certs) and multi-node clustering
 > are documented follow-ups.
 
-Hardened [CockroachDB](https://github.com/cockroachdb/cockroach) — distributed SQL
-speaking the PostgreSQL wire protocol — on a minimal, nonroot, CVE-gated image pinned by
+Hardened [CockroachDB](https://github.com/cockroachdb/cockroach), distributed SQL
+speaking the PostgreSQL wire protocol, on a minimal, nonroot, CVE-gated image pinned by
 digest. Ships CockroachDB's own official precompiled binary, hardened on Wolfi and
 gated CVE-gated with Trivy. SQL (Postgres wire) is served on `26257` and the HTTP admin
 UI / health endpoint on `8080`. Single node.
@@ -72,7 +72,7 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/cockroachdb --owner
 | `persistence.enabled`         | `true`                                   | 8Gi PVC at `/cockroach/cockroach-data` (must allow exec).                                 |
 | `service.sqlPort`             | `26257`                                  | SQL / Postgres wire (client port).                                                        |
 | `service.httpPort`            | `8080`                                   | HTTP admin UI / health (`/health?ready=1`).                                               |
-| `networkPolicy.enabled`       | `true`                                   | Restricts ingress to the release namespace — the boundary in insecure mode.               |
+| `networkPolicy.enabled`       | `true`                                   | Restricts ingress to the release namespace: the boundary in insecure mode.               |
 | `podDisruptionBudget.enabled` | `true`                                   | `minAvailable: 1`.                                                                        |
 | `ingress.enabled`             | `false`                                  | Create an Ingress for this chart. HTTP only.                                              |
 | `ingress.className`           | `""`                                     | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |

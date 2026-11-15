@@ -2,7 +2,7 @@
 
 Hardened [RustFS](https://github.com/rustfs/rustfs) on a minimal, nonroot, CVE-gated
 image pinned by digest and cosign-signed (keyless / Sigstore). RustFS is a Rust,
-S3-compatible, MinIO-alternative object store — the newest S3-compatible option
+S3-compatible, MinIO-alternative object store, the newest S3-compatible option
 in the Quenchworks catalog. The upstream musl-static binary is hardened on Wolfi
 and runs single node as `rustfs server <VOLUMES>` on a read-only root filesystem
 with all capabilities dropped, serving the S3 API on port 9000. The web console
@@ -96,7 +96,7 @@ API on port 9000 (`s3`); the optional web console on port 9001 is off by default
 Object data lives on a PVC mounted at `/data`, provisioned via a
 `volumeClaimTemplate`; the container root filesystem is read-only, with `/tmp` as
 a writable `emptyDir`. The `/health` endpoint on port 9000 is unauthenticated and
-returns 200 — it backs both the liveness and readiness probes.
+returns 200, it backs both the liveness and readiness probes.
 
 Single node: RustFS runs one server process with local storage, so keep
 `replicaCount` at 1.
@@ -104,7 +104,7 @@ Single node: RustFS runs one server process with local storage, so keep
 ## Configuration examples
 
 Read the generated S3 credentials from the managed Secret and drive the API with
-any S3 client — for example the AWS CLI from a pod in the cluster:
+any S3 client, for example the AWS CLI from a pod in the cluster:
 
 ```bash
 # S3 credentials
@@ -137,7 +137,7 @@ helm uninstall objstore
 ```
 
 The PVC provisioned by the `volumeClaimTemplate` is retained by Kubernetes on
-uninstall — delete it explicitly if you want the object data gone:
+uninstall, delete it explicitly if you want the object data gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=objstore
@@ -150,7 +150,7 @@ non-empty location constraint (`InvalidLocationConstraint`). Point S3 clients at
 example `AWS_DEFAULT_REGION=us-east-1` for the AWS CLI.
 
 At boot RustFS emits benign ERROR lines (an expired-TLS
-remote check and transient `AccessDenied` during init); these are not failures —
+remote check and transient `AccessDenied` during init); these are not failures:
 the `/health` probe on port 9000 is the source of truth for readiness. The chart
 depends on the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`. The container runs nonroot on a

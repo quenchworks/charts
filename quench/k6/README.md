@@ -5,7 +5,7 @@ performance testing tool scripted in JavaScript, on a minimal, nonroot, CVE-gate
 built from source, cosign-signed and pinned by digest.
 
 **k6 is a CLI, not a server.** It runs a script, reports, and exits. So this chart
-creates a **Job** (run once) or a **CronJob** (run on a schedule) — never a
+creates a **Job** (run once) or a **CronJob** (run on a schedule), never a
 Deployment. A Deployment would restart k6 forever, re-running your load test in a
 loop against whatever it targets, which is how a test tool becomes an outage.
 
@@ -15,7 +15,7 @@ loop against whatever it targets, which is how a test tool becomes an outage.
 helm install loadtest oci://ghcr.io/quenchworks/charts/k6
 ```
 
-The bundled default script makes **no network calls** — it only proves the k6 runtime
+The bundled default script makes **no network calls**, it only proves the k6 runtime
 executes a script and exits 0. A chart's default behaviour must not generate load
 against anything. Replace it with your own test:
 
@@ -44,7 +44,7 @@ helm install nightly oci://ghcr.io/quenchworks/charts/k6 \
 ### Using it as a release gate
 
 `helm install --wait` blocks until the Job finishes, so a failing test fails the
-release — usually what you want in CI. To run k6 as a Helm hook instead of leaving
+release, usually what you want in CI. To run k6 as a Helm hook instead of leaving
 the Job in the release, set `job.helmHook`:
 
 ```bash
@@ -95,7 +95,7 @@ Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them 
 | `cronjob.failedJobsHistoryLimit`   | `3`                             |                                                                                                    |
 | `cronjob.suspend`                  | `false`                         |                                                                                                    |
 | `cronjob.startingDeadlineSeconds`  | `null`                          |                                                                                                    |
-| `api.enabled`                      | `false`                         | k6's REST API (`--address`). **Unauthenticated** — only useful to control a long run externally.    |
+| `api.enabled`                      | `false`                         | k6's REST API (`--address`). **Unauthenticated**: only useful to control a long run externally.    |
 | `api.port`                         | `6565`                          |                                                                                                    |
 | `resources.requests`               | `cpu 200m / mem 256Mi`          | Load generation is CPU-bound; raise both for meaningful VU counts.                                 |
 | `resources.limits`                 | `cpu 1 / mem 1Gi`               |                                                                                                    |

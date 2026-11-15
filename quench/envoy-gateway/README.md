@@ -54,7 +54,7 @@ kubectl get gateway example -o jsonpath='{.status.conditions[?(@.type=="Programm
 
 `Accepted=True` on the GatewayClass is the signal that the controller is really
 reconciling; a Ready pod is not. `Programmed=True` on the Gateway additionally
-means the Envoy fleet exists and has an address — on a cluster with no
+means the Envoy fleet exists and has an address, on a cluster with no
 LoadBalancer implementation it stays `False` with `AddressNotAssigned` until you
 switch the provisioned Service to `ClusterIP` or `NodePort`, see
 [Configuration examples](#configuration-examples).
@@ -198,8 +198,8 @@ the rendered manifest, and Kubernetes caps a Secret at 1 MiB:
 
 | Placement | Stored release Secret |
 |-----------|----------------------|
-| `templates/` (chart file **and** rendered manifest) | ~1.10 MiB — install refused |
-| `crds/` (chart file only) | 1002 KiB — installs |
+| `templates/` (chart file **and** rendered manifest) | ~1.10 MiB: install refused |
+| `crds/` (chart file only) | 1002 KiB: installs |
 
 That is 2% of headroom, not a comfortable margin. If a future Envoy Gateway
 release grows these schemas, the fix is to split them into their own chart the
@@ -225,7 +225,7 @@ serve xDS without it.
 
 certgen never overwrites an existing Secret. That is the supported way to bring
 your own PKI: pre-create the Secret with `ca.crt`, `tls.crt` and `tls.key` for
-the SANs above — with cert-manager, for instance — and certgen leaves it alone.
+the SANs above, with cert-manager, for instance, and certgen leaves it alone.
 
 The Secret is created by the Job, so it is not owned by the release and
 `helm uninstall` leaves it behind. That is intentional: deleting it would
@@ -233,7 +233,7 @@ invalidate the certificates of every Envoy pod still running.
 
 ## Configuration examples
 
-Provision Envoy fleets behind a ClusterIP instead of a LoadBalancer — the usual
+Provision Envoy fleets behind a ClusterIP instead of a LoadBalancer, the usual
 need on kind, and what makes a Gateway reach `Programmed=True` there:
 
 ```yaml
@@ -345,7 +345,7 @@ helm uninstall eg
 Left behind on purpose: the `envoy-gateway` Secret (see
 [Certificates](#certificates)) and everything in `crds/`, because deleting a CRD
 cascade-deletes every object of that kind. Delete your Gateways first if you want
-their Envoy fleets torn down cleanly — the controller garbage-collects them, and
+their Envoy fleets torn down cleanly, the controller garbage-collects them, and
 it cannot do that once it is gone.
 
 ## Verify the chart

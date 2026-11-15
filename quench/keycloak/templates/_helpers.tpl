@@ -47,7 +47,7 @@ When external, everything comes from externalDatabase.
 
 {{/* Name of the Secret that holds the DB password, and the key within it.
      db.existingSecret (when set) overrides the source in BOTH bundled and external
-     modes — letting an umbrella point KC_DB_PASSWORD at a Secret it controls. When
+     modes, letting an umbrella point KC_DB_PASSWORD at a Secret it controls. When
      empty, behavior is unchanged: bundled => the chart's managed Secret, external
      => externalDatabase.existingSecret (or the managed Secret if none). */}}
 {{- define "keycloak.db.secretName" -}}

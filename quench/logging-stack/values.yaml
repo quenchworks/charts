@@ -1,4 +1,4 @@
-# logging-stack — an umbrella over the QuenchWorks loki and grafana component
+# logging-stack, an umbrella over the QuenchWorks loki and grafana component
 # charts, plus a glue layer (Grafana Loki datasource + a logs dashboard, and an
 # inline Vector log-shipper DaemonSet) wired together so Grafana browses your
 # cluster's pod logs out of the box.
@@ -23,7 +23,7 @@
 
 # ---------------------------------------------------------------------------
 # Loki (subchart). Values pass straight through to the loki chart. Single-binary
-# / filesystem mode (the chart's default) — fine up to a few hundred GB/day.
+# / filesystem mode (the chart's default), fine up to a few hundred GB/day.
 # ---------------------------------------------------------------------------
 loki:
   enabled: true
@@ -38,7 +38,7 @@ loki:
 # Grafana (subchart). The Loki datasource AND the bundled dashboard are provided
 # by this umbrella's own templates (templates/grafana-datasources.yaml +
 # templates/grafana-dashboards.yaml, fixed names) and mounted in via extraVolumes
-# below — so keep datasources: [] here. adminPassword empty => generated secret.
+# below, so keep datasources: [] here. adminPassword empty => generated secret.
 # ---------------------------------------------------------------------------
 grafana:
   enabled: true
@@ -82,7 +82,7 @@ grafana:
     enabled: false
 
 # ---------------------------------------------------------------------------
-# Dashboards — which of the bundled Grafana dashboards to provision.
+# Dashboards, which of the bundled Grafana dashboards to provision.
 #   - All (default): leave enabled: true with all include flags true.
 #   - Just some: set the ones you don't want to false.
 #   - None: set enabled: false (Grafana still installs, just no bundled dashboards).
@@ -95,14 +95,14 @@ dashboards:
     loki-kubernetes-logs: true
 
 # ---------------------------------------------------------------------------
-# Vector — the log shipper. Templated inline by this umbrella (templates/vector.yaml)
+# Vector, the log shipper. Templated inline by this umbrella (templates/vector.yaml)
 # as a DaemonSet: a ServiceAccount + ClusterRole + binding + ConfigMap + DaemonSet.
 # It runs the `kubernetes_logs` source (tails /var/log/pods on each node, enriched
 # with pod/namespace/container/stream labels from the apiserver) into a `loki` sink
 # at http://<release>-loki:3100/loki/api/v1/push.
 #
 # HOST ACCESS: the DaemonSet mounts the node's /var/log/pods and
-# /var/lib/docker/containers READ-ONLY — the deliberate trade-off for a log shipper.
+# /var/lib/docker/containers READ-ONLY, the deliberate trade-off for a log shipper.
 # Vector itself runs nonroot (uid 1001) with a read-only rootfs; the only privilege
 # is reading those host log dirs. ON by default; set enabled: false to drop it.
 # ---------------------------------------------------------------------------

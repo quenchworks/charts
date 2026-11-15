@@ -3,7 +3,7 @@
 Hardened [Grafana Loki](https://github.com/grafana/loki) log aggregation system,
 running in **single-binary mode** (`-target=all`, every component in one process)
 on a minimal, nonroot, CVE-gated image pinned by digest. Built from source on Wolfi.
-Loki has no UI of its own — Grafana is its frontend. The HTTP API (push, query,
+Loki has no UI of its own, Grafana is its frontend. The HTTP API (push, query,
 `/ready`, `/metrics`) is on port 3100; gRPC on 9095.
 
 ## Install
@@ -14,7 +14,7 @@ helm install loki oci://ghcr.io/quenchworks/charts/loki
 
 ## Push logs
 
-Loki does not collect logs itself — point an agent (Promtail, Grafana Alloy, the
+Loki does not collect logs itself, point an agent (Promtail, Grafana Alloy, the
 OpenTelemetry Collector) or curl at the push endpoint:
 
 ```bash
@@ -121,7 +121,7 @@ env/volumes, security contexts).
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
 dropped. The only writable state is the `/loki` volume (chunks/index/wal/
 compactor/rules) and a `/tmp` emptyDir. Loki has **no built-in authentication**
-(`auth_enabled: false`) — there is no Secret to manage. The NetworkPolicy is the
+(`auth_enabled: false`), there is no Secret to manage. The NetworkPolicy is the
 trust boundary; keep it enabled, and front the service with an authenticating
 proxy if you must expose it beyond the cluster.
 

@@ -4,7 +4,7 @@ Hardened, self-hosted [Excalidraw](https://github.com/excalidraw/excalidraw)
 virtual whiteboard for sketching hand-drawn-style diagrams, served as a static
 SPA by nginx on a minimal, nonroot, CVE-gated image built from source, cosign-signed
 and pinned by digest. This is the static, no-backend build: drawings live in the
-browser's local storage — there is no account, database, or server-side state.
+browser's local storage, there is no account, database, or server-side state.
 
 ## Install
 
@@ -82,7 +82,7 @@ containers, extra env/volumes, security contexts, update strategy).
 A stateless Deployment runs nginx serving the pre-built Excalidraw SPA on
 container port `8080` (nonroot). The Service maps port 80 to the container's
 `http` port. Because the app is a static bundle with no backend, the workload
-scales horizontally with no coordination — enable `autoscaling` (HPA on CPU) or
+scales horizontally with no coordination, enable `autoscaling` (HPA on CPU) or
 raise `replicaCount`. Liveness and readiness both `httpGet /` (a 200 means the
 SPA is being served). The container runs on a read-only root filesystem; nginx
 writes its pid and temp paths under a writable `/tmp` emptyDir, which is the only
@@ -123,13 +123,13 @@ topologySpreadConstraints:
 helm uninstall board
 ```
 
-Nothing persists — the workload is stateless and holds no PVCs or Secrets.
+Nothing persists, the workload is stateless and holds no PVCs or Secrets.
 
 ## Notes
 
 The chart depends on the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`. The container runs as nonroot
 on a read-only root filesystem with all capabilities dropped, and the image is
-pinned by digest. This is the offline/no-backend build of Excalidraw — for
+pinned by digest. This is the offline/no-backend build of Excalidraw, for
 real-time collaboration you would run the separate Excalidraw room/storage
 services, which this chart does not deploy.

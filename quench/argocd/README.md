@@ -5,8 +5,8 @@ continuous-delivery controller for Kubernetes, on a minimal, nonroot, CVE-gated 
 built from source, cosign-signed and pinned by digest.
 
 Ships the API server **with its embedded React console**, the repo server, the
-application controller and the applicationset controller — all from a single
-multi-call image — plus clean-room RBAC and Redis from the catalog's own
+application controller and the applicationset controller, all from a single
+multi-call image, plus clean-room RBAC and Redis from the catalog's own
 [`quench/redis`](../redis) chart.
 
 ## Install
@@ -51,7 +51,7 @@ The API server serves the React SPA out of `ui/dist/app`, embedded with
 `//go:embed dist/app`. The catch: the release tarball already contains a
 `ui/dist/app/gitkeep` placeholder, so **`go build` succeeds without a UI** and
 produces a server that 404s every console route. There is no upstream "no-UI" build
-tag — that placeholder is the only stub there is, which makes a broken console the
+tag, that placeholder is the only stub there is, which makes a broken console the
 *default* failure mode for anyone repackaging Argo CD from source.
 
 So the image build runs upstream's own asset pipeline (`yarn install` +
@@ -61,7 +61,7 @@ landed. Two independent checks guard it: the image test greps the embedded
 icons and ≥10 hashed js chunks; the chart's install gate fetches `/` from a running
 server, requires the SPA `index.html`, and downloads the js bundle it references to
 confirm it is >100 KB. Cost of shipping it: about 90s of build time and ~10 MB of
-embedded assets. Worth it — Argo CD without its console is not Argo CD.
+embedded assets. Worth it, Argo CD without its console is not Argo CD.
 
 ## Where the CRDs come from
 
@@ -71,7 +71,7 @@ argo-helm chart does, and here is why it is the right call:
 
 * Helm applies `crds/` **once, on install, and never on upgrade**.
 * Argo CD's `Application` and `ApplicationSet` schemas change on *every minor
-  release* — all three currently supported lines (3.2 / 3.3 / 3.4) ship three
+  release*, all three currently supported lines (3.2 / 3.3 / 3.4) ship three
   different `Application` CRDs.
 * So a `crds/`-shipped copy freezes at whatever version the cluster was first
   installed with, and every field added since is silently rejected by the API
@@ -92,9 +92,9 @@ App-of-Apps root) owns them.
 | `argocd-application-controller` | **StatefulSet** | on | The reconciler. |
 | `argocd-applicationset-controller` | Deployment | on | The chart installs the ApplicationSet CRD regardless; a CRD with no controller behind it looks broken, not disabled. |
 | `argocd-notifications-controller` | Deployment | **off** | Does nothing until you write triggers into `notifications.cm`; no CRD, so its absence is invisible. |
-| Redis | subchart | on | Hard dependency — see below. |
-| Dex | — | **not shipped** | See below. |
-| `argocd-commit-server` | — | not shipped | Only used by the alpha source hydrator. |
+| Redis | subchart | on | Hard dependency: see below. |
+| Dex |, | **not shipped** | See below. |
+| `argocd-commit-server` |, | not shipped | Only used by the alpha source hydrator. |
 
 **Why the application controller is a StatefulSet.** Controller sharding assigns
 clusters to shards by the pod's *ordinal*, parsed out of the pod name
@@ -102,7 +102,7 @@ clusters to shards by the pod's *ordinal*, parsed out of the pod name
 ordinal, so a scaled-out Deployment either needs the alpha dynamic-distribution
 feature or silently double-reconciles. At one replica the two are identical; this
 shape is the one that stays correct when `controller.replicaCount` goes up (raise
-`ARGOCD_CONTROLLER_REPLICAS` with it — the chart does that for you).
+`ARGOCD_CONTROLLER_REPLICAS` with it, the chart does that for you).
 
 **No Dex, deliberately.** Argo CD's dex component is not this image: upstream runs
 the `ghcr.io/dexidp/dex` container and copies the argocd binary into it so
@@ -126,7 +126,7 @@ configs:
 ```
 
 Only reach for Dex if you need its *connector translation* (LDAP, SAML, GitHub/GitLab
-orgs) — run the separate [`quench/dex`](../dex) chart and point `oidc.config` at it.
+orgs), run the separate [`quench/dex`](../dex) chart and point `oidc.config` at it.
 
 ## Redis
 
@@ -135,7 +135,7 @@ controller writes every resource tree and app state into it and the API server r
 them back, so without it the console shows nothing and syncs stall.
 
 This chart depends on the catalog's own [`quench/redis`](../redis) chart rather than
-vendoring a second Redis — same hardened CVE-gated image, same digest pinning, same
+vendoring a second Redis, same hardened CVE-gated image, same digest pinning, same
 Sentinel HA path as everywhere else. Any `quench/redis` value can be set under the
 `redis:` key. Password auth is on by default and the chart wires `REDIS_PASSWORD`
 from the subchart's Secret into every component that talks to it.
@@ -162,7 +162,7 @@ this chart emits them verbatim and **only one release can live in a namespace**.
 
 Workloads, Services, ServiceAccounts and RBAC *are* release-prefixed, and every
 cross-component address is passed as an explicit flag rather than relying on Argo
-CD's built-in `argocd-repo-server:8081` / `argocd-redis:6379` defaults — which is
+CD's built-in `argocd-repo-server:8081` / `argocd-redis:6379` defaults, which is
 exactly what would otherwise cross-wire two releases in two namespaces.
 
 **There is no `argocd-cmd-params-cm`.** Nothing in Argo CD reads it; upstream's
@@ -199,8 +199,8 @@ apk is frozen at 3.19.2 and scans with 100+ fixable CVEs, so it cannot pass the
 
 Unlike most Quenchworks images this one is **not shell-free**, and that is
 unavoidable rather than sloppy: `util/gpg/gpg.go` execs `gpg-wrapper.sh` and
-`util/git/client.go` execs `git-verify-wrapper.sh` — both upstream POSIX-sh scripts
-on the commit-signature-verification path — and `git` itself shells out for
+`util/git/client.go` execs `git-verify-wrapper.sh`, both upstream POSIX-sh scripts
+on the commit-signature-verification path, and `git` itself shells out for
 `GIT_SSH_COMMAND`, `core.askpass` and credential helpers. `busybox` is the smallest
 thing that satisfies that, and it scans clean.
 
@@ -213,7 +213,7 @@ thing that satisfies that, and it scans clean.
 | `crds.install` / `crds.keep` | `true` / `true` | Ship the three CRDs as templates; keep them on uninstall. |
 | `configs.url` | `""` | Externally reachable base URL. Required for OIDC callbacks, webhooks and notification links. |
 | `configs.cm` | `{}` | `argocd-cm`, verbatim (`oidc.config`, `repositories`, `resource.exclusions`, `timeout.reconciliation`, …). |
-| `configs.rbac.policyDefault` | `""` | Deliberately deny — a `role:readonly` default silently grants every SSO user read access to every app. |
+| `configs.rbac.policyDefault` | `""` | Deliberately deny: a `role:readonly` default silently grants every SSO user read access to every app. |
 | `configs.rbac.policyCsv` | `""` | `argocd-rbac-cm` policy. |
 | `configs.sshKnownHosts` | `""` | Host keys for `ssh://` repos; the image symlinks `/etc/ssh/ssh_known_hosts` at it. |
 | `configs.tlsCerts` / `configs.gpgKeys` | `{}` | CA bundles / public GPG keys, keyed by host / key id. |
@@ -224,7 +224,7 @@ thing that satisfies that, and it scans clean.
 | `repoServer.disableTLS` | `true` | Plaintext gRPC on a ClusterIP-only service; every caller is told with `--repo-server-plaintext`. |
 | `repoServer.parallelismLimit` | `0` | Concurrent manifest generations; `0` = unlimited. |
 | `repoServer.helmWorkingDirSizeLimit` | `1Gi` | emptyDir for `HELM_*_HOME`. Pure cache. |
-| `controller.replicaCount` | `1` | Shards, not replicas — see above. |
+| `controller.replicaCount` | `1` | Shards, not replicas: see above. |
 | `controller.statusProcessors` / `.operationProcessors` | `""` | Worker pools; empty = upstream defaults. |
 | `controller.shardingAlgorithm` | `""` | `legacy` \| `round-robin` \| `consistent-hashing`. Only meaningful above 1 replica. |
 | `applicationSet.enabled` | `true` | |
@@ -245,7 +245,7 @@ Full list with comments: [`values.yaml`](values.yaml). Schema:
 
 * Every component: nonroot uid 1001, **read-only root filesystem**, all capabilities
   dropped, `allowPrivilegeEscalation: false`, `seccompProfile: RuntimeDefault`.
-* `argocd-repo-server` runs with `automountServiceAccountToken: false` — it never
+* `argocd-repo-server` runs with `automountServiceAccountToken: false`: it never
   talks to the Kubernetes API, so a manifest-rendering RCE finds no cluster
   credentials to steal. It is also the only component fenced by the NetworkPolicy,
   because it holds every repository credential.
@@ -257,7 +257,7 @@ Full list with comments: [`values.yaml`](values.yaml). Schema:
   front door the controller's rights.
 * `argocd-secret` carries `helm.sh/resource-policy: keep` and the chart declares only
   the keys you set. Helm patches Secrets rather than replacing them, so
-  `server.secretkey` — which Argo CD writes there itself — survives `helm upgrade`.
+  `server.secretkey`, which Argo CD writes there itself, survives `helm upgrade`.
   Declaring it empty would invalidate every session on every upgrade.
 
 ## Networking
@@ -273,7 +273,7 @@ Full list with comments: [`values.yaml`](values.yaml). Schema:
 | 8085 / 8086 | applicationset-controller | metrics / `/healthz`+`/readyz` |
 | 9001 | notifications-controller | metrics |
 
-The application controller's Service is **headless and required** — it is the
+The application controller's Service is **headless and required**, it is the
 StatefulSet's `serviceName`, which is what gives the pods the stable ordinals
 sharding keys off.
 

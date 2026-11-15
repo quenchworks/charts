@@ -10,8 +10,8 @@ never a tag.
 
 ## ⚠️ This is a development / test mail sink
 
-Mailpit's SMTP listener **accepts mail from any client that can reach it** — no
-authentication, no TLS, any recipient address — and never delivers any of it
+Mailpit's SMTP listener **accepts mail from any client that can reach it**, no
+authentication, no TLS, any recipient address, and never delivers any of it
 onward. Every message lands in one inbox, and anyone who can open the web UI can
 read all of them: password resets, invitations, magic links, anything your app
 sends while pointed here.
@@ -22,7 +22,7 @@ small:
 - `networkPolicy.allowExternal` defaults to **`false`**, so only pods in the
   release namespace can submit mail or read the inbox. Use
   `networkPolicy.extraFrom` with a `namespaceSelector` when the senders live in
-  another namespace — that is far better than opening it cluster-wide.
+  another namespace, that is far better than opening it cluster-wide.
 - `auth.username` / `auth.password` put HTTP basic auth on the web UI and REST
   API. Set them before enabling `ingress`. The SMTP port has no auth either way.
 - Never expose either port to the public internet. An open relay-looking SMTP
@@ -139,7 +139,7 @@ Basic-auth credentials reach the container as `MP_UI_AUTH` from a Secret, never
 a ConfigMap or a flag, so they do not appear in `kubectl describe pod`.
 
 Because the root filesystem is read-only, the SQLite message store is always a
-mounted volume at `persistence.path` — an `emptyDir` by default (a test mailbox
+mounted volume at `persistence.path`, an `emptyDir` by default (a test mailbox
 is throwaway data and a fresh inbox per pod is usually what you want), or a
 PersistentVolumeClaim with `persistence.enabled=true`.
 
@@ -149,7 +149,7 @@ authentication.
 There is **no HorizontalPodAutoscaler in this chart, deliberately**: the inbox is
 one SQLite database owned by one pod, so a second replica would silently split
 captured mail across pods and half your assertions would fail at random. The
-PodDisruptionBudget is off for the same reason — a `minAvailable: 1` budget on a
+PodDisruptionBudget is off for the same reason, a `minAvailable: 1` budget on a
 single-replica Deployment blocks node drains for a tool nobody needs to be
 highly available.
 
@@ -187,7 +187,7 @@ helm uninstall mail
 ```
 
 A PVC provisioned with `persistence.enabled=true` is retained by Kubernetes on
-uninstall — delete it explicitly if you want the captured mail gone:
+uninstall, delete it explicitly if you want the captured mail gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=mail

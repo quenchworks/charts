@@ -18,9 +18,9 @@ helm install metrics oci://ghcr.io/quenchworks/charts/thanos
 
 Two workloads come up:
 
-- **query** (Deployment) — the user-facing PromQL UI/API on HTTP `10902`, Store
+- **query** (Deployment): the user-facing PromQL UI/API on HTTP `10902`, Store
   API on gRPC `10901`. It fans out to every Store API endpoint.
-- **receive** (StatefulSet) — a remote-write target (`19291`) with a **local
+- **receive** (StatefulSet): a remote-write target (`19291`) with a **local
   TSDB** on a PVC and its own Store API on gRPC `10901`.
 
 query discovers receive's Store API through receive's headless Service via DNS
@@ -122,7 +122,7 @@ probe overrides (`livenessProbe`, `readinessProbe`,
 | `store`   | off     | StatefulSet | **yes** |
 | `compact` | off     | Deployment (1 replica) | **yes** |
 | `rule`    | off     | StatefulSet | optional |
-| `sidecar` | off     | not deployed (runs inside Prometheus) | — |
+| `sidecar` | off     | not deployed (runs inside Prometheus) |, |
 
 Each component has its own block in `values.yaml` (`enabled`, `replicaCount`,
 `resources`, `persistence`, `service`). The `image` and the security/scheduling

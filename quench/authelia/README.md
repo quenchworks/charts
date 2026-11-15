@@ -1,7 +1,7 @@
 # Quenchworks Authelia
 
-Hardened [Authelia](https://github.com/authelia/authelia) — an open-source
-authentication and authorization server providing SSO, 2FA, and forward-auth —
+Hardened [Authelia](https://github.com/authelia/authelia), an open-source
+authentication and authorization server providing SSO, 2FA, and forward-auth:
 on a minimal, nonroot, CVE-gated image, built from source and pinned by digest.
 
 ## Install
@@ -27,7 +27,7 @@ The default install is fully standalone:
 - **Auth backend**: the file backend; a default user `authelia` is seeded into
   `/config/users.yml` (rendered from the `auth.file` values into the config
   ConfigMap, mounted read-only).
-- **Notifier**: filesystem (`/data/notification.txt`) — no SMTP required.
+- **Notifier**: filesystem (`/data/notification.txt`): no SMTP required.
 
 Because storage and session state are local, the default runs a single replica
 with a `Recreate` update strategy.
@@ -66,7 +66,7 @@ switch the notifier to SMTP.
 | `service.type`           | `ClusterIP`                           |                                          |
 | `service.port`           | `9091`                                | HTTP portal + `/api/health`              |
 
-## Optional backends — PostgreSQL storage and a Redis session store
+## Optional backends, PostgreSQL storage and a Redis session store
 
 The default install is fully standalone (SQLite + in-memory session, **no extra
 services**). For production scale-out you can independently turn on two optional
@@ -74,9 +74,9 @@ backends; they are unrelated, so any combination is valid (e.g. bundled PostgreS
 with an external Redis). HA (`replicaCount > 1`) requires **both** a shared SQL
 store and a shared session store.
 
-When a backend is enabled the chart edits the rendered Authelia config for you —
+When a backend is enabled the chart edits the rendered Authelia config for you:
 adding `storage.postgres` (and dropping the SQLite `storage.local`) and/or
-`session.redis` — and injects each password as a file via a `*_FILE` env var.
+`session.redis`, and injects each password as a file via a `*_FILE` env var.
 You never put backend passwords in the ConfigMap.
 
 ### Storage (SQL)

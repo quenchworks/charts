@@ -1,6 +1,6 @@
 {{/* Liveness and readiness both hit / on the HTTP port. nginx answers 2xx, or a 30x
      redirect to the install/login flow, only once php-fpm is up AND WordPress can reach
-     MySQL (a down DB makes WordPress 500) — so --wait on readiness is the real integration
+     MySQL (a down DB makes WordPress 500), so --wait on readiness is the real integration
      test. The startup probe (customStartupProbe) gates these during the DB init window. The
      kubelet performs the GET; the image ships no HTTP client on PATH. */}}
 {{- $liveness := dict "httpGet" (dict "path" "/" "port" "http") "initialDelaySeconds" 20 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
@@ -110,7 +110,7 @@ spec:
               mountPath: /var/www/html/wp-config.php
               subPath: wp-config.php
               readOnly: true
-            # Media uploads — the one writable app path.
+            # Media uploads, the one writable app path.
             - name: uploads
               mountPath: {{ .Values.persistence.mountPath }}
             # Writable scratch: nginx pid/temp, php sessions/uploads (see the image entrypoint).

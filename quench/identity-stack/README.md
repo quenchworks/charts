@@ -5,9 +5,9 @@ A hardened, **operator-free** self-hosted single sign-on bundle: **Keycloak**
 **oauth2-proxy** (the authenticating reverse proxy you place in front of your
 apps), wired together so you get working SSO in front of your workloads.
 
-It gives you the everyday value of a managed identity platform — a real OIDC
+It gives you the everyday value of a managed identity platform, a real OIDC
 provider, a user/role store, and a drop-in auth gateway for apps that have no
-login of their own — **without any operator or CRDs**. The cross-wiring
+login of their own, **without any operator or CRDs**. The cross-wiring
 (Keycloak's JDBC connection to PostgreSQL, and oauth2-proxy's OIDC issuer
 pointing at Keycloak) is handled by the umbrella; you mostly create a realm and a
 client and point the proxy at your app. Every component image is
@@ -16,11 +16,11 @@ cosign-signed with an SBOM and SLSA provenance, and pinned by digest.
 
 | Component | Role | Component chart |
 |-----------|------|-----------------|
-| **Keycloak** | OIDC/SAML identity provider — realms, users, clients, tokens | `quench/keycloak` |
+| **Keycloak** | OIDC/SAML identity provider: realms, users, clients, tokens | `quench/keycloak` |
 | **PostgreSQL** | Keycloak's backing store (all identity state lives here) | `quench/postgresql` (bundled inside `quench/keycloak`) |
 | **oauth2-proxy** | authenticating reverse proxy in front of an upstream app | `quench/oauth2-proxy` |
 
-> PostgreSQL is not a direct dependency of this umbrella — the `quench/keycloak`
+> PostgreSQL is not a direct dependency of this umbrella, the `quench/keycloak`
 > chart already bundles `quench/postgresql` and wires Keycloak to it. This stack
 > adds Keycloak + oauth2-proxy and the glue that points the proxy at Keycloak.
 
@@ -127,21 +127,21 @@ the component charts. quench-common names every object `<release>-<chart>`, so t
 in-cluster services are `<release>-postgresql:5432`, `<release>-keycloak:8080`
 (plus `:9000` for health/metrics) and `<release>-oauth2-proxy:4180`.
 
-- **Keycloak → PostgreSQL (automatic)** — PostgreSQL is the `quench/postgresql`
+- **Keycloak → PostgreSQL (automatic)**: PostgreSQL is the `quench/postgresql`
   chart **bundled inside `quench/keycloak`** (`keycloak.postgresql.enabled=true`).
   The keycloak chart wires Keycloak to it on its own: its `keycloak.db.host` helper
   resolves to `<release>-postgresql` and it builds
   `KC_DB_URL = jdbc:postgresql://<release>-postgresql:5432/keycloak` itself, sharing
   the deterministic credentials in `keycloak.postgresql.auth` (user `kcadmin`,
   database `keycloak`, password). This umbrella sets **no** `externalDatabase` and
-  **no** `KC_DB_URL` override — Keycloak emits a single `KC_DB_URL` env.
-- **The umbrella Secret** — `values.yaml` is **not** templated, so the one value
+  **no** `KC_DB_URL` override, Keycloak emits a single `KC_DB_URL` env.
+- **The umbrella Secret**: `values.yaml` is **not** templated, so the one value
   that must contain the release name cannot live there. The umbrella renders a
   fixed-name Secret, **`identity-stack-config`** (`templates/config.yaml`), holding:
   - `OIDC_ISSUER_URL` = `http://<release>-keycloak:8080/realms/<realm>`
 
   **Fixed name ⇒ run one identity-stack per namespace.**
-- **oauth2-proxy → Keycloak** — `provider: oidc`. The OIDC issuer URL needs the
+- **oauth2-proxy → Keycloak**: `provider: oidc`. The OIDC issuer URL needs the
   release name, so it is injected as `OAUTH2_PROXY_OIDC_ISSUER_URL` from the
   umbrella Secret via `oauth2Proxy.extraEnvVars` (oauth2-proxy reads `OAUTH2_PROXY_*`
   env as config, equivalent to `--oidc-issuer-url`). The client id/secret, the
@@ -152,8 +152,8 @@ in-cluster services are `<release>-postgresql:5432`, `<release>-keycloak:8080`
 
 There is no identity operator to run, no CRDs, and no admission webhook. Keycloak
 is configured through env/values and its own admin API; oauth2-proxy through flags
-and `OAUTH2_PROXY_*` env. You lose nothing an operator would have given you here —
-realms, clients and users are managed in Keycloak itself — and you gain a smaller,
+and `OAUTH2_PROXY_*` env. You lose nothing an operator would have given you here:
+realms, clients and users are managed in Keycloak itself, and you gain a smaller,
 hardened footprint with nothing cluster-scoped to upgrade.
 
 ## Put oauth2-proxy in front of YOUR app
@@ -163,7 +163,7 @@ This is the point of the stack. Two one-time steps:
 **1. Register an OIDC client in Keycloak.** In the admin console, create (or
 reuse) a realm, then create a *confidential* OpenID Connect client:
 
-- Client ID: `oauth2-proxy` (or your own — set `shared.oidcClientID`)
+- Client ID: `oauth2-proxy` (or your own: set `shared.oidcClientID`)
 - Client authentication: **On**
 - Valid redirect URIs: `https://<your-app-host>/oauth2/callback`
 
@@ -185,7 +185,7 @@ helm upgrade id oci://ghcr.io/quenchworks/charts/identity-stack \
 
 Then expose `id-oauth2-proxy:4180` through your Ingress. The default
 `upstream: static://200` is a placeholder that returns HTTP 200 so the proxy is
-healthy before a real backend is wired — replace it with your app's Service URL.
+healthy before a real backend is wired, replace it with your app's Service URL.
 oauth2-proxy can also run as a forward-auth / `auth_request` endpoint for an
 existing Ingress controller instead of inline proxying.
 
@@ -196,7 +196,7 @@ existing Ingress controller instead of inline proxying.
 PostgreSQL ships inside the keycloak chart and is deployed automatically. Keycloak
 auto-wires `KC_DB_URL` to `jdbc:postgresql://<release>-postgresql:5432/keycloak`.
 Both Keycloak (`KC_DB_PASSWORD`) and the bundled PostgreSQL read the DB password
-from **the same** umbrella Secret + key — `identity-stack-config`/`db-password` —
+from **the same** umbrella Secret + key, `identity-stack-config`/`db-password`:
 so they always match. The password is generated when `shared.dbPassword` is empty
 and preserved across upgrades; nothing sensitive lives in values.
 
@@ -244,7 +244,7 @@ identity-stack per namespace. For several stacks, give each its own namespace.
 - **PostgreSQL** (bundled inside keycloak) is a single primary here; for HA use an
   external managed Postgres: set `keycloak.postgresql.enabled=false` and point
   Keycloak at it via `keycloak.externalDatabase` (host, port, database, user,
-  password) — the keycloak chart builds `KC_DB_URL` from those values.
+  password), the keycloak chart builds `KC_DB_URL` from those values.
 
 ## Configuration
 
@@ -278,21 +278,21 @@ of truth for the credentials the umbrella threads across components.
 
 ## Security posture
 
-- **Hardened images** — every component (Keycloak, PostgreSQL, oauth2-proxy) is a
+- **Hardened images**: every component (Keycloak, PostgreSQL, oauth2-proxy) is a
   QuenchWorks image: built from source on Wolfi, nonroot, read-only rootfs, 0
   fixable CVEs, cosign-signed with an SBOM + SLSA provenance, pinned by digest.
-- **No plaintext secrets** — the DB password, OIDC client secret and cookie secret
+- **No plaintext secrets**: the DB password, OIDC client secret and cookie secret
   live only in the umbrella Secret `identity-stack-config` (generated when the
   `shared.*` value is empty, preserved across upgrades). Keycloak and the bundled
   PostgreSQL read the DB password from the same Secret + key, and oauth2-proxy
-  reads its secrets via `OAUTH2_PROXY_*` env — none appear as a plaintext flag or
+  reads its secrets via `OAUTH2_PROXY_*` env, none appear as a plaintext flag or
   env `value:`.
-- **No host access** — unlike the observability stack, nothing here needs the host:
+- **No host access**: unlike the observability stack, nothing here needs the host:
   no `hostPID`, no host mounts, no privileged containers.
-- **No operator, no CRDs, no webhooks** — nothing cluster-scoped to keep patched.
+- **No operator, no CRDs, no webhooks**: nothing cluster-scoped to keep patched.
 - **NetworkPolicies** ship with each component; Keycloak and oauth2-proxy allow
   external ingress by default (they are reached by browsers/relying apps),
   PostgreSQL does not.
-- **Before production** — register a real Keycloak realm + confidential client and
+- **Before production**: register a real Keycloak realm + confidential client and
   set `shared.oidcClientID` / `shared.oidcClientSecret`; optionally pin
   `shared.dbPassword`. Set `keycloak.production.hostname` to your public URL.

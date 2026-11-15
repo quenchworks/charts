@@ -7,7 +7,7 @@ Database wiring. When postgresql.enabled the bundled subchart's primary Service 
 named "<release>-postgresql" (the subchart's quench-common.fullname resolves against
 its own chart name "postgresql"). The bundled PostgreSQL image creates POSTGRES_USER
 (= postgresql.auth.username) as the SUPERUSER, so ZITADEL's runtime user AND its
-schema-creating admin user are BOTH that same role — there is no separate "postgres"
+schema-creating admin user are BOTH that same role, there is no separate "postgres"
 superuser when POSTGRES_USER is overridden. When external, runtime and admin
 credentials come from externalDatabase.* separately.
 */}}

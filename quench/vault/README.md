@@ -1,6 +1,6 @@
 # Quenchworks Vault
 
-> ### ⚠️ LICENSE — NOT OPEN SOURCE
+> ### ⚠️ LICENSE, NOT OPEN SOURCE
 >
 > HashiCorp Vault 1.15.0 and later are licensed under the **Business Source License 1.1
 > (BUSL-1.1)**, which is **not** OSI-approved open source: it restricts competing hosted
@@ -35,7 +35,7 @@ readiness probe accepts sealed/uninit), so you can run the operator steps agains
 ## Initialize & unseal
 
 Do this once per cluster (init), then unseal after each start (until you wire
-auto-unseal). The `vault` CLI ships in the image, and the image is **shell-free** — exec
+auto-unseal). The `vault` CLI ships in the image, and the image is **shell-free**, exec
 the binary directly, no `sh -c`. `VAULT_ADDR` is already in the container's environment.
 
 ```bash
@@ -57,7 +57,7 @@ vault kv get secret/hello
 ```
 
 For production, configure auto-unseal (a `seal` block: transit/AWS KMS/GCP KMS/Azure Key
-Vault) and a TLS listener — both are `server.config` edits, no chart change needed.
+Vault) and a TLS listener, both are `server.config` edits, no chart change needed.
 
 ## Dev mode (quick start)
 
@@ -96,7 +96,7 @@ Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them 
 | `ha.enabled`                  | `false`                            | `true` = multi-node raft cluster. Generates the HCL and ignores `server.config`.                            |
 | `ha.replicas`                 | `3`                                | Raft node count. Keep it odd so a quorum survives losing one node.                                         |
 | `ha.extraConfig`              | `""`                               | Extra HCL appended to the generated raft config (a `seal` stanza for auto-unseal, telemetry, ...).          |
-| `autoscaling.enabled`         | `false`                            | HPA for the StatefulSet. Only valid with a shared external backend — see [Autoscaling](#autoscaling).       |
+| `autoscaling.enabled`         | `false`                            | HPA for the StatefulSet. Only valid with a shared external backend: see [Autoscaling](#autoscaling).       |
 | `autoscaling.minReplicas`     | `1`                                | Lower bound. Enforced even when metrics are unavailable.                                                    |
 | `autoscaling.maxReplicas`     | `3`                                | Upper bound.                                                                                                |
 | `autoscaling.targetCPUUtilizationPercentage` | `80`                | CPU target. Set `targetMemoryUtilizationPercentage` to also scale on memory.                                 |
@@ -150,7 +150,7 @@ and uninitialized, and Vault's `/v1/sys/health` returns 503 (sealed) or 501
 NotReady forever, so the probes ask the health endpoint to return 200 for standby,
 sealed, and uninitialized; the pod is reachable before you init and unseal it. Liveness is
 a TCP check on the API port. In dev mode the node auto-unseals and the same endpoint
-returns 200 anyway — which is what the CI install gate asserts, together with a real
+returns 200 anyway, which is what the CI install gate asserts, together with a real
 kv-v2 put/get roundtrip.
 
 ## High availability (raft)
@@ -202,8 +202,8 @@ Two caveats worth knowing before you rely on it:
 
 - **A sealed pod reports Ready.** The readiness probe asks Vault's health endpoint for
   `sealedcode=200&uninitcode=200`, so the StatefulSet rolls out and `helm install --wait`
-  returns even though no node can serve a secret yet. That is deliberate — you need the
-  pods reachable in order to run `operator init` / `unseal` against them — but it means
+  returns even though no node can serve a secret yet. That is deliberate, you need the
+  pods reachable in order to run `operator init` / `unseal` against them, but it means
   **Ready does not mean usable here**. Check `vault status`, not the pod state. It also
   means a rolling image update restarts each pod into a sealed state and moves on without
   waiting for you; configure
@@ -217,7 +217,7 @@ Two caveats worth knowing before you rely on it:
 
 ## Autoscaling
 
-Off by default, and for most installs it should stay off — Vault does not scale
+Off by default, and for most installs it should stay off, Vault does not scale
 horizontally the way a stateless service does. There is exactly one topology where an
 HPA is meaningful: a **shared, external storage backend** (consul, dynamodb, gcs, …) set
 through `server.config`, where every node reaches the same data and any node can serve.
@@ -241,7 +241,7 @@ out in production:
 
 | Combination | Why it is refused |
 | --- | --- |
-| `autoscaling` + `ha.enabled` (raft) | A raft cluster's voter count must be fixed. A scale-in does not run `vault operator raft remove-peer`, so raft keeps counting removed nodes as voters and the cluster **loses quorum**; a scale-out adds nodes that boot **sealed** and serve nothing; and the size ends up with two owners nothing reconciles — the HPA's bounds and `ha.replicas`, which the `retry_join` list is built from. |
+| `autoscaling` + `ha.enabled` (raft) | A raft cluster's voter count must be fixed. A scale-in does not run `vault operator raft remove-peer`, so raft keeps counting removed nodes as voters and the cluster **loses quorum**; a scale-out adds nodes that boot **sealed** and serve nothing; and the size ends up with two owners nothing reconciles, the HPA's bounds and `ha.replicas`, which the `retry_join` list is built from. |
 | `autoscaling` + default `file` storage | `file` storage is per-pod, not shared. Replicas would be separate, separately sealed, separately initialized Vaults behind one Service, answering 501/503 at random, with a secret written to one node invisible on the others. |
 
 Two things to know even in the supported case:
@@ -250,7 +250,7 @@ Two things to know even in the supported case:
   configured (a `seal` stanza in `server.config`), adding replicas under load buys no
   capacity at all.
 - **`replicaCount` is ignored** while autoscaling is on. The StatefulSet omits `replicas`
-  so the HPA owns the count outright — otherwise every `helm upgrade` would reset the
+  so the HPA owns the count outright, otherwise every `helm upgrade` would reset the
   count and the HPA would scale back, fighting forever. Kubernetes starts it at 1 and the
   HPA raises it to `minReplicas` (it enforces the min bound even while metrics read
   `<unknown>`).
@@ -268,7 +268,7 @@ kubectl port-forward svc/vault 8200:8200
 Set `ui = false` in `server.config` (or via `ha.extraConfig`) to close the route off. To
 reach it from outside the cluster, enable the Ingress (`ingress.enabled=true`).
 
-> A Vault built *without* the `ui` tag still answers `/ui/` with **HTTP 200** — serving a
+> A Vault built *without* the `ui` tag still answers `/ui/` with **HTTP 200**, serving a
 > ~1.4 KB stub that reads "Vault UI is not available in this binary." So a 200 alone
 > proves nothing. The real console is a ~1 MB `index.html` referencing hashed bundles
 > under `/ui/assets/`, which is what this chart's gate and the image's smoke test assert.
@@ -279,7 +279,7 @@ Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities dro
 Storage state lives on the writable `/vault/data` PVC; the config is a read-only
 ConfigMap mount; `/tmp` is a writable emptyDir and doubles as `HOME` for the CLI's token
 helper. `disable_mlock = true` because a cap-dropped nonroot container cannot hold
-`CAP_IPC_LOCK` — the house pattern is to drop the capability, not to grant it, so run
+`CAP_IPC_LOCK`, the house pattern is to drop the capability, not to grant it, so run
 Vault on swap-disabled nodes (the Kubernetes default) to keep the "master key never
 reaches disk" guarantee. TLS is off by default; the NetworkPolicy is the trust boundary,
 so keep it enabled and front the service with TLS termination if you expose it.
@@ -295,7 +295,7 @@ persistence:
   storageClass: fast-ssd
 ```
 
-Auto-unseal against another Vault/OpenBao transit engine, and a TLS listener — all in
+Auto-unseal against another Vault/OpenBao transit engine, and a TLS listener, all in
 `server.config`:
 
 ```yaml
@@ -351,8 +351,8 @@ kubectl delete pvc -l app.kubernetes.io/instance=vault
 ## Notes
 
 Single node with `file` storage by default; multi-node raft HA via `ha.enabled`, and the
-web UI is built in. TLS listeners and auto-unseal are not wired up as first-class values —
+web UI is built in. TLS listeners and auto-unseal are not wired up as first-class values:
 both are reachable through `server.config` / `ha.extraConfig`. Vault is BUSL-1.1 and **not**
-open source; OpenBao (MPL-2.0) is the clean fork — see the banner at the top. Depends on
+open source; OpenBao (MPL-2.0) is the clean fork, see the banner at the top. Depends on
 the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`.

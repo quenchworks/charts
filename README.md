@@ -43,10 +43,10 @@ copy in each chart: `ServiceAccount`, RBAC (`Role`/`RoleBinding`, optionally
 cluster-scoped), `PodDisruptionBudget`, `HorizontalPodAutoscaler` and `NetworkPolicy`.
 Fix one, fix the catalog.
 
-Which families moved was decided by measurement, not taste — grouping all 138 charts
+Which families moved was decided by measurement, not taste, grouping all 138 charts
 by rendered shape: `serviceaccount.yaml` 117/132 identical, `poddisruptionbudget.yaml`
 105/123, `rbac.yaml` 104/123, `hpa.yaml` 20/23. The `NetworkPolicy` is shared but
-**parameterised**, because 128 charts produced 91 distinct shapes — every app allows
+**parameterised**, because 128 charts produced 91 distinct shapes, every app allows
 different ports. `service.yaml` deliberately stays per-chart: 98 distinct shapes from
 128 charts, since the port list is the application's identity and a helper would need
 as much configuration as the manifest it replaced.
@@ -69,14 +69,14 @@ usually all you need. Enabling it with no host, or where no HTTP port can be res
 fails the template with an explanation instead of installing something that routes
 nowhere.
 
-Charts that do **not** speak HTTP — PostgreSQL, Redis, Kafka, MariaDB, etcd — have no
+Charts that do **not** speak HTTP, PostgreSQL, Redis, Kafka, MariaDB, etcd, have no
 `ingress` knob at all. An `Ingress` is an HTTP router and cannot front them; expose
 those with `service.type=LoadBalancer` or your controller's TCP passthrough. A flag
 that silently did nothing would be worse than no flag.
 
 Five umbrella **stacks** (observability, logging, tracing, lgtm, identity) have an
-`ingress` of their own. They have no Service, so it fronts a subchart Service — the stack's primary UI by default (Grafana, or Keycloak for
-`identity-stack`) — and `ingress.serviceName` / `ingress.servicePort` point it at any
+`ingress` of their own. They have no Service, so it fronts a subchart Service, the stack's primary UI by default (Grafana, or Keycloak for
+`identity-stack`), and `ingress.serviceName` / `ingress.servicePort` point it at any
 other component. You can equally leave it off and enable the subchart's own ingress,
 e.g. `grafana.ingress.enabled=true`. The other stacks have no stack-level
 `ingress`; use their subcharts' own.
@@ -84,7 +84,7 @@ e.g. `grafana.ingress.enabled=true`. The other stacks have no stack-level
 Alongside those, every chart exposes `commonLabels`, `commonAnnotations` and
 `podLabels` (all safe to change on a live release), plus `partOf`, `fullnameOverride`,
 `image.registry` and `imagePullSecrets`. `selectorLabels` exists too, but it feeds
-`spec.selector`, which Kubernetes treats as **immutable** — set it before the first
+`spec.selector`, which Kubernetes treats as **immutable**, set it before the first
 install or every later `helm upgrade` fails with `field is immutable`.
 
 ## The catalog

@@ -1,6 +1,6 @@
 # Quenchworks PocketBase
 
-Hardened [PocketBase](https://pocketbase.io/) — an open-source backend in a
+Hardened [PocketBase](https://pocketbase.io/), an open-source backend in a
 single Go binary: an embedded SQLite database, authentication, file storage, a
 realtime REST API, and a web admin UI. It runs as a single-node StatefulSet,
 binds HTTP on container port 8080, and persists its SQLite database and uploaded
@@ -103,8 +103,8 @@ Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 ## Architecture
 
 PocketBase runs as a **StatefulSet** so the node keeps a stable identity and its
-own persistent volume. Everything it owns — the SQLite database, uploaded files,
-migrations, and backups — lives under a single directory. State is a single
+own persistent volume. Everything it owns, the SQLite database, uploaded files,
+migrations, and backups, lives under a single directory. State is a single
 volume mounted at `/pb_data`, provisioned as one PVC via a `volumeClaimTemplate`;
 with `persistence.enabled=false` it falls back to an `emptyDir` and does not
 survive a restart.
@@ -112,7 +112,7 @@ survive a restart.
 The image's entrypoint is baked as
 `pocketbase serve --http 0.0.0.0:8080 --dir /pb_data`, so the bind port is fixed
 at **8080**. `containerPort` only drives the container port declaration, the
-Service `targetPort`, and the probes — leave it at 8080 to match the baked
+Service `targetPort`, and the probes, leave it at 8080 to match the baked
 `--http` flag. The Service exposes port **80** and forwards to the container's
 `http` port. Liveness and readiness both `httpGet /api/health`, which returns
 `{"code":200,"message":"API is healthy.",...}` once the server is up.
@@ -123,7 +123,7 @@ in-memory `/tmp` for upload scratch.
 
 Single node is the only supported topology. PocketBase stores everything in a
 local SQLite database plus a directory of uploaded files, so it cannot be
-horizontally scaled — the schema pins `replicaCount` to 1.
+horizontally scaled, the schema pins `replicaCount` to 1.
 
 ## Configuration examples
 
@@ -157,7 +157,7 @@ helm uninstall my-pocketbase
 ```
 
 The PVC provisioned by the `volumeClaimTemplate` is retained by Kubernetes on
-uninstall — delete it explicitly if you want the data gone:
+uninstall, delete it explicitly if you want the data gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=my-pocketbase

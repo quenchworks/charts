@@ -40,7 +40,7 @@ leader loss. See below for the HA details.
 Set `architecture: replication` to run a self-managed HA cluster instead of a single
 node. Each pod runs [Patroni](https://patroni.readthedocs.io/), which supervises
 postgres, elects a leader through the Kubernetes API, and drives streaming
-replication. There is no external etcd — Patroni stores cluster state in ConfigMaps
+replication. There is no external etcd, Patroni stores cluster state in ConfigMaps
 in the release namespace and stamps a `role=master|replica` label on each pod.
 
 ```bash
@@ -61,19 +61,19 @@ You get three Services:
 
 **Failover.** When the leader dies, the members race for the leader lock in the DCS;
 the winner promotes in a few seconds and Patroni flips its `role` label to `master`,
-so the primary Service's endpoints follow it automatically — clients reconnecting to
+so the primary Service's endpoints follow it automatically, clients reconnecting to
 the same Service name land on the new leader. The old node rejoins as a replica when
 it returns: if it diverged (accepted writes the cluster never saw) `pg_rewind`
 rewinds it to the new timeline; otherwise it just streams from the new leader.
 
 **RBAC.** HA mode needs the pod's ServiceAccount to reach the Kubernetes API, so the
 chart creates a namespaced `Role` (configmaps, endpoints, pods, services, events) +
-`RoleBinding` and turns on token automount — regardless of `rbac.create`. Nothing is
+`RoleBinding` and turns on token automount, regardless of `rbac.create`. Nothing is
 cluster-scoped. In standalone mode the pod never calls the API and the token stays off.
 
 **Quorum boundary.** The PodDisruptionBudget defaults to `minAvailable: 2` so a
 voluntary drain can never take a 3-node cluster below a majority. Losing the majority
-(2 of 3 at once) is **not** auto-rebuilt — that risks split-brain, so it surfaces as a
+(2 of 3 at once) is **not** auto-rebuilt, that risks split-brain, so it surfaces as a
 stuck cluster for an operator to resolve, rather than a silent, unsafe promotion.
 Run an odd `ha.replicaCount` (3 or 5) so a majority is always unambiguous.
 
@@ -150,6 +150,6 @@ dropped. PGDATA, the socket dir, `/tmp`, and `/dev/shm` are the only writable mo
 ## Notes
 
 Standalone is the default; set `architecture: replication` for a Patroni HA cluster
-(above). The metrics exporter sidecar currently attaches to standalone only — per-pod
+(above). The metrics exporter sidecar currently attaches to standalone only, per-pod
 metrics for the HA members are a follow-up. The chart depends on the `quench-common`
 library chart, pulled from `oci://ghcr.io/quenchworks/charts/quench-common`.

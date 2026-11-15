@@ -1,6 +1,6 @@
 # Typesense (Quenchworks)
 
-Quenchworks-hardened [Typesense](https://github.com/typesense/typesense) — a fast,
+Quenchworks-hardened [Typesense](https://github.com/typesense/typesense), a fast,
 typo-tolerant search engine with an instant-search REST API and a **self-contained
 embedded store** (no external database). Runs from a minimal, nonroot, CVE-gated image
 pinned by digest and cosign-signed. Single-node, with **mandatory** API-key auth
@@ -38,9 +38,9 @@ X-TYPESENSE-API-KEY: <api-key>
 
 The API key is resolved in this order:
 
-1. **`auth.existingSecret`** — read the key from your own Secret (key `auth.existingSecretKey`, default `api-key`).
-2. **`auth.apiKey`** — a literal value, stored in a chart-managed Secret.
-3. **neither set (default)** — a strong 40-char key is **generated once** and
+1. **`auth.existingSecret`**: read the key from your own Secret (key `auth.existingSecretKey`, default `api-key`).
+2. **`auth.apiKey`**: a literal value, stored in a chart-managed Secret.
+3. **neither set (default)**: a strong 40-char key is **generated once** and
    **preserved across `helm upgrade`** via a `lookup` of the existing Secret.
 
 Get the key from the chart-managed Secret:
@@ -50,7 +50,7 @@ kubectl get secret <release>-typesense-apikey -o jsonpath='{.data.api-key}' | ba
 ```
 
 The bootstrap key is the admin key; mint scoped, least-privilege keys via `POST /keys`
-(search-only keys, per-collection keys, etc.) — see the Typesense API-keys docs.
+(search-only keys, per-collection keys, etc.), see the Typesense API-keys docs.
 
 ## Storage
 

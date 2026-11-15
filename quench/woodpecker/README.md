@@ -61,7 +61,7 @@ gh attestation verify oci://ghcr.io/quenchworks/images/woodpecker \
 | `replicaCount`                     | `1`                                     | Stateful single node (SQLite); do not scale out (schema pins `maximum: 1`).               |
 | `containerPort`                    | `8000`                                  | HTTP (web UI/API). Wired to `WOODPECKER_SERVER_ADDR`.                                     |
 | `grpcPort`                         | `9000`                                  | gRPC for agents. Wired to `WOODPECKER_GRPC_ADDR`.                                         |
-| `host`                             | `""`                                    | `WOODPECKER_HOST` — public server URL. **Required** in production.                        |
+| `host`                             | `""`                                    | `WOODPECKER_HOST`: public server URL. **Required** in production.                        |
 | `agentSecret.value`                | `""`                                    | Fixed `WOODPECKER_AGENT_SECRET`; creates a Secret. Rotate in prod.                        |
 | `agentSecret.existingSecret`       | `""`                                    | Use an existing Secret instead.                                                           |
 | `agentSecret.existingSecretKey`    | `WOODPECKER_AGENT_SECRET`               | Key within that Secret.                                                                   |
@@ -123,13 +123,13 @@ space. Startup, liveness, and readiness probes all `httpGet /healthz`, which
 returns 204 once the server is up.
 
 The server stores its state in a local SQLite database, so the topology is
-**single-node** — the schema pins `replicaCount` at 1 and it cannot be scaled
+**single-node**, the schema pins `replicaCount` at 1 and it cannot be scaled
 horizontally. Agents are a separate deployment: they connect over gRPC and
 authenticate with the shared `WOODPECKER_AGENT_SECRET`.
 
 ## Configuration examples
 
-A forge is mandatory — the server will not start without one. Configure it
+A forge is mandatory, the server will not start without one. Configure it
 through `extraEnvVars` (non-secret keys) plus a Secret referenced by
 `extraEnvVarsSecret` (client secrets). See the
 [Woodpecker forge docs](https://woodpecker-ci.org/docs/administration/forges/overview)
@@ -167,7 +167,7 @@ helm uninstall my-woodpecker
 ```
 
 The PVC provisioned by the `volumeClaimTemplate` is retained by Kubernetes on
-uninstall — delete it explicitly if you want the SQLite data gone:
+uninstall, delete it explicitly if you want the SQLite data gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=my-woodpecker

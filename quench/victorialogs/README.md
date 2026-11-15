@@ -1,7 +1,7 @@
 # Quenchworks VictoriaLogs
 
-Hardened [VictoriaLogs](https://docs.victoriametrics.com/victorialogs/) — a fast,
-single-binary log database with an HTTP ingestion and query API — on a minimal,
+Hardened [VictoriaLogs](https://docs.victoriametrics.com/victorialogs/), a fast,
+single-binary log database with an HTTP ingestion and query API, on a minimal,
 nonroot, CVE-gated image pinned by digest. It serves the HTTP API on port 9428 and
 persists all log data to a PVC, running on a read-only root filesystem with all
 capabilities dropped. The image is cosign-signed (keyless / Sigstore) and the
@@ -124,7 +124,7 @@ server is up.
 State lives on one volume mounted at `storagePath`, backed by the PVC (a
 `volumeClaimTemplate`, or `persistence.existingClaim`); with
 `persistence.enabled=false` it falls back to an `emptyDir` that does not survive
-a restart. VictoriaLogs is a single-node database — each pod would own its own
+a restart. VictoriaLogs is a single-node database, each pod would own its own
 disjoint dataset, so `replicaCount` is capped at 1 by the schema.
 
 ## Configuration examples
@@ -159,7 +159,7 @@ helm uninstall my-victorialogs
 ```
 
 The PVC provisioned by the `volumeClaimTemplate` is retained by Kubernetes on
-uninstall — delete it explicitly if you want the log data gone:
+uninstall, delete it explicitly if you want the log data gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=my-victorialogs
@@ -168,7 +168,7 @@ kubectl delete pvc -l app.kubernetes.io/instance=my-victorialogs
 ## Notes
 
 Single node by design; scale retention with the PVC and `-retentionPeriod`, not
-replicas. VictoriaLogs serves its API without built-in authentication — keep the
+replicas. VictoriaLogs serves its API without built-in authentication, keep the
 NetworkPolicy as the trust boundary and front it with an authenticating proxy
 before exposing it beyond the cluster. The chart depends on the `quench-common`
 library chart, pulled from `oci://ghcr.io/quenchworks/charts/quench-common`.

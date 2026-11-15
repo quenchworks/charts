@@ -1,7 +1,7 @@
 # Quenchworks MongoDB Community Server
 
-> **LICENSE — READ THIS.** MongoDB Community Server is **SSPL-1.0**, which is
-> **NOT an OSI-approved open-source license** — the Open Source Initiative
+> **LICENSE, READ THIS.** MongoDB Community Server is **SSPL-1.0**, which is
+> **NOT an OSI-approved open-source license**, the Open Source Initiative
 > explicitly declined the SSPL. **MongoDB is NOT open source.** This chart is
 > **caution tier**. If license cleanliness matters (it usually does), prefer the
 > truly-open, MongoDB-wire-compatible QuenchWorks alternatives that are already
@@ -48,14 +48,14 @@ The chart ships two topologies, chosen with `architecture`:
 | `architecture` | What you get |
 |----------------|--------------|
 | `standalone` (default) | A single `mongod` pod. Unchanged, backward compatible. |
-| `replicaset` | A MongoDB **replica set**: `ha.replicaCount` members (default **3**) in one StatefulSet — **1 PRIMARY + 2 SECONDARY**. |
+| `replicaset` | A MongoDB **replica set**: `ha.replicaCount` members (default **3**) in one StatefulSet, **1 PRIMARY + 2 SECONDARY**. |
 
-MongoDB runs the election **itself** — there is no external failover brain. A
+MongoDB runs the election **itself**, there is no external failover brain. A
 3-member set keeps a writable majority as long as 2 members are up: if the
 PRIMARY dies, the survivors elect a new PRIMARY within seconds and the old member
 rejoins as a SECONDARY when it returns. Intra-member (internal) auth uses a shared
 **keyFile** (generated into a Secret if you do not supply one), which also forces
-client auth on — HA is always authenticated. The ordinal-0 pod runs `rs.initiate()`
+client auth on, HA is always authenticated. The ordinal-0 pod runs `rs.initiate()`
 once (idempotently) and creates the root user via the localhost exception.
 
 ```bash
@@ -142,13 +142,13 @@ env/volumes, security contexts).
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
 dropped. A single writable PVC at `/data` holds the dbpath (`/data/db`) and the
 log dir (`/data/log`, which also holds the relocated unix socket and the `mongosh`
-HOME). When `auth.enabled=false`, there is no authentication — the NetworkPolicy
+HOME). When `auth.enabled=false`, there is no authentication, the NetworkPolicy
 is the only boundary.
 
 ## Metrics
 
 `metrics.enabled=true` adds a percona `mongodb_exporter` sidecar to **every** mongod pod
-— the standalone node and each replica-set member. It connects over the pod's loopback
+the standalone node and each replica-set member. It connects over the pod's loopback
 with `--mongodb.direct-connect`, so each member reports **its own** state instead of
 being redirected to the primary by topology discovery. Credentials are passed as
 `MONGODB_USER`/`MONGODB_PASSWORD` rather than inside the URI, so a password with URI
@@ -161,7 +161,7 @@ helm install my-mongodb oci://ghcr.io/quenchworks/charts/mongodb \
 ```
 
 The chart enables the `diagnosticdata` collector (serverStatus, opcounters,
-WiredTiger) plus `replicasetstatus` in replica-set mode — left to its own defaults this
+WiredTiger) plus `replicasetstatus` in replica-set mode, left to its own defaults this
 exporter serves nothing but `mongodb_up`. Add the expensive per-collection collectors
 with e.g. `metrics.extraArgs={--collector.collstats}` or `metrics.extraArgs={--collect-all}`.
 The exporter image is pinned by digest like the server. For a least-privilege `clusterMonitor` user instead of root, leave

@@ -14,7 +14,7 @@ Two images, both ours:
 | | what it is |
 |---|---|
 | `kgateway` | the controller. Also carries the Wolfi Envoy binary at `/usr/local/bin/envoy`, which is the path kgateway forks for `envoy --mode validate` under `validation.level: strict`. |
-| `kgateway-envoy` | the data plane — upstream's `envoy-wrapper`, rebuilt clean-room: the QuenchWorks hardened Envoy binary plus kgateway's own `envoyinit` shim. |
+| `kgateway-envoy` | the data plane: upstream's `envoy-wrapper`, rebuilt clean-room: the QuenchWorks hardened Envoy binary plus kgateway's own `envoyinit` shim. |
 
 `kgateway-envoy` exists rather than reusing the plain quench [`envoy`](../envoy) chart's
 image because the proxy container kgateway generates carries **args only, no command and
@@ -38,7 +38,7 @@ helm install kgateway oci://ghcr.io/quenchworks/charts/kgateway
 kgateway's own eight `gateway.kgateway.dev` CRDs **do** ship here, in `crds/`. See
 [CRDs](#crds) for what that means on upgrade.
 
-The controller creates its own GatewayClass, so there is nothing to claim — just create
+The controller creates its own GatewayClass, so there is nothing to claim, just create
 a Gateway:
 
 ```bash
@@ -61,7 +61,7 @@ kubectl get gateway example -o jsonpath='{.status.conditions[?(@.type=="Programm
 
 `Accepted=True` on the GatewayClass is the signal that the controller is really
 reconciling; a Ready pod is not. `Programmed=True` on the Gateway additionally means the
-Envoy fleet exists and has an address — on a cluster with no LoadBalancer
+Envoy fleet exists and has an address, on a cluster with no LoadBalancer
 implementation it stays `False` until you switch the provisioned Service to `ClusterIP`
 or `NodePort`, see [Configuration examples](#configuration-examples).
 
@@ -100,7 +100,7 @@ Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them 
 | `discoveryNamespaceSelectors` | `[]` | Namespace selectors (OR'ed) limiting config discovery. Empty means all namespaces. |
 | `policyMerge` | `{}` | Deep-merge behaviour for TrafficPolicy `extAuth` / `extProc` / `transformation`. |
 | `enableRouteSourceMetadata` | `false` | Attach `dev.kgateway.route_source` metadata to every generated route. Experimental upstream. |
-| `xds.tls.enabled` | `false` | TLS on the xDS gRPC server. Needs a `kubernetes.io/tls` Secret named `kgateway-xds-cert` — that name is fixed in the controller, not by this chart. |
+| `xds.tls.enabled` | `false` | TLS on the xDS gRPC server. Needs a `kubernetes.io/tls` Secret named `kgateway-xds-cert`, that name is fixed in the controller, not by this chart. |
 | `service.type` | `ClusterIP` | |
 | `service.xdsPort` | `9977` | Written into every generated proxy bootstrap; the fleet dials this Service by name. |
 | `service.metricsPort` | `9092` | Prometheus. |
@@ -134,7 +134,7 @@ Plus the usual quench-common knobs: `podLabels`, `podAnnotations`, `nodeSelector
                     └──────────────────────────────────────┘
 ```
 
-The controller is configured entirely through `KGW_*` environment variables — there is
+The controller is configured entirely through `KGW_*` environment variables, there is
 no config file and no `ConfigMap` in this chart. The image entrypoint is the bare
 `kgateway` binary with no subcommand.
 
@@ -154,7 +154,7 @@ Two consequences worth knowing:
   pull loudly, instead of quietly running somebody else's proxy binary next to our
   control plane.
 * An extra GatewayClass of your own with `controllerName: kgateway.dev/kgateway` will
-  **not** inherit it — kgateway only manages the two classes it creates. Point that
+  **not** inherit it, kgateway only manages the two classes it creates. Point that
   class's `spec.parametersRef` at the same GatewayParameters
   (`group: gateway.kgateway.dev`, `kind: GatewayParameters`).
 
@@ -167,7 +167,7 @@ binary at the hard-coded `/usr/local/bin/envoy` for exactly that, and the root
 filesystem is read-only with a `/tmp` emptyDir so the fork has somewhere to write.
 
 Strict validation of a TrafficPolicy that uses `transformation` or `rbac` will **fail**,
-because those emit an Envoy dynamic-module filter this image cannot load — see below.
+because those emit an Envoy dynamic-module filter this image cannot load, see below.
 
 ### RBAC
 
@@ -186,15 +186,15 @@ to `serviceAccount.name`.
   its images. TrafficPolicy `transformation` and `rbac` translate to an
   `envoy.extensions.filters.http.dynamic_modules.v3.DynamicModuleFilter` naming
   `rust_module`, and Envoy rejects that config without the module on disk. Everything
-  else — HTTPRoute/GRPCRoute/TCPRoute/TLSRoute routing, ListenerPolicy,
+  else, HTTPRoute/GRPCRoute/TCPRoute/TLSRoute routing, ListenerPolicy,
   HTTPListenerPolicy, BackendConfigPolicy, Backend, DirectResponse, and TrafficPolicy's
-  ext-auth, ext-proc, rate limiting, CORS, CSRF, retry and timeout sections — needs no
+  ext-auth, ext-proc, rate limiting, CORS, CSRF, retry and timeout sections, needs no
   dynamic module.
 
   Why it is not shipped: the module's `rust-toolchain.toml` pins Rust channel **1.95.0**
   while Wolfi's newest is `rust-1.92`, and its SDK
   (`envoy-proxy-dynamic-modules-rust-sdk`) is a **git dependency on the envoyproxy/envoy
-  repository at the exact Envoy patch tag** — `v1.38.3` for kgateway 2.4.3 — because the
+  repository at the exact Envoy patch tag**, `v1.38.3` for kgateway 2.4.3, because the
   dynamic-module ABI is version-checked against the Envoy binary at load time. Our
   Envoy is Wolfi's `envoy-1.38` apk at 1.38.1, the newest in that line, so even a
   successful build would be loading a module compiled against a different patch.
@@ -238,7 +238,7 @@ consequences Helm users should know:
 * `helm install` and `helm upgrade` **create** them but never **update** them. Apply the
   new bundle by hand on an appVersion bump:
   `kubectl apply --server-side -f crds/kgateway.crds.yaml`.
-* `helm uninstall` does **not** delete them, which is the safe default — deleting a CRD
+* `helm uninstall` does **not** delete them, which is the safe default: deleting a CRD
   deletes every object of that kind.
 
 They are in `crds/` for three reasons that were all measured on a kind cluster, not
@@ -253,7 +253,7 @@ assumed:
    `crds/` the tokens are unescaped back to the literals the docs mean.
 3. **Size.** The bundle is 1.6 MiB of source and Helm stores the release in a Secret
    capped at 1,048,576 bytes. From `crds/` the release Secret is 545,332 decoded bytes
-   (52.0% of the cap); templated it is 823,220 (78.5%) — which fits today, but leaves
+   (52.0% of the cap); templated it is 823,220 (78.5%), which fits today, but leaves
    little headroom for a bundle that grows with every release.
 
 Note that a plain client-side `kubectl apply -f crds/kgateway.crds.yaml` **fails**, and

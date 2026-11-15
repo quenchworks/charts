@@ -1,7 +1,7 @@
 # Quenchworks zot
 
-Hardened [zot](https://github.com/project-zot/zot) — a production-ready,
-vendor-neutral, OCI-native container image registry — on a minimal, nonroot,
+Hardened [zot](https://github.com/project-zot/zot), a production-ready,
+vendor-neutral, OCI-native container image registry, on a minimal, nonroot,
 CVE-gated image pinned by digest. It serves the OCI Distribution API on port 5000,
 running on a read-only root filesystem with all capabilities dropped. The image
 is cosign-signed (keyless / Sigstore) and the chart pins it by the signed digest,
@@ -105,12 +105,12 @@ the registry is ready.
 
 Three volumes are mounted, because the root filesystem is read-only:
 
-- **`/var/lib/registry`** — the blob/manifest store, backed by the PVC (a
+- **`/var/lib/registry`**: the blob/manifest store, backed by the PVC (a
   `volumeClaimTemplate`, or `persistence.existingClaim`). With
   `persistence.enabled=false` it falls back to an `emptyDir`.
-- **`/etc/zot`** — the config, mounted read-only from a ConfigMap over the
+- **`/etc/zot`**: the config, mounted read-only from a ConfigMap over the
   image default. The image runs `zot serve /etc/zot/config.json`.
-- **`/tmp`** — a writable `emptyDir` for scratch space.
+- **`/tmp`**: a writable `emptyDir` for scratch space.
 
 Config is the main lever. The chart renders `config.configJson` into a ConfigMap;
 the default declares dist-spec `1.1.1`, filesystem storage rooted at
@@ -179,7 +179,7 @@ helm uninstall my-zot
 ```
 
 The PVC provisioned by the `volumeClaimTemplate` is retained by Kubernetes on
-uninstall — delete it explicitly if you want the blob store gone:
+uninstall, delete it explicitly if you want the blob store gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=my-zot

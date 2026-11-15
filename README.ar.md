@@ -39,7 +39,7 @@ helm install cache oci://ghcr.io/quenchworks/charts/redis
 
 خمس عائلات من الملفات كانت شبه متطابقة في كل مخطط تُصاغ الآن من مكتبة [`quench-common`](https://github.com/quenchworks/common) بدل نسخة داخل كل مخطط: `ServiceAccount`، وRBAC (`Role`/`RoleBinding`، واختياريًا على مستوى العنقود)، و`PodDisruptionBudget`، و`HorizontalPodAutoscaler`، و`NetworkPolicy`. أصلِح واحدة، فتُصلَح في الكتالوج كله.
 
-تحديد ما انتقل جاء بالقياس لا بالتفضيل: بتجميع المخططات الـ138 حسب الشكل الناتج، `serviceaccount.yaml` متطابق في 117 من 132، و`poddisruptionbudget.yaml` في 105 من 123، و`rbac.yaml` في 104 من 123، و`hpa.yaml` في 20 من 23. أما `NetworkPolicy` فمشتركة لكنها **ذات مُعامِلات**، لأن 128 مخططًا أنتجت 91 شكلًا مختلفًا — فكل تطبيق يسمح بمنافذ مختلفة. و`service.yaml` تبقى عن قصد داخل كل مخطط: 98 شكلًا مختلفًا من 128 مخططًا، لأن قائمة المنافذ هي هوية التطبيق، وأي مساعد سيحتاج إعدادات بحجم الملف الذي يستبدله.
+تحديد ما انتقل جاء بالقياس لا بالتفضيل: بتجميع المخططات الـ138 حسب الشكل الناتج، `serviceaccount.yaml` متطابق في 117 من 132، و`poddisruptionbudget.yaml` في 105 من 123، و`rbac.yaml` في 104 من 123، و`hpa.yaml` في 20 من 23. أما `NetworkPolicy` فمشتركة لكنها **ذات مُعامِلات**، لأن 128 مخططًا أنتجت 91 شكلًا مختلفًا، فكل تطبيق يسمح بمنافذ مختلفة. و`service.yaml` تبقى عن قصد داخل كل مخطط: 98 شكلًا مختلفًا من 128 مخططًا، لأن قائمة المنافذ هي هوية التطبيق، وأي مساعد سيحتاج إعدادات بحجم الملف الذي يستبدله.
 
 كل مخطط يخدم HTTP لديه **Ingress معطَّل افتراضيًا**:
 
@@ -56,11 +56,11 @@ ingress:
 
 يُحلّ منفذ الخدمة من شكل الخدمة الذي يستخدمه المخطط، فالمضيف وحده يكفي عادةً. وتمكينه بلا مضيف، أو حيث لا يمكن تحديد منفذ HTTP، يُفشِل القالب برسالة واضحة بدل تثبيت شيء لا يوجِّه إلى أي مكان.
 
-المخططات التي **لا** تتحدث HTTP — PostgreSQL وRedis وKafka وMariaDB وetcd — لا تملك مفتاح `ingress` إطلاقًا. فـ `Ingress` موجِّه HTTP ولا يمكنه أن يتقدمها؛ اعرضها عبر `service.type=LoadBalancer` أو تمرير TCP في وحدة التحكم. ومفتاح لا يفعل شيئًا بصمت أسوأ من عدم وجوده.
+المخططات التي **لا** تتحدث HTTP، PostgreSQL وRedis وKafka وMariaDB وetcd، لا تملك مفتاح `ingress` إطلاقًا. فـ `Ingress` موجِّه HTTP ولا يمكنه أن يتقدمها؛ اعرضها عبر `service.type=LoadBalancer` أو تمرير TCP في وحدة التحكم. ومفتاح لا يفعل شيئًا بصمت أسوأ من عدم وجوده.
 
-خمس **حِزم** (observability وlogging وtracing وlgtm وidentity) تملك `ingress` خاصًا بها. وهي لا تملك خدمة خاصة، لذا يتقدّم ذلك الـ `ingress` خدمةَ مخطط فرعي — واجهة الحزمة الأساسية افتراضيًا (Grafana، أو Keycloak في `identity-stack`) — ويوجّهه `ingress.serviceName` / `ingress.servicePort` إلى أي مكوّن آخر. ويمكنك بدلًا من ذلك تركه معطلًا وتمكين ingress المخطط الفرعي نفسه، مثل `grafana.ingress.enabled=true`. أما بقية الحِزم فلا تملك `ingress` على مستوى الحزمة؛ استخدم `ingress` مخططاتها الفرعية.
+خمس **حِزم** (observability وlogging وtracing وlgtm وidentity) تملك `ingress` خاصًا بها. وهي لا تملك خدمة خاصة، لذا يتقدّم ذلك الـ `ingress` خدمةَ مخطط فرعي، واجهة الحزمة الأساسية افتراضيًا (Grafana، أو Keycloak في `identity-stack`)، ويوجّهه `ingress.serviceName` / `ingress.servicePort` إلى أي مكوّن آخر. ويمكنك بدلًا من ذلك تركه معطلًا وتمكين ingress المخطط الفرعي نفسه، مثل `grafana.ingress.enabled=true`. أما بقية الحِزم فلا تملك `ingress` على مستوى الحزمة؛ استخدم `ingress` مخططاتها الفرعية.
 
-وإلى جانب ذلك يكشف كل مخطط `commonLabels` و`commonAnnotations` و`podLabels` (وكلها آمنة للتغيير على إصدار حيّ)، إضافةً إلى `partOf` و`fullnameOverride` و`image.registry` و`imagePullSecrets`. ويوجد `selectorLabels` أيضًا، لكنه يغذّي `spec.selector` الذي يعتبره Kubernetes **غير قابل للتغيير** — اضبطه قبل أول تثبيت وإلا فشل كل `helm upgrade` لاحق برسالة `field is immutable`.
+وإلى جانب ذلك يكشف كل مخطط `commonLabels` و`commonAnnotations` و`podLabels` (وكلها آمنة للتغيير على إصدار حيّ)، إضافةً إلى `partOf` و`fullnameOverride` و`image.registry` و`imagePullSecrets`. ويوجد `selectorLabels` أيضًا، لكنه يغذّي `spec.selector` الذي يعتبره Kubernetes **غير قابل للتغيير**، اضبطه قبل أول تثبيت وإلا فشل كل `helm upgrade` لاحق برسالة `field is immutable`.
 
 ## الكتالوج
 

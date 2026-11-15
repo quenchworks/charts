@@ -1,12 +1,12 @@
 # Quenchworks Nextcloud
 
-Hardened [Nextcloud](https://nextcloud.com/) — the self-hosted content-collaboration and
-file-sync platform — on a minimal, nonroot, CVE-gated image pinned by digest and cosign-signed.
+Hardened [Nextcloud](https://nextcloud.com/), the self-hosted content-collaboration and
+file-sync platform, on a minimal, nonroot, CVE-gated image pinned by digest and cosign-signed.
 The image is a clean-room Wolfi rebuild (php-fpm + the QuenchWorks nginx, supervised by
 supervisord) of the official upstream release tarball; it runs as uid `1001` and serves
 HTTP on port `8080`.
 
-> **License:** Nextcloud Server is **AGPL-3.0-only** — strong copyleft, where network use
+> **License:** Nextcloud Server is **AGPL-3.0-only**, strong copyleft, where network use
 > counts as distribution. If you modify the source and offer it over a network you must make
 > your modified source available. The image ships the unmodified upstream release.
 
@@ -27,7 +27,7 @@ helm install cloud oci://ghcr.io/quenchworks/charts/nextcloud \
 ```
 
 The image's entrypoint does **not** self-install. An `install` initContainer runs
-`occ maintenance:install` once — writing `config.php` and creating the schema — before the
+`occ maintenance:install` once, writing `config.php` and creating the schema, before the
 app container serves; it retries while the bundled MariaDB comes up, so first boot can take
 a couple of minutes (a startup probe gates it). The admin and DB passwords are injected from
 a managed Secret via `secretKeyRef`, so they never appear in the pod's process arguments.
@@ -75,7 +75,7 @@ By default `networkPolicy.allowExternal` is `false`, restricting ingress to the 
 namespace. Front Nextcloud with an ingress/TLS proxy and set `allowExternal=true` to expose
 it. The container keeps the hardened defaults: nonroot uid `1001`, dropped capabilities,
 `allowPrivilegeEscalation=false`, and a **read-only root filesystem** (the image is designed
-for it — only the mounted volumes are writable).
+for it, only the mounted volumes are writable).
 
 ## Image provenance
 

@@ -2,7 +2,7 @@
 
 Hardened [kube-state-metrics](https://github.com/kubernetes/kube-state-metrics), the
 Kubernetes add-on that listens to the API server and exposes the state of cluster
-objects — Deployments, Pods, Nodes, Jobs, PVCs, HPAs and more — as Prometheus
+objects, Deployments, Pods, Nodes, Jobs, PVCs, HPAs and more, as Prometheus
 metrics, on a minimal, nonroot, CVE-gated image built from source, cosign-signed and
 pinned by digest. Runs as a stateless Deployment; object metrics on `8080`, health
 and its own process metrics on `8081`.
@@ -46,15 +46,15 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/kube-state-metrics 
 | `image.digest`                  | (CI-written)                                        | Required. Charts pin by digest, never a tag.                                                              |
 | `image.pullPolicy`              | `IfNotPresent`                                      |                                                                                                           |
 | `nameOverride`                  | `""`                                                | Override the chart name in resource names.                                                                |
-| `replicaCount`                  | `1`                                                 | Keep at 1 unless sharding — unsharded replicas export duplicate series. No HPA, deliberately.             |
+| `replicaCount`                  | `1`                                                 | Keep at 1 unless sharding: unsharded replicas export duplicate series. No HPA, deliberately.             |
 | `extraArgs`                     | `[]`                                                | Extra exporter flags (`--namespaces`, `--resources`, `--metric-labels-allowlist`, `--shard`).             |
 | `resources.requests`            | `cpu 20m / mem 64Mi`                                | Memory scales with object count; raise the limit on large clusters.                                       |
 | `resources.limits`              | `cpu 500m / mem 512Mi`                              |                                                                                                           |
 | `service.type`                  | `ClusterIP`                                         | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                                               |
-| `service.port`                  | `8080`                                              | Object metrics — the port Prometheus scrapes.                                                             |
+| `service.port`                  | `8080`                                              | Object metrics: the port Prometheus scrapes.                                                             |
 | `service.telemetryPort`         | `8081`                                              | The exporter's own process metrics plus `/healthz`, `/livez`, `/readyz`.                                  |
 | `podAnnotations`                | `prometheus.io/scrape,port,path`                    | Annotation-based discovery. Set `{}` when using ServiceMonitor/PodMonitor.                                 |
-| `serviceAccount.create`         | `true`                                              | Token automount is **on** — the exporter is an API-server client.                                          |
+| `serviceAccount.create`         | `true`                                              | Token automount is **on**: the exporter is an API-server client.                                          |
 | `serviceAccount.name`           | `""`                                                | Use an existing ServiceAccount.                                                                           |
 | `rbac.create`                   | `true`                                              | Required. Cluster-wide `list`/`watch` on the exported object kinds; read-only.                            |
 | `networkPolicy.enabled`         | `true`                                              | Restricts ingress to both listeners.                                                                      |
@@ -68,14 +68,14 @@ containers, extra env/volumes, security contexts, update strategy).
 
 A stateless Deployment runs the exporter, which holds no data of its own: it rebuilds
 its entire metric set from API-server watches, so it needs no storage and restarts
-cleanly. Two listeners, kept separate on purpose — object metrics on `8080` and
+cleanly. Two listeners, kept separate on purpose, object metrics on `8080` and
 telemetry/health on `8081`. The probes are split across them, matching upstream:
 liveness hits `/livez` on the metrics port (proving the object-metrics server is up),
-while readiness hits `/readyz` on the telemetry port, which answers immediately —
+while readiness hits `/readyz` on the telemetry port, which answers immediately:
 probing the metrics port for readiness would flap on a large cluster where a scrape
 takes seconds.
 
-RBAC is cluster-scoped and read-only — one `list`/`watch` grant per exported object
+RBAC is cluster-scoped and read-only, one `list`/`watch` grant per exported object
 kind, no write verb anywhere. The ClusterRole and ClusterRoleBinding names carry the
 release namespace, so two releases in different namespaces do not collide on one
 global object. `secrets` and `configmaps` are `list`/`watch` only and no exported
@@ -88,7 +88,7 @@ dropped and no volumes.
 
 ## Configuration examples
 
-Restrict collection to two namespaces and a few kinds — the usual answer when the
+Restrict collection to two namespaces and a few kinds, the usual answer when the
 exporter's memory grows with a large cluster:
 
 ```yaml
@@ -127,7 +127,7 @@ networkPolicy:
 helm uninstall ksm
 ```
 
-Nothing persists — the exporter is stateless and holds no PVCs. The cluster-scoped
+Nothing persists, the exporter is stateless and holds no PVCs. The cluster-scoped
 ClusterRole/ClusterRoleBinding are release-owned and go with it.
 
 ## Notes
@@ -136,7 +136,7 @@ The chart depends on the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`. The container runs as nonroot on a
 read-only root filesystem with all capabilities dropped, and the image is pinned by
 digest. The metrics endpoint is unauthenticated and describes every workload in the
-cluster by name, so the NetworkPolicy is the trust boundary — keep
+cluster by name, so the NetworkPolicy is the trust boundary, keep
 `allowExternal: false` and add explicit peers rather than exposing it.
 
 The umbrella `observability-stack` and `lgtm-stack` charts already deploy their own

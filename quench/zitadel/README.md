@@ -1,8 +1,8 @@
 # Quenchworks ZITADEL
 
-Hardened [ZITADEL](https://zitadel.com/) — cloud-native identity infrastructure
+Hardened [ZITADEL](https://zitadel.com/), cloud-native identity infrastructure
 (OIDC / OAuth2 / SAML, multi-tenancy, self-service, and a built-in management API
-and console) — on a minimal, nonroot, CVE-gated image pinned by digest and
+and console), on a minimal, nonroot, CVE-gated image pinned by digest and
 cosign-signed (keyless / Sigstore). The server is a single static Go binary that
 runs as uid `1001` on a read-only root filesystem with all capabilities dropped,
 serving HTTP/2 cleartext (h2c: gRPC, REST, and console multiplexed) on port
@@ -12,7 +12,7 @@ ZITADEL is stateless: all state lives in an external PostgreSQL. This chart
 bundles the Quenchworks PostgreSQL chart by default and can also point at an
 external database. The container runs the cold-start subcommand
 `start-from-init`, which creates the schema, seeds the first instance and admin,
-then serves — idempotent across restarts. All configuration is driven through
+then serves, idempotent across restarts. All configuration is driven through
 `ZITADEL_*` environment variables.
 
 ## Install
@@ -127,7 +127,7 @@ ZITADEL runs as a stateless **Deployment** behind a ClusterIP Service; all state
 lives in PostgreSQL, which runs as a StatefulSet via the bundled subchart. The
 container serves h2c on container port `8080` (gRPC, REST, and the console
 multiplexed over HTTP/2 cleartext), and the Service maps the same port. TLS is
-expected to terminate at an ingress or proxy — the app runs with
+expected to terminate at an ingress or proxy, the app runs with
 `--tlsMode disabled`.
 
 On boot the container runs `start-from-init`, which connects to PostgreSQL with
@@ -196,7 +196,7 @@ helm uninstall id
 ```
 
 The PostgreSQL PVC provisioned by the bundled subchart is retained by Kubernetes
-on uninstall — delete it explicitly if you want the data gone:
+on uninstall, delete it explicitly if you want the data gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=id

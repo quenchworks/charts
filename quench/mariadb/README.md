@@ -88,20 +88,20 @@ client Service load-balances across all Ready nodes.
 
 **Bootstrap vs. join.** Galera's cold-start hazard is that every node waits for the
 others. The entrypoint breaks the tie: node-0 forms a new cluster (`--wsrep-new-cluster`)
-only when no other member is already reachable on the gcomm port; otherwise it — and every
-other ordinal — joins the existing cluster and pulls a state snapshot. That same
+only when no other member is already reachable on the gcomm port; otherwise it, and every
+other ordinal, joins the existing cluster and pulls a state snapshot. That same
 "is a peer live?" check is the split-brain guard when node-0 restarts: it rejoins rather
 than starting a second cluster.
 
 **SST.** A joining node is seeded from a live donor with `mariabackup` (a hot, physical
-snapshot — the donor keeps serving during the copy). Readiness gates on
+snapshot, the donor keeps serving during the copy). Readiness gates on
 `wsrep_local_state_comment = Synced`, so a node mid-transfer is kept out of the Service
 until it has caught up.
 
 **Quorum boundary.** The PodDisruptionBudget holds `minAvailable` at the majority (2 of
 3). Losing one node keeps the cluster writable and the node rejoins automatically (IST if
 its gcache still has the writesets, otherwise a full SST). Losing the majority is **not**
-auto-recovered — that is a deliberate split-brain stop that needs a human to pick the most
+auto-recovered, that is a deliberate split-brain stop that needs a human to pick the most
 advanced survivor and bootstrap from it.
 
 Depends on the `quench-common` library chart, pulled from
@@ -109,8 +109,8 @@ Depends on the `quench-common` library chart, pulled from
 
 ## Metrics
 
-`metrics.enabled=true` adds a `mysqld_exporter` sidecar to **every** server pod — the
-standalone primary and each Galera node — so metrics are per-node, not per-cluster. It
+`metrics.enabled=true` adds a `mysqld_exporter` sidecar to **every** server pod, the
+standalone primary and each Galera node, so metrics are per-node, not per-cluster. It
 reaches the server over the pod's loopback and takes the root password from the auth
 Secret via `MYSQLD_EXPORTER_PASSWORD` (never a DSN, so a password with URI metacharacters
 needs no percent-encoding). A `<release>-mariadb-metrics` Service exposes port 9104, and

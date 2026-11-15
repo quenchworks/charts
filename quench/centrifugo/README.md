@@ -50,8 +50,8 @@ extraEnvVars:
 
 ## Secrets
 
-Centrifugo needs a token HMAC secret (verifies client JWTs), an HTTP API key, and —
-for the admin UI — an admin password and admin secret. The chart provisions all
+Centrifugo needs a token HMAC secret (verifies client JWTs), an HTTP API key, and:
+for the admin UI, an admin password and admin secret. The chart provisions all
 four in a managed Secret: each is **generated if left empty** and **preserved
 across `helm upgrade`** via a lookup, so upgrades never rotate live credentials.
 Set any `secrets.*` value explicitly to control it; rotate in production by

@@ -28,7 +28,7 @@ Open Grafana and read the generated admin password:
 ```bash
 kubectl get secret trace-grafana -o jsonpath='{.data.admin-password}' | base64 -d ; echo
 kubectl port-forward svc/trace-grafana 3000:3000
-# http://127.0.0.1:3000  (user: admin) — the "Tempo" datasource is the default.
+# http://127.0.0.1:3000  (user: admin), the "Tempo" datasource is the default.
 # Go to Explore -> Tempo to search traces.
 ```
 
@@ -132,17 +132,17 @@ your app --(OTLP)--> <release>-otel-collector:4317 (gRPC) / :4318 (HTTP)
 
 Bundled subcharts and glue:
 
-- **Tempo** (`quench/tempo` subchart) — ships single-binary (`-target=all`) with a
+- **Tempo** (`quench/tempo` subchart): ships single-binary (`-target=all`) with a
   filesystem trace backend. Its HTTP API (query, `/ready`, `/metrics`) is on
   `:3200` and it runs its own OTLP receivers on `:4317` (gRPC) / `:4318` (HTTP).
-- **Grafana** (`quench/grafana` subchart) — the umbrella renders a fixed-name
+- **Grafana** (`quench/grafana` subchart): the umbrella renders a fixed-name
   ConfigMap (`tracing-stack-datasources`) with a Tempo datasource (uid `tempo`,
   `access: proxy`, `isDefault: true`) pointing at `http://<release>-tempo:3200`,
   and mounts it into Grafana's provisioning directory via `grafana.extraVolumes`;
   `grafana.datasources` stays empty. Grafana runs stateless here (persistence off)
   so datasources and dashboards re-provision from ConfigMaps on every boot, which
   avoids admin-password drift on reinstall.
-- **OpenTelemetry Collector** (inline) — templated directly by this umbrella
+- **OpenTelemetry Collector** (inline): templated directly by this umbrella
   (`templates/otel-collector.yaml`: ServiceAccount + config ConfigMap + Deployment
   + Service) rather than pulled in as the `otel-collector` subchart. The subchart
   renders its config via `toYaml`, which cannot template the release name into the
@@ -152,7 +152,7 @@ Bundled subcharts and glue:
   The container runs nonroot 1001 on a read-only root filesystem (only `/tmp` is
   writable), with liveness and readiness probing the health_check extension
   (`GET /` on `:13133`).
-- **Dashboards** — one tracing overview dashboard ships in `dashboards/`, rendered
+- **Dashboards**: one tracing overview dashboard ships in `dashboards/`, rendered
   into a ConfigMap and provisioned through a Grafana file provider (same mount
   mechanism as the datasource). No Grafana sidecar image required.
 
@@ -233,7 +233,7 @@ helm uninstall trace
 
 This removes everything the chart created. No CRDs are installed, so there is
 nothing to clean up afterwards. The Tempo and Grafana PersistentVolumeClaims are
-retained by Helm convention — delete them by hand if you want the data gone:
+retained by Helm convention, delete them by hand if you want the data gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=trace
@@ -244,7 +244,7 @@ kubectl delete pvc -l app.kubernetes.io/instance=trace
 - Requires Kubernetes 1.23+ and Helm 3.8+ (OCI support).
 - Operator-free and CRD-free; nothing cluster-scoped is created, so upgrades never
   require a separate CRD apply step.
-- The bundled Tempo dashboard ships no synthetic data — it populates once your apps
+- The bundled Tempo dashboard ships no synthetic data: it populates once your apps
   emit traces. The richer day-to-day view is Explore -> Tempo (search by service
   name, span attributes, duration, or look up a trace ID and view the waterfall).
   Tempo's own operational metrics (`tempo_*`) are on `<release>-tempo:3200/metrics`

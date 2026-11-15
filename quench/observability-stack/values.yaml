@@ -1,4 +1,4 @@
-# observability-stack — an umbrella over the QuenchWorks prometheus, grafana,
+# observability-stack, an umbrella over the QuenchWorks prometheus, grafana,
 # and alertmanager component charts, plus a glue layer (Grafana datasource +
 # dashboards, Prometheus RBAC for in-cluster discovery, and three inline
 # exporters: kube-state-metrics, node-exporter, cAdvisor) wired together so
@@ -100,7 +100,7 @@ prometheus:
               target_label: __metrics_path__
               replacement: /api/v1/nodes/$1/proxy/metrics
 
-        # (d) cAdvisor via the kubelet (/metrics/cadvisor) — container CPU/memory/
+        # (d) cAdvisor via the kubelet (/metrics/cadvisor), container CPU/memory/
         # network/fs. No extra DaemonSet needed; the kubelet already runs cAdvisor.
         - job_name: cadvisor
           scheme: https
@@ -138,7 +138,7 @@ prometheus:
     enabled: true
     size: 8Gi
   # The prometheus chart's ServiceAccount sets automountServiceAccountToken:false
-  # (hardened default), so the API token is NOT auto-mounted — but
+  # (hardened default), so the API token is NOT auto-mounted, but
   # kubernetes_sd_configs (and the bearer_token_file above) need it. Project the SA
   # token + CA + namespace into the standard in-cluster path so service discovery
   # can authenticate. Paired with the ClusterRole/binding this umbrella creates for
@@ -170,7 +170,7 @@ prometheus:
 # Grafana (subchart). The Prometheus datasource AND the bundled dashboards are
 # provided by this umbrella's own templates (templates/grafana-datasources.yaml +
 # templates/grafana-dashboards.yaml, fixed names) and mounted in via extraVolumes
-# below — so keep datasources: [] here. adminPassword empty => generated secret.
+# below, so keep datasources: [] here. adminPassword empty => generated secret.
 # ---------------------------------------------------------------------------
 grafana:
   enabled: true
@@ -216,7 +216,7 @@ grafana:
     enabled: false
 
 # ---------------------------------------------------------------------------
-# Dashboards — which of the bundled Grafana dashboards to provision.
+# Dashboards, which of the bundled Grafana dashboards to provision.
 #   - All (default): leave enabled: true with all include flags true.
 #   - Just some: set the ones you don't want to false.
 #   - None: set enabled: false (Grafana still installs, just no bundled dashboards).
@@ -243,7 +243,7 @@ alertmanager:
     size: 2Gi
 
 # ---------------------------------------------------------------------------
-# kube-state-metrics — cluster object metrics (pods, deployments, nodes, ...).
+# kube-state-metrics, cluster object metrics (pods, deployments, nodes...).
 # Templated inline by this umbrella (templates/kube-state-metrics.yaml): a
 # ServiceAccount + ClusterRole + binding + Deployment + Service. The Service and
 # pod are annotated prometheus.io/scrape so the kubernetes-pods job scrapes it.
@@ -260,7 +260,7 @@ kubeStateMetrics:
     limits: { cpu: 200m, memory: 256Mi }
 
 # ---------------------------------------------------------------------------
-# node-exporter — per-node host metrics (CPU, memory, disk, filesystem).
+# node-exporter, per-node host metrics (CPU, memory, disk, filesystem).
 # ON by default for THIS stack: cluster observability needs node metrics, and the
 # Node Exporter Full dashboard depends on them. It is a DaemonSet that runs in the
 # host PID/network namespaces and mounts host /proc, /sys and / read-only. That
@@ -278,7 +278,7 @@ nodeExporter:
     limits: { cpu: 200m, memory: 128Mi }
 
 # ---------------------------------------------------------------------------
-# cAdvisor — per-node container resource metrics. Container metrics already come
+# cAdvisor, per-node container resource metrics. Container metrics already come
 # from the kubelet (/metrics/cadvisor) via the `cadvisor` Prometheus job above, so
 # the dashboards populate WITHOUT this DaemonSet. This OPTIONAL standalone cAdvisor
 # DaemonSet (privileged host mounts) is OFF by default: it is redundant on any

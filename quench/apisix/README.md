@@ -40,7 +40,7 @@ The key is only generated when `admin.key` is empty, and every later
 
 | Port | What |
 |------|------|
-| 9080 | HTTP proxy — the data plane |
+| 9080 | HTTP proxy: the data plane |
 | 9443 | HTTPS proxy, only when `tls.enabled=true` (certificates come from the Admin API, not from values) |
 | 9180 | Admin API, key-protected |
 | 9090 | Control API, bound to `0.0.0.0` so the kubelet's probes can reach `/v1/healthcheck` |
@@ -123,7 +123,7 @@ The APISIX Ingress Controller is a **separate chart**,
 [`apisix-ingress-controller`](../apisix-ingress-controller). It was an optional
 component of this chart in 0.0.1 and never worked: the controller cannot sync
 without its `adc` sidecar, which this chart did not run, and it owns twelve
-cluster-scoped `apisix.apache.org` CRDs plus an IngressClass — objects a data-plane
+cluster-scoped `apisix.apache.org` CRDs plus an IngressClass, objects a data-plane
 chart must not claim if you ever want two APISIX releases in one cluster.
 
 Install it alongside and point it at this release's Admin API:
@@ -205,12 +205,12 @@ Plus the shared quench-common knobs: `podLabels`, `podAnnotations`,
 The container is nonroot (uid 1001) on a read-only root filesystem. APISIX needs
 exactly three writable paths, each an `emptyDir`:
 
-* `/usr/local/apisix/conf` — `apisix init` regenerates `nginx.conf` here on every
+* `/usr/local/apisix/conf`: `apisix init` regenerates `nginx.conf` here on every
   start. The image ships it empty and re-seeds it from a read-only
   `conf.default/`, so the chart's `config.yaml` is mounted on top and everything
   else (`mime.types`, cert templates) is filled in behind it.
-* `/usr/local/apisix/logs` — error log and the `worker_events` sockets.
-* `/tmp` — nginx's five temp paths, redirected there by `config.yaml`.
+* `/usr/local/apisix/logs`: error log and the `worker_events` sockets.
+* `/tmp`: nginx's five temp paths, redirected there by `config.yaml`.
 
 An init container waits for etcd on a TCP connect before the gateway starts:
 `apisix init_etcd` exits when the store is not up yet, and Helm creates

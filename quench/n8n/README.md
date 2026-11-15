@@ -1,7 +1,7 @@
 # Quenchworks n8n
 
-Hardened [n8n](https://n8n.io/) — a fair-code workflow automation platform with a
-visual node editor and native AI/LLM agent nodes — on a minimal, nonroot, CVE-gated image
+Hardened [n8n](https://n8n.io/), a fair-code workflow automation platform with a
+visual node editor and native AI/LLM agent nodes, on a minimal, nonroot, CVE-gated image
 pinned by digest. n8n is a Node.js app; the whole flagged transitive npm CVE class is
 cleared image-side with pinned `overrides`, and the app runs on a read-only root
 filesystem as a single-replica StatefulSet. The editor UI, REST API and webhooks are
@@ -71,7 +71,7 @@ gh attestation verify oci://ghcr.io/quenchworks/images/n8n --owner quenchworks
 - **Port**: `5678` (container port `http`), exposed by a `ClusterIP` Service. A headless
   Service backs the StatefulSet for stable pod DNS.
 - **State / PVC**: `persistence.enabled=true` (default) provisions a PVC for
-  `/home/node/.n8n` via a `volumeClaimTemplate` — the encryption key material, per-node
+  `/home/node/.n8n` via a `volumeClaimTemplate`, the encryption key material, per-node
   config, binary data and (in SQLite mode) `database.sqlite`. `/home/node/.cache` and
   `/tmp` are ephemeral `emptyDir`s (regenerated each boot) so the read-only rootfs holds.
 - **Database**: SQLite on the volume by default; set `database.type=postgresdb` to use an
@@ -129,7 +129,7 @@ taskRunners:
 This attaches the `n8n-runners` sidecar (JavaScript + Python) and sets n8n to external
 runner mode. The auth token shared between n8n and the runner is generated once and
 persisted in the managed Secret. The Python runner is only available through this
-sidecar — the base image ships no Python.
+sidecar, the base image ships no Python.
 
 ## Public URL
 
@@ -151,9 +151,9 @@ n8n:
 | `image.digest`                                  | (pinned)                                 | Image digest. CI-maintained; never a tag.                                                 |
 | `image.pullPolicy`                              | `IfNotPresent`                           | Image pull policy.                                                                        |
 | `replicaCount`                                  | `1`                                      | Fixed at 1 (instance state on disk).                                                      |
-| `n8n.host`                                      | `localhost`                              | `N8N_HOST` — public hostname for generated URLs.                                          |
+| `n8n.host`                                      | `localhost`                              | `N8N_HOST`: public hostname for generated URLs.                                          |
 | `n8n.protocol`                                  | `http`                                   | `N8N_PROTOCOL` (`http`/`https`).                                                          |
-| `n8n.webhookUrl`                                | `""`                                     | `WEBHOOK_URL` — override the derived webhook base URL.                                    |
+| `n8n.webhookUrl`                                | `""`                                     | `WEBHOOK_URL`: override the derived webhook base URL.                                    |
 | `n8n.encryptionKey`                             | `""`                                     | `N8N_ENCRYPTION_KEY`; generated + persisted if empty.                                     |
 | `n8n.existingSecret`                            | `""`                                     | Use this Secret for the encryption key.                                                   |
 | `n8n.existingSecretKey`                         | `encryption-key`                         | Key within `n8n.existingSecret`.                                                          |
@@ -232,11 +232,11 @@ kubectl delete secret flow-n8n
   ```
 
 - **Read-only rootfs writable paths** are `/home/node/.n8n` (the PVC), `/home/node/.cache`
-  (n8n compiles static assets here on boot — ephemeral) and `/tmp`. If you install
+  (n8n compiles static assets here on boot, ephemeral) and `/tmp`. If you install
   community nodes that need to write elsewhere, add an `extraVolumes` + `extraVolumeMounts`
   pair.
 - **`persistence.enabled=false`** uses an `emptyDir` for `~/.n8n`. The CI gate runs this
-  way; do not use it for real data — everything, including the encryption key and (in
+  way; do not use it for real data, everything, including the encryption key and (in
   SQLite mode) the database, is lost when the pod restarts.
 - The image build clears its transitive npm CVE class image-side with pinned `overrides`;
   the chart adds no runtime CVE handling.

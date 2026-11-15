@@ -39,7 +39,7 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/krakend --owner que
 
 KrakenD will not start without a config file. The `config` value is a map that
 the chart renders to JSON, writes to a ConfigMap, and mounts read-only at
-`/etc/krakend/krakend.json` — the path the image entrypoint already loads
+`/etc/krakend/krakend.json`, the path the image entrypoint already loads
 (`krakend run -c /etc/krakend/krakend.json`).
 
 The shipped default declares one endpoint whose backend is the gateway's *own*
@@ -62,7 +62,7 @@ config:
 ```
 
 `config` is merged into by Helm the usual way, so `endpoints` (a list) is
-replaced wholesale by your values file — the sample does not linger.
+replaced wholesale by your values file, the sample does not linger.
 
 `port` is always taken from `containerPort` and overwrites anything you set in
 `config.port`, so the config and the container port cannot drift. The sample
@@ -92,7 +92,7 @@ The key may be named anything; it is projected to `krakend.json` in the mount.
 
 KrakenD reads its config once, at boot. The pod template carries a checksum of
 the rendered config, so `helm upgrade` restarts the pods whenever the config
-changes. With `existingConfigMap` that checksum cannot exist — restart the
+changes. With `existingConfigMap` that checksum cannot exist, restart the
 Deployment yourself after editing the ConfigMap.
 
 ## Values
@@ -130,7 +130,7 @@ env/volumes, security contexts).
 
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
 dropped and privilege escalation disabled. There are no writable volumes at all
-— KrakenD writes nothing at runtime — and the only mount is the read-only
+KrakenD writes nothing at runtime, and the only mount is the read-only
 config. Logs go to stdout. The NetworkPolicy is the trust boundary; the gateway
 is namespace-only until you set `networkPolicy.allowExternal`.
 

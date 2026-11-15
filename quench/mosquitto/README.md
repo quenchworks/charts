@@ -1,7 +1,7 @@
 # Quenchworks Mosquitto
 
-Hardened [Eclipse Mosquitto](https://mosquitto.org) — the lightweight open-source
-MQTT broker (MQTT 3.1 / 3.1.1 / 5.0 over TCP, TLS and websockets) — on a minimal,
+Hardened [Eclipse Mosquitto](https://mosquitto.org), the lightweight open-source
+MQTT broker (MQTT 3.1 / 3.1.1 / 5.0 over TCP, TLS and websockets), on a minimal,
 nonroot, CVE-gated image, pinned by digest. It runs as a single-replica Deployment on
 a read-only root filesystem with all capabilities dropped. The image is
 cosign-signed (keyless / Sigstore) and the chart pins it by the signed digest,
@@ -80,7 +80,7 @@ MQTT listener on **`1883`** is exposed by default:
 | `1883` | `mqtt` | MQTT 3.1 / 3.1.1 / 5.0 |
 
 The image also supports an `8883` MQTT-over-TLS listener and an `8080` websockets
-listener — enable them in `config.conf` (and add `service.ports`) to expose them.
+listener, enable them in `config.conf` (and add `service.ports`) to expose them.
 Liveness and readiness use a TCP connect to `1883` (the broker has no HTTP health
 endpoint).
 
@@ -102,10 +102,10 @@ The default config enables an anonymous listener on `1883` for a zero-config
 bring-up. **For production, turn this off** (`allow_anonymous false`) and add
 authentication:
 
-- A `password_file` — generate hashes with `mosquitto_passwd` (bundled in the
+- A `password_file`: generate hashes with `mosquitto_passwd` (bundled in the
   image), mount the file via `extraVolumes`/`extraVolumeMounts`, and reference it
   in `config.conf`.
-- A TLS listener on `8883` — mount certs and add `listener 8883` + `cafile` /
+- A TLS listener on `8883`: mount certs and add `listener 8883` + `cafile` /
   `certfile` / `keyfile` directives.
 - Fine-grained ACLs via the bundled `dynamic-security` plugin, or an `acl_file`.
 
@@ -137,7 +137,7 @@ extraVolumeMounts:
 helm uninstall mosquitto
 ```
 
-The PVC is retained by Kubernetes on uninstall — delete it explicitly if you want
+The PVC is retained by Kubernetes on uninstall, delete it explicitly if you want
 the retained messages and session state gone:
 
 ```bash
@@ -150,6 +150,6 @@ Single instance (the open-source broker has no native clustering). Depends on th
 `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`. The container runs as nonroot on
 a read-only root filesystem with all capabilities dropped, and the image is pinned
-by digest. The default config allows anonymous access for bring-up — add
+by digest. The default config allows anonymous access for bring-up, add
 authentication and keep the NetworkPolicy as the trust boundary before exposing
 the broker.

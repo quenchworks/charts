@@ -26,7 +26,7 @@ Connect from a client pod (the Quenchworks postgresql image ships psql):
     --image=ghcr.io/quenchworks/images/postgresql:18.4 -- \
     psql "host={{ include "quench-common.fullname" . }} port={{ .Values.service.port }} user={{ include "pgbouncer.db.user" . }} dbname={{ include "pgbouncer.db.name" . }} password=$PW" -c 'SELECT 1;'
 
-Admin / stats console — connect to the special "pgbouncer" virtual database as an
+Admin / stats console, connect to the special "pgbouncer" virtual database as an
 admin user ({{ .Values.pgbouncer.adminUsers }}):
 
   psql "host={{ include "quench-common.fullname" . }} port={{ .Values.service.port }} user={{ .Values.pgbouncer.adminUsers }} dbname=pgbouncer password=$PW" \
@@ -37,17 +37,17 @@ Backend database:
 {{- if .Values.postgresql.enabled }}
   Bundled Quenchworks PostgreSQL (postgresql.enabled=true). PgBouncer and the bundled PG
   share the deterministic credentials under `postgresql.auth`. This self-contained mode is
-  mainly for demos/CI — in PRODUCTION set postgresql.enabled=false and point
+  mainly for demos/CI, in PRODUCTION set postgresql.enabled=false and point
   `externalDatabase` at your real PostgreSQL.
 {{- else }}
   External database (postgresql.enabled=false): {{ include "pgbouncer.db.host" . }}:{{ include "pgbouncer.db.port" . }}/{{ include "pgbouncer.db.name" . }}
 {{- end }}
 
 pool_mode tradeoffs:
-  transaction (default) — best throughput; no session-level state (SET, advisory locks,
+  transaction (default), best throughput; no session-level state (SET, advisory locks,
                           session-scoped prepared statements).
-  session               — most compatible; one server connection per client connection.
-  statement             — autocommit only; returns server after each statement.
+  session              , most compatible; one server connection per client connection.
+  statement            , autocommit only; returns server after each statement.
 
 The image is pinned by digest and signed. Verify it:
 

@@ -13,7 +13,7 @@ helm install my-questdb oci://ghcr.io/quenchworks/charts/questdb
 
 ## Standalone
 
-QuestDB open source is **standalone** — a single node with its own storage.
+QuestDB open source is **standalone**, a single node with its own storage.
 Replication and high availability are QuestDB Enterprise features, so this chart
 runs one replica with one PVC (`replicaCount` stays `1`; raising it would create
 independent databases, not a cluster). A pod or node loss is downtime until the

@@ -34,14 +34,14 @@ Set `backgroundController.enabled`, `cleanupController.enabled` or
 `reportsController.enabled` to `false` to drop what you do not use. The admission
 controller is not optional.
 
-### TLS is self-managed — no cert-manager
+### TLS is self-managed, no cert-manager
 
 The admission controller generates its own CA and serving keypair on first start,
 persists them in two Secrets in the release namespace
 (`<release>-svc.<ns>.svc.kyverno-tls-ca` and `…-tls-pair`), serves HTTPS, and
 writes the CA bundle into the webhook configurations itself. The cleanup
 controller does the same for its own webhook. Nothing is mounted, nothing is
-pre-seeded, and there is no cert-manager dependency — the namespaced Role granting
+pre-seeded, and there is no cert-manager dependency, the namespaced Role granting
 Secret write is what makes it work.
 
 ### Uninstalling is not just `helm uninstall`
@@ -49,14 +49,14 @@ Secret write is what makes it work.
 Kyverno registers its webhook configurations at runtime under names compiled into
 the binary (`kyverno-resource-validating-webhook-cfg` and friends), so Helm never
 owned them and cannot delete them. Left behind, they are `failurePolicy: Fail`
-webhooks pointing at a Service that no longer exists — the API server then rejects
+webhooks pointing at a Service that no longer exists, the API server then rejects
 every matching request, and removing Kyverno takes the cluster with it.
 
 This chart ships a **post-delete hook Job** (with hook-scoped ServiceAccount and
 RBAC, weighted to run after them) that deletes everything labelled
 `webhook.kyverno.io/managed-by=kyverno`. It runs *after* the Deployments are gone,
 so the controllers cannot re-create what it removed, and it runs in the release
-namespace, which Kyverno's own webhooks exclude — so it works even when you
+namespace, which Kyverno's own webhooks exclude, so it works even when you
 uninstall with an Enforce policy still active and the webhook actively blocking.
 Verified in kind: uninstalling with a live Enforce policy left zero webhook
 configurations and Pod creation kept working. Disable with
@@ -71,7 +71,7 @@ The 22 CRDs install from `crds/`, before the templates. Two notes:
 
 * Helm stores the whole chart in its release Secret, and a Secret is capped at
   1 MiB. Kyverno's verbatim CRDs are 5.6 MB and land at ~1.475 MiB in that Secret
-  — the install fails outright. The CRDs here therefore have their schema
+ , the install fails outright. The CRDs here therefore have their schema
   `description` fields stripped, which drops them to 1.9 MB / ~0.2 MiB in the
   Secret. Only `kubectl explain` prose is lost; every structural and validation
   field is untouched, so what the API server accepts is identical to upstream.

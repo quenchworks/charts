@@ -1,8 +1,8 @@
 # Quenchworks coroot
 
-Hardened [Coroot](https://github.com/coroot/coroot) — an open-source
+Hardened [Coroot](https://github.com/coroot/coroot), an open-source
 observability/APM server that turns eBPF-collected metrics, logs, traces and
-profiles into service maps, SLOs and cost insights — on a minimal, nonroot,
+profiles into service maps, SLOs and cost insights, on a minimal, nonroot,
 CVE-gated image pinned by digest. It serves its embedded Vue UI and JSON API on port
 8080 and runs a built-in OTLP gRPC collector on 4317, on a read-only root
 filesystem with all capabilities dropped. The image is cosign-signed (keyless /
@@ -107,8 +107,8 @@ Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 ## Architecture
 
 Coroot runs as a **StatefulSet** with a single replica. The Community edition is
-one Go process that embeds its Vue UI (`//go:embed`) and keeps its state — the
-SQLite config DB and the local metrics cache — under `/data`. That directory is a
+one Go process that embeds its Vue UI (`//go:embed`) and keeps its state, the
+SQLite config DB and the local metrics cache, under `/data`. That directory is a
 persistent volume provisioned by a `volumeClaimTemplate`; with
 `persistence.enabled=false` it becomes an `emptyDir` and does not survive a
 restart. Do not raise `replicaCount`: multiple pods would contend for the same
@@ -123,7 +123,7 @@ Probes: a TCP liveness check on the HTTP port and an HTTP readiness check agains
 
 Coroot itself is a UI and query layer. It does not store metrics long-term; it
 reads them from a **Prometheus** you point it at, and reads logs and traces from
-a **ClickHouse** backend. Neither is bundled by this chart — configure them at
+a **ClickHouse** backend. Neither is bundled by this chart, configure them at
 first run or through the UI.
 
 ## Configuration examples
@@ -165,7 +165,7 @@ helm uninstall my-coroot
 ```
 
 The PVC provisioned by the `volumeClaimTemplate` is retained by Kubernetes on
-uninstall — delete it explicitly if you want the data gone:
+uninstall, delete it explicitly if you want the data gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=my-coroot

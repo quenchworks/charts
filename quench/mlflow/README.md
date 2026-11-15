@@ -1,7 +1,7 @@
 # Quenchworks MLflow
 
-Hardened [MLflow](https://mlflow.org/) Tracking Server — experiment tracking, the model
-registry, and a REST/UI for ML metadata — on a minimal, nonroot, CVE-gated image pinned by
+Hardened [MLflow](https://mlflow.org/) Tracking Server, experiment tracking, the model
+registry, and a REST/UI for ML metadata, on a minimal, nonroot, CVE-gated image pinned by
 digest and cosign-signed. The server runs as uid `1001` on a read-only root filesystem
 and serves its UI + REST API on port `5000`.
 
@@ -21,7 +21,7 @@ helm install mlf oci://ghcr.io/quenchworks/charts/mlflow \
 ```
 
 The backend-store DSN is assembled inside a managed Secret and injected as
-`MLFLOW_BACKEND_STORE_URI` — the DB password never appears in the pod's process
+`MLFLOW_BACKEND_STORE_URI`, the DB password never appears in the pod's process
 arguments.
 
 ## Connect

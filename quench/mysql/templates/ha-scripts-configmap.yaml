@@ -10,7 +10,7 @@ data:
   # ---------------------------------------------------------------------------
   # Group Replication entrypoint (POSIX sh; the image ships busybox, not bash).
   # The image's own docker-entrypoint.sh is bypassed: it execs a fixed single-node
-  # mysqld. This drives a single-primary GR group instead — decide bootstrap-vs-join,
+  # mysqld. This drives a single-primary GR group instead, decide bootstrap-vs-join,
   # start mysqld in the foreground (PID 1), and let a background job issue the GR
   # runtime SQL against the live server and keep the pod's role label current.
   # ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ data:
     mysql_local() { mysql --protocol=socket --socket="$SOCK" -uroot -p"$MYSQL_ROOT_PASSWORD" "$@"; }
 
     # Patch this pod's role label so the primary (rw) and readonly (ro) Services
-    # follow the current election. Best-effort — never blocks the DB.
+    # follow the current election. Best-effort, never blocks the DB.
     label_role() {
       _tok="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token 2>/dev/null || true)"
       [ -n "$_tok" ] || return 0
@@ -98,7 +98,7 @@ data:
     }
 
     # First boot of an empty datadir: initialize, then seed accounts on a throwaway
-    # binlog-off server so the real server starts with an EMPTY gtid_executed — the
+    # binlog-off server so the real server starts with an EMPTY gtid_executed, the
     # clean precondition for joining a group. root/repl/app are created identically
     # on every node with SQL_LOG_BIN=0 (so they are not group transactions); actual
     # application data written on the primary later replicates via GR as normal.

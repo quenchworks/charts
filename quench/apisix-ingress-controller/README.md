@@ -6,20 +6,20 @@ native Ingress and Gateway API objects into APISIX configuration, on minimal,
 nonroot, CVE-gated images built from source, cosign-signed and pinned by digest.
 
 It runs no data plane. It watches Kubernetes, translates what it finds into a
-declarative document, and pushes that into an APISIX Admin API — the
+declarative document, and pushes that into an APISIX Admin API, the
 [`apisix`](../apisix) chart, or any APISIX you already run.
 
 ## The pod has two containers, and that is not optional
 
 The controller does not speak to APISIX itself. It hands every sync to
-[`adc`](https://github.com/api7/adc) — API Declarative CLI — over a Unix socket,
+[`adc`](https://github.com/api7/adc), API Declarative CLI, over a Unix socket,
 and `adc` is what calls the Admin API. Upstream's own Deployment is the same
 two-container pod, and the controller release pins the sidecar version
 (`Makefile ADC_VERSION`), so `image.digest` and `adc.image.digest` move together
 or not at all.
 
 A single-container install is not a degraded install. It comes up `1/1 Ready`,
-accepts a GatewayClass, and fails every sync — nothing in pod status says so.
+accepts a GatewayClass, and fails every sync, nothing in pod status says so.
 
 ```
    ┌─────────────────────── one pod ────────────────────────┐
@@ -105,7 +105,7 @@ IngressClass   spec.controller == controllerName, spec.parameters ──┐
 ```
 
 `dataPlane.create: true` builds all of it: the GatewayProxy, the IngressClass and
-— when `gatewayClass.create` is on — the GatewayClass. Set `dataPlane.create:
+when `gatewayClass.create` is on, the GatewayClass. Set `dataPlane.create:
 false` to manage those three yourself, for instance to drive several data planes
 from one controller with one GatewayProxy each.
 
@@ -136,7 +136,7 @@ controller's `provider.type`, so they cannot disagree.
 
 | Mode | Data plane it drives |
 |------|----------------------|
-| `apisix` (default) | The classic Admin API of an etcd-backed APISIX — what the [`apisix`](../apisix) chart installs. |
+| `apisix` (default) | The classic Admin API of an etcd-backed APISIX: what the [`apisix`](../apisix) chart installs. |
 | `apisix-standalone` | The file-driven standalone Admin API (APISIX 3.13+ with `config_provider: yaml`). The controller resolves pod endpoints itself in this mode. |
 
 `mode` is immutable on an existing GatewayProxy (a CEL rule on the CRD), so
@@ -198,7 +198,7 @@ with
 | `resources` | 50m/128Mi → 500m/512Mi | |
 | `containerPorts.probe` | `8081` | `/healthz` and `/readyz`. Pod-local, not on the Service. |
 | `containerPorts.metrics` | `8080` | |
-| `service.type` | `ClusterIP` | Metrics only — this control plane serves no traffic. |
+| `service.type` | `ClusterIP` | Metrics only: this control plane serves no traffic. |
 | `service.metricsPort` | `8080` | |
 | `serviceAccount.automountServiceAccountToken` | `true` | The controller is an API-server client; it cannot work without its token. |
 | `rbac.create` | `true` | See [RBAC](#rbac). |
@@ -235,14 +235,14 @@ mounts an emptyDir there.
 **`fsGroup`.** adc `chmod`s its socket to `0660` the instant it binds. Both
 containers here run as uid/gid 1001, so the `quench-common` default
 `fsGroup: 1001` is what lets the controller dial it. Raise `runAsUser` on one
-container without the other and every sync fails with `EACCES` — again with both
+container without the other and every sync fails with `EACCES`, again with both
 probes green. Upstream needs `fsGroup: 2000` only because its two images run as
 different users.
 
 ## RBAC
 
 Transcribed from the controller's own `//+kubebuilder:rbac` markers at release
-2.2.0 — the same source that generates upstream's `config/rbac/role.yaml` — not
+2.2.0, the same source that generates upstream's `config/rbac/role.yaml`, not
 inferred from what a controller probably needs.
 
 * **ClusterRole**: read-only on everything it watches (core `configmaps`,
@@ -259,7 +259,7 @@ inferred from what a controller probably needs.
 `gatewayclasses` carries `update` and not for its status: the controller puts an
 `apisix.apache.org/gc-protection` finalizer on a class it claims.
 
-Nothing is granted to create, patch or delete any workload — this controller
+Nothing is granted to create, patch or delete any workload, this controller
 writes to APISIX, not to Kubernetes. Nothing at all is granted on core
 `endpoints`; backend resolution goes through EndpointSlices.
 
@@ -269,7 +269,7 @@ writes to APISIX, not to Kubernetes. Nothing at all is granted on core
 
 `crds/apisix.apache.org.crds.yaml` holds the twelve `apisix.apache.org` CRDs of
 release 2.2.0, vendored from the ASF source release's `config/crd/bases` with the
-two `config/crd/patches` schema validations folded in — `kustomize build
+two `config/crd/patches` schema validations folded in, `kustomize build
 config/crd` is upstream's own install step and those two `oneOf` rules cannot be
 expressed as controller-gen markers.
 
@@ -360,13 +360,13 @@ helm uninstall aic
 The controller holds an `apisix.apache.org/gc-protection` finalizer on its
 GatewayClass and only removes it once no Gateway references the class. Uninstall
 with a Gateway still standing and the GatewayClass is left stuck `Terminating`
-forever — the controller that would clear the finalizer is gone — and the next
+forever, the controller that would clear the finalizer is gone, and the next
 `helm install --wait` blocks on it. Recover with
 `kubectl patch gatewayclass <name> -p '{"metadata":{"finalizers":[]}}' --type merge`.
 
 Everything in `crds/` is left behind on purpose: deleting a CRD cascade-deletes
 every object of that kind, including routes serving live traffic. The
-configuration already pushed into APISIX also stays — it lives in the data plane,
+configuration already pushed into APISIX also stays, it lives in the data plane,
 not in this release.
 
 ## Verify the chart

@@ -42,7 +42,7 @@ jobs:
       - name: Install gate (kind)
         run: |
           set -o pipefail
-          # Heaviest stack (9 workloads) — give it a longer timeout.
+          # Heaviest stack (9 workloads), give it a longer timeout.
           helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 12m
 
           # all components reached Ready (--wait already gates this, assert explicitly)
@@ -74,7 +74,7 @@ jobs:
             if echo "$body" | >/dev/null grep '"status":"success"' && echo "$body" | >/dev/null grep -E '"result":\[[^]]'; then ok=1; break; fi
             sleep 5
           done
-          test -n "$ok" || { echo "VictoriaMetrics 'up' query returned no data — promscrape not working"; exit 1; }
+          test -n "$ok" || { echo "VictoriaMetrics 'up' query returned no data, promscrape not working"; exit 1; }
           echo "VictoriaMetrics promscrape confirmed (up has data)."
 
           # ---- INTEGRATION ASSERT 2: Loki ready + Vector->Loki ingestion ----
@@ -95,7 +95,7 @@ jobs:
             if echo "$body" | >/dev/null grep '"status":"success"' && echo "$body" | >/dev/null grep -E '"data":\[[^]]'; then ingested=1; break; fi
             sleep 5
           done
-          test -n "$ingested" || { echo "Loki has no 'namespace' label values — Vector->Loki not working"; exit 1; }
+          test -n "$ingested" || { echo "Loki has no 'namespace' label values, Vector->Loki not working"; exit 1; }
           echo "Vector -> Loki ingestion confirmed."
 
           # ---- INTEGRATION ASSERT 3: Tempo ready ----

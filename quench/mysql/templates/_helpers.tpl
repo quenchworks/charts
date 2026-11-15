@@ -28,7 +28,7 @@
 {{- printf "%s.%s.svc.cluster.local" (include "mysql.headlessName" .) .Release.Namespace -}}
 {{- end -}}
 
-{{/* group_replication_group_seeds — every pod's stable FQDN:33061, comma-separated. */}}
+{{/* group_replication_group_seeds, every pod's stable FQDN:33061, comma-separated. */}}
 {{- define "mysql.groupSeeds" -}}
 {{- $full := include "quench-common.fullname" . -}}
 {{- $domain := include "mysql.podDomain" . -}}

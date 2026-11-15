@@ -34,7 +34,7 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/nginx --owner quenc
 The image ships a working default page on `8080` with `/stub_status` enabled, so no
 config is required. The main `nginx.conf` includes `/etc/nginx/conf.d/*.conf`.
 
-- Inline a server block — written to a ConfigMap and mounted at
+- Inline a server block: written to a ConfigMap and mounted at
   `/etc/nginx/conf.d/default-quench.conf`:
 
   ```yaml

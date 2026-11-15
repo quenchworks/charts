@@ -36,7 +36,7 @@ probe.
 Authentik **cannot boot without both** a PostgreSQL and a Redis. This chart makes each
 choosable as **bundled** (a QuenchWorks subchart) or **external** (your own), mirroring
 the `quench/authelia` layout. Exactly one mode per backend must resolve, or rendering
-fails with a clear message — there is no standalone fallback.
+fails with a clear message, there is no standalone fallback.
 
 ### Database
 

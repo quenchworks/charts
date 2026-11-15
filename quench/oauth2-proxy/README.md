@@ -1,8 +1,8 @@
 # Quenchworks oauth2-proxy
 
-Hardened [oauth2-proxy](https://github.com/oauth2-proxy/oauth2-proxy) — a reverse
+Hardened [oauth2-proxy](https://github.com/oauth2-proxy/oauth2-proxy), a reverse
 proxy and static file server that puts OAuth2/OIDC authentication in front of
-upstream services — on a minimal, nonroot, CVE-gated image, built from source and
+upstream services, on a minimal, nonroot, CVE-gated image, built from source and
 pinned by digest. It runs as a stateless Deployment on a read-only root filesystem
 with all capabilities dropped. The image is cosign-signed (keyless / Sigstore) and
 the chart pins it by the signed digest, never a tag.
@@ -92,7 +92,7 @@ the container args, so oauth2-proxy boots with a provider, client id/secret,
 cookie secret, upstream and email domain already set; `config.extraArgs` are
 appended verbatim after that. Liveness and readiness both hit `GET /ping`
 (HTTP 200) once the server is up. Because the proxy holds no server-side state,
-the workload scales horizontally — enable `autoscaling` (HPA on CPU) or raise
+the workload scales horizontally, enable `autoscaling` (HPA on CPU) or raise
 `replicaCount`. The container runs nonroot on a read-only root filesystem with all
 capabilities dropped.
 
@@ -130,13 +130,13 @@ values.
 helm uninstall auth
 ```
 
-Nothing persists — the workload is stateless and holds no PVCs.
+Nothing persists, the workload is stateless and holds no PVCs.
 
 ## Notes
 
 The chart depends on the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`. The container runs as nonroot on
 a read-only root filesystem with all capabilities dropped, and the image is pinned
-by digest. oauth2-proxy is itself the trust boundary for the services behind it —
+by digest. oauth2-proxy is itself the trust boundary for the services behind it:
 give it real OAuth/OIDC credentials and a strong cookie secret before exposing any
 upstream through it.

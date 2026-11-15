@@ -12,7 +12,7 @@ helm install tekton oci://ghcr.io/quenchworks/charts/tekton
 ## One image, five container references
 
 This is the part that makes or breaks a Tekton install. The controller does not
-only run its own binary — it stamps helper images into every pod it creates:
+only run its own binary, it stamps helper images into every pod it creates:
 
 | Injected as | Binary | Image |
 | --- | --- | --- |
@@ -40,8 +40,8 @@ itself pins. On a Linux-only cluster nothing pulls it.
 
 Two Deployments from the single image:
 
-- `<release>-tekton-controller` — reconciles TaskRun/PipelineRun/CustomRun.
-- `<release>-tekton-webhook` — defaulting + validating admission and CRD
+- `<release>-tekton-controller`: reconciles TaskRun/PipelineRun/CustomRun.
+- `<release>-tekton-webhook`: defaulting + validating admission and CRD
   conversion.
 
 The CRDs (`Task`, `TaskRun`, `Pipeline`, `PipelineRun`, `StepAction`,
@@ -56,7 +56,7 @@ The webhook issues its own CA and serving certificate on start, writes them to
 `<release>-tekton-webhook-certs`, then patches that CA bundle **and** the
 intercept rules into the three webhook configurations and into each CRD's
 conversion stanza. The chart therefore ships those configurations with an empty
-`caBundle` and no `rules` — a webhook entry with no rules intercepts nothing,
+`caBundle` and no `rules`, a webhook entry with no rules intercepts nothing,
 which is what keeps a fresh install from deadlocking on a webhook that has not
 started yet. Confirm the injection actually happened, rather than assuming:
 
@@ -87,7 +87,7 @@ ConfigMap data has to be strings, and the schema enforces it, so on the command
 line use `--set-string config.feature-flags.enable-step-actions=true` rather than
 `--set` (which would send a boolean and fail validation).
 
-All of them are created even when empty — a missing one makes the component's
+All of them are created even when empty, a missing one makes the component's
 config watcher fail on start. Because the names are not release-prefixed, one
 install per namespace. Set them through values rather than editing them in
 place, or the next `helm upgrade` reverts your change.
@@ -145,7 +145,7 @@ kubectl logs -l tekton.dev/taskRun=hello-run -c step-say
 
 With the default `enable-kubernetes-sidecar: "false"`, Tekton stops a sidecar by
 swapping its image to the `nop` image while leaving the sidecar's own `command`
-(or generated script) in place. No distroless `nop` image — ours or upstream's —
+(or generated script) in place. No distroless `nop` image, ours or upstream's:
 can exec that command, so the sidecar container restarts once, exits non-zero and
 the pod reports `Failed`. The **TaskRun still succeeds** and results still
 propagate; only the pod object looks unhappy. Set
@@ -165,14 +165,14 @@ controller are separate Deployments in the upstream release and are not shipped
 here. The binaries are in the image, so they can be added when there is a use for
 them; a Task or Pipeline referenced with `resolver:` will not resolve until then.
 Tekton's aggregated `tekton-aggregate-edit` / `tekton-aggregate-view`
-ClusterRoles are likewise omitted — grant access to `tekton.dev` explicitly.
+ClusterRoles are likewise omitted, grant access to `tekton.dev` explicitly.
 
 ## Security
 
 - Nonroot (uid/gid 1001), `readOnlyRootFilesystem`, all capabilities dropped,
   `seccompProfile: RuntimeDefault`, `allowPrivilegeEscalation: false`.
-- Every image referenced by the chart — including the ones injected into run
-  pods — is pinned by digest.
+- Every image referenced by the chart: including the ones injected into run
+  pods, is pinned by digest.
 - RBAC is authored per component: the webhook can only touch its own admission
   plumbing and certs Secret; the controller's grants stop at the run API surface
   and the pods/PVCs/StatefulSets a run needs.

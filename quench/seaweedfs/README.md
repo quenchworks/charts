@@ -4,7 +4,7 @@ Hardened [SeaweedFS](https://github.com/seaweedfs/seaweedfs) on a minimal,
 nonroot, CVE-gated image, cosign-signed (keyless / Sigstore) and pinned by digest.
 This is the default Quenchworks object store: S3-compatible and single node
 (MinIO gutted its community edition in 2025). The single `weed` binary is built
-from source on Wolfi and runs in the single-process `weed server -s3` model —
+from source on Wolfi and runs in the single-process `weed server -s3` model:
 master, volume, filer, and the S3 gateway in one process. The S3 API is served
 on port `8333`.
 
@@ -85,7 +85,7 @@ containers, extra env/volumes, security contexts, update strategy); extra
 
 SeaweedFS runs as a **StatefulSet** so the single node keeps a stable network
 identity over the headless service and its own persistent volume. All four roles
-— master, volume, filer, and the S3 gateway — run together in one `weed server
+master, volume, filer, and the S3 gateway, run together in one `weed server
 -s3` process. State lives on a PVC mounted at `/data`, provisioned via a
 `volumeClaimTemplate`. The container runs nonroot on a read-only root filesystem
 with all capabilities dropped.
@@ -136,7 +136,7 @@ helm uninstall objstore
 ```
 
 The PVC provisioned by the `volumeClaimTemplate` and the credentials Secret are
-retained by Kubernetes on uninstall — delete them explicitly if you want the data
+retained by Kubernetes on uninstall, delete them explicitly if you want the data
 and keys gone:
 
 ```bash
@@ -146,7 +146,7 @@ kubectl delete secret objstore-seaweedfs
 
 ## Notes
 
-Single node by default — this is the S3-compatible object store for the
+Single node by default, this is the S3-compatible object store for the
 Quenchworks catalog, not a distributed cluster. Auth is on by default; leave it
 on and keep the NetworkPolicy as the trust boundary before exposing S3 beyond the
 cluster. The chart depends on the `quench-common` library chart, pulled from

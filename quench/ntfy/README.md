@@ -1,8 +1,8 @@
 # Quenchworks ntfy
 
-Hardened [ntfy](https://github.com/binwiederhier/ntfy) — a simple pub/sub HTTP
+Hardened [ntfy](https://github.com/binwiederhier/ntfy), a simple pub/sub HTTP
 notification server that publishes and subscribes to notifications over plain
-HTTP — on a minimal, nonroot, CVE-gated image, rebuilt from source and pinned by
+HTTP, on a minimal, nonroot, CVE-gated image, rebuilt from source and pinned by
 digest. It runs as a stateless Deployment on a read-only root filesystem with all
 capabilities dropped. The image is cosign-signed (keyless / Sigstore) and the
 chart pins it by the signed digest, never a tag.
@@ -83,7 +83,7 @@ behind a ClusterIP Service. With the default config it keeps message state in
 memory with no authentication, so the workload can scale horizontally.
 
 The runtime image has a read-only root filesystem, so a writable cache dir is
-always mounted at `persistence.mountPath` — an ephemeral `emptyDir` by default.
+always mounted at `persistence.mountPath`, an ephemeral `emptyDir` by default.
 Set `persistence.enabled=true` to back it with a PersistentVolumeClaim, and point
 `config.yaml`'s `cache-file` / `attachment-cache-dir` under that path to persist
 the message cache and attachments across restarts (keep `replicaCount` at 1 for a
@@ -119,7 +119,7 @@ config:
 helm uninstall ntfy
 ```
 
-When `persistence.enabled=true`, the PVC is retained by Kubernetes on uninstall —
+When `persistence.enabled=true`, the PVC is retained by Kubernetes on uninstall:
 delete it explicitly if you want the cached data gone:
 
 ```bash
@@ -131,6 +131,6 @@ kubectl delete pvc -l app.kubernetes.io/instance=ntfy
 The chart depends on the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`. The container runs as nonroot on
 a read-only root filesystem with all capabilities dropped, and the image is pinned
-by digest. ntfy runs with no authentication by default — configure `auth-*` in
+by digest. ntfy runs with no authentication by default, configure `auth-*` in
 `config.yaml` and keep the NetworkPolicy as the trust boundary before exposing it
 beyond the cluster.

@@ -1,7 +1,7 @@
 # Quenchworks quickwit
 
-Hardened [Quickwit](https://quickwit.io/) — a cloud-native search engine for logs
-and traces (Rust), with the bundled admin UI — on a minimal, nonroot, CVE-gated image
+Hardened [Quickwit](https://quickwit.io/), a cloud-native search engine for logs
+and traces (Rust), with the bundled admin UI, on a minimal, nonroot, CVE-gated image
 pinned by digest and cosign-signed (keyless / Sigstore). Runs single node
 (standalone) as a StatefulSet on a read-only root filesystem with all
 capabilities dropped, serving the REST API and admin UI on port 7280 and gRPC on
@@ -133,7 +133,7 @@ helm uninstall my-quickwit
 ```
 
 The PVC provisioned by the `volumeClaimTemplate` is retained by Kubernetes on
-uninstall — delete it explicitly if you want the index data gone:
+uninstall, delete it explicitly if you want the index data gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=my-quickwit

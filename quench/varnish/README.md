@@ -87,20 +87,20 @@ annotation so editing the VCL rolls the Deployment.
 
 Three consequences of how Varnish works, which the chart handles for you:
 
-- **It compiles its VCL.** Varnish has no VCL interpreter — `varnishd` translates
+- **It compiles its VCL.** Varnish has no VCL interpreter: `varnishd` translates
   VCL to C, calls a compiler, and `dlopen()`s the result at every start and every
   `vcl.load`. The image therefore ships a toolchain, `/tmp` is a writable
   `emptyDir` for the compiler's scratch files, and the working directory must be
   writable **and** executable (`emptyDir` is; a `noexec` mount would stop Varnish
   from starting at all).
 - **The working directory is not persistence.** `-n /var/lib/varnish` holds the
-  shared-memory log, the CLI secret and the compiled VCL — an `emptyDir`, recreated
+  shared-memory log, the CLI secret and the compiled VCL, an `emptyDir`, recreated
   per pod. The cache itself is `malloc` storage, so a restart or rollout starts
   cold and the first requests go to the origin.
 - **Backend hostnames are resolved at VCL compile time.** Varnish pins the
   origin's IP when it compiles the VCL, not per request. So the origin Service must
   already exist when the pod starts (otherwise VCL compilation fails with "could
-  not be resolved to an IP address" and the pod crash-loops until it does — restart
+  not be resolved to an IP address" and the pod crash-loops until it does, restart
   backoff heals this on its own), and you should point `backend.host` at a normal
   **ClusterIP** Service, whose IP is stable. A headless Service resolves to pod IPs
   that move, and Varnish keeps the old one until the VCL is reloaded.
@@ -110,7 +110,7 @@ Three consequences of how Varnish works, which the chart handles for you:
   even if the cache's child process had died) but it does not depend on the
   backend, so a sick origin does not restart the cache tier in front of it.
 
-The admin CLI (`-T`) is bound to `127.0.0.1` deliberately — it can load VCL, ban
+The admin CLI (`-T`) is bound to `127.0.0.1` deliberately, it can load VCL, ban
 objects and change parameters. Reach it from inside the pod:
 
 ```bash
@@ -185,14 +185,14 @@ vcl:
 helm uninstall cache
 ```
 
-Nothing persists — the cache is in memory and the chart creates no PVCs.
+Nothing persists, the cache is in memory and the chart creates no PVCs.
 
 ## Notes
 
 The chart depends on the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`. The container runs as nonroot on
 a read-only root filesystem with all capabilities dropped, and the image is pinned
-by digest. Varnish speaks plain HTTP only (no TLS terminator is built in) — put an
+by digest. Varnish speaks plain HTTP only (no TLS terminator is built in), put an
 Ingress controller or another proxy in front of it for HTTPS, and keep the
 NetworkPolicy as the trust boundary. `PURGE`/`BAN` requests are not enabled by
 the generated VCL; add them with an ACL in your own VCL if you need cache

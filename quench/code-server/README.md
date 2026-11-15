@@ -96,7 +96,7 @@ on a read-only root filesystem with all capabilities dropped, and the image is
 pinned by digest.
 
 Because it holds a single RWO volume and one writer, code-server does not scale
-horizontally — it stays at one replica. Front it with an Ingress (TLS) for real
+horizontally, it stays at one replica. Front it with an Ingress (TLS) for real
 use and keep the NetworkPolicy as the trust boundary.
 
 ## Uninstall

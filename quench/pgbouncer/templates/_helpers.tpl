@@ -31,7 +31,7 @@ When external, everything comes from externalDatabase.
 {{/*
 Resolve the backend password (used to build the generated userlist.txt). With the bundled
 PG it is the deterministic postgresql.auth.password. With an external DB it is the inline
-externalDatabase.password — when an external existingSecret is used instead, the userlist
+externalDatabase.password, when an external existingSecret is used instead, the userlist
 must be supplied via userlist.existingSecret (we cannot read a Secret at render time).
 */}}
 {{- define "pgbouncer.db.password" -}}

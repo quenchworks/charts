@@ -1,7 +1,7 @@
 # Quenchworks PostgreSQL + DocumentDB
 
 Hardened PostgreSQL 17 carrying the open **DocumentDB** extension, which adds
-BSON document storage and queries on top of Postgres — the backend
+BSON document storage and queries on top of Postgres, the backend
 [FerretDB](https://www.ferretdb.com/) v2 needs to serve the MongoDB wire
 protocol. On first boot the image runs `initdb`, preloads `pg_cron` +
 `documentdb`, and runs `CREATE EXTENSION documentdb CASCADE` (pulling in
@@ -110,7 +110,7 @@ Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 The database runs as a **StatefulSet** (`replicas: 1`) behind a headless
 service, so the primary keeps a stable network identity and its own volume. The
 container listens on port **5432** (`postgresql`); the Service maps the same
-port. `PGDATA` is `/var/lib/postgresql/data/pgdata` — a subdirectory of the
+port. `PGDATA` is `/var/lib/postgresql/data/pgdata`, a subdirectory of the
 mounted volume, so initdb owns a clean directory and avoids `lost+found` and
 mount-point ownership issues.
 
@@ -118,8 +118,8 @@ With `primary.persistence.enabled=true` (and no `existingClaim`) the chart
 provisions one PVC via a `volumeClaimTemplate` mounted at
 `/var/lib/postgresql/data`; set `existingClaim` to bind your own PVC, or disable
 persistence to fall back to an `emptyDir` that does not survive a restart. Three
-more mounts are `emptyDir`: the socket dir (`/var/run/postgresql`), `/tmp`, and —
-when `primary.shmVolume.enabled` — a memory-backed `/dev/shm` for parallel query
+more mounts are `emptyDir`: the socket dir (`/var/run/postgresql`), `/tmp`, and:
+when `primary.shmVolume.enabled`, a memory-backed `/dev/shm` for parallel query
 workspace.
 
 Probes: a TCP liveness check on the PostgreSQL port, and a readiness check that
@@ -168,7 +168,7 @@ helm uninstall docdb
 ```
 
 PVCs provisioned by the `volumeClaimTemplate` are retained by Kubernetes on
-uninstall — delete them explicitly if you want the data gone:
+uninstall, delete them explicitly if you want the data gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=docdb
@@ -176,7 +176,7 @@ kubectl delete pvc -l app.kubernetes.io/instance=docdb
 
 ## Notes
 
-Single primary — streaming replication is a tracked follow-up. DocumentDB lives
+Single primary, streaming replication is a tracked follow-up. DocumentDB lives
 in the `postgres` database. PostGIS is built without raster (no GDAL), since
 DocumentDB's geospatial path needs only GEOS/PROJ. The local Unix socket trusts
 in-container connections (so DocumentDB's pg_cron index builder works); TCP

@@ -71,7 +71,7 @@ jobs:
 
           # schema bootstrap must have completed: both keyspaces populated. Query
           # Cassandra via the cadence-cassandra-tool from the running cadence pod
-          # (update-schema is a no-op / "zero updates" once current — a clean rc=0).
+          # (update-schema is a no-op / "zero updates" once current, a clean rc=0).
           POD="$(kubectl get pod -l app.kubernetes.io/name=cadence -o jsonpath='{.items[0].metadata.name}')"
           kubectl exec "$POD" -c cadence -- /usr/bin/cadence-cassandra-tool \
             --ep rtest-cassandra -k cadence update-schema \
@@ -82,8 +82,8 @@ jobs:
 
           # --- frontend gRPC on :7833 ---
           # Every role binds ${POD_IP} (not loopback / not 0.0.0.0), so the frontend
-          # is reachable at the pod IP (the kubelet tcpSocket readiness probe — already
-          # green via --wait / rollout status — dials exactly that). A port-forward /
+          # is reachable at the pod IP (the kubelet tcpSocket readiness probe, already
+          # green via --wait / rollout status, dials exactly that). A port-forward /
           # loopback check would hit 127.0.0.1 inside the pod, where nothing listens.
           # So resolve the pod IP on the runner and address it directly from the pod.
           PODIP="$(kubectl get pod "$POD" -o jsonpath='{.status.podIP}')"

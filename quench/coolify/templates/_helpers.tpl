@@ -1,6 +1,6 @@
 {{/*
-Coolify umbrella-chart helpers. The control plane is two workloads — the app
-(php-fpm + nginx + Horizon + scheduler) and the realtime tier (soketi + terminal) —
+Coolify umbrella-chart helpers. The control plane is two workloads, the app
+(php-fpm + nginx + Horizon + scheduler) and the realtime tier (soketi + terminal):
 named "<fullname>-app" and "<fullname>-realtime". Backing stores are the bundled
 postgresql (overridden to postgresql-15) and redis subcharts, or external* fallbacks.
 
@@ -18,7 +18,7 @@ The umbrella pins two images by digest, so it builds each reference from
 {{/* The shared Secret carrying every generated/persisted credential + the rendered .env. */}}
 {{- define "coolify.secret" -}}{{ include "quench-common.fullname" . }}{{- end -}}
 
-{{/* Component selector labels — selectorLabels + a component discriminator. */}}
+{{/* Component selector labels, selectorLabels + a component discriminator. */}}
 {{- define "coolify.componentLabels" -}}
 {{- include "quench-common.selectorLabels" .ctx }}
 app.kubernetes.io/component: {{ .component }}

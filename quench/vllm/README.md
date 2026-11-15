@@ -1,8 +1,8 @@
 # Quenchworks vLLM
 
-Hardened [vLLM](https://github.com/vllm-project/vllm) — a high-throughput
+Hardened [vLLM](https://github.com/vllm-project/vllm), a high-throughput
 inference and serving engine for open LLMs that exposes an **OpenAI-compatible**
-REST API — on a minimal, nonroot, CVE-gated image pinned by digest. It serves the API
+REST API, on a minimal, nonroot, CVE-gated image pinned by digest. It serves the API
 on port 8000, running on a read-only root filesystem with all capabilities
 dropped. The image is cosign-signed (keyless / Sigstore) and the chart pins it by
 the signed digest, never a tag. This is the **CPU-only** image; GPU acceleration is
@@ -10,7 +10,7 @@ out of scope for this chart, and CPU inference wants an avx512f/avx2 host CPU.
 
 ## Install
 
-No model ships with the chart — weights are gigabytes. You **must** set `model` to
+No model ships with the chart, weights are gigabytes. You **must** set `model` to
 a Hugging Face model id or a mounted path, or the server has nothing to serve and
 the pod crash-loops:
 
@@ -64,7 +64,7 @@ gh attestation verify oci://ghcr.io/quenchworks/images/vllm \
 | `image.digest`                     | (CI-written)                      | Required. Charts pin by digest, never a tag.                                                                                    |
 | `image.pullPolicy`                 | `IfNotPresent`                    | `Always`, `IfNotPresent`, or `Never`.                                                                                           |
 | `nameOverride`                     | `""`                              | Override the chart name in resource names.                                                                                      |
-| `model`                            | `""`                              | **Required** — HF model id or a mounted path. Empty means the pod crash-loops.                                                  |
+| `model`                            | `""`                              | **Required**: HF model id or a mounted path. Empty means the pod crash-loops.                                                  |
 | `extraArgs`                        | `[]`                              | Extra flags appended to `vllm serve <model> --host 0.0.0.0 --port 8000` (e.g. `--max-model-len=4096`, `--dtype=bfloat16`).      |
 | `resources.requests`               | `500m / 2Gi`                      | CPU / memory requests. Raise to fit your model.                                                                                 |
 | `resources.limits`                 | `4 / 8Gi`                         | CPU / memory limits. A 7B model in bf16 needs ~16Gi.                                                                            |
@@ -117,12 +117,12 @@ keeps a stable identity and its own persistent volume. The image entrypoint is
 
 Two volumes are mounted, because the root filesystem is read-only:
 
-- **`/opt/vllm/.cache`** — the Hugging Face cache (`HF_HOME`/`XDG_CACHE_HOME`,
+- **`/opt/vllm/.cache`**: the Hugging Face cache (`HF_HOME`/`XDG_CACHE_HOME`,
   baked into the image), backed by the PVC (a `volumeClaimTemplate`, or
   `persistence.existingClaim`). With `persistence.enabled=false` it falls back to
   an `emptyDir` and weights are re-downloaded on restart. `HOME` is pointed at this
   volume too, so stray dotfile writes (HF token, torch/triton caches) land on it.
-- **`/tmp`** — a writable `emptyDir` for scratch space.
+- **`/tmp`**: a writable `emptyDir` for scratch space.
 
 All three probes `httpGet /health`, which returns 200 once the model is loaded and
 the engine is ready. Model load is slow, so the startup probe carries a generous
@@ -133,7 +133,7 @@ nonroot user (uid 1001) ownership of the cache volume.
 CPU inference is **memory-heavy**: the working set is dominated by the model weights
 (a 7B model in bf16 needs ~16Gi RAM) plus the KV cache, which scales with
 `--max-model-len` and concurrency. The defaults are deliberately modest so the chart
-schedules on a typical node and the model-less CI gate passes — raise `resources` to
+schedules on a typical node and the model-less CI gate passes, raise `resources` to
 fit your model and cap context with `--max-model-len` on CPU.
 
 ## Configuration examples
@@ -173,7 +173,7 @@ helm uninstall vllm
 ```
 
 The PVC provisioned by the `volumeClaimTemplate` is retained by Kubernetes on
-uninstall — delete it explicitly if you want the cached weights gone:
+uninstall, delete it explicitly if you want the cached weights gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=vllm
@@ -185,6 +185,6 @@ CPU-only and single-replica by default; GPU acceleration is out of scope for thi
 chart. The chart depends on the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`. Every container runs as nonroot
 on a read-only root filesystem with all capabilities dropped, and the server is
-pinned by digest. The OpenAI-compatible API is served without authentication —
+pinned by digest. The OpenAI-compatible API is served without authentication:
 keep the NetworkPolicy as the trust boundary and front it with your own auth before
 exposing it beyond the cluster.

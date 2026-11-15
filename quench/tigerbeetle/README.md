@@ -1,7 +1,7 @@
 # Quenchworks TigerBeetle
 
-Hardened [TigerBeetle](https://tigerbeetle.com) — a distributed, financial-grade
-accounting database for high-throughput double-entry bookkeeping — on a minimal,
+Hardened [TigerBeetle](https://tigerbeetle.com), a distributed, financial-grade
+accounting database for high-throughput double-entry bookkeeping, on a minimal,
 nonroot, CVE-gated image pinned by digest. This chart ships a **single-node standalone**
 deployment: one `StatefulSet` replica with a PVC, a format-once `initContainer`, and
 a TCP-connect readiness probe.
@@ -14,7 +14,7 @@ helm install my-tigerbeetle oci://ghcr.io/quenchworks/charts/tigerbeetle
 
 ## Talking to it (binary protocol, NOT HTTP)
 
-TigerBeetle speaks its **own binary protocol** on port `3000` — it is **not** an HTTP
+TigerBeetle speaks its **own binary protocol** on port `3000`, it is **not** an HTTP
 server, so `curl` will not work. Connect with an official
 [TigerBeetle client](https://docs.tigerbeetle.com/) (Go, Java, .NET, Node, Python) or
 the `tigerbeetle` CLI, pointed at the cluster id (default `0`).
@@ -42,7 +42,7 @@ once the server is accepting connections); the chart's probes do exactly that.
 
 This chart is single-node (`replica-count 1`): no fault tolerance, one PVC. TigerBeetle
 also runs as a fault-tolerant replicated cluster (replica-count 3/6 with coordinated
-`--addresses`), which is a follow-up — not exposed by this chart yet. A pod or node
+`--addresses`), which is a follow-up, not exposed by this chart yet. A pod or node
 loss is downtime until the StatefulSet reschedules and reattaches the PVC; committed
 data survives on the volume.
 
@@ -71,7 +71,7 @@ gh attestation verify oci://ghcr.io/quenchworks/images/tigerbeetle --owner quenc
 |-----|---------|-------|
 | `image.repository` | `ghcr.io/quenchworks/images/tigerbeetle` | |
 | `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `cluster` | `0` | TigerBeetle cluster id. `0` is reserved for testing — set a real id in production. |
+| `cluster` | `0` | TigerBeetle cluster id. `0` is reserved for testing: set a real id in production. |
 | `cacheGrid` | `512MiB` | Grid cache size. TigerBeetle allocates all memory up front; raise this (and `resources`) for larger working sets. |
 | `dataDir` | `/data` | Data file lives at `<dataDir>/0_0.tigerbeetle`. |
 | `persistence.enabled` | `true` | 16Gi PVC at `/data`. |

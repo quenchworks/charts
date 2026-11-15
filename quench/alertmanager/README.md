@@ -15,7 +15,7 @@ helm install alertmanager oci://ghcr.io/quenchworks/charts/alertmanager
 
 ## Reach the UI / API
 
-The service is ClusterIP (no auth — the NetworkPolicy is the boundary). Port-forward:
+The service is ClusterIP (no auth, the NetworkPolicy is the boundary). Port-forward:
 
 ```bash
 kubectl port-forward svc/alertmanager-alertmanager 9093:9093
@@ -77,7 +77,7 @@ alertmanagerConfig: |
 Set `replicaCount` > 1. The pods form a gossip cluster over the `9094` mesh port
 (the chart auto-wires `--cluster.listen-address` + a `--cluster.peer` for every
 replica at the headless service) so they dedup notifications and share silences.
-Point **every** Prometheus at **all** replicas — each Prometheus fans alerts out to
+Point **every** Prometheus at **all** replicas, each Prometheus fans alerts out to
 every Alertmanager and the cluster dedups. A single replica disables the mesh.
 
 ## Verify the image
@@ -124,7 +124,7 @@ env/volumes, security contexts).
 
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
 dropped. The only writable state is the `/alertmanager` volume (nflog + silences)
-and a `/tmp` emptyDir. Alertmanager has **no built-in authentication** — there is
+and a `/tmp` emptyDir. Alertmanager has **no built-in authentication**, there is
 no Secret to manage (unless your receivers reference one). The NetworkPolicy is the
 trust boundary; keep it enabled, and front the service with an authenticating proxy
 if you must expose it beyond the cluster.

@@ -1,11 +1,11 @@
 # Quenchworks Cosmian KMS
 
-> ### ⚠️ LICENCE — NOT OPEN SOURCE, AND CAPPED IN PRODUCTION
+> ### ⚠️ LICENCE, NOT OPEN SOURCE, AND CAPPED IN PRODUCTION
 >
 > Cosmian KMS is licensed under the **Business Source License 1.1**, which is **not**
 > OSI-approved open source. Its Additional Use Grant permits production use only up to:
 >
-> > **2 vCPUs** on virtual machines, or **1 physical core** on bare metal — and **does not
+> > **2 vCPUs** on virtual machines, or **1 physical core** on bare metal, and **does not
 > > include offering the Licensed Work to third parties.**
 >
 > This is **stricter than HashiCorp Vault's BUSL**, which restricts competing hosted
@@ -32,7 +32,7 @@ Wolfi, cosign-signed and pinned by digest.
 helm install kms oci://ghcr.io/quenchworks/charts/cosmian-kms
 ```
 
-SQLite on a PVC by default — no external database to provision.
+SQLite on a PVC by default, no external database to provision.
 
 ## Storage
 
@@ -43,10 +43,10 @@ SQLite on a PVC by default — no external database to provision.
 | `mysql` | Same. |
 | `redis-findex` | Same. |
 
-**Why one replica with SQLite** — this is not a limitation to route around. The database is
+**Why one replica with SQLite**, this is not a limitation to route around. The database is
 a file on a `ReadWriteOnce` volume, so two replicas would be two *independent key stores*
 behind one Service, handing out different keys depending on which pod answered. The schema
-pins `replicaCount` to 1 for that reason. Moving to a shared backend lifts it — but note
+pins `replicaCount` to 1 for that reason. Moving to a shared backend lifts it, but note
 that more replicas almost certainly exceeds the 2-vCPU licence grant.
 
 With `persistence.enabled: false` the store is an `emptyDir` and **every key is lost when
@@ -71,7 +71,7 @@ With TLS on, port 9998 serves HTTPS only and the probes switch to HTTPS.
 | Key | Default | Notes |
 | --- | --- | --- |
 | `image.digest` | (CI-written) | Required. Charts pin by digest, never a tag. |
-| `replicaCount` | `1` | Capped at 1 by the schema — see the storage note. |
+| `replicaCount` | `1` | Capped at 1 by the schema: see the storage note. |
 | `server.port` | `9998` | Above 1024, so nonroot binds it with no capability. |
 | `server.defaultUsername` | `admin` | Used when no auth method is configured. |
 | `server.publicUrl` | `""` | Required for Google CSE / Microsoft DKE. |
@@ -83,7 +83,7 @@ With TLS on, port 9998 serves HTTPS only and the probes switch to HTTPS.
 | `tls.certManager.enabled` | `false` | request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice) |
 | `tls.selfSigned.validityDays` | `365` | otherwise Helm generates a CA + certificate, kept across upgrades |
 | `extraConfig` | `{}` | Any other Cosmian env var, applied last so it wins. |
-| `networkPolicy.allowExternal` | `false` | Closed by default — it is a KMS. |
+| `networkPolicy.allowExternal` | `false` | Closed by default: it is a KMS. |
 | `ingress.enabled` | `false` | |
 
 Plus the shared `quench-common` knobs: scheduling, probes, sidecars, init containers, extra
@@ -94,7 +94,7 @@ env/volumes, security contexts.
 **The working directory matters.** The server creates its SQLite database *relative to its
 CWD*, so the image sets `work-dir` to `/var/lib/cosmian` and the chart mounts the volume
 there. If that path is not writable the process prints its entire configuration and then
-**exits silently — no error line at all**, which is a genuinely hostile failure to debug.
+**exits silently, no error line at all**, which is a genuinely hostile failure to debug.
 Keep the mount and the work-dir in agreement.
 
 **OpenSSL is Wolfi's, not vendored.** Upstream's `build.rs` downloads and compiles its own
@@ -103,7 +103,7 @@ fails the build if a vendored copy appears anyway. That is what keeps the image 
 the SBOM honest. The running server reports its OpenSSL version on `/version`, so you can
 check: it should say the Wolfi version and `non-FIPS`.
 
-The `non-fips` build also means the **legacy provider is a real runtime dependency** — the
+The `non-fips` build also means the **legacy provider is a real runtime dependency**, the
 server loads it at startup and exits without it.
 
 ## Notes

@@ -113,16 +113,16 @@ defaults and needs no ConfigMap. `extraArgs` are appended to that command.
 Because the root filesystem is read-only, the chart mounts two writable volumes
 for the paths Perses writes to:
 
-- the **file datastore at `/perses`** (dashboards, projects) — controlled by
+- the **file datastore at `/perses`** (dashboards, projects): controlled by
   `persistence`. Off by default, so it is an `emptyDir` and does not survive a
   restart; enable `persistence` for a PVC to keep state.
 - the **plugin cache at `/etc/perses/plugins`**, where the bundled plugin
-  archives are unpacked on boot — an always-on ephemeral `emptyDir`, rebuilt on
+  archives are unpacked on boot, an always-on ephemeral `emptyDir`, rebuilt on
   each start.
 
 The default topology is **single replica** (`replicaCount: 1`). The file
-datastore is per-pod, so scaling out — whether by raising `replicaCount` or
-enabling `autoscaling` (HPA on CPU) — is only safe with a shared datastore
+datastore is per-pod, so scaling out, whether by raising `replicaCount` or
+enabling `autoscaling` (HPA on CPU), is only safe with a shared datastore
 backend; leave it at one replica for the default file store. The container runs
 nonroot on a read-only root filesystem with all capabilities dropped.
 
@@ -160,7 +160,7 @@ helm uninstall dash
 ```
 
 A PVC provisioned with `persistence.enabled=true` is retained by Kubernetes on
-uninstall — delete it explicitly if you want the data gone:
+uninstall, delete it explicitly if you want the data gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=dash

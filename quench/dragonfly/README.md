@@ -1,11 +1,11 @@
 # Quenchworks Dragonfly
 
-> **LICENSE WARNING — Dragonfly is BSL-1.1 (Business Source License), NOT OSI-approved
+> **LICENSE WARNING, Dragonfly is BSL-1.1 (Business Source License), NOT OSI-approved
 > open source.** Each release converts to Apache-2.0 only years after publication.
 > Do not represent Dragonfly as open source.
 >
 > **Clean alternative: [Valkey](../valkey) (BSD-3-Clause, already shipped) covers the
-> same Redis-compatible cache slot with a true open-source license — prefer it.**
+> same Redis-compatible cache slot with a true open-source license, prefer it.**
 
 Hardened Dragonfly (a Redis/Memcached-compatible in-memory datastore) on a minimal, nonroot,
 CVE-gated image pinned by digest. Caution tier.
@@ -51,7 +51,7 @@ The chart runs in three modes.
 | **Replication** | `replication` / `false` | 1 primary + N read replicas | **manual / operator-driven** |
 | **HA** | `replication` / `true` | 1 primary + 2 replicas + 3 Sentinels | **automatic** |
 
-### HA — automatic failover (validated on kind)
+### HA, automatic failover (validated on kind)
 
 ```bash
 helm install my-dragonfly oci://ghcr.io/quenchworks/charts/dragonfly \
@@ -61,7 +61,7 @@ helm install my-dragonfly oci://ghcr.io/quenchworks/charts/dragonfly \
 Dragonfly speaks the Redis replication protocol (`REPLICAOF` / `INFO replication`) and,
 crucially, reports a Sentinel-compatible `INFO replication` (role, `connected_slaves`,
 `slave0:…state=online`, `master_link_status`). Dragonfly ships **no sentinel binary of its
-own**, so the Sentinels run `valkey-sentinel` from the QuenchWorks Valkey image — same RESP
+own**, so the Sentinels run `valkey-sentinel` from the QuenchWorks Valkey image, same RESP
 + Sentinel API. Three Sentinels monitor the Dragonfly primary; on primary loss they reach
 quorum and promote a replica (`SLAVEOF NO ONE`), reconfiguring the survivors to follow it.
 This was verified on kind: killing the primary promoted a replica in a few seconds, writes
@@ -88,7 +88,7 @@ plain clients can still write to it.
 > from the Valkey image rather than an unverified path. If you need a fully open-source
 > Sentinel-HA cache, **[Valkey](../valkey)** is the clean-licensed alternative.
 
-### Replication without Sentinel — manual failover
+### Replication without Sentinel, manual failover
 
 ```bash
 helm install my-dragonfly oci://ghcr.io/quenchworks/charts/dragonfly \

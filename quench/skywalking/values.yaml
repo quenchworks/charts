@@ -11,8 +11,8 @@ nameOverride: ""
 # backend (the CVE surface Trivy scans) and deliberately DROPS the Rocketbot web UI to keep
 # that surface minimal, so there is NO UI workload here. OAP exposes gRPC 11800 (agents push
 # trace/metric/log data) and HTTP 12800 (GraphQL query API + health). Point a SkyWalking UI,
-# Grafana, or any GraphQL client at the REST port to read the data. OAP is stateless — all
-# durable state lives in the storage backend — so it runs as a Deployment and scales out.
+# Grafana, or any GraphQL client at the REST port to read the data. OAP is stateless, all
+# durable state lives in the storage backend, so it runs as a Deployment and scales out.
 replicaCount: 1
 
 # OAP is a JVM app. JAVA_OPTS sets its heap; raise the max for production ingest volume.
@@ -55,7 +55,7 @@ storage:
 #
 # The subchart's 0.1.x layout: `mode` picks the topology and heap/persistence live under the
 # matching section; `config` is clusterName/extraConfig/securityDisabled only. `single` is the
-# right shape for a bundled backend — switch to mode: ha (and size master/data) or move to an
+# right shape for a bundled backend, switch to mode: ha (and size master/data) or move to an
 # external cluster when OAP's ingest outgrows one node.
 opensearch:
   enabled: false
@@ -130,14 +130,14 @@ podSecurityContext: {}
 containerSecurityContext: {}
 # Probe timing overrides ({enabled, initialDelaySeconds, ...}); a
 # customLivenessProbe/customReadinessProbe/customStartupProbe replaces the block.
-# Liveness watches the gRPC port (binds early — proves the JVM is alive); readiness watches
+# Liveness watches the gRPC port (binds early, proves the JVM is alive); readiness watches
 # the query port (opens only after OAP finished module init against storage).
 livenessProbe: {}
 readinessProbe: {}
 customLivenessProbe: {}
 customReadinessProbe: {}
 # OAP's first boot is slow: JVM start, then connect to storage and create/verify all indices
-# before the query port opens — often 60-180s on a fresh store. A startup probe gates
+# before the query port opens, often 60-180s on a fresh store. A startup probe gates
 # liveness/readiness on the query port until OAP is actually up, so the slow boot isn't killed
 # mid-init. Up to 600s grace (60 x 10s); after it passes, normal probe timing resumes.
 customStartupProbe:

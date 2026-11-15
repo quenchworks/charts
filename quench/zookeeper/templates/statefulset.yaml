@@ -1,7 +1,7 @@
 {{- $liveness := dict "tcpSocket" (dict "port" "client") "initialDelaySeconds" 15 "periodSeconds" 15 -}}
 {{/* The image drops the Jetty-backed AdminServer (its entrypoint forces
      admin.enableServer=false), so readiness sends the `ruok` four-letter word over
-     the client port with bash builtins (/dev/tcp) — no HTTP endpoint, no JVM spawn
+     the client port with bash builtins (/dev/tcp), no HTTP endpoint, no JVM spawn
      per probe. The server answers `imok` when it is serving. */}}
 {{- $ruok := printf "exec 3<>/dev/tcp/127.0.0.1/%d && printf ruok >&3 && IFS= read -r -t 3 -n 4 resp <&3 && [ \"$resp\" = imok ]" (int .Values.service.clientPort) -}}
 {{- $readiness := dict "exec" (dict "command" (list "/bin/bash" "-ec" $ruok)) "initialDelaySeconds" 10 "periodSeconds" 10 "timeoutSeconds" 5 -}}

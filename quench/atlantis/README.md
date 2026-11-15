@@ -1,7 +1,7 @@
 # Quenchworks Atlantis
 
-Hardened [Atlantis](https://github.com/runatlantis/atlantis) — Terraform/OpenTofu
-pull-request automation — on a minimal, nonroot, CVE-gated image pinned by digest.
+Hardened [Atlantis](https://github.com/runatlantis/atlantis), Terraform/OpenTofu
+pull-request automation, on a minimal, nonroot, CVE-gated image pinned by digest.
 Built from source on Wolfi.
 
 Atlantis listens for VCS webhooks, clones the PR branch, runs `plan`/`apply`, and
@@ -11,7 +11,7 @@ endpoint + `/healthz`) listens on port **4141**.
 ## OpenTofu, not Terraform
 
 This image **bundles [OpenTofu](https://github.com/opentofu/opentofu)** (MPL-2.0)
-as the execution engine — **not Terraform** (which moved to the BUSL-1.1
+as the execution engine, **not Terraform** (which moved to the BUSL-1.1
 source-available license). OpenTofu is a clean MIT/MPL-licensed drop-in. The chart
 defaults `defaultTFDistribution: opentofu`, so Atlantis runs the bundled `tofu`
 binary. You can verify it in the pod:
@@ -39,7 +39,7 @@ helm install atlantis oci://ghcr.io/quenchworks/charts/atlantis \
    `gh-webhook-secret` (override via `vcs.secretKeys`). If `vcs.webhookSecret` is
    left empty a 32-char secret is generated once and preserved across upgrades.
 2. **Repo allowlist.** Set `repoAllowlist` to the repos Atlantis may operate on
-   (comma-separated, globs OK, e.g. `github.com/myorg/*`). **Required** — Atlantis
+   (comma-separated, globs OK, e.g. `github.com/myorg/*`). **Required**, Atlantis
    refuses to start without it.
 3. **Atlantis URL.** Set `atlantisUrl` to this server's externally reachable base
    URL.
@@ -47,7 +47,7 @@ helm install atlantis oci://ghcr.io/quenchworks/charts/atlantis \
    the same webhook secret. Subscribe to pull-request + comment events.
 
 Real `plan`/`apply` needs a **reachable VCS**: Atlantis clones the PR branch over
-git (https or ssh — the image ships `git` + `openssh-client`) and posts results
+git (https or ssh, the image ships `git` + `openssh-client`) and posts results
 back via the VCS API.
 
 ## Server-side repo config (optional)
@@ -68,7 +68,7 @@ repoConfig: |
 
 Atlantis keeps per-PR state on disk under `--data-dir` (`/atlantis-data`: cloned
 repos + plan files), so the chart ships a **StatefulSet** with a persistent
-volume. It also serialises plan/apply on disk and is not horizontally scalable —
+volume. It also serialises plan/apply on disk and is not horizontally scalable:
 keep `replicaCount: 1`.
 
 | key                         | default | meaning                              |
@@ -105,7 +105,7 @@ keep `replicaCount: 1`.
 | `vcs.githubToken`       | `""`       | VCS API token (or use `vcs.existingSecret`)                                               |
 | `vcs.webhookSecret`     | `""`       | inbound webhook HMAC secret (auto-generated if empty)                                     |
 | `vcs.existingSecret`    | `""`       | bring your own credentials Secret                                                         |
-| `repoAllowlist`         | `""`       | **required** — repos Atlantis may operate on                                              |
+| `repoAllowlist`         | `""`       | **required**: repos Atlantis may operate on                                              |
 | `atlantisUrl`           | `""`       | externally reachable base URL                                                             |
 | `defaultTFDistribution` | `opentofu` | execution engine (`opentofu` / `terraform`)                                               |
 | `repoConfig`            | `""`       | optional server-side `repos.yaml`                                                         |

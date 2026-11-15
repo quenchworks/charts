@@ -5,7 +5,7 @@ Wolfi, cosign-signed and pinned by digest. DB-less by default; Postgres-backed a
 hybrid control-plane/data-plane topologies are both supported.
 
 > **No Kong Manager GUI.** The image does not ship Kong's browser console. Its compiled
-> assets are not in Kong's source tree and are not built from source upstream — Kong's own
+> assets are not in Kong's source tree and are not built from source upstream, Kong's own
 > build downloads a prebuilt bundle from a Kong-hosted bucket, which cannot be honestly
 > SBOM'd or built clean-room. Use the Admin API, [decK](https://github.com/Kong/deck), or
 > a third-party OSS UI.
@@ -25,7 +25,7 @@ DB-less out of the box: no database to provision, and every pod is independent.
 ### DB-less (default)
 
 Configuration is a declarative document held in memory. No database, no migrations, no
-shared state — so replicas scale freely and the HPA is genuinely safe.
+shared state, so replicas scale freely and the HPA is genuinely safe.
 
 The trade-off: **the Admin API is read-only.** You replace the whole config rather than
 POSTing individual entities.
@@ -60,7 +60,7 @@ Two things worth knowing:
 
 - **`sslVerify` needs the CA in Kong's trust list.** `"system"` alone does not contain a
   private CA. Mount it with `extraVolumes` and list the path in
-  `luaSslTrustedCertificate`. Project **only `ca.crt`** from a CA secret — a CNPG-style
+  `luaSslTrustedCertificate`. Project **only `ca.crt`** from a CA secret, a CNPG-style
   `-ca` secret also holds `ca.key`, the authority's private key, and mounting the whole
   secret hands Kong the ability to mint certificates for it.
 - **Migrations run as Helm hooks**, never from the pod entrypoint: `bootstrap` on install,
@@ -94,7 +94,7 @@ What each role does:
 
 | | proxy | Admin API | cluster ports |
 | --- | --- | --- | --- |
-| `traditional` (default) | yes | yes | – |
+| `traditional` (default) | yes | yes |, |
 | `control_plane` | **off** | yes | listens 8005 / 8006 |
 | `data_plane` | yes | **off** | connects to the CP |
 
@@ -110,7 +110,7 @@ numbers Kong documents.
 | Port | Purpose |
 | --- | --- |
 | 8000 / 8443 | proxy (HTTP / HTTPS) |
-| 8001 | Admin API — see the warning below |
+| 8001 | Admin API: see the warning below |
 | 8100 | `/status`, used by the probes |
 | 8005 / 8006 | cluster config push / telemetry (hybrid only) |
 
@@ -121,7 +121,7 @@ load plugins, and read every credential Kong holds. So this chart:
 
 - keeps it **off the Service** unless you set `service.exposeAdmin=true`
 - restricts it to the release namespace in the NetworkPolicy **even when
-  `networkPolicy.allowExternal: true`** — that flag opens the proxy ports, never the
+  `networkPolicy.allowExternal: true`**, that flag opens the proxy ports, never the
   Admin API
 
 Widen it with `networkPolicy.extraFrom`, not by disabling the policy.
@@ -135,12 +135,12 @@ Widen it with `networkPolicy.extraFrom`, not by disabling the policy.
 | `role` | `traditional` | `traditional` \| `control_plane` \| `data_plane`. |
 | `database` | `"off"` | `"off"` (DB-less) or `postgres`. |
 | `declarativeConfig` | empty-but-valid doc | DB-less only. An invalid or missing document makes Kong exit at startup. |
-| `postgres.*` | – | host/port/db/user, `existingSecret`, `ssl`, `sslVerify`, `luaSslTrustedCertificate`. |
+| `postgres.*` |, | host/port/db/user, `existingSecret`, `ssl`, `sslVerify`, `luaSslTrustedCertificate`. |
 | `migrations.enabled` | `false` | Helm-hook Jobs: bootstrap / up / finish. |
 | `cluster.*` | disabled | Ports, `mtls`, `certSecret`, DP endpoints, Service type + annotations. |
 | `service.exposeAdmin` | `false` | Put the Admin API on the Service. Read the warning first. |
 | `extraConfig` | `{}` | Any Kong setting as `KONG_<UPPER_SNAKE>`; applied last, so it wins. |
-| `autoscaling.enabled` | `false` | Safe here — pods share no state in DB-less mode. |
+| `autoscaling.enabled` | `false` | Safe here: pods share no state in DB-less mode. |
 | `networkPolicy.allowExternal` | `true` | Opens the proxy ports only. |
 | `ingress.enabled` | `false` | Fronts the proxy port by default. |
 | `tls.enabled` | `false` | The proxy's ssl listener serves this cert (at `/tls`) instead of Kong's self-signed one. |
@@ -154,7 +154,7 @@ sidecars, init containers, extra env/volumes, security contexts.
 ## Architecture notes
 
 **`KONG_PREFIX` is `/kong_prefix`, not `/usr/local/kong`.** Kong regenerates its
-`nginx.conf` and lmdb state in the prefix at every start, so it must be writable — but
+`nginx.conf` and lmdb state in the prefix at every start, so it must be writable, but
 `/usr/local/kong` also holds `include/`, the `.proto` files the opentelemetry and grpc
 plugins load at runtime. Mounting a volume over `/usr/local/kong` **masks** them and Kong
 dies with `module load error: opentelemetry/proto/...`. Keep the chart and image in
@@ -168,7 +168,7 @@ Kong compiles every bundled plugin in `init_by_lua` before it listens.
 ## Notes
 
 Built from source on Wolfi against Wolfi's **current** OpenSSL and PCRE, not Kong's pinned
-OpenSSL 3.2.3 / PCRE 10.44 — both old enough to carry already-fixed CVEs. Kong's own 39
+OpenSSL 3.2.3 / PCRE 10.44, both old enough to carry already-fixed CVEs. Kong's own 39
 OpenResty patches are applied in full, including its six backported nginx CVE fixes.
 Depends on the `quench-common` library chart from
 `oci://ghcr.io/quenchworks/charts/quench-common`.

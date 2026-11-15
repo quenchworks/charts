@@ -1,6 +1,6 @@
 {{/* Liveness and readiness both hit / on the HTTP port. Ghost answers 200 (or a 30x
      redirect to its configured url) only once it has connected to MariaDB, run its
-     migrations and started serving — so --wait on readiness is the real integration test.
+     migrations and started serving, so --wait on readiness is the real integration test.
      The startup probe (customStartupProbe) gates these during the slow first boot. The
      kubelet performs the GET; the image ships no shell HTTP client. */}}
 {{- $liveness := dict "httpGet" (dict "path" "/" "port" "http") "initialDelaySeconds" 30 "periodSeconds" 15 "timeoutSeconds" 5 "failureThreshold" 6 -}}
@@ -53,7 +53,7 @@ spec:
         # mounts the PVC at /seed (NOT at /var/lib/ghost/content). So inside this container
         # the image's built-in /var/lib/ghost/content is NOT shadowed by the mount, and we
         # copy FROM it (unshadowed source) TO /seed (the PVC). The copy is no-clobber, so on
-        # restarts / existing volumes user content is never overwritten — only the missing
+        # restarts / existing volumes user content is never overwritten, only the missing
         # default files are added.
         #
         # The image is shell-free (no /bin/sh), so the copy runs through node (present in the
@@ -87,7 +87,7 @@ spec:
           {{- include "quench-common.args" . | nindent 10 }}
           env:
             # Ghost reads its entire configuration from env, using "__" to nest keys.
-            # Public site URL. REQUIRED — every absolute link, RSS/sitemap entry and admin
+            # Public site URL. REQUIRED, every absolute link, RSS/sitemap entry and admin
             # redirect is derived from it.
             - name: url
               value: {{ required "ghost.url is required" .Values.ghost.url | quote }}

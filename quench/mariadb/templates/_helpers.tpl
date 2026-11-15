@@ -23,7 +23,7 @@
 {{- printf "%s.%s.svc.cluster.local" (include "mariadb.headlessName" .) .Release.Namespace -}}
 {{- end -}}
 
-{{/* gcomm:// member list — every pod's stable FQDN, comma-separated. */}}
+{{/* gcomm:// member list, every pod's stable FQDN, comma-separated. */}}
 {{- define "mariadb.galeraClusterAddress" -}}
 {{- $full := include "quench-common.fullname" . -}}
 {{- $domain := include "mariadb.podDomain" . -}}

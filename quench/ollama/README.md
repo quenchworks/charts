@@ -1,8 +1,8 @@
 # Quenchworks Ollama
 
-Hardened [Ollama](https://github.com/ollama/ollama) — the local
+Hardened [Ollama](https://github.com/ollama/ollama), the local
 large-language-model runtime that pulls open models (Llama, Mistral, Gemma,
-Qwen, ...) and serves them over a simple REST API — on a minimal, nonroot,
+Qwen...) and serves them over a simple REST API, on a minimal, nonroot,
 CVE-gated image pinned by digest. This is the **CPU-only** image (GPU acceleration
 is out of scope for this chart); it runs as a single-replica StatefulSet with a
 persistent `/models` volume and serves the inference API on port 11434, on a
@@ -16,7 +16,7 @@ never a tag.
 helm install ollama oci://ghcr.io/quenchworks/charts/ollama
 ```
 
-LLM serving is memory-hungry — the working set scales with the model you pull
+LLM serving is memory-hungry, the working set scales with the model you pull
 (a 7B model needs several GiB of RAM). Size the `/models` volume and raise the
 resource limits to fit the models you intend to run:
 
@@ -142,7 +142,7 @@ helm uninstall ollama
 ```
 
 The PVC provisioned by the `volumeClaimTemplate` is retained by Kubernetes on
-uninstall — delete it explicitly if you want the pulled models gone:
+uninstall, delete it explicitly if you want the pulled models gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=ollama
@@ -154,5 +154,5 @@ CPU-only; GPU acceleration is out of scope for this chart. The chart depends on
 the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`. The container runs as nonroot
 on a read-only root filesystem with all capabilities dropped, and the image is
-pinned by digest. The inference API serves without authentication — keep the
+pinned by digest. The inference API serves without authentication, keep the
 NetworkPolicy as the trust boundary before exposing it beyond the cluster.

@@ -92,7 +92,7 @@ server on `:6002`; the Service maps both named ports. soketi's default app is
 configured from `SOKETI_DEFAULT_APP_{ID,KEY,SECRET}`. Liveness `httpGet /` and
 readiness `httpGet /ready` both hit the soketi port (200 once it is up). The
 container runs nonroot (uid 1001) on a read-only root filesystem with all
-capabilities dropped; the only writable surfaces are two emptyDir mounts — `/tmp`
+capabilities dropped; the only writable surfaces are two emptyDir mounts, `/tmp`
 (the entrypoint writes log FIFOs there) and `/home/coolify` (node-pty spawns its
 PTY with `cwd=$HOME`).
 
@@ -102,7 +102,7 @@ PTY with `cwd=$HOME`).
 helm uninstall realtime
 ```
 
-Nothing persists — the workload is stateless and holds no PVCs.
+Nothing persists, the workload is stateless and holds no PVCs.
 
 ## Notes
 

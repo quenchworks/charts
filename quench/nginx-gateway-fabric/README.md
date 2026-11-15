@@ -45,7 +45,7 @@ EOF
 ```
 
 On a cluster with no LoadBalancer controller (kind, bare metal without MetalLB) set
-`nginx.service.type` to `NodePort` or `ClusterIP` first — a `Gateway` with no address
+`nginx.service.type` to `NodePort` or `ClusterIP` first, a `Gateway` with no address
 never reaches `Programmed=True`.
 
 ## Verify the images
@@ -123,23 +123,23 @@ njs module for the `load_module` line NGF's own `nginx.conf` opens with.
 
 **The control-plane image is also the data plane's init container.** The controller
 reads `IMAGE_NAME` from its own pod spec and reuses it verbatim, so the two are pinned
-together by construction — and the image runs as uid 101 / gid 1001, not the usual
+together by construction, and the image runs as uid 101 / gid 1001, not the usual
 1001, because the provisioner hardcodes that uid for the container it creates.
 
 ### What this chart deliberately does not install
 
-* **The Gateway API CRDs** — owned by the `gateway-api-crds` chart.
-* **`ngx_otel_module`** — tracing. `ObservabilityPolicy` and
+* **The Gateway API CRDs**: owned by the `gateway-api-crds` chart.
+* **`ngx_otel_module`**: tracing. `ObservabilityPolicy` and
   `nginx.config.telemetry.exporter` need a data-plane module that the QuenchWorks image
   does not build (it would drag gRPC/protobuf C++ into a CVE-gated image for one optional
   feature). `values.schema.json` rejects `telemetry.exporter` rather than letting NGF
   emit a `load_module` line for a module that is not there, which would fail the next
   nginx reload. Prometheus metrics are a separate path (agent-collected) and work.
-* **NGINX Plus and NGINX App Protect WAF** — Plus is a paid product with its own images.
+* **NGINX Plus and NGINX App Protect WAF**: Plus is a paid product with its own images.
   The `WAFPolicy` CRD is still installed, because the controller watches the type
   unconditionally and a missing CRD is a cache-sync error rather than a skipped feature.
 * **Per-namespace Roles.** Upstream narrows RBAC to Roles in each watched namespace when
-  `watchNamespaces` is set. This chart keeps one ClusterRole either way — NGF creates
+  `watchNamespaces` is set. This chart keeps one ClusterRole either way, NGF creates
   the nginx workload in the *Gateway's* namespace, so the write surface has to reach
   wherever a Gateway may appear. Set `rbac.create: false` and bind your own roles to
   `serviceAccount.name` for a tighter install.
@@ -154,8 +154,8 @@ the result:
 | skew | GatewayClass conditions |
 | --- | --- |
 | exact minor | `Accepted=True`, `SupportedVersion=True` |
-| minor differs | `Accepted=True`, `SupportedVersion=False` — best effort, which is what you get today |
-| major differs | `Accepted=False` — unusable |
+| minor differs | `Accepted=True`, `SupportedVersion=False`: best effort, which is what you get today |
+| major differs | `Accepted=False`: unusable |
 
 So a `SupportedVersion=False` condition on an otherwise healthy install is expected, not
 a misconfiguration.
@@ -177,7 +177,7 @@ sh.helm.release.v1.rtest.v1 stored=405564 bytes
 ```
 
 Rendering the same CRDs through `templates/` puts them in the manifest as well, on top
-of that — the wall the `envoy-gateway` chart walked into with its larger bundle
+of that, the wall the `envoy-gateway` chart walked into with its larger bundle
 (1,026,136 of 1,048,576 bytes). Measure again if the bundle grows.
 
 Helm installs `crds/` once and never upgrades them. After a chart upgrade that moves
@@ -206,7 +206,7 @@ pre-install/pre-upgrade Job runs `gateway generate-certs` and writes:
 `certGenerator.overwrite` defaults to **false**, and leaving it that way matters:
 
 * With `overwrite`, every `helm upgrade` mints a **new CA**. The nginx pods already
-  running still hold the old material, so their gRPC stream fails verification — the
+  running still hold the old material, so their gRPC stream fails verification, the
   data plane keeps serving its last good config while new routes silently never arrive,
   until every nginx pod is restarted.
 * Without it, the Job is a no-op on existing Secrets, which is also what makes
@@ -294,7 +294,7 @@ helm uninstall ngf
 ```
 
 The controller's finalizers tear down the nginx workloads it provisioned. The two TLS
-Secrets and the CRDs are left in place on purpose — deleting the CRDs would
+Secrets and the CRDs are left in place on purpose, deleting the CRDs would
 cascade-delete every `NginxProxy` and policy in the cluster.
 
 ## Verify the chart

@@ -3,7 +3,7 @@
 Hardened [Grafana Tempo](https://github.com/grafana/tempo) distributed tracing
 backend, running in **single-binary mode** (`-target=all`, every component in one
 process) on a minimal, nonroot, CVE-gated image, cosign-signed (keyless / Sigstore)
-and pinned by digest. Built from source on Wolfi. Tempo has no UI of its own — Grafana is its frontend. The HTTP API (query,
+and pinned by digest. Built from source on Wolfi. Tempo has no UI of its own, Grafana is its frontend. The HTTP API (query,
 `/ready`, `/metrics`) is on port 3200; OTLP receivers on 4317 (gRPC) and 4318
 (HTTP); gRPC on 9095.
 
@@ -15,7 +15,7 @@ helm install tempo oci://ghcr.io/quenchworks/charts/tempo
 
 ## Send traces
 
-Tempo does not collect spans itself — point an OpenTelemetry SDK, the OpenTelemetry
+Tempo does not collect spans itself, point an OpenTelemetry SDK, the OpenTelemetry
 Collector, or Grafana Alloy at the OTLP receivers:
 
 ```
@@ -117,7 +117,7 @@ env/volumes, security contexts).
 
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
 dropped. The only writable state is the `/var/tempo` volume (trace blocks + WAL)
-and a `/tmp` emptyDir. Tempo has **no built-in authentication** — there is no
+and a `/tmp` emptyDir. Tempo has **no built-in authentication**, there is no
 Secret to manage. The NetworkPolicy is the trust boundary; keep it enabled, and
 front the service with an authenticating proxy if you must expose it beyond the
 cluster.

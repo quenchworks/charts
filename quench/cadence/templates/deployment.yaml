@@ -4,13 +4,13 @@ The image entrypoint is /usr/bin/cadence-server; args are `start --services=<rol
 The server reads config/config.yaml under --root /etc/cadence; the config carries
 ${POD_IP} which Cadence's config loader expands from the downward-API POD_IP env.
 
-Schema bootstrap runs as SIX shell-free init containers (the image is distroless —
+Schema bootstrap runs as SIX shell-free init containers (the image is distroless:
 no shell), each a single `cadence-cassandra-tool` invocation, per keyspace:
-  1. create-Keyspace  — idempotent (CREATE KEYSPACE IF NOT EXISTS); ALSO the
+  1. create-Keyspace , idempotent (CREATE KEYSPACE IF NOT EXISTS); ALSO the
      wait-for-Cassandra gate: on a cold start it exits non-zero until Cassandra
      accepts connections and the kubelet restarts it until it succeeds.
-  2. setup-schema -q  — quiet, so a re-run tolerates already-created version tables.
-  3. update-schema    — applies every migration to the latest; a no-op once current.
+  2. setup-schema -q , quiet, so a re-run tolerates already-created version tables.
+  3. update-schema   , applies every migration to the latest; a no-op once current.
 Ordering is guaranteed by init-container order; every step is safe to re-run on pod
 restart / upgrade.
 
@@ -153,7 +153,7 @@ spec:
           env:
             # The pod IP, surfaced to Cadence's config loader as POD_IP. The server
             # config expands ${POD_IP} for every role's bindOnIP, the ringpop
-            # bootstrapHosts, and the clusterGroup rpcAddress — so the ring advertises
+            # bootstrapHosts, and the clusterGroup rpcAddress, so the ring advertises
             # a routable address and the Service/probe can reach the frontend.
             - name: POD_IP
               valueFrom:

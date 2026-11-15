@@ -84,13 +84,13 @@ containers, extra env/volumes, security contexts, update strategy).
 A stateless Deployment runs the server via
 `opa run --server --addr=0.0.0.0:8181` on container port `8181`; the Service maps
 the same port. With the default in-memory store and no config, OPA starts with an
-empty policy set — load policies over the REST API or point it at signed bundles.
+empty policy set, load policies over the REST API or point it at signed bundles.
 When `config.yaml` is set (and no `config.existingConfigMap`), it renders to a
 ConfigMap mounted read-only at `/config` and appended to the command as
 `-c /config/config.yaml`; `extraArgs` are appended after that. Liveness and
 readiness both `httpGet /health` (200 once the server is up and, when bundles are
 configured, they have loaded). Because the default store is in-memory, the
-workload scales horizontally with no coordination — enable `autoscaling` (HPA on
+workload scales horizontally with no coordination, enable `autoscaling` (HPA on
 CPU) or raise `replicaCount`. The container runs nonroot on a read-only root
 filesystem with all capabilities dropped; the only mount is the read-only config
 ConfigMap (when present).
@@ -133,14 +133,14 @@ extraArgs:
 helm uninstall policy
 ```
 
-Nothing persists — the workload is stateless and holds no PVCs.
+Nothing persists, the workload is stateless and holds no PVCs.
 
 ## Notes
 
 The chart depends on the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`. The container runs as nonroot
 on a read-only root filesystem with all capabilities dropped, and the image is
-pinned by digest. OPA serves the policy API without authentication by default —
+pinned by digest. OPA serves the policy API without authentication by default:
 use OPA's own authentication/authorization (`--authentication`,
 `--authorization` via `extraArgs`) and keep the NetworkPolicy as the trust
 boundary before exposing it beyond the cluster.

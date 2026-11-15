@@ -9,9 +9,9 @@ nameOverride: ""
 
 # Temporal v0.0.1 ships the SINGLE-BINARY ALL-IN-ONE server: one process runs all
 # four roles (frontend + history + matching + worker). All durable state lives in
-# PostgreSQL, so the server itself is stateless — but it does NOT cluster trivially
-# in all-in-one mode, so keep replicaCount at 1. (Scale-out — one Deployment per
-# role selected via the SERVICES env — is a future chart capability.)
+# PostgreSQL, so the server itself is stateless, but it does NOT cluster trivially
+# in all-in-one mode, so keep replicaCount at 1. (Scale-out, one Deployment per
+# role selected via the SERVICES env, is a future chart capability.)
 replicaCount: 1
 
 # Number of history shards. This is FIXED at first schema setup and CANNOT be
@@ -26,7 +26,7 @@ numHistoryShards: 512
 #
 # Temporal needs TWO databases: the main store and the visibility store. The bundled
 # PG initialises ONE database at first boot (it creates the app DB only when it
-# differs from both "postgres" and the superuser name — hence DISTINCT user/db:
+# differs from both "postgres" and the superuser name, hence DISTINCT user/db:
 # user "temporal_user", db "temporal"). The schema-setup Job then `create-database`s
 # the SECOND (visibility) DB and runs setup/update-schema against BOTH.
 postgresql:
@@ -76,12 +76,12 @@ schemaSetup:
 
 # The server config Temporal reads at /etc/temporal/config/<TEMPORAL_ENV>.yaml.
 # Rendered through `tpl` so values (ports, DB host/name, numHistoryShards) flow in.
-# This is the Postgres-backed production config — it REPLACES the upstream sqlite
+# This is the Postgres-backed production config, it REPLACES the upstream sqlite
 # sample the image ships. Edit it and `helm upgrade`; the pod checksum annotation
 # rolls the Deployment.
 #
 # Notes on the bindings (the QuenchWorks clean image does NOT run dockerize, so the
-# config must be plain YAML — no `{{ }}` directives reach Temporal's parser):
+# config must be plain YAML, no `{{ }}` directives reach Temporal's parser):
 #   - Each role binds gRPC on 0.0.0.0 so the kubelet gRPC probe and the k8s Service
 #     (which hit the pod IP) can reach the frontend listener. (Binding loopback would
 #     make the Service / probe unreachable.)
@@ -91,7 +91,7 @@ schemaSetup:
 #     routable address), the clusterMetadata rpcAddress, and the worker's publicClient
 #     hostPort so the in-process worker SDK client reaches the frontend AND the role
 #     advertised over ringpop matches a routable address. (Pointing publicClient at
-#     127.0.0.1 — the old bug — made the worker scanner fatally fail on loopback.)
+#     127.0.0.1, the old bug, made the worker scanner fatally fail on loopback.)
 #   - metrics listen on 0.0.0.0:8000 so the Service can scrape :8000/metrics.
 #   - archival is disabled (it would write to the rootfs/filestore; state is in PG).
 temporalConfig: |
@@ -222,7 +222,7 @@ resources:
 
 service:
   type: ClusterIP
-  grpcPort: 7233                 # frontend gRPC — the main client port
+  grpcPort: 7233                 # frontend gRPC, the main client port
   httpPort: 7243                 # frontend HTTP API
   metricsPort: 8000              # Prometheus metrics (tally)
 

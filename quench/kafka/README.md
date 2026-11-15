@@ -64,7 +64,7 @@ for the failover behavior and its boundaries.
   combined `process.roles=broker,controller`. Use an odd count (3 or 5) so the
   controller quorum has a clear majority.
 - **Quorum**: every broker is a KRaft controller voter. Leader election and metadata
-  replication are native to KRaft — no Zookeeper, no external coordinator.
+  replication are native to KRaft, no Zookeeper, no external coordinator.
 - **Replication defaults**: `default.replication.factor=3`, `min.insync.replicas=2`,
   and the internal offsets/transaction topics replicate 3× with min-ISR 2. A topic
   created with replication factor 3 survives the loss of one broker with no data loss;
@@ -75,14 +75,14 @@ for the failover behavior and its boundaries.
   before any is Ready, so the quorum can bootstrap.
 - **Client access**: a single ClusterIP Service on 9092 fronts all brokers as the
   bootstrap endpoint; clients then talk to the per-broker advertised addresses.
-- **Per-broker storage**: each pod gets its own PVC (`volumeClaimTemplate`) — never a
+- **Per-broker storage**: each pod gets its own PVC (`volumeClaimTemplate`): never a
   shared disk.
 - **Scheduling**: a soft `podAntiAffinity` spreads brokers across nodes when possible.
   Set `affinity` to a required anti-affinity block for a hard spread on a multi-node
   cluster.
 - **Disruption budget**: `podDisruptionBudget.minAvailable=2` keeps the quorum above
   majority during a voluntary drain.
-- **Boundary**: losing a majority of the quorum (2 of 3) is not auto-recovered — that
+- **Boundary**: losing a majority of the quorum (2 of 3) is not auto-recovered: that
   is a split-brain risk a human must resolve.
 
 ## Verify the image

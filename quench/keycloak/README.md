@@ -1,13 +1,13 @@
 # Quenchworks Keycloak
 
-Hardened [Keycloak](https://www.keycloak.org/) — identity & access management
-(SSO, OIDC, SAML) — on a minimal, nonroot, CVE-gated image pinned by digest. The image
+Hardened [Keycloak](https://www.keycloak.org/), identity & access management
+(SSO, OIDC, SAML), on a minimal, nonroot, CVE-gated image pinned by digest. The image
 bakes the **optimized** Quarkus build (`kc.sh build` is run at image-build time with
 the Postgres driver and health/metrics endpoints) so the runtime starts fast on a
 read-only root filesystem. The admin console + protocol endpoints are on port `8080`;
 health and metrics are on the management port `9000`.
 
-Keycloak is stateless given its database — all realm/user/session state lives in
+Keycloak is stateless given its database, all realm/user/session state lives in
 **PostgreSQL**. This chart bundles the Quenchworks PostgreSQL chart by default and
 can also point at an external database.
 
@@ -77,7 +77,7 @@ externalDatabase:
 ### Override the DB password Secret (`db.existingSecret`)
 
 `db.existingSecret` overrides the Secret `KC_DB_PASSWORD` is read from in **both**
-modes. Empty (default) keeps the existing behavior — bundled reads the managed
+modes. Empty (default) keeps the existing behavior, bundled reads the managed
 `<release>-keycloak`/`db-password`, external reads `externalDatabase.existingSecret`.
 Set it to point Keycloak at a Secret you control, e.g. so an umbrella chart can have
 Keycloak and the bundled PostgreSQL share one fixed-name Secret:
@@ -156,8 +156,8 @@ env/volumes, security contexts).
 ## Security
 
 Runs nonroot (uid 1001) on a read-only root filesystem with all capabilities
-dropped. The writable paths Keycloak needs — `/conf` (seeded from the shipped dist),
-`/data` (runtime state), and `/tmp` (JVM tmpdir) — are emptyDir; no PVC is mounted on
+dropped. The writable paths Keycloak needs, `/conf` (seeded from the shipped dist),
+`/data` (runtime state), and `/tmp` (JVM tmpdir), are emptyDir; no PVC is mounted on
 the Keycloak pod (state lives in PostgreSQL). Admin and database credentials live in
 Kubernetes Secrets. Probes hit `/health/ready` and `/health/live` on the management
 port.

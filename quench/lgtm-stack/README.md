@@ -1,12 +1,12 @@
 # lgtm-stack
 
-The full **LGTM** observability superset in one install — a hardened, **operator-free**
+The full **LGTM** observability superset in one install, a hardened, **operator-free**
 single pane over **metrics, logs, and traces**:
 
-- **L**oki — log aggregation
-- **G**rafana — the single pane (three pre-wired datasources)
-- **T**empo — distributed tracing
-- **M**etrics — **VictoriaMetrics** (Prometheus-compatible TSDB)
+- **L**oki: log aggregation
+- **G**rafana: the single pane (three pre-wired datasources)
+- **T**empo: distributed tracing
+- **M**etrics: **VictoriaMetrics** (Prometheus-compatible TSDB)
 
 plus the glue that wires it together: an **OpenTelemetry Collector** (OTLP
 trace ingest), **Vector** (log shipper), **Alertmanager** (alert routing),
@@ -27,10 +27,10 @@ provenance, and pinned by digest.
 | **kube-state-metrics** | cluster object metrics | templated inline |
 | **node-exporter** | per-node host metrics | templated inline |
 
-## Grafana — three datasources
+## Grafana, three datasources
 
 This umbrella provisions all three datasources into Grafana via a fixed-name ConfigMap
-(`lgtm-stack-datasources`) mounted through `grafana.extraVolumes` — so each URL can
+(`lgtm-stack-datasources`) mounted through `grafana.extraVolumes`, so each URL can
 carry the release name. Keep `grafana.datasources: []`.
 
 | Datasource | Type | UID | URL |
@@ -56,25 +56,25 @@ your app --(OTLP :4317/:4318)--> OTel Collector --> Tempo :4317
            └─ Tempo           (uid tempo)             →  Explore → Tempo
 ```
 
-## How metrics are ingested — VictoriaMetrics `promscrape` (pull)
+## How metrics are ingested, VictoriaMetrics `promscrape` (pull)
 
 VictoriaMetrics single-node ships an **embedded scraper** (vmagent-style). This chart
 turns it on by passing `-promscrape.config=/etc/vm/scrape.yaml` through
 `victoriametrics.config.extraArgs` and mounting a release-agnostic scrape config
 (`templates/victoriametrics-scrape.yaml`, ConfigMap `lgtm-stack-vm-scrape`). The config
 is Prometheus `scrape_configs` syntax and discovers targets at runtime via
-`kubernetes_sd_configs` — **no service name is templated in**, so it is fully portable:
+`kubernetes_sd_configs`, **no service name is templated in**, so it is fully portable:
 
-- **`kubernetes-pods`** — annotation-based: any pod annotated `prometheus.io/scrape:
+- **`kubernetes-pods`**: annotation-based: any pod annotated `prometheus.io/scrape:
   "true"` (honoring `prometheus.io/port` and `prometheus.io/path`). kube-state-metrics,
   node-exporter and the OTel Collector are all annotated, so they are picked up here.
-- **`kubelet`** / **`cadvisor`** — the kubelet's own `/metrics` and `/metrics/cadvisor`
+- **`kubelet`** / **`cadvisor`**: the kubelet's own `/metrics` and `/metrics/cadvisor`
   via the apiserver proxy (container CPU/memory/net/fs without an extra DaemonSet).
-- **`kubernetes-apiservers`** — control-plane `up` + apiserver request metrics.
-- **`victoriametrics`** — VM scrapes its own `/metrics`.
+- **`kubernetes-apiservers`**: control-plane `up` + apiserver request metrics.
+- **`victoriametrics`**: VM scrapes its own `/metrics`.
 
 > **Why pull, not `remote_write`?** A single scrape config is release-agnostic and
-> needs no per-app push wiring — the same annotation contract the observability-stack
+> needs no per-app push wiring, the same annotation contract the observability-stack
 > uses. If you prefer **push**, add a metrics pipeline to the OTel Collector that
 > `prometheusremotewrite`s to `http://<release>-victoriametrics:8428/api/v1/write` and
 > drop the promscrape flag. Pull is the default because it is the lowest-friction path.
@@ -90,7 +90,7 @@ and hardcodes `automountServiceAccountToken: false`. So this umbrella:
    stack's Prometheus uses: `pods, nodes, nodes/metrics, nodes/proxy, services,
    endpoints` (get/list/watch) + `/metrics`.
 
-## How logs are ingested — Vector (automatic)
+## How logs are ingested, Vector (automatic)
 
 **Nothing to do.** Vector runs as a DaemonSet (`templates/vector.yaml`), tailing every
 pod's stdout/stderr on every node via its `kubernetes_logs` source and pushing to
@@ -99,7 +99,7 @@ pod's stdout/stderr on every node via its `kubernetes_logs` source and pushing t
 can't template the release name into the Loki sink). Query your namespace in **Explore →
 Loki**.
 
-## How traces are ingested — OTLP → OTel Collector → Tempo
+## How traces are ingested, OTLP → OTel Collector → Tempo
 
 Point your apps at the collector gateway:
 
@@ -131,7 +131,7 @@ Open Grafana and read the generated admin password:
 ```sh
 kubectl get secret lgtm-grafana -o jsonpath='{.data.admin-password}' | base64 -d ; echo
 kubectl port-forward svc/lgtm-grafana 3000:3000
-# http://127.0.0.1:3000  (user: admin) — VictoriaMetrics is the default datasource.
+# http://127.0.0.1:3000  (user: admin), VictoriaMetrics is the default datasource.
 ```
 
 In Explore, switch between the three datasources; the bundled dashboards appear under
@@ -213,21 +213,21 @@ Each subchart's full value tree passes straight through under its key
 
 ## Security posture
 
-- **Hardened, no operator, no CRDs.** Every image is nonroot (uid 1001 — node-exporter
+- **Hardened, no operator, no CRDs.** Every image is nonroot (uid 1001: node-exporter
   runs as 65534), read-only rootfs, all Linux capabilities dropped, 0 fixable CVEs,
   cosign-signed and digest-pinned.
 - **Clean components (no host access):** VictoriaMetrics, Loki, Grafana, Tempo,
   Alertmanager, the OTel Collector, kube-state-metrics.
 - **Host access by design (toggleable):**
-  - **node-exporter** — DaemonSet in the host PID + network namespaces, mounts host
+  - **node-exporter**: DaemonSet in the host PID + network namespaces, mounts host
     `/proc`, `/sys`, `/` **read-only**. The Node Exporter Full dashboard needs node
     metrics. `nodeExporter.enabled: false` drops it.
-  - **Vector** — DaemonSet mounting host `/var/log` and `/var/lib/docker/containers`
+  - **Vector**: DaemonSet mounting host `/var/log` and `/var/lib/docker/containers`
     **read-only** to read pod logs. `vector.enabled: false` drops it.
   These are the deliberate, documented trade-offs for cluster-wide metrics and logs;
   the wider hardened catalog avoids host access.
 - **Cluster RBAC** is created for the VictoriaMetrics SA (scrape discovery), Vector SA
-  (log metadata enrichment), and kube-state-metrics SA (object listing) — all
+  (log metadata enrichment), and kube-state-metrics SA (object listing), all
   read-only.
 - **Fixed-name ConfigMaps** (`lgtm-stack-datasources`, `lgtm-stack-dashboards`,
   `lgtm-stack-vm-scrape`) ⇒ run **one lgtm-stack per namespace**.

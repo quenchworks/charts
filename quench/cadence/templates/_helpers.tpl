@@ -73,7 +73,7 @@ cassandra-password
 Connection env shared by every schema-bootstrap init container. cadence-cassandra-tool
 reads --endpoint from CASSANDRA_HOST, --port from CASSANDRA_DB_PORT, --user from
 CASSANDRA_USER and --password from CASSANDRA_PASSWORD. The keyspace is NEVER set via
-env (CASSANDRA_KEYSPACE) — each container passes its own -k so a single env cannot
+env (CASSANDRA_KEYSPACE), each container passes its own -k so a single env cannot
 pin every step to one keyspace. Password comes from the Secret; never echoed.
 */}}
 {{- define "cadence.schemaConnEnv" -}}

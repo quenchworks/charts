@@ -1,8 +1,8 @@
 # Quenchworks xyOps
 
-Hardened [xyOps](https://github.com/pixlcore/xyops) — a complete
+Hardened [xyOps](https://github.com/pixlcore/xyops), a complete
 workflow-automation and server-monitoring system (job scheduler, host/service
-monitors, alerting and ticketing) by Joseph Huckaby, the creator of Cronicle — on a
+monitors, alerting and ticketing) by Joseph Huckaby, the creator of Cronicle, on a
 minimal, nonroot, CVE-gated image pinned by digest. It serves the web UI and JSON API
 on port 5522, running on a read-only root filesystem with all capabilities dropped.
 The image is cosign-signed (keyless / Sigstore) and the chart pins it by the signed
@@ -24,7 +24,7 @@ curl http://127.0.0.1:5522/api/app/ping
 # then browse http://127.0.0.1:5522/
 ```
 
-xyOps requires a non-empty `secret_key` to boot — it signs sessions and API tokens
+xyOps requires a non-empty `secret_key` to boot, it signs sessions and API tokens
 with it. Leave `auth` unset and the chart generates a random key on first install
 and preserves it across upgrades, or pin your own:
 
@@ -115,19 +115,19 @@ carry generous timing so a slow node or large image pull does not flap.
 
 Four volumes are mounted, because the root filesystem is read-only:
 
-- **`/opt/xyops/data`** — the embedded sqlite store, backed by the PVC (a
+- **`/opt/xyops/data`**: the embedded sqlite store, backed by the PVC (a
   `volumeClaimTemplate`, or `persistence.existingClaim`). The server only starts if
   it can write here. With `persistence.enabled=false` it falls back to an `emptyDir`
   and all state is lost on restart.
-- **`/opt/xyops/logs`** and **`/opt/xyops/temp`** — writable `emptyDir`s for the
+- **`/opt/xyops/logs`** and **`/opt/xyops/temp`**: writable `emptyDir`s for the
   logs and temp files xyOps writes at runtime.
-- **`/tmp`** — a writable `emptyDir` for scratch space.
+- **`/tmp`**: a writable `emptyDir` for scratch space.
 
 The signing `secret_key` reaches the container as the `XYOPS_secret_key` env var,
 read from a Secret (chart-managed, or your own `auth.existingSecret`). Nothing
 secret is baked into the image. The hardened pod security context (`fsGroup: 1001`)
 gives the nonroot user (uid 1001) ownership of the data volume. The embedded sqlite
-store is single-writer, so this is a single-instance workload — do not raise the
+store is single-writer, so this is a single-instance workload, do not raise the
 replica count.
 
 ## Configuration examples
@@ -164,7 +164,7 @@ helm uninstall xyops
 ```
 
 The PVC provisioned by the `volumeClaimTemplate` is retained by Kubernetes on
-uninstall — delete it explicitly if you want the sqlite store gone:
+uninstall, delete it explicitly if you want the sqlite store gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=xyops
@@ -175,12 +175,12 @@ with the release.
 
 ## Notes
 
-Single-instance by design — the embedded better-sqlite3 store does not support
+Single-instance by design, the embedded better-sqlite3 store does not support
 horizontal scaling, so the StatefulSet is fixed at one replica; there is no
 external database. The
 chart depends on the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`. Every container runs as nonroot
 on a read-only root filesystem with all capabilities dropped, and the server is
-pinned by digest. xyOps has its own user accounts and login — keep the NetworkPolicy
+pinned by digest. xyOps has its own user accounts and login, keep the NetworkPolicy
 as the trust boundary and front it with TLS before exposing the UI beyond the
 cluster.

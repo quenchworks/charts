@@ -1,6 +1,6 @@
 # Quenchworks Temporal
 
-Hardened [Temporal](https://temporal.io/) — a durable workflow execution engine —
+Hardened [Temporal](https://temporal.io/), a durable workflow execution engine:
 on a minimal, nonroot, CVE-gated image, cosign-signed (keyless / Sigstore) and pinned
 by digest. This chart runs the
 **single-binary all-in-one** server: one `temporal-server` process hosting all four
@@ -147,7 +147,7 @@ The external user must be able to create databases and schemas.
 The server config is the `temporalConfig` value (a Postgres-backed config rendered
 through `tpl`, replacing the upstream sqlite sample). It is mounted at
 `/etc/temporal/config/production.yaml`; `dynamicConfig` is mounted alongside. Edit
-either and `helm upgrade` — the pod checksum annotation rolls the Deployment.
+either and `helm upgrade`, the pod checksum annotation rolls the Deployment.
 
 | Key                                            | Default                                   | Description                                        |
 | ---------------------------------------------- | ----------------------------------------- | -------------------------------------------------- |
@@ -156,7 +156,7 @@ either and `helm upgrade` — the pod checksum annotation rolls the Deployment.
 | `postgresql.enabled`                           | `true`                                    | Bundle the Quenchworks PostgreSQL chart.           |
 | `postgresql.auth.{username,password,database}` | `temporal_user` / `temporal` / `temporal` | Deterministic shared DB creds.                     |
 | `databases.{main,visibility}`                  | `temporal` / `temporal_visibility`        | Store database names.                              |
-| `externalDatabase.*`                           | —                                         | Used when `postgresql.enabled=false`.              |
+| `externalDatabase.*`                           |,                                        | Used when `postgresql.enabled=false`.              |
 | `schemaSetup.enabled`                          | `true`                                    | Run the schema-setup Job hook.                     |
 | `service.{grpcPort,httpPort,metricsPort}`      | `7233` / `7243` / `8000`                  | Service ports.                                     |
 | `networkPolicy.allowExternal`                  | `false`                                   | Allow frontend ingress from outside the namespace. |
@@ -169,8 +169,8 @@ supported.
 
 ## Scaling
 
-This release ships the all-in-one server only. Scale-out — one Deployment per role
-selected via the `SERVICES` env (`frontend`/`history`/`matching`/`worker`) — is a
+This release ships the all-in-one server only. Scale-out, one Deployment per role
+selected via the `SERVICES` env (`frontend`/`history`/`matching`/`worker`), is a
 future chart capability.
 
 ## Security

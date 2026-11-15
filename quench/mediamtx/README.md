@@ -1,8 +1,8 @@
 # Quenchworks MediaMTX
 
-Hardened [MediaMTX](https://github.com/bluenviron/mediamtx) — a zero-dependency
+Hardened [MediaMTX](https://github.com/bluenviron/mediamtx), a zero-dependency
 real-time media server that ingests and republishes streams over RTSP, RTMP, HLS,
-WebRTC and SRT — on a minimal, nonroot, CVE-gated image, built from source and pinned
+WebRTC and SRT, on a minimal, nonroot, CVE-gated image, built from source and pinned
 by digest. It runs as a stateless Deployment on a read-only root filesystem with
 all capabilities dropped. The image is cosign-signed (keyless / Sigstore) and the
 chart pins it by the signed digest, never a tag.
@@ -15,7 +15,7 @@ helm install stream oci://ghcr.io/quenchworks/charts/mediamtx
 
 The server runs nonroot on MediaMTX's baked defaults: RTSP `:8554`, RTMP `:1935`,
 HLS `:8888`, WebRTC `:8889`, all exposed on the Service. No configuration is
-required — MediaMTX boots on a config baked into the image and fills any unset key
+required, MediaMTX boots on a config baked into the image and fills any unset key
 from its compiled-in defaults.
 
 ## Verify the image
@@ -71,8 +71,8 @@ containers, extra env/volumes, security contexts, update strategy).
 
 A stateless Deployment runs MediaMTX behind a ClusterIP Service that maps the four
 streaming ports (RTSP `8554`, RTMP `1935`, HLS `8888`, WebRTC `8889`). MediaMTX
-holds no persistent state by default — HLS is in-memory and no recordings are
-written — so the workload scales horizontally; enable `autoscaling` (HPA on CPU)
+holds no persistent state by default, HLS is in-memory and no recordings are
+written, so the workload scales horizontally; enable `autoscaling` (HPA on CPU)
 or raise `replicaCount`.
 
 Liveness and readiness are a **TCP check on the RTSP port** (`:8554`). The listener
@@ -124,13 +124,13 @@ config:
 helm uninstall stream
 ```
 
-Nothing persists — the workload is stateless and holds no PVCs.
+Nothing persists, the workload is stateless and holds no PVCs.
 
 ## Notes
 
 The chart depends on the `quench-common` library chart, pulled from
 `oci://ghcr.io/quenchworks/charts/quench-common`. The container runs as nonroot on
 a read-only root filesystem with all capabilities dropped, and the image is pinned
-by digest. MediaMTX serves streams without authentication by default — configure
+by digest. MediaMTX serves streams without authentication by default, configure
 authentication in `config.yaml` and keep the NetworkPolicy as the trust boundary
 before exposing it beyond the cluster.

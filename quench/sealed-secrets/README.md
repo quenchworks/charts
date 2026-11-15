@@ -7,7 +7,7 @@ cosign-signed and pinned by digest. Runs the controller as a single-replica
 Deployment, installs the `SealedSecret` CRD, and ships clean-room RBAC.
 
 Because a `SealedSecret` can only be decrypted by the private key held inside
-your cluster, it is safe to commit to Git — that is the whole point of the tool.
+your cluster, it is safe to commit to Git, that is the whole point of the tool.
 
 ## Install
 
@@ -58,7 +58,7 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/sealed-secrets --ow
 | `image.digest`                    | (CI-written)                                | Required. Charts pin by digest, never a tag.                                                                                           |
 | `image.pullPolicy`                | `IfNotPresent`                              |                                                                                                                                        |
 | `nameOverride`                    | `""`                                        | Override the chart name in resource names.                                                                                             |
-| `replicaCount`                    | `1`                                         | Keep at 1 — see [Architecture](#architecture).                                                                                         |
+| `replicaCount`                    | `1`                                         | Keep at 1: see [Architecture](#architecture).                                                                                         |
 | `controller.keyPrefix`            | `sealed-secrets-key`                        | Name prefix of the Secrets holding the sealing key pairs.                                                                              |
 | `controller.keySize`              | `4096`                                      | RSA key size for newly generated sealing keys.                                                                                         |
 | `controller.keyRenewPeriod`       | `""`                                        | New-key generation period (e.g. `720h`). `0` disables rotation; empty uses the controller default (30d).                               |
@@ -77,7 +77,7 @@ with `gh attestation verify oci://ghcr.io/quenchworks/images/sealed-secrets --ow
 | `service.port`                    | `8080`                                      | Controller HTTP port (cert fetch, verify).                                                                                             |
 | `service.metricsPort`             | `8081`                                      | Metrics port.                                                                                                                          |
 | `service.annotations`             | `{}`                                        |                                                                                                                                        |
-| `serviceAccount.create`           | `true`                                      | Token IS automounted — the controller needs API access.                                                                                |
+| `serviceAccount.create`           | `true`                                      | Token IS automounted: the controller needs API access.                                                                                |
 | `serviceAccount.name`             | `""`                                        | Use an existing ServiceAccount.                                                                                                        |
 | `rbac.create`                     | `true`                                      | ClusterRole/Binding for unsealing + namespaced key-admin Role.                                                                         |
 | `rbac.serviceProxier`             | `true`                                      | Namespaced Role letting `system:authenticated` proxy to the Service so `kubeseal` can fetch the **public** cert without cluster-admin. |
@@ -107,7 +107,7 @@ PDB on a single-replica singleton blocks node drains).
 
 The `SealedSecret` CRD (`sealedsecrets.bitnami.com`, `v1alpha1`) installs from
 the chart's `crds/` directory. Helm never deletes CRDs on uninstall, which is the
-behaviour you want here — removing it would orphan every `SealedSecret` in the
+behaviour you want here, removing it would orphan every `SealedSecret` in the
 cluster.
 
 RBAC is authored from the controller's documented API needs, not copied:
@@ -146,7 +146,7 @@ controller:
   logFormat: json
 ```
 
-Lock down cert distribution — no service proxying, clients must use
+Lock down cert distribution, no service proxying, clients must use
 `kubeseal --cert` with an out-of-band certificate:
 
 ```yaml

@@ -1,7 +1,7 @@
 # Quenchworks WordPress
 
-Hardened [WordPress](https://wordpress.org/) — the PHP content-management
-system — on a minimal, nonroot, read-only-rootfs CVE-gated image pinned by digest
+Hardened [WordPress](https://wordpress.org/), the PHP content-management
+system, on a minimal, nonroot, read-only-rootfs CVE-gated image pinned by digest
 and cosign-signed. WordPress is served by a Wolfi **PHP-FPM + nginx** runtime
 (supervisord): nginx listens on port 8080 (nonroot can't bind `<1024`) and
 FastCGI-passes `.php` to php-fpm on `127.0.0.1:9000`. It runs as uid 1001.
@@ -9,7 +9,7 @@ FastCGI-passes `.php` to php-fpm on `127.0.0.1:9000`. It runs as uid 1001.
 WordPress needs an external **MySQL/MariaDB**. This chart bundles the
 Quenchworks MySQL chart by default, provisions an uploads PVC at
 `wp-content/uploads`, and supplies the `wp-config.php` the image intentionally
-omits — that config reads every DB setting and auth salt from environment
+omits, that config reads every DB setting and auth salt from environment
 variables injected from a managed Secret, so no secret is ever baked into the
 image or written to disk.
 
@@ -121,30 +121,30 @@ Plus the shared `quench-common` knobs: `podLabels`, `podAnnotations`,
 ## Architecture
 
 A stateless **Deployment** runs the PHP-FPM + nginx runtime. nginx serves the
-whole site — public pages and `/wp-admin` — on container port 8080; the Service
+whole site, public pages and `/wp-admin`, on container port 8080; the Service
 maps the same port. Durable relational state (posts, users, options, comments)
 lives in an external MySQL, deployed by default via the bundled subchart whose
 primary Service is `<release>-mysql` on port 3306.
 
 Because the root filesystem is read-only, three volumes are mounted:
 
-- **`/var/www/html/wp-config.php`** — the chart-supplied config, mounted
+- **`/var/www/html/wp-config.php`**: the chart-supplied config, mounted
   read-only from a ConfigMap via `subPath` so it doesn't shadow the docroot. It
   resolves the DB connection and the eight auth keys/salts from the pod
   environment at request time (php-fpm runs with `clear_env=no`).
-- **`wp-content/uploads`** (`persistence.mountPath`) — user media, the only
+- **`wp-content/uploads`** (`persistence.mountPath`): user media, the only
   writable app path, backed by the PVC (or an `emptyDir` when
   `persistence.enabled=false`).
-- **`/tmp`** — a writable `emptyDir` for nginx pid/temp and php sessions.
+- **`/tmp`**: a writable `emptyDir` for nginx pid/temp and php sessions.
 
 WordPress core, themes and plugins are baked into the signed image, so
 in-dashboard core/plugin/theme edits and updates are disabled
-(`DISALLOW_FILE_MODS`) — rebuild the image to change code. Auth salts are
+(`DISALLOW_FILE_MODS`), rebuild the image to change code. Auth salts are
 generated once and persisted in the Secret, so upgrades don't log everyone out.
 
 On a fresh install WordPress can't answer 2xx/3xx until MySQL is reachable (it
 500s with "Error establishing a database connection"), so a startup probe
-(`httpGet /`) tolerates the DB init window — up to 300s (30 x 10s) — before
+(`httpGet /`) tolerates the DB init window, up to 300s (30 x 10s), before
 liveness and readiness (both `httpGet /`) take over.
 
 ## Configuration examples
@@ -188,7 +188,7 @@ helm uninstall blog
 ```
 
 The uploads PVC (and the bundled MySQL's PVC) are retained by Kubernetes on
-uninstall — delete them explicitly if you want the data gone:
+uninstall, delete them explicitly if you want the data gone:
 
 ```bash
 kubectl delete pvc -l app.kubernetes.io/instance=blog
