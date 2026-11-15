@@ -1,0 +1,95 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/writefreely
+  digest: "sha256:465cfc2257f20284d3a1446cac642895c9aef9a5ddd9ac0300ae9faa3f2acfbb"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# WriteFreely keeps its SQLite database and keys on the /data volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The public URL (required: federation and links use it) and the site's name and description.
+host: ""
+siteName: WriteFreely
+siteDescription: ""
+
+# The admin the chart creates once the database exists (writefreely user create --admin). Empty password:
+# generated into the Secret <fullname> (password). Created once: change the password later in the UI.
+admin:
+  username: admin
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+
+singleUser: false        # one blog for the admin only
+openRegistration: false  # let anyone sign up
+maxBlogs: 1              # blogs per user
+federation: true         # ActivityPub
+private: false           # require sign-in to read anything
+localTimeline: false     # the Reader page of all public posts
+
+# More config.ini sections appended as is (INI), e.g. "[email]\nsmtp_host = mail.example.com".
+extraConfig: ""
+
+# The data volume: the SQLite database and keys (/data).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 1, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# No TLS listener in the server: terminate TLS at an ingress or gateway in front of the Service.
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
