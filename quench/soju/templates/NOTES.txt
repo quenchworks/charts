@@ -1,0 +1,10 @@
+soju serves {{ .Values.hostname }}: IRC on {{ .Values.service.port }}{{ if include "quench-common.tls.enabled" . }} and IRC over TLS on {{ .Values.service.tlsPort }}{{ end }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 6667:{{ .Values.service.port }}
+
+Sign in with your IRC client as {{ .Values.admin.username }} (server password, or SASL PLAIN); the password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "soju.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+
+Then add a network: /msg BouncerServ network create -addr ircs://irc.libera.chat -name libera
+and reconnect as {{ .Values.admin.username }}/libera to use it.

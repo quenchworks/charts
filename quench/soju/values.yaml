@@ -1,0 +1,101 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/soju
+  digest: "sha256:536b6d612ba2df67424ec8aa2780a753478fd5c2a2d789b0843adfa503d8a58d"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# soju keeps users, networks and message history in /var/lib/soju/main.db: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The bouncer's host name (required), sent to clients; title is shown by clients that support it.
+hostname: ""
+title: ""
+
+# The admin user the chart creates (sojudb create-user -admin) and keeps in step with the Secret.
+# Empty password: generated into the Secret <fullname> (password). Admins add users and networks by
+# messaging BouncerServ, e.g. /msg BouncerServ user create -username alice -password ...
+admin:
+  username: admin
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+
+# More soju config directives, appended as is, e.g. "max-user-networks 5".
+extraConfig: ""
+
+# The volume at /var/lib/soju: main.db (users, networks, message history).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 2Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 6667
+  tlsPort: 6697   # when tls.enabled
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: soju adds an IRC-over-TLS listener on 6697 from the PEM pair at /tls (the
+# probes switch to HTTPS). The certificate comes from the first source set: existingSecret, then a
+# cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
