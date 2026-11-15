@@ -1,0 +1,90 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/gokapi
+  digest: "sha256:a468bf8a135a72ad4facd913c91c58d8daceec6fde32e2394621eb3b93010b5f"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Gokapi keeps its SQLite database, uploads and config.json in /app/data: run one replica
+# (Recreate with the volume).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The address people open: download and hotlink URLs are built from it.
+publicUrl: http://localhost:53842
+publicName: Gokapi
+
+# The admin, configured by a setup Job through Gokapi's first-start wizard (until then the wizard
+# answers anyone who can reach the Service, so keep it private until the Job has run). Empty
+# password: generated into the Secret <fullname> (password).
+admin:
+  create: true
+  username: admin
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+  setupImage: ghcr.io/quenchworks/images/busybox@sha256:041302c8da3a2e182ecc2eac3c56c4f47a13c03cc284d255489c0be741893b64
+
+# More Gokapi settings as GOKAPI_* environment variables (https://gokapi.readthedocs.io), e.g.
+# GOKAPI_MAX_FILESIZE (MB) or GOKAPI_TRUSTED_PROXIES behind an ingress.
+settings: {}
+
+# The data volume: the SQLite database, the uploads and config.json.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 10Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 20m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 53842
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

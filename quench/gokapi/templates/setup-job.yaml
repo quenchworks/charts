@@ -1,0 +1,78 @@
+{{- /*
+Gokapi has no unattended setup: its first start serves a web wizard (no login) until it is
+submitted. This plain Job (not a hook), named per revision, submits the wizard's JSON form as the
+browser does: SQLite on the data volume, username/password login, local storage, no end-to-end
+encryption. Once configured the wizard page is gone and the Job ends without posting: a no-op.
+*/ -}}
+{{- if .Values.admin.create }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-setup-%d" (include "quench-common.fullname" .) .Release.Revision }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: setup
+spec:
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.labels" . | nindent 8 }}
+        app.kubernetes.io/component: setup
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: setup
+          image: {{ .Values.admin.setupImage | quote }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              w="http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}"
+              n=0
+              until wget -qO /dev/null "$w/" 2>/dev/null; do
+                n=$((n+1)); [ "$n" -lt 120 ] || { echo "Gokapi did not come up"; exit 1; }
+                sleep 5
+              done
+              # only the wizard serves its own page; the configured server answers / with its UI
+              if ! wget -qO- "$w/setup/start" 2>/dev/null | grep -q '<title>Gokapi Setup'; then echo "already configured"; exit 0; fi
+              f() { printf '{"name":"%s","value":"%s"},' "$1" "$2"; }
+              body="[$(f dbtype_sel 0; f sqlite_location /app/data/gokapi.sqlite
+                f redis_location ""; f redis_prefix ""; f redis_user ""; f redis_password ""; f redis_ssl_sel 0
+                f authentication_sel 0; f auth_username "$ADMIN_USERNAME"; f auth_pw "$ADMIN_PASSWORD"
+                f oauth_provider ""; f oauth_id ""; f oauth_secret ""; f oauth_admin_user ""; f oauth_scope_groups ""
+                f oauth_allowed_groups ""; f oauth_restrict_groups 0; f oauth_only_registered_users 0; f oauth_recheck_interval 12
+                f auth_headerkey ""; f auth_header_admin ""; f auth_header_only_registered_users 0
+                f port 53842; f localhost_sel 0; f ssl_sel 0; f logip_sel 0; f showfilename_sel 0
+                f url "$PUBLIC_URL/"; f url_redirection "$PUBLIC_URL/"; f public_name "$PUBLIC_NAME"
+                f encrypt_sel 0; f enc_pw ""; f cleare2e 0; f storage_sel 0; f storage_sel_image 0; f storage_sel_proxy 0
+                f s3_bucket ""; f s3_region ""; f s3_api ""; f s3_secret ""; f s3_endpoint "")"
+              body="${body%,}]"
+              out="$(wget -qO- --header 'Content-Type: application/json' --post-data "$body" "$w/setup/setupResult")"
+              echo "$out" | grep -q OK || { echo "setup failed: $out"; exit 1; }
+              echo "Gokapi configured for $ADMIN_USERNAME"
+          env:
+            - { name: ADMIN_USERNAME, value: {{ .Values.admin.username | quote }} }
+            - { name: PUBLIC_URL, value: {{ .Values.publicUrl | trimSuffix "/" | quote }} }
+            - { name: PUBLIC_NAME, value: {{ .Values.publicName | quote }} }
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "gokapi.secretName" . }}
+                  key: password
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

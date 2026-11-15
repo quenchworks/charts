@@ -1,0 +1,12 @@
+Gokapi is on {{ include "quench-common.fullname" . }}:{{ .Values.service.port }} (public URL {{ .Values.publicUrl }}).
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 53842:{{ .Values.service.port }}
+
+{{- if .Values.admin.create }}
+The setup Job configures Gokapi through its first-start wizard; then log in at /admin as
+"{{ .Values.admin.username }}" with:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "gokapi.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+{{- else }}
+admin.create is off: open /setup on the Service to finish the first-start wizard yourself.
+{{- end }}
