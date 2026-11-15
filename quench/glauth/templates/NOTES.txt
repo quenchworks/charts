@@ -1,0 +1,9 @@
+GLAuth serves LDAP on {{ include "quench-common.fullname" . }}:{{ .Values.service.port }} (base DN {{ .Values.baseDN }}).
+
+Bind as cn={{ .Values.admin.username }},ou=admins,{{ .Values.baseDN }} with:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "glauth.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+
+Add your users and groups as TOML in extraConfig ([[users]] with passbcrypt, hex-encoded:
+htpasswd -nbBC 10 "" PASS | cut -d: -f2 | tr -d '\n' | od -An -tx1 | tr -d ' \n').
+Plain LDAP is unencrypted: keep it inside the cluster.

@@ -1,0 +1,140 @@
+name: release-glauth
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/glauth/**"
+      - ".github/workflows/release-glauth.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/glauth
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/rtest-glauth --timeout=300s
+          # a real LDAP client: our OpenLDAP image's ldapsearch/ldapwhoami, run as pods
+          CLIENT=ghcr.io/quenchworks/images/openldap@sha256:4ffafc0a21ea2e3ecade0ac1de3b664530da1d05efab2819b5df4db0a1139e00
+          L=(-x -H ldap://rtest-glauth:389)
+          # run <name> <command...>: waits for the pod to finish either way, prints its output
+          run() { local n=$1; shift; kubectl run "$n" --image="$CLIENT" --restart=Never --command -- "$@" >/dev/null
+                  for _ in $(seq 1 60); do case "$(kubectl get pod "$n" -o jsonpath='{.status.phase}')" in Succeeded|Failed) break;; esac; sleep 2; done
+                  kubectl logs "$n"; }
+          run ldap-search ldapsearch "${L[@]}" -D cn=admin,ou=admins,dc=quench,dc=test -w quench-ci-admin-pass \
+            -b dc=quench,dc=test '(uid=alice)' mail | tee /tmp/search.txt
+          grep -q 'mail: alice@quench.test' /tmp/search.txt || { echo "the service account did not find alice"; exit 1; }
+          # GLAuth has no WhoAmI extended operation, so alice's bind is checked with a search: without
+          # search capability she gets "Insufficient access", which still means the bind succeeded
+          run ldap-alice ldapsearch "${L[@]}" -D cn=alice,ou=people,dc=quench,dc=test -w alice-gate-pass \
+            -b dc=quench,dc=test '(uid=alice)' mail | tee /tmp/alice.txt || true
+          grep -q 'Invalid credentials' /tmp/alice.txt && { echo "alice could not bind"; exit 1; }
+          grep -q 'result: \(0 Success\|50 Insufficient access\)' /tmp/alice.txt || { echo "no LDAP result for alice's bind"; exit 1; }
+          run ldap-bad ldapsearch "${L[@]}" -D cn=alice,ou=people,dc=quench,dc=test -w wrong-password-1 \
+            -b dc=quench,dc=test '(uid=alice)' | tee /tmp/bad.txt || true
+          grep -q 'Invalid credentials' /tmp/bad.txt || { echo "a wrong password was not refused"; exit 1; }
+          echo "glauth: service account finds alice, alice binds from extraConfig, wrong password refused: ok"
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/glauth-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/glauth@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/glauth:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

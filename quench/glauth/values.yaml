@@ -1,0 +1,84 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/glauth
+  digest: "sha256:7af5febab8eba6c61f738627567dab847f32171ade4a151fc5481f210a61fe8c"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# GLAuth keeps users in its config, no state on disk.
+replicaCount: 1
+updateStrategy:
+  type: RollingUpdate
+
+baseDN: dc=glauth,dc=com
+
+# A search-capable service account for apps that look users up (cn=<username>,ou=admins,<baseDN>).
+# Empty password: generated into the Secret <fullname>-config (admin-password).
+admin:
+  username: admin
+  password: ""
+
+# Your users and groups as GLAuth TOML, appended to the config. Passwords as passbcrypt (hex of the
+# bcrypt string) or passsha256. Example:
+#   [[users]]
+#     name = "alice"
+#     mail = "alice@example.com"
+#     uidnumber = 5001
+#     primarygroup = 5001
+#     passbcrypt = "<hex>"
+#   [[groups]]
+#     name = "people"
+#     gidnumber = 5001
+extraConfig: ""
+
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 389
+  annotations: {}
+  externalTrafficPolicy: ""
+
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
