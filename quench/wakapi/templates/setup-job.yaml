@@ -1,0 +1,65 @@
+{{- /*
+Signs the admin up while the instance has no users: Wakapi makes the first account that signs up
+the admin and offers no other way to declare one. A plain Job (not a hook), named per revision.
+It waits for /api/health and posts the signup form (a no-op once the user exists). The signup
+happens before Wakapi's redirect; busybox wget then re-POSTs to the redirect target, which can
+answer 405, so the result is not checked here (the release gate proves the admin's login).
+*/ -}}
+{{- if .Values.admin.create }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ printf "%s-setup-%d" (include "quench-common.fullname" .) .Release.Revision }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: setup
+spec:
+  backoffLimit: 4
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.labels" . | nindent 8 }}
+        app.kubernetes.io/component: setup
+    spec:
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: setup
+          image: {{ .Values.admin.setupImage | quote }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              w="http://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }}"
+              n=0
+              until wget -qO- "$w/api/health" >/dev/null 2>&1; do
+                n=$((n+1)); [ "$n" -lt 120 ] || { echo "Wakapi did not come up"; exit 1; }
+                sleep 5
+              done
+              enc() { printf %s "$1" | sed 's/%/%25/g; s/&/%26/g; s/+/%2B/g; s/=/%3D/g; s/ /%20/g'; }
+              u="$(enc "$ADMIN_USERNAME")"; p="$(enc "$ADMIN_PASSWORD")"; e="$(enc "$ADMIN_EMAIL")"
+              wget -qO /dev/null --post-data "username=$u&email=$e&password=$p&password_repeat=$p" "$w/signup" || true
+              echo "signup posted for $ADMIN_USERNAME"
+          env:
+            - { name: ADMIN_USERNAME, value: {{ .Values.admin.username | quote }} }
+            - { name: ADMIN_EMAIL, value: {{ .Values.admin.email | quote }} }
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "wakapi.secretName" . }}
+                  key: password
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+{{- end }}

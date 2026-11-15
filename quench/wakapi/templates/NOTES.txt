@@ -1,0 +1,12 @@
+Wakapi is on {{ include "quench-common.fullname" . }}:{{ .Values.service.port }} (public URL {{ .Values.publicUrl }}).
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 3000:{{ .Values.service.port }}
+
+{{- if .Values.admin.create }}
+The setup Job signs up "{{ .Values.admin.username }}" as the admin; its password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "wakapi.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+{{- end }}
+
+Point WakaTime plugins at {{ .Values.publicUrl }}/api with the API key from Settings. Turn
+self sign-up off afterwards with settings.WAKAPI_ALLOW_SIGNUP: "false".
