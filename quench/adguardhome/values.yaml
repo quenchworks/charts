@@ -1,0 +1,91 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/adguardhome
+  digest: "sha256:c7cd945dc038db901810bc68a4f6a85207faaea2045a528f3f22680b0cbfa705"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# AdGuard Home keeps its config, query log and statistics on the volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The admin for the web UI. Empty password: generated into the Secret <fullname> (admin-password).
+# It is written (as a bcrypt hash) into the seed config on the first start only; change it in the UI
+# or the config file after that.
+admin:
+  username: admin
+  password: ""
+  existingSecret: ""   # keys admin-password and AdGuardHome.yaml (your own seed config)
+
+# Upstream DNS servers for the seed config; empty keeps AdGuard's defaults.
+upstreamDNS: []
+
+# Helper image for the seed init container (copies the config on the first start). Pinned by digest.
+busybox:
+  repository: ghcr.io/quenchworks/images/busybox
+  digest: "sha256:041302c8da3a2e182ecc2eac3c56c4f47a13c03cc284d255489c0be741893b64"
+  pullPolicy: IfNotPresent
+
+# The volume at /opt/adguardhome: conf/AdGuardHome.yaml and work/ (query log, statistics, filters).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 128Mi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  port: 3000
+  # DNS: AdGuard listens on 5353 in the pod (nonroot); the Service publishes it on 53, UDP and TCP
+  dnsPort: 53
+  annotations: {}
+  externalTrafficPolicy: ""
+
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
