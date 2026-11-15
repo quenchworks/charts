@@ -1,0 +1,86 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/dozzle
+  digest: "sha256:56a3ee6c6dbb1b940a2e4e3a2f214fef206fd289ad77b9f40d79ad835cc1c965"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Dozzle in Kubernetes mode streams pod logs through the API; replicas are stateless.
+replicaCount: 1
+updateStrategy:
+  type: RollingUpdate
+
+# Simple auth (DOZZLE_AUTH_PROVIDER=simple): one user rendered into users.yml with a bcrypt hash.
+# Empty password: generated into the Secret <fullname>-auth (password) and kept across upgrades.
+# Without auth anyone who reaches the Service reads every pod's logs.
+auth:
+  enabled: true
+  username: admin
+  email: admin@example.com
+  password: ""
+
+# Namespaces to watch (DOZZLE_NAMESPACE); empty watches the whole cluster.
+namespaces: []
+
+# Let users restart a container (Dozzle deletes the pod so its controller recreates it); this
+# adds "delete" on pods to the ClusterRole.
+enableActions: false
+
+# More Dozzle settings as DOZZLE_* environment variables (https://dozzle.dev/guide/supported-env-vars).
+settings: {}
+
+rbac:
+  create: true
+
+resources:
+  requests: { cpu: 20m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # Kubernetes mode talks to the API with this token
+  automountServiceAccountToken: true
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

@@ -1,0 +1,12 @@
+Dozzle is on {{ include "quench-common.fullname" . }}:{{ .Values.service.port }}, reading pod logs {{ if .Values.namespaces }}in {{ join ", " .Values.namespaces }}{{ else }}across the cluster{{ end }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+{{- if .Values.auth.enabled }}
+
+Log in as "{{ .Values.auth.username }}" with the password from:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "dozzle.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+{{- else }}
+
+auth.enabled is false: anyone who reaches the Service reads every watched pod's logs.
+{{- end }}
