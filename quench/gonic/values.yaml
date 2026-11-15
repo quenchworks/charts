@@ -1,0 +1,94 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/gonic
+  digest: "sha256:1c23c45d7eea13970053694466c0935eff8219df33667e7af7caeceaedd17453"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# gonic keeps its SQLite database, podcasts and playlists on the volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The admin account. gonic seeds it with password "admin"; a post-install Job sets this one (generated
+# into the Secret <fullname>, key admin-password, when empty) and re-checks it on every upgrade.
+admin:
+  password: ""
+  existingSecret: ""   # a Secret with key admin-password instead
+
+# Your music library, mounted read-only at /music. Without a claim the library is empty.
+music:
+  existingClaim: ""
+
+# How often gonic rescans the library, in minutes (0 turns periodic scans off).
+scanIntervalMinutes: 60
+
+# More settings as GONIC_* environment variables, e.g. GONIC_PROXY_PREFIX.
+settings: {}
+
+# Helper image for the directories init container and the bootstrap Job (wget and nc). Pinned by digest.
+busybox:
+  repository: ghcr.io/quenchworks/images/busybox
+  digest: "sha256:041302c8da3a2e182ecc2eac3c56c4f47a13c03cc284d255489c0be741893b64"
+  pullPolicy: IfNotPresent
+
+# The volume at /data: gonic.db, podcasts/ and playlists/. The transcode cache is an emptyDir.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: "1", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 4747
+  annotations: {}
+  externalTrafficPolicy: ""
+
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

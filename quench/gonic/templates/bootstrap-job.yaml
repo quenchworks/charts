@@ -1,0 +1,63 @@
+{{- /* gonic seeds the admin account with password "admin" on first start and has no setting to change it.
+       This hook sets the generated password after install and on every upgrade: a Subsonic ping (a plain
+       GET) tells whether it is already set; otherwise it logs in as admin/admin through the admin web form
+       and posts the new password. The form posts go over nc (busybox wget re-POSTs on the redirect), with
+       stdin held open so Go does not cancel the request. */}}
+{{- $fullname := include "quench-common.fullname" . }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fullname }}-bootstrap
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        # not the Deployment's selector labels: the Service must not route to this pod
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: bootstrap
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: bootstrap
+          image: {{ printf "%s@%s" .Values.busybox.repository .Values.busybox.digest }}
+          imagePullPolicy: {{ .Values.busybox.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - { name: HOST, value: {{ printf "%s.%s.svc" $fullname .Release.Namespace | quote }} }
+            - { name: PORT, value: {{ .Values.service.port | quote }} }
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "gonic.secretName" . }}
+                  key: admin-password
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              U="http://$HOST:$PORT"
+              ping() { wget -q -O - "$U/rest/ping.view?u=admin&p=$1&v=1.16.1&c=bootstrap&f=json" 2>/dev/null; }
+              # any JSON answer (even "wrong password") means gonic is up
+              for i in $(seq 1 60); do ping x | grep -q '"status"' && break; sleep 5; done
+              if ping "$ADMIN_PASSWORD" | grep -q '"status":"ok"'; then echo "admin password already set"; exit 0; fi
+              post() { { printf 'POST %s HTTP/1.0\r\nHost: %s\r\nContent-Type: application/x-www-form-urlencoded\r\n%bContent-Length: %s\r\n\r\n%s' "$1" "$HOST" "$3" "${#2}" "$2"; sleep 3; } | nc "$HOST" "$PORT"; }
+              cookie=$(post /admin/login_do "username=admin&password=admin" "" | sed -n 's/^Set-Cookie: \([^;]*\).*/\1/p' | head -1)
+              [ -n "$cookie" ] || { echo "login as admin/admin failed and the generated password does not work either"; exit 1; }
+              pw=$(printf '%s' "$ADMIN_PASSWORD" | sed 's/%/%25/g; s/&/%26/g; s/+/%2B/g; s/=/%3D/g')
+              post "/admin/change_password_do?user=admin" "password_one=$pw&password_two=$pw" "Cookie: $cookie\r\nReferer: $U/admin/change_password?user=admin\r\n" >/dev/null
+              ping "$ADMIN_PASSWORD" | grep -q '"status":"ok"' || { echo "the new admin password does not work"; exit 1; }
+              echo "admin password set"
+          resources:
+            requests: { cpu: 5m, memory: 8Mi }
+            limits: { cpu: 100m, memory: 32Mi }

@@ -1,0 +1,11 @@
+gonic is on {{ include "quench-common.fullname" . }}:{{ .Values.service.port }} (Subsonic API at /rest, admin UI at /admin).
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 4747:{{ .Values.service.port }}
+
+Sign in as "admin"; its password (set by the bootstrap Job):
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "gonic.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+
+{{- if not .Values.music.existingClaim }}
+No music.existingClaim is set, so the library is empty: point it at a PVC holding your music.
+{{- end }}
