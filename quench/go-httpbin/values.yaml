@@ -1,0 +1,88 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/go-httpbin
+  digest: "sha256:e26fe2986931c8cc51ff11103bc7b4a950783a92ac10aa436b1cf0023edfe486"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# go-httpbin is stateless: run as many replicas as you like.
+replicaCount: 2
+updateStrategy:
+  type: RollingUpdate
+
+# Request limits: largest accepted body in bytes and longest /delay or /drip (0 or "": upstream defaults,
+# 1 MiB and 10s).
+maxBodySize: 0
+maxDuration: ""
+# Hosts /redirect-to may send clients to (empty: any).
+allowedRedirectDomains: []
+# Show the version on /version (default: the service name only).
+fullVersion: false
+
+# More go-httpbin flags, e.g. -exclude-headers=x-forwarded-*.
+extraArgs: []
+
+resources:
+  requests: { cpu: 10m, memory: 16Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: go-httpbin serves HTTPS instead of HTTP on its one port from the PEM pair at /tls. The
+# certificate comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
