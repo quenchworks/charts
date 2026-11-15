@@ -1,0 +1,14 @@
+Tinyauth is on {{ include "quench-common.fullname" . }}:{{ .Values.service.port }} (app URL {{ .Values.appUrl }}).
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 3000:{{ .Values.service.port }}
+
+{{- if not .Values.admin.existingSecret }}
+Log in as "{{ .Values.admin.username }}"; its password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "tinyauth.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+{{- end }}
+
+Protect an app by pointing its ingress forward-auth at this Service: nginx
+auth-url http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}/api/auth/nginx
+with auth-signin {{ .Values.appUrl }}/login, or Traefik ForwardAuth .../api/auth/traefik.
+Tinyauth's cookie covers the parent domain of the app URL, so protected apps live beside it.
