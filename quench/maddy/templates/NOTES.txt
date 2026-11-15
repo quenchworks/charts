@@ -1,0 +1,11 @@
+Maddy serves {{ .Values.primaryDomain }} as {{ .Values.hostname }}: SMTP on {{ .Values.service.smtpPort }}, submission on {{ .Values.service.submissionPort }}, IMAP on {{ .Values.service.imapPort }}{{ if include "quench-common.tls.enabled" . }} and IMAPS on {{ .Values.service.imapsPort }}{{ end }}.
+
+Create a mailbox (credentials, then the IMAP account):
+
+  kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "quench-common.fullname" . }} -- maddy -config /data/maddy.conf creds create user@{{ .Values.primaryDomain }}
+  kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "quench-common.fullname" . }} -- maddy -config /data/maddy.conf imap-acct create user@{{ .Values.primaryDomain }}
+
+Point the domain's MX record at the Service's external address (service.type LoadBalancer).
+{{- if not (include "quench-common.tls.enabled" .) }}
+TLS is off: logins are accepted in plain text. Turn on tls.enabled before exposing it.
+{{- end }}

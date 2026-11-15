@@ -1,0 +1,97 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/maddy
+  digest: "sha256:14c1451c365d5ea5947341b8302e4ed8b80353b56a8d83bf039b431d199b620e"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Maddy keeps credentials, mailboxes and its queue on the /data volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The server's public name (MX host) and the mail domain it serves (both required).
+hostname: ""
+primaryDomain: ""
+# More domains delivered to local mailboxes.
+extraDomains: []
+
+# Appended to maddy.conf as is (for DKIM, more listeners or routing rules; see upstream docs).
+extraConfig: ""
+
+# The volume at /data: credentials.db, imapsql.db (mailboxes), the queue and messages.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 10Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  smtpPort: 25
+  submissionPort: 587
+  imapPort: 143
+  imapsPort: 993   # when tls.enabled
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: Maddy uses the certificate for STARTTLS on SMTP, submission and IMAP, and adds IMAPS on 993 from the PEM pair at /tls (the
+# probes switch to HTTPS). The certificate comes from the first source set: existingSecret, then a
+# cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
