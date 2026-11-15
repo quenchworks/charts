@@ -1,0 +1,101 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/grocy
+  digest: "sha256:92867b2b9c756961a7ba197876d9b6023d9e855b8e8dda7c250457239c1c3106"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Grocy keeps config.php, its SQLite database and uploads on the volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The first user, created when Grocy makes its database (GROCY_HTTP_USER / GROCY_HTTP_PASSWORD), so the
+# default admin/admin account never exists. Empty password: generated into the Secret <fullname>.
+# Grocy reads these once: change the password later in the UI (Users).
+admin:
+  username: admin
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+
+currency: USD
+locale: en
+# The public URL when Grocy sits behind a proxy path or another host (GROCY_BASE_URL).
+baseURL: ""
+
+# More GROCY_* settings (any config.php Setting), e.g. GROCY_FEATURE_FLAG_CHORES: "false".
+settings: {}
+
+# The data volume: config.php, grocy.db and uploads (/var/lib/grocy).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 1, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: nginx serves HTTPS instead of HTTP on its one port from the PEM pair at /tls. The
+# certificate comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
