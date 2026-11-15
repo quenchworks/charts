@@ -1,0 +1,102 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/kanidm
+  digest: "sha256:0d11b6e230e576e6e0fc13ff75b018ac7b52d605a81943579df8275d68c3e5d6"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# kanidmd keeps its database on the /data volume: one replica (Recreate with the volume).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The DNS name clients reach Kanidm at (required). It becomes the domain of every account and of
+# passkeys and OAuth2 clients, and it cannot change after the first start.
+domain: ""
+# The public URL; empty means https://<domain>.
+origin: ""
+
+# LDAPS (read-only LDAP over TLS) on 3636, for apps that only speak LDAP.
+ldap:
+  enabled: false
+
+# Online backups into /data/backups on the same volume (copy them off the cluster yourself).
+backup:
+  enabled: true
+  schedule: "00 22 * * *"
+  versions: 7
+
+# The volume at /data: kanidm.db and backups/.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 10Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 128Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 443
+  ldapsPort: 636
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# kanidmd always serves TLS on 8443 (the Service publishes 443). The certificate comes from the first
+# source set: existingSecret, then a cert-manager Certificate, else a Helm-generated CA + certificate
+# (browsers warn; trust its ca.crt or bring your own). Keep it enabled.
+tls:
+  enabled: true
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
