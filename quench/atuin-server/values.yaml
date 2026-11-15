@@ -1,0 +1,89 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/atuin-server
+  digest: "sha256:9b18e1d0e073490afba353da149854777bad8c309543a975f0fd98af6fca9c18"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The server keeps server.toml and its SQLite database on the /config volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The account the chart creates (atuin-server admin user create) and keeps in step with the Secret.
+# Empty password: generated into the Secret <fullname> (password). Clients: atuin login -u <user>.
+admin:
+  username: admin
+  email: admin@example.com
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+
+# Let anyone who reaches the server register an account (atuin register). Off: only the admin CLI adds users.
+openRegistration: false
+# Largest single record a client may upload.
+maxRecordSize: 1GiB
+
+# More ATUIN_* environment variables, e.g. ATUIN_METRICS__ENABLE: "true".
+settings: {}
+
+# The data volume: server.toml and the SQLite database (/config).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 1, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8888
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# No TLS listener in the server: terminate TLS at an ingress or gateway in front of the Service.
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
