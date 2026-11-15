@@ -1,0 +1,154 @@
+name: release-gotosocial
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/gotosocial/**"
+      - ".github/workflows/release-gotosocial.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/gotosocial
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/rtest-gotosocial --timeout=300s
+          PW=Quench-CI-Admin-Pass-2026 H=gts.quench.test
+          fwd() { kubectl port-forward svc/rtest-gotosocial 8080:8080 >/tmp/pf.log 2>&1 & local pf=$!; sleep 3; local rc=0; "$@" || rc=$?; kill $pf 2>/dev/null || true; return $rc; }
+          # token PASS [SCHEME [curl flags]]: OAuth authorization-code flow as a client app does it; prints the access token
+          token() { local p=$1 W="${2:-http}://$H:8080"; shift; [ $# -gt 0 ] && shift
+            local C=(-ks --resolve $H:8080:127.0.0.1 -c /tmp/gts.jar -b /tmp/gts.jar "$@") app id sec code; rm -f /tmp/gts.jar
+            for _ in $(seq 1 30); do curl "${C[@]}" -fo /dev/null $W/livez && break; sleep 1; done
+            app=$(curl "${C[@]}" -d client_name=gate -d redirect_uris=urn:ietf:wg:oauth:2.0:oob -d 'scopes=read write' $W/api/v1/apps)
+            id=$(jq -r .client_id <<<"$app"); sec=$(jq -r .client_secret <<<"$app")
+            curl "${C[@]}" -o /dev/null "$W/oauth/authorize?client_id=$id&redirect_uri=urn:ietf:wg:oauth:2.0:oob&response_type=code&scope=read+write"
+            curl "${C[@]}" -o /dev/null --data-urlencode username=admin@example.com --data-urlencode "password=$p" $W/auth/sign_in
+            code=$(curl "${C[@]}" -o /dev/null -w '%{redirect_url}' -d 'scope=read write' $W/oauth/authorize | sed -n 's/.*code=\([^&]*\).*/\1/p')
+            [ -n "$code" ] || return 1
+            curl "${C[@]}" -d grant_type=authorization_code -d "client_id=$id" -d "client_secret=$sec" -d "code=$code" \
+              -d redirect_uri=urn:ietf:wg:oauth:2.0:oob $W/oauth/token | jq -r '.access_token // empty'; }
+          # post SCHEME: a fresh token for the admin, then a status; prints the status content
+          post() { local sc=$1 t; t=$(token $PW $sc) || return 1; [ -n "$t" ] || return 1
+            curl -ks --resolve $H:8080:127.0.0.1 -H "Authorization: Bearer $t" -d 'status=quench gate status' $sc://$H:8080/api/v1/statuses | jq -r .content; }
+          gate1() {
+            ! token wrong-password-1 >/dev/null 2>&1 || [ -z "$(token wrong-password-1 2>/dev/null)" ] || { echo "a wrong password got a token"; return 1; }
+            grep -q 'quench gate status' <<<"$(post http)" || { echo "the admin could not post a status"; return 1; }
+          }
+          fwd gate1
+          # the database lives on the PVC: the admin (and its password from the Secret) survives a pod restart
+          kubectl delete pod -l app.kubernetes.io/instance=rtest --wait=true
+          kubectl rollout status deployment/rtest-gotosocial --timeout=300s
+          gate2() { grep -q 'quench gate status' <<<"$(post http)" || { echo "no status after the restart"; return 1; }; }
+          fwd gate2
+          # native TLS on the same port with the Helm-made CA
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-gotosocial --timeout=300s
+          tlsgate() { ! curl -fsS -o /dev/null --resolve $H:8080:127.0.0.1 http://$H:8080/livez 2>/dev/null || { echo "plain HTTP still answers"; return 1; }
+            grep -q 'quench gate status' <<<"$(post https)" || { echo "no status over HTTPS"; return 1; }; }
+          fwd tlsgate
+          echo "gotosocial: OAuth sign-in with the generated admin, wrong password refused, statuses posted across a pod restart and over native TLS: ok"
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/gotosocial-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/gotosocial@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/gotosocial:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
