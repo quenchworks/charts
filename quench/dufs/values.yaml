@@ -1,0 +1,103 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/dufs
+  digest: "sha256:b16ab19d5f053555f246d760a6a1b204131fd718ca2403ad4f6bae0833ac2a1e"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# dufs serves the files on the /data volume: run one replica (Recreate with the volume).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# One read-write account on the whole tree. Empty password: generated into the Secret <fullname>
+# (password). Turning it off serves the files to anyone who can reach the Service.
+auth:
+  enabled: true
+  username: admin
+  password: ""
+  existingSecret: ""   # a Secret with key "auth" holding DUFS_AUTH rules (user:pass@/:rw|...) instead
+
+# What signed-in users may do (DUFS_ALLOW_*). Without these dufs only lists and downloads.
+allow:
+  upload: true
+  delete: true
+  search: true
+  archive: true
+
+# More dufs settings as environment variables, e.g. DUFS_PATH_PREFIX, DUFS_HIDDEN, DUFS_RENDER_SPA.
+settings: {}
+
+# The data volume: the files dufs serves (/data).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 10Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 16Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 5000
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: dufs serves HTTPS instead of HTTP on its one port from the PEM pair at /tls (the
+# probes switch to HTTPS). The certificate comes from the first source set: existingSecret, then a
+# cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

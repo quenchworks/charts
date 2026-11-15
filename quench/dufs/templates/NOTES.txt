@@ -1,0 +1,11 @@
+dufs is on {{ include "quench-common.fullname" . }}:{{ .Values.service.port }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 5000:{{ .Values.service.port }}
+
+{{- if and .Values.auth.enabled (not .Values.auth.existingSecret) }}
+Sign in as "{{ .Values.auth.username }}"; its password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "dufs.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+{{- end }}
+
+WebDAV clients connect to the same URL with the same account.
