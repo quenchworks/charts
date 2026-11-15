@@ -1,0 +1,98 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/semaphore
+  digest: "sha256:3d436ba1db59b6268f28f6899ab8c77759dec7cf18cc9b66f95c2f3bf9b240b6"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Semaphore keeps its SQLite database on the volume: one replica (Recreate with the volume).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The first admin, created on the first start by an init container. Empty password: generated into the
+# Secret <fullname> (admin-password) with the cookie and access-key encryption keys, all kept across
+# upgrades (the Secret has helm.sh/resource-policy: keep: stored keys are unreadable without it).
+admin:
+  username: admin
+  name: Admin
+  email: admin@example.com
+  password: ""
+  existingSecret: ""   # keys admin-password, cookie-hash, cookie-encryption, access-key-encryption
+
+# More Semaphore settings as SEMAPHORE_* environment variables, e.g. SEMAPHORE_EMAIL_ALERT.
+settings: {}
+
+# The volume at /var/lib/semaphore: database.sqlite.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 128Mi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  port: 3000
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: Semaphore serves the UI and API over HTTPS instead of HTTP on 3000 from the PEM pair at /tls (the
+# probes switch to HTTPS). The certificate comes from the first source set: existingSecret, then a
+# cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
