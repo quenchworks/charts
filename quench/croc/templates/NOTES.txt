@@ -1,0 +1,15 @@
+The croc relay is on {{ include "quench-common.fullname" . }}:{{ .Values.relay.basePort }} (ports {{ include "croc.portList" . }}).
+
+Relay password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "croc.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+
+Send and receive through it (croc 10 or newer, the code phrase in CROC_SECRET):
+
+  CROC_RELAY=<relay-host>:{{ .Values.relay.basePort }} CROC_PASS=<password> CROC_SECRET=<code-phrase> croc send FILE
+  CROC_RELAY=<relay-host>:{{ .Values.relay.basePort }} CROC_PASS=<password> CROC_SECRET=<code-phrase> croc
+
+{{- if eq .Values.service.type "ClusterIP" }}
+The Service is ClusterIP: only clients inside the cluster reach it. Use service.type LoadBalancer
+(croc is raw TCP, not HTTP) for senders and receivers outside.
+{{- end }}

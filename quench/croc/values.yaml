@@ -1,0 +1,77 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/croc
+  digest: "sha256:c2c3a8610a423e5993541e3004f75897ff01c5423f922515033273c372293826"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The relay keeps no state: rooms live in memory while a transfer runs.
+replicaCount: 1
+updateStrategy:
+  type: RollingUpdate
+
+relay:
+  # croc clients dial basePort and are handed the next ports for the transfer (CROC_PORTS), so
+  # the Service exposes the same numbers. portCount 5 matches upstream's default relay.
+  basePort: 9009
+  portCount: 5
+  # The relay password (CROC_PASS) senders and receivers must give. Empty: generated into the
+  # Secret <fullname> (password). existingSecret: a Secret with key "password" instead.
+  password: ""
+  existingSecret: ""
+
+# More relay settings as environment variables, e.g. CROC_MAX_ROOMS_OPEN or CROC_SOURCE_JOIN_LIMIT.
+settings: {}
+
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+# Senders and receivers outside the cluster need the relay ports reachable: a LoadBalancer
+# (or NodePort) Service, since croc speaks raw TCP and does not go through an HTTP ingress.
+service:
+  type: ClusterIP
+  annotations: {}
+  externalTrafficPolicy: ""
+
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
