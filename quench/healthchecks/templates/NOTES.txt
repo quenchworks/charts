@@ -1,0 +1,12 @@
+Healthchecks is on {{ include "quench-common.fullname" . }}:{{ .Values.service.port }} (site root {{ .Values.siteRoot }}).
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8000:{{ .Values.service.port }}
+
+{{- if .Values.admin.create }}
+Log in as {{ .Values.admin.email }}; its password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "healthchecks.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+{{- end }}
+
+Jobs ping {{ .Values.siteRoot }}/ping/<uuid>. Alerts need a channel: set EMAIL_HOST and friends in
+settings for mail, or add Slack, webhook and other integrations in the web UI.

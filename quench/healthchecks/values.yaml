@@ -1,0 +1,91 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/healthchecks
+  digest: "sha256:c9849acaa358096a6737567a97cca7a68d49feb4171f2c280ae2193d3f9875a6"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# With SQLite in /data run one replica (Recreate with the volume). With PostgreSQL (settings.DB)
+# more replicas work, but each pod runs sendalerts, so alerts may go out more than once.
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# SITE_ROOT: the address people open. Ping URLs and links in alerts use it, and Django accepts only
+# its host name (ALLOWED_HOSTS) unless settings.ALLOWED_HOSTS says otherwise.
+siteRoot: http://localhost:8000
+
+# The admin (a superuser), created by an init container while that email has no account. Empty
+# password: generated into the Secret <fullname> (password).
+admin:
+  create: true
+  email: admin@example.com
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+
+# More Healthchecks settings as environment variables
+# (https://healthchecks.io/docs/self_hosted_configuration/), e.g. EMAIL_HOST for alert mail, or
+# DB: postgres with DB_HOST/DB_NAME/DB_USER (DB_PASSWORD through extraEnvVars). Self sign-up is off.
+settings:
+  REGISTRATION_OPEN: "False"
+  GUNICORN_WORKERS: "2"
+
+# The data volume: the SQLite database (/data/hc.sqlite).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 1Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 20m, memory: 160Mi }
+  limits: { cpu: "1", memory: 768Mi }
+
+service:
+  type: ClusterIP
+  port: 8000
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
