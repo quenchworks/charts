@@ -1,0 +1,146 @@
+name: release-trilium
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/trilium/**"
+      - ".github/workflows/release-trilium.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/trilium
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --wait-for-jobs --timeout 12m
+          kubectl rollout status deployment/rtest-trilium --timeout=300s
+          PW=$(kubectl get secret rtest-trilium -o jsonpath='{.data.password}' | base64 -d)
+          [ "$PW" = Quench-CI-trilium-2026 ] || { echo "the Secret does not hold the values password"; exit 1; }
+          fwd() { kubectl port-forward svc/rtest-trilium 18080:8080 >/tmp/pf.log 2>&1 & local pf=$!; sleep 3; local rc=0; "$@" || rc=$?; kill $pf 2>/dev/null || true; return $rc; }
+          B=http://127.0.0.1:18080
+          ready() { for _ in $(seq 1 30); do curl -sf "$B/api/health-check" >/dev/null && return 0; sleep 2; done; echo "no health-check"; return 1; }
+          # token <password>: an ETAPI token, or nothing
+          token() { curl -s -H 'Content-Type: application/json' -d "$(jq -n --arg p "$1" '{password:$p}')" "$B/etapi/auth/login" | jq -r '.authToken // empty'; }
+          create() {
+            ready || return 1
+            local t; t=$(token "$PW"); [ -n "$t" ] || { echo "the Job's password does not sign in"; return 1; }
+            curl -s -H "Authorization: $t" -H 'Content-Type: application/json' -d '{"parentNoteId":"root","title":"Quench gate","type":"text","content":"<p>quench trilium gate</p>"}' "$B/etapi/create-note" > /tmp/n.json
+            NOTE=$(jq -r '.note.noteId // empty' /tmp/n.json); [ -n "$NOTE" ] || { echo "create-note failed: $(cat /tmp/n.json)"; return 1; }
+            echo "$NOTE" > /tmp/note.id
+            read_note "$t" || return 1
+            # the Job made an empty document: root holds only the hidden subtree and this note, no demo notes
+            [ "$(curl -s -H "Authorization: $t" "$B/etapi/notes/root" | jq '[.childNoteIds[] | select(startswith("_") | not)] | length')" = 1 ] || { echo "the document is not empty apart from the gate note"; return 1; }
+            [ "$(curl -s -o /dev/null -w '%{http_code}' "$B/etapi/notes/root")" = 401 ] || { echo "an anonymous ETAPI call was not refused"; return 1; }
+          }
+          read_note() { curl -s -H "Authorization: $1" "$B/etapi/notes/$(cat /tmp/note.id)/content" | grep -q 'quench trilium gate' || { echo "the note is gone"; return 1; }; }
+          kept() { ready || return 1; local t; t=$(token "$PW"); [ -n "$t" ] || { echo "sign-in failed"; return 1; }; read_note "$t" || return 1; }
+          # wrong password last: logins are rate-limited
+          wrong() { ready || return 1; [ -z "$(token wrong-password-1)" ] || { echo "a wrong password signed in"; return 1; }; }
+          fwd create
+          # the document (SQLite on the PVC) survives a pod restart; on upgrade the Job finds the password already set
+          kubectl delete pod -l app.kubernetes.io/instance=rtest,app.kubernetes.io/name=trilium --wait=true
+          kubectl rollout status deployment/rtest-trilium --timeout=300s
+          fwd kept
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --wait-for-jobs --timeout 12m
+          kubectl rollout status deployment/rtest-trilium --timeout=300s
+          fwd kept
+          fwd wrong
+          echo "trilium: Job set up an empty document and the password, ETAPI note created and read back, anonymous call and wrong password refused, kept across a pod restart and an upgrade: ok"
+
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/trilium-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/trilium@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/trilium:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

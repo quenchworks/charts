@@ -1,0 +1,15 @@
+Trilium Notes answers on http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+{{- if .Values.ingress.enabled }} and through the Ingress{{ end }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+
+A post-install Job created the document and set the password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "trilium.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+
+Desktop clients sync against this server with the same password. Backend note scripts are off unless you set
+TRILIUM_SECURITY_BACKEND_SCRIPTING_ENABLED in settings.
+{{- if not .Values.ingress.enabled }}
+
+There is no TLS listener: enable ingress (with tls) before exposing it.
+{{- end }}

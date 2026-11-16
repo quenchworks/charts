@@ -1,0 +1,61 @@
+{{- /* Trilium asks the first visitor to create the document and set the password. This hook does both after install
+       (an empty document, no demo notes) and checks the password on every upgrade. Posts go over nc: busybox wget
+       re-POSTs on the redirect /set-password answers. */}}
+{{- $fullname := include "quench-common.fullname" . }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fullname }}-bootstrap
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        # not the Deployment's selector labels: the Service must not route to this pod
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: bootstrap
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: bootstrap
+          image: {{ printf "%s@%s" .Values.busybox.repository .Values.busybox.digest }}
+          imagePullPolicy: {{ .Values.busybox.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - { name: HOST, value: {{ printf "%s.%s.svc" $fullname .Release.Namespace | quote }} }
+            - { name: PORT, value: {{ .Values.service.port | quote }} }
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "trilium.secretName" . }}
+                  key: password
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              # post <path> <content-type> <body>: a raw HTTP/1.0 POST, headers and body on stdout
+              post() { { printf 'POST %s HTTP/1.0\r\nHost: %s\r\nContent-Type: %s\r\nContent-Length: %s\r\n\r\n%s' "$1" "$HOST" "$2" "${#3}" "$3"; sleep 3; } | nc "$HOST" "$PORT"; }
+              json=$(printf '%s' "$PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')
+              enc=$(printf '%s' "$PASSWORD" | sed 's/%/%25/g; s/&/%26/g; s/+/%2B/g; s/=/%3D/g')
+              # ETAPI answers 201 with a token once the document exists and the password matches
+              signin() { post /etapi/auth/login application/json "{\"password\":\"$json\"}" | head -1 | grep -q ' 201 '; }
+              for i in $(seq 1 60); do wget -q -O /dev/null "http://$HOST:$PORT/" && break; sleep 5; done
+              if signin; then echo "document and password already set up"; exit 0; fi
+              post "/api/setup/new-document?skipDemoDb" application/json '{}' | head -1
+              post /set-password application/x-www-form-urlencoded "password1=$enc&password2=$enc" | head -1
+              signin || { echo "the password does not sign in: the document was set up before (with another password); set auth.* to it"; exit 1; }
+              echo "document created and password set"
+          resources:
+            requests: { cpu: 5m, memory: 8Mi }
+            limits: { cpu: 100m, memory: 32Mi }

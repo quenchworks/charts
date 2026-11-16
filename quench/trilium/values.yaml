@@ -1,0 +1,99 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/trilium
+  digest: "sha256:89e893f83d96e4bf8f93aeb62568a1778632b3b18e374896836a5c987638420b"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# SQLite on a ReadWriteOnce volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The login password. A new install asks the first visitor to create the document and set it; a post-install/upgrade
+# Job does both instead (an empty document, no demo notes). Empty: generated into the Secret <fullname> (password)
+# and kept. Change it later under Options > Password: then set auth.existingSecret or the Job fails.
+auth:
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+
+# More TRILIUM_* settings as environment variables, e.g. TRILIUM_NETWORK_TRUSTEDREVERSEPROXY: "true" behind an
+# Ingress, TRILIUM_SECURITY_BACKEND_SCRIPTING_ENABLED: "true" (off by default: it runs note scripts on the server).
+settings: {}
+
+# Helper image for the setup Job (wget and nc). Pinned by digest.
+busybox:
+  repository: ghcr.io/quenchworks/images/busybox
+  digest: "sha256:041302c8da3a2e182ecc2eac3c56c4f47a13c03cc284d255489c0be741893b64"
+  pullPolicy: IfNotPresent
+
+# /var/lib/trilium: the document (SQLite), backups, logs and config.ini.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 50m, memory: 256Mi }
+  limits: { cpu: 2, memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# trilium has no TLS listener: terminate TLS here.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  # e.g. [{host: notes.example.com, paths: [{path: /, pathType: Prefix}]}]
+  hosts: []
+  # e.g. [{hosts: [notes.example.com], secretName: notes-tls}]
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
