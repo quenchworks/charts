@@ -1,0 +1,37 @@
+{{- /* With TLS: the image's server block (/etc/nginx/conf.d/shaarli.conf) listening with ssl on 8080. */}}
+{{- if include "quench-common.tls.enabled" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-nginx
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  shaarli.conf: |
+    server {
+        listen 8080 ssl default_server;
+        listen [::]:8080 ssl default_server;
+        server_name _;
+        ssl_certificate     /tls/tls.crt;
+        ssl_certificate_key /tls/tls.key;
+        ssl_protocols       TLSv1.2 TLSv1.3;
+        root /var/www/shaarli;
+        index index.php;
+        charset utf-8;
+        client_max_body_size 20M;
+        access_log off;
+        location ~ /\. { return 403; }
+        # code, config and data are never served
+        location ~ ^/(application|cache|data|doc|inc/languages|pagecache|tmp|vendor)(/|$) { return 403; }
+        location ~ ^/(composer\.(json|lock)|init\.php|shaarli_version\.php)$ { return 403; }
+        location / { try_files $uri /index.php$is_args$args; }
+        location = /index.php {
+            include        /etc/nginx/fastcgi_params;
+            fastcgi_param  SCRIPT_FILENAME $document_root/index.php;
+            fastcgi_param  HTTPS on;
+            fastcgi_pass   127.0.0.1:9000;
+        }
+        location ~ \.php$ { return 403; }
+        location ~* \.(js|css|png|jpg|gif|svg|ico|woff2?|ttf|eot|map)$ { expires 30d; access_log off; }
+    }
+{{- end }}

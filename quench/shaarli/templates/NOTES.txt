@@ -1,0 +1,9 @@
+Shaarli serves its bookmarks on {{ ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+
+Log in as {{ .Values.user.login }} (written on the first start; change the password later in Tools):
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "quench-common.fullname" . }} -o jsonpath='{.data.password}' | base64 -d
+
+The REST API (/api/v1) takes HS512 tokens signed with the api-secret key of the same Secret.

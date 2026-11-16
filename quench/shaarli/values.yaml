@@ -1,0 +1,99 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/shaarli
+  digest: "sha256:a517f8cfbe605e45230b05f286dbdf972781b318270ad888af16e5c9b3797203"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Shaarli keeps data/ (config and bookmarks), cache/ and pagecache/ on the data volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The account, written into data/config.json.php on the first start (in place of the install form).
+# Empty password: generated into the Secret <fullname> (password). Shaarli reads it once: change it later
+# in the tools page.
+user:
+  login: admin
+  password: ""
+
+# The REST API (/api/v1, HS512 tokens signed with this secret). Empty: generated into the Secret
+# <fullname> (api-secret).
+apiSecret: ""
+
+title: Shared Bookmarks
+timezone: UTC
+
+# The data volume: data/, cache/, pagecache/ and tmp/ (/var/lib/shaarli).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 1Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 1, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: nginx serves HTTPS instead of HTTP on its one port from the PEM pair at /tls. The
+# certificate comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
