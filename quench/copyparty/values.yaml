@@ -1,0 +1,89 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/copyparty
+  digest: "sha256:fb7867ab747cec9e2d8eea8d2d01d184858c34c5a84f61defb676912882939eb"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# copyparty serves the data volume (/srv) and keeps its state in /srv/.copyparty: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The admin account (log in on the web page, or ?pw= / the PW header for clients). Empty password:
+# generated into the Secret <fullname> (password).
+admin:
+  username: admin
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+
+# Volumes: url on the server, path in the container, permissions (copyparty -v syntax: r read,
+# w write, m move, d delete, g get, a admin, A all; groups joined by ":", a group with no names is everyone).
+# Paths live on the data volume under /srv.
+volumes:
+  - { url: "/", path: /srv, access: "A,admin" }
+
+# More copyparty arguments, e.g. ["-e2dsa"] (index every file), ["--no-robots"], ["-z"] (zeroconf off).
+extraArgs: []
+
+# The data volume: the files copyparty serves (/srv) and its state (/srv/.copyparty, hidden).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 1, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 3923
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# No TLS here: copyparty wants one PEM with key and certificate. Put TLS on an ingress or gateway.
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
