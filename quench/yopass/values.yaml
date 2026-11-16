@@ -1,0 +1,92 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/yopass
+  digest: "sha256:e4dd149fd8627de2813586e987517a7dfd501f40393c23409fbe5e9a4ee8c9fb"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# yopass-server keeps no state of its own (secrets live in Memcached or Redis), so it scales out.
+replicaCount: 1
+updateStrategy: {}
+
+# Where the encrypted secrets are kept.
+#   type memcached: the bundled memcached below, or store.memcached (host:port) when memcached.enabled is false.
+#   type redis: store.redisURL (redis://[:password@]host:6379/0; add ?master_name=<name> for Sentinel). A URL with
+#   a password belongs in a Secret: set extraEnvVarsSecret to a Secret with key REDIS and leave redisURL empty.
+store:
+  type: memcached
+  memcached: ""
+  redisURL: ""
+
+# The bundled QuenchWorks memcached chart (used when store.type is memcached and store.memcached is empty).
+memcached:
+  enabled: true
+
+# More yopass-server settings as environment variables (every flag has one: the flag name in capitals with
+# "_" for "-"), e.g. MAX_LENGTH: "10000", FORCE_ONETIME_SECRETS: "true", DISABLE_UPLOAD: "true",
+# PUBLIC_URL: "https://secrets.example.com", TRUSTED_PROXIES: "10.0.0.0/8".
+settings: {}
+
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 1337
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS on the same port (https). The certificate comes from the first source set: existingSecret,
+# then a cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

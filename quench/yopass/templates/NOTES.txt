@@ -1,0 +1,12 @@
+{{- $scheme := ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") -}}
+Yopass answers on {{ $scheme }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}
+(web UI and API). Secrets are encrypted in the browser and kept in {{ .Values.store.type }}
+{{- if and (eq .Values.store.type "memcached") (not .Values.store.memcached) }} (the bundled {{ .Release.Name }}-memcached){{ end }} until they expire or are read.
+
+Anyone who reaches the Service can create secrets. Expose it behind your ingress, and set settings.PUBLIC_URL
+to the external URL so generated links point there.
+
+The yopass CLI is in the image:
+
+  echo 'my secret' | kubectl run yopass-cli -i --rm --restart=Never --image={{ include "quench-common.image" . }} \
+    --command -- /usr/bin/yopass --api {{ $scheme }}://{{ include "quench-common.fullname" . }}:{{ .Values.service.port }} --url <public URL> --one-time
