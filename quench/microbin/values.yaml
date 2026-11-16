@@ -1,0 +1,88 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/microbin
+  digest: "sha256:ea1e25ff5a050f6c6b38504f23b6ca40fed10acd16e1ffb4156f699d5b37e061"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# MicroBin keeps its SQLite database and uploaded files on the data volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The admin page (/admin: list, edit and remove every upload). Empty password: generated into the
+# Secret <fullname> (password); it replaces upstream's default (m1cr0b1n).
+admin:
+  username: admin
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+
+# The public URL users reach MicroBin on (MICROBIN_PUBLIC_PATH), e.g. https://paste.example.com. It is
+# used in share links and QR codes; empty keeps relative links.
+publicPath: ""
+
+# More MICROBIN_* environment variables, e.g. MICROBIN_PRIVATE: "true", MICROBIN_UPLOADER_PASSWORD (better
+# through extraEnvVarsSecret), MICROBIN_DEFAULT_EXPIRY: 1week, MICROBIN_QR: "true", MICROBIN_HIGHLIGHTSYNTAX: "true".
+settings: {}
+
+# The data volume: the SQLite database and the uploaded files (/var/lib/microbin).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 1, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# No TLS listener in MicroBin: terminate TLS at an ingress or gateway in front of the Service.
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
