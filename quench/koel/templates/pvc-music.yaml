@@ -1,0 +1,19 @@
+{{- if and .Values.music.enabled (not .Values.music.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "quench-common.fullname" . }}-music
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    {{- toYaml .Values.music.accessModes | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ .Values.music.size | quote }}
+  {{- with .Values.music.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+{{- end }}

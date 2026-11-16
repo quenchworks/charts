@@ -1,0 +1,115 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/koel
+  digest: "sha256:b2de1e9ce654b2284ad20ab99a98093cec15ce396c7972ca9e74f37a1251f95c"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Koel keeps storage/ (SQLite database, artwork, search indexes, logs) on the data volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# APP_KEY (base64:<32 bytes>), the key Laravel encrypts with. Empty: generated into the Secret <fullname>
+# (app-key) once and kept across upgrades.
+appKey:
+  value: ""
+  existingSecret: ""   # a Secret with key "app-key" instead
+
+# The public URL (APP_URL), e.g. https://music.example.com.
+appURL: ""
+
+# The first admin, created when the database has no users. Empty password: generated into the Secret
+# <fullname> (admin-password). Koel reads it once: change the password later in the UI.
+admin:
+  name: Admin
+  email: admin@example.com
+  password: ""
+
+# The music library, mounted at /music (MEDIA_PATH). Web uploads are written there too. A PVC the chart
+# makes (kept on uninstall), or an existing claim with your library.
+music:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 20Gi
+  storageClass: ""
+
+# More environment variables, e.g. TZ, STREAMING_METHOD, LASTFM_API_KEY, SPOTIFY_CLIENT_ID; secrets through
+# extraEnvVarsSecret. SQLite is the default; for MySQL or PostgreSQL set DB_CONNECTION, DB_HOST, DB_PORT,
+# DB_DATABASE and DB_USERNAME here and DB_PASSWORD through extraEnvVarsSecret.
+settings: {}
+
+# The data volume: storage/ (/var/lib/koel/storage).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 1, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: nginx serves HTTPS instead of HTTP on its one port from the PEM pair at /tls. The
+# certificate comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

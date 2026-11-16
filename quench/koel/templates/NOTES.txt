@@ -1,0 +1,11 @@
+Koel serves its web player on {{ ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+
+Log in as {{ .Values.admin.email }} (created on the first start; change the password later in the UI):
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "quench-common.fullname" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+
+Music is read from /music ({{ if .Values.music.enabled }}{{ .Values.music.existingClaim | default (printf "%s-music" (include "quench-common.fullname" .)) }}{{ else }}an emptyDir: set music.enabled{{ end }}). After copying files there, scan them:
+
+  kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "quench-common.fullname" . }} -- php /var/www/koel/artisan koel:scan
