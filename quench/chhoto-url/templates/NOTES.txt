@@ -1,0 +1,13 @@
+Chhoto URL answers on http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+{{- if .Values.ingress.enabled }} and through the Ingress{{ end }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 4567:{{ .Values.service.port }}
+
+Web UI password and API key (header X-API-Key):
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "chhoto-url.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "chhoto-url.secretName" . }} -o jsonpath='{.data.api-key}' | base64 -d
+{{- if not .Values.ingress.enabled }}
+
+There is no TLS listener: enable ingress (with tls) before exposing it.
+{{- end }}
