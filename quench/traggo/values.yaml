@@ -1,0 +1,94 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/traggo
+  digest: "sha256:83826342f27055fa7769022873f8bf2cc88dd84777bd9007be615f6c862fc312"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# SQLite on a ReadWriteOnce volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The first admin, created when the database has no users (upstream would create admin/admin). Empty password:
+# generated into the Secret <fullname> (password) and kept on upgrade. Change it later in the UI.
+auth:
+  username: admin
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+
+# More TRAGGO_* settings, e.g. TRAGGO_LOG_LEVEL: debug, TRAGGO_PASS_STRENGTH: "12", or PostgreSQL:
+# TRAGGO_DATABASE_DIALECT: postgres, TRAGGO_DATABASE_CONNECTION: "host=... user=... dbname=... sslmode=require"
+# (put a connection string with a password in extraEnvVarsSecret instead).
+settings: {}
+
+# The SQLite database (/var/lib/traggo).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 1Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 3030
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# traggo has no TLS listener: terminate TLS here.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  # e.g. [{host: time.example.com, paths: [{path: /, pathType: Prefix}]}]
+  hosts: []
+  # e.g. [{hosts: [time.example.com], secretName: time-tls}]
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
