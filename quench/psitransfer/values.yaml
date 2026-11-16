@@ -1,0 +1,97 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/psitransfer
+  digest: "sha256:2aeb0014c58edbaa3acc7c56a2b9ba02a92e1ef2f981d10e566e7ed44237129a"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# SQLite on a ReadWriteOnce volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The admin page password (PSITRANSFER_ADMIN_PASS) and, with uploadPassword=true, a password every uploader needs
+# (PSITRANSFER_UPLOAD_PASS). Empty values: generated into the Secret <fullname> (admin-password, upload-password) and
+# kept on upgrade. Without an upload password anyone who reaches the Service can upload.
+auth:
+  uploadPassword: true
+  adminPassword: ""
+  uploadPasswordValue: ""
+  existingSecret: ""   # a Secret with keys "admin-password" and "upload-password" instead
+
+# More PSITRANSFER_* settings, e.g. PSITRANSFER_DEFAULT_RETENTION: "86400", PSITRANSFER_MAX_FILE_SIZE: "2147483648",
+# PSITRANSFER_REQUIRE_BUCKET_PASSWORD: "true", PSITRANSFER_TRUST_PROXY: "true".
+settings: {}
+
+# The uploads (/data).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 20Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 20m, memory: 96Mi }
+  limits: { cpu: 1, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 3000
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native HTTPS (PsiTransfer's own SSL listener on the same Service port). The certificate comes from the first source
+# set: existingSecret, then a cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

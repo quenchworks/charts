@@ -1,0 +1,149 @@
+name: release-psitransfer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/psitransfer/**"
+      - ".github/workflows/release-psitransfer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/psitransfer
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 8m
+          kubectl rollout status deployment/rtest-psitransfer --timeout=300s
+          UP=Quench-CI-psi-upload-2026 AP=Quench-CI-psi-admin-2026
+          printf 'quench psitransfer gate file\n' > /tmp/gate.txt
+          fwd() { kubectl port-forward svc/rtest-psitransfer 13000:3000 >/tmp/pf.log 2>&1 & local pf=$!; sleep 3; local rc=0; "$@" || rc=$?; kill $pf 2>/dev/null || true; return $rc; }
+          # call <method> <path> [curl args]: prints the status, body in /tmp/p.out, headers in /tmp/p.hdr
+          call() { local m=$1 p=$2; shift 2; curl -s -o /tmp/p.out -D /tmp/p.hdr -w '%{http_code}' -X "$m" $CURL "$@" "$B$p"; }
+          meta="sid $(printf quenchgate | base64),retention $(printf 604800 | base64),name $(printf gate.txt | base64)"
+          upload() {
+            for _ in $(seq 1 30); do [ "$(call GET /)" = 200 ] && break; sleep 1; done
+            [ "$(call POST /files -H 'Tus-Resumable: 1.0.0' -H "Upload-Length: $(wc -c < /tmp/gate.txt)" -H "Upload-Metadata: $meta")" = 401 ] || { echo "an upload without the password was not refused"; return 1; }
+            [ "$(call POST /files -H 'Tus-Resumable: 1.0.0' -H "Upload-Length: $(wc -c < /tmp/gate.txt)" -H "Upload-Metadata: $meta" -H "x-passwd: $UP")" = 201 ] || { echo "creating the upload failed: $(cat /tmp/p.out)"; return 1; }
+            tr -d '\r' < /tmp/p.hdr | awk 'tolower($1)=="location:"{print $2}' | sed 's|^https\?://[^/]*||' > /tmp/p.loc
+            [ "$(call PATCH "$(cat /tmp/p.loc)" -H 'Tus-Resumable: 1.0.0' -H 'Upload-Offset: 0' -H 'Content-Type: application/offset+octet-stream' -H "x-passwd: $UP" --data-binary @/tmp/gate.txt)" = 204 ] || { echo "uploading the bytes failed: $(cat /tmp/p.out)"; return 1; }
+            served || return 1
+          }
+          served() {
+            for _ in $(seq 1 30); do [ "$(call GET /)" = 200 ] && break; sleep 1; done
+            [ "$(call GET "$(cat /tmp/p.loc)")" = 200 ] && cmp -s /tmp/p.out /tmp/gate.txt || { echo "the file does not download back"; return 1; }
+            [ "$(call GET /admin/data.json -H 'x-passwd: wrong-password-1')" -ge 400 ] || { echo "admin data with a wrong password"; return 1; }
+            [ "$(call GET /admin/data.json -H "x-passwd: $AP")" = 200 ] && grep -q quenchgate /tmp/p.out || { echo "admin data does not list the upload"; return 1; }
+          }
+          B=http://127.0.0.1:13000 CURL="" fwd upload
+          # uploads (PVC) survive a pod restart
+          kubectl delete pod -l app.kubernetes.io/instance=rtest --wait=true
+          kubectl rollout status deployment/rtest-psitransfer --timeout=300s
+          B=http://127.0.0.1:13000 CURL="" fwd served
+          # native TLS: PsiTransfer's SSL listener behind the same Service port, with the Helm-made CA
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 8m
+          kubectl rollout status deployment/rtest-psitransfer --timeout=300s
+          kubectl get secret rtest-psitransfer-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/p-ca.crt
+          tlsgate() {
+            served || return 1
+            ! curl -fsS -o /dev/null http://127.0.0.1:13000/ 2>/dev/null || { echo "plain HTTP still answers with tls.enabled"; return 1; }
+          }
+          B=https://rtest-psitransfer:13000 CURL="--cacert /tmp/p-ca.crt --resolve rtest-psitransfer:13000:127.0.0.1" fwd tlsgate
+          echo "psitransfer: upload password enforced, tus upload downloaded back, admin data behind its password, kept across a pod restart, native TLS: ok"
+
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/psitransfer-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/psitransfer@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/psitransfer:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

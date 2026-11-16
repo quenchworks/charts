@@ -1,0 +1,16 @@
+PsiTransfer answers on {{ ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 3000:{{ .Values.service.port }}
+
+Admin page ({{ ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") }}://.../admin) password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "psitransfer.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+{{- if .Values.auth.uploadPassword }}
+
+Uploading needs the upload password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "psitransfer.secretName" . }} -o jsonpath='{.data.upload-password}' | base64 -d
+{{- else }}
+
+Uploads are OPEN: anyone who reaches the Service can upload files.
+{{- end }}
