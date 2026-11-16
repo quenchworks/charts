@@ -1,0 +1,145 @@
+name: release-lychee
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/lychee/**"
+      - ".github/workflows/release-lychee.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/lychee
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          kubectl rollout status deployment/rtest-lychee --timeout=600s
+          PW=quench-ci-lychee-admin
+          fwd() { kubectl port-forward svc/rtest-lychee 8080:8080 >/tmp/pf.log 2>&1 & local pf=$!; sleep 3; local rc=0; "$@" || rc=$?; kill $pf 2>/dev/null || true; return $rc; }
+          # login <base> <password>: a session and its XSRF-TOKEN from GET /, then the v2 API login; prints the status
+          login() {
+            local b=$1; rm -f /tmp/ly.jar
+            curl -fsS -o /dev/null -c /tmp/ly.jar -b /tmp/ly.jar $CURL "$b/"
+            local x; x=$(awk '$6 == "XSRF-TOKEN" { print $7 }' /tmp/ly.jar | sed 's/%3D/=/g; s/%2B/+/g; s/%2F/\//g')
+            curl -s -o /tmp/ly.out -w '%{http_code}' -c /tmp/ly.jar -b /tmp/ly.jar $CURL -H 'Content-Type: application/json' \
+              -H 'Accept: application/json' -H "X-XSRF-TOKEN: $x" -d "{\"username\":\"admin\",\"password\":\"$2\"}" "$b/api/v2/Auth::login"
+          }
+          gate() {
+            local b=$1
+            for _ in $(seq 1 60); do [ "$(curl -s -o /dev/null -w '%{http_code}' $CURL "$b/")" = 200 ] && break; sleep 2; done
+            [ "$(login "$b" wrong-password-1)" -ge 400 ] || { echo "a wrong password was not refused"; return 1; }
+            [ "$(login "$b" "$PW")" = 204 ] || { echo "admin login failed: $(cat /tmp/ly.out)"; return 1; }
+          }
+          CURL="" fwd gate http://127.0.0.1:8080
+          # the account (SQLite on the PVC) and APP_KEY (Secret) survive a pod restart
+          kubectl delete pod -l app.kubernetes.io/instance=rtest --wait=true
+          kubectl rollout status deployment/rtest-lychee --timeout=600s
+          CURL="" fwd gate http://127.0.0.1:8080
+          # native TLS on the same port with the Helm-made CA, plain HTTP refused
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status deployment/rtest-lychee --timeout=600s
+          kubectl get secret rtest-lychee-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/ly-ca.crt
+          tlsgate() {
+            gate https://rtest-lychee:8080
+            ! curl -fsS -o /dev/null http://127.0.0.1:8080/ 2>/dev/null || { echo "plain HTTP still answers with tls.enabled"; return 1; }
+          }
+          CURL="--cacert /tmp/ly-ca.crt --resolve rtest-lychee:8080:127.0.0.1" fwd tlsgate
+          echo "lychee: admin API login, wrong password refused, kept across a pod restart, native TLS: ok"
+
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/lychee-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/lychee@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/lychee:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

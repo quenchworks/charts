@@ -1,0 +1,104 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/lychee
+  digest: "sha256:a9aface888fe01217072b24c109bf4e8c958f1461db356e349b26abc69842f7b"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Lychee keeps storage/ (SQLite database, logs), uploads/ (the photos) and sym/ on the data volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# APP_KEY (base64:<32 bytes>), the key Laravel encrypts with. Empty: generated into the Secret <fullname>
+# (app-key) once and kept across upgrades.
+appKey:
+  value: ""
+  existingSecret: ""   # a Secret with key "app-key" instead
+
+# The public URL (APP_URL), e.g. https://photos.example.com.
+appURL: ""
+
+# The admin, created on the first start (lychee:create_user --may-administrate). Empty password:
+# generated into the Secret <fullname> (admin-password). Lychee reads it once: change it later in the UI.
+admin:
+  username: admin
+  password: ""
+
+# More environment variables, e.g. TIMEZONE, TRUSTED_PROXIES, MAIL_*; secrets through extraEnvVarsSecret. SQLite is the default; for MySQL or PostgreSQL set DB_CONNECTION, DB_HOST, DB_PORT,
+# DB_DATABASE and DB_USERNAME here and DB_PASSWORD through extraEnvVarsSecret.
+settings: {}
+
+# The data volume: storage/, uploads/ (photos) and sym/ (/var/lib/lychee). Size it for the photo library.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 20Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 1, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: nginx serves HTTPS instead of HTTP on its one port from the PEM pair at /tls. The
+# certificate comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
