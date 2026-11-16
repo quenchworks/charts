@@ -1,0 +1,95 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/derper
+  digest: "sha256:877f1da2bb0adbdaefafdbfe2ea330823ed079b3e84d388801d081bd375ad38b"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# derper is stateless (its key file is regenerated per pod): one replica per DERP region node.
+replicaCount: 1
+updateStrategy:
+  type: RollingUpdate
+
+# The relay's DNS name (required): clients reach it at https://<hostname>, and the certificate must cover it
+# (with cert-manager, add it to tls.certManager.dnsNames; the Helm-made CA is for testing).
+hostname: ""
+
+# STUN on 3478/udp, used by clients for NAT traversal.
+stun:
+  enabled: true
+
+# Only relay for nodes of your tailnet, checked through a local tailscaled (see derper -verify-clients); needs
+# a tailscaled sidecar and its socket, so it is off by default.
+verifyClients: false
+
+# More derper flags, e.g. -home=blank or -verify-client-url=https://...
+extraArgs: []
+
+resources:
+  requests: { cpu: 10m, memory: 16Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 443
+  stunPort: 3478
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: go-httpbin serves HTTPS instead of HTTP on its one port from the PEM pair at /tls. The
+# certificate comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: true
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+# derper serves TLS only on 443: let the nonroot user bind it with a safe sysctl instead of root.
+podSecurityContext:
+  sysctls:
+    - { name: net.ipv4.ip_unprivileged_port_start, value: "0" }
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
