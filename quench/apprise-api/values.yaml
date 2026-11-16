@@ -1,0 +1,109 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/apprise-api
+  digest: "sha256:ef08a20c18f2a7184579806ed4cef8384000562368f84993075b40781b449237"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# SQLite on a ReadWriteOnce volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# Upstream's own authentication (APPRISE_AUTH_REQUIRED): every API call and the web UI need HTTP basic auth as this
+# account. Empty password: generated into the Secret <fullname> (password), kept on upgrade with the Django
+# SECRET_KEY (secret-key) the chart also generates.
+auth:
+  enabled: true
+  username: admin
+  password: ""
+  existingSecret: ""   # a Secret with keys "password" and "secret-key" instead
+
+# How configs are stored under /config: simple (readable files), hash (hashed keys) or disabled.
+statefulMode: simple
+# Lock stored configs: /add and /del refuse and stored URLs are hidden for per-config logins and anonymous callers.
+# The admin account (auth.username) still sees and changes everything, by upstream's design.
+configLock: false
+# Upstream's strict nginx profile (tighter request rules).
+strictMode: false
+# gunicorn (gevent) workers. Upstream defaults to 2 x CPUs + 1 of the node, far more than one pod needs.
+workers: 2
+
+# More of upstream's environment variables, e.g. APPRISE_API_ONLY: "yes", APPRISE_ALLOW_SERVICES: "mailto,slack",
+# APPRISE_DENY_SERVICES: ..., APPRISE_BASE_URL: /apprise, APPRISE_WORKER_COUNT: "4".
+settings: {}
+
+# Attachments received with notifications (an emptyDir per pod).
+attachments:
+  sizeLimit: 1Gi
+
+# The stored configs (/config).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 1Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { cpu: 1, memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 8000
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Apprise API has no TLS listener: terminate TLS here.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  # e.g. [{host: notify.example.com, paths: [{path: /, pathType: Prefix}]}]
+  hosts: []
+  # e.g. [{hosts: [notify.example.com], secretName: notify-tls}]
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

@@ -1,0 +1,17 @@
+Apprise API answers on http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+{{- if .Values.ingress.enabled }} and through the Ingress{{ end }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8000:{{ .Values.service.port }}
+{{- if .Values.auth.enabled }}
+
+Every call needs HTTP basic auth as {{ .Values.auth.username }}:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "apprise-api.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+{{- else }}
+
+Authentication is OFF: anyone who reaches the Service can read stored configs (they hold service credentials) and send
+notifications through them.
+{{- end }}
+
+Store a config: curl -u USER:PASS -d 'urls=mailto://...' http://.../add/<key>
+Notify:         curl -u USER:PASS -d 'body=hello' http://.../notify/<key>
