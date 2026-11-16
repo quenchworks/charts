@@ -1,0 +1,18 @@
+SilverBullet answers on http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+{{- if .Values.ingress.enabled }} and through the Ingress{{ end }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 3000:{{ .Values.service.port }}
+{{- if .Values.auth.enabled }}
+
+Sign in as {{ .Values.auth.username }}; API calls take the token as "Authorization: Bearer <token>":
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "silverbullet.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "silverbullet.secretName" . }} -o jsonpath='{.data.api-token}' | base64 -d
+{{- else }}
+
+Authentication is OFF: anyone who reaches the Service can read and change every note.
+{{- end }}
+{{- if not .Values.ingress.enabled }}
+
+There is no TLS listener: enable ingress (with tls) before exposing it.
+{{- end }}
