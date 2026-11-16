@@ -1,0 +1,14 @@
+Rallly answers on http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+{{- if .Values.ingress.enabled }} and through the Ingress{{ end }}; users open {{ .Values.baseUrl }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 3000:{{ .Values.service.port }}
+
+Sign-in is by a code sent by email: {{ if .Values.smtp.host }}mail goes through {{ .Values.smtp.host }}:{{ .Values.smtp.port }}{{ else }}SMTP IS NOT SET, so nobody can sign in. Set smtp.host{{ end }}.
+{{- if not .Values.allowedEmails }}
+Anyone who can receive mail can register: set allowedEmails to limit it.
+{{- end }}
+Without a Rallly license key a space has one seat; poll participants need no account.
+{{- if not .Values.ingress.enabled }}
+
+There is no TLS listener: enable ingress (with tls) before exposing it.
+{{- end }}
