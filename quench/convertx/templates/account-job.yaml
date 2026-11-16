@@ -1,0 +1,61 @@
+{{- /* ConvertX lets the first visitor register the first account, then closes registration (unless
+       accountRegistration). This hook claims it after install and on every upgrade: it signs in with the configured
+       account and, when that fails, registers it. Form posts go over nc: busybox wget re-POSTs on the redirect. */}}
+{{- $fullname := include "quench-common.fullname" . }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fullname }}-bootstrap
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        # not the Deployment's selector labels: the Service must not route to this pod
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: bootstrap
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: bootstrap
+          image: {{ printf "%s@%s" .Values.busybox.repository .Values.busybox.digest }}
+          imagePullPolicy: {{ .Values.busybox.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - { name: HOST, value: {{ printf "%s.%s.svc" $fullname .Release.Namespace | quote }} }
+            - { name: PORT, value: {{ .Values.service.port | quote }} }
+            - { name: EMAIL, value: {{ .Values.auth.email | quote }} }
+            - name: PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "convertx.secretName" . }}
+                  key: password
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              # post <path> <form>: a raw HTTP/1.0 POST, headers and body on stdout (busybox wget re-POSTs on redirects)
+              post() { { printf 'POST %s HTTP/1.0\r\nHost: %s\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: %s\r\n\r\n%s' "$1" "$HOST" "${#2}" "$2"; sleep 3; } | nc "$HOST" "$PORT"; }
+              enc() { printf '%s' "$1" | sed 's/%/%25/g; s/&/%26/g; s/+/%2B/g; s/=/%3D/g; s/@/%40/g'; }
+              form="email=$(enc "$EMAIL")&password=$(enc "$PASSWORD")"
+              # a sign-in sets a non-empty auth cookie (Bun writes the header name in lower case)
+              signin() { post /login "$form" | grep -qiE '^set-cookie: auth=[^;]+'; }
+              for i in $(seq 1 60); do wget -q -O /dev/null "http://$HOST:$PORT/healthcheck" && break; sleep 5; done
+              if signin; then echo "account $EMAIL already set up"; exit 0; fi
+              post /register "$form" >/dev/null
+              signin || { echo "could not claim $EMAIL: someone registered first, or the password changed; set auth.* to that account"; exit 1; }
+              echo "account $EMAIL created"
+          resources:
+            requests: { cpu: 5m, memory: 8Mi }
+            limits: { cpu: 100m, memory: 32Mi }

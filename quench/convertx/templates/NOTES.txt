@@ -1,0 +1,16 @@
+ConvertX answers on http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+{{- if .Values.ingress.enabled }} and through the Ingress{{ end }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 3000:{{ .Values.service.port }}
+
+A post-install Job claims the first account, {{ .Values.auth.email }}; its password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "convertx.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+{{- if not .Values.httpAllowed }}
+
+Session cookies are Secure: sign in over HTTPS (the Ingress), or set httpAllowed=true for plain HTTP.
+{{- end }}
+{{- if not .Values.ingress.enabled }}
+
+There is no TLS listener: enable ingress (with tls) before exposing it.
+{{- end }}

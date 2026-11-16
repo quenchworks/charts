@@ -1,0 +1,157 @@
+name: release-convertx
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/convertx/**"
+      - ".github/workflows/release-convertx.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/convertx
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --wait-for-jobs --timeout 12m
+          kubectl rollout status deployment/rtest-convertx --timeout=300s
+          PW=$(kubectl get secret rtest-convertx -o jsonpath='{.data.password}' | base64 -d)
+          [ "$PW" = Quench-CI-convertx-2026 ] || { echo "the Secret does not hold the values password"; exit 1; }
+          fwd() { kubectl port-forward svc/rtest-convertx 13000:3000 >/tmp/pf.log 2>&1 & local pf=$!; sleep 3; local rc=0; "$@" || rc=$?; kill $pf 2>/dev/null || true; return $rc; }
+          B=http://127.0.0.1:13000
+          # login <jar> <email> <password>: prints the status; the session lands in <jar>
+          login() { rm -f "$1"; curl -s -o /dev/null -w '%{http_code}' -c "$1" -b "$1" --data-urlencode "email=$2" --data-urlencode "password=$3" "$B/login"; }
+          has_auth() { grep -qE $'\tauth\t.+' "$1"; }
+          ready() { for _ in $(seq 1 30); do curl -sf "$B/healthcheck" >/dev/null && return 0; sleep 2; done; echo "no healthcheck"; return 1; }
+          # conv <file> <to> <converter> <out> <magic>: a fresh job, upload, convert, poll the download
+          conv() {
+            curl -s -o /dev/null -c /tmp/a.jar -b /tmp/a.jar "$B/" || return 1
+            local job; job=$(awk '$6=="jobId"{print $7}' /tmp/a.jar); [ -n "$job" ] || { echo "no jobId cookie"; return 1; }
+            [ "$(curl -s -o /dev/null -w '%{http_code}' -b /tmp/a.jar -F "file=@$1" "$B/upload")" = 200 ] || { echo "upload $1 failed"; return 1; }
+            curl -s -o /dev/null -b /tmp/a.jar --data-urlencode "convert_to=$2,$3" --data-urlencode "file_names=[\"$(basename "$1")\"]" "$B/convert" || return 1
+            for _ in $(seq 1 90); do
+              curl -s -o /tmp/out.bin -b /tmp/a.jar "$B/download/1/$job/$4" && [ "$(head -c ${#5} /tmp/out.bin)" = "$5" ] && return 0
+              sleep 2
+            done
+            echo "$1 never converted to $2 with $3"; return 1
+          }
+          checks() {
+            ready || return 1
+            [ "$(login /tmp/w.jar gate@quench.test wrong-password-1)" = 403 ] && ! has_auth /tmp/w.jar || { echo "a wrong password was not refused"; return 1; }
+            login /tmp/a.jar gate@quench.test "$PW" >/dev/null; has_auth /tmp/a.jar || { echo "the Job's account cannot sign in"; return 1; }
+            rm -f /tmp/r.jar; curl -s -o /dev/null -c /tmp/r.jar --data-urlencode email=intruder@quench.test --data-urlencode "password=$PW" "$B/register"
+            ! has_auth /tmp/r.jar || { echo "a second account registered"; return 1; }
+            printf 'P3\n2 2\n255\n255 0 0 0 255 0 0 0 255 255 255 255\n' > /tmp/gate.ppm
+            conv /tmp/gate.ppm png imagemagick gate.png $'\x89PNG' || return 1
+            printf 'quench convertx gate\n' > /tmp/gate.txt
+            conv /tmp/gate.txt pdf libreoffice gate.pdf '%PDF' || return 1
+          }
+          kept() { ready || return 1; login /tmp/a.jar gate@quench.test "$PW" >/dev/null; has_auth /tmp/a.jar || { echo "the account did not survive"; return 1; }; }
+          fwd checks
+          # the account (SQLite on the PVC) survives a pod restart; the Secret survives an upgrade (the Job reruns and finds it)
+          kubectl delete pod -l app.kubernetes.io/instance=rtest,app.kubernetes.io/name=convertx --wait=true
+          kubectl rollout status deployment/rtest-convertx --timeout=300s
+          fwd kept
+          JWT=$(kubectl get secret rtest-convertx -o jsonpath='{.data.jwt-secret}')
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --wait-for-jobs --timeout 12m
+          [ "$(kubectl get secret rtest-convertx -o jsonpath='{.data.jwt-secret}')" = "$JWT" ] || { echo "JWT_SECRET changed on upgrade"; exit 1; }
+          kubectl rollout status deployment/rtest-convertx --timeout=300s
+          fwd kept
+          echo "convertx: Job-claimed account signs in, wrong password and a second registration refused, image converted with ImageMagick and text to PDF with LibreOffice, account kept across a pod restart and an upgrade: ok"
+
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/convertx-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/convertx@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/convertx:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
