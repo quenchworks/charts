@@ -2,7 +2,7 @@ apiVersion: v2
 name: lgtm-stack
 description: "Hardened, operator-free LGTM observability superset in one install: Loki (logs) + Grafana (the single pane) + Tempo (traces) + VictoriaMetrics (Prometheus-compatible metrics) + an OpenTelemetry Collector (OTLP ingest) + Alertmanager. Grafana gets three pre-provisioned datasources, VictoriaMetrics (default), Loki, Tempo, so metrics, logs and traces are explorable side by side out of the box. VictoriaMetrics scrapes pods via annotation-based service discovery; Vector ships every pod's logs to Loki; apps send OTLP traces to the collector, which forwards to Tempo. No operator, no CRDs. All component images are QuenchWorks-hardened, nonroot, CVE-gated, pinned by digest and cosign-signed. node-exporter and Vector take host access by design (cluster metrics + logs); both are toggleable."
 type: application
-version: 0.0.58
+version: 0.0.59
 appVersion: "1.0.0"
 keywords:
   - lgtm
@@ -38,8 +38,8 @@ sources:
   - https://github.com/prometheus/node_exporter
 annotations:
   artifacthub.io/changes: |
-    - kind: changed
-      description: "Re-pinned to the image rebuilt for CVE-2026-128085 (OpenTelemetry 1.47) and the 2026-11-14 Wolfi package updates."
+    - kind: security
+      description: "Re-pinned alertmanager to rebuilt image digests."
   artifacthub.io/category: monitoring-logging
   artifacthub.io/images: |
     - name: victoriametrics
@@ -51,7 +51,7 @@ annotations:
     - name: tempo
       image: ghcr.io/quenchworks/images/tempo@sha256:f2a5bc386c76598b2bfb9695bf2f13a471bf210d86f214cd84a2d5b909da68de
     - name: alertmanager
-      image: ghcr.io/quenchworks/images/alertmanager@sha256:0a201bdf1f3d3e56b8ffb7509b0d7630017d06ac106231ef15d695716a384e0f
+      image: ghcr.io/quenchworks/images/alertmanager@sha256:be667ecb9fa2273586fbf3611fcb95dea52834097361de83cac1aaf3ac8cadc4
     - name: otel-collector
       image: ghcr.io/quenchworks/images/otel-collector@sha256:c47ea76447d7c83289e07ae418107d4f581e9a16534691e8bd1c6916040f7c38
     - name: vector
@@ -92,7 +92,7 @@ dependencies:
     repository: oci://ghcr.io/quenchworks/charts
     condition: tempo.enabled
   - name: alertmanager
-    version: 0.0.24
+    version: 0.0.25
     repository: oci://ghcr.io/quenchworks/charts
     condition: alertmanager.enabled
 # ponytail: Vector, the OpenTelemetry Collector, kube-state-metrics and node-exporter
