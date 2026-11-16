@@ -1,0 +1,20 @@
+flatnotes answers on http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+{{- if .Values.ingress.enabled }} and through the Ingress{{ end }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+{{- if has .Values.auth.type (list "password" "totp") }}
+
+Sign in as {{ .Values.auth.username }}:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "flatnotes.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+{{- if eq .Values.auth.type "totp" }}
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "flatnotes.secretName" . }} -o jsonpath='{.data.totp-key}' | base64 -d   # add to your authenticator
+{{- end }}
+{{- else }}
+
+Authentication is {{ .Values.auth.type }}: {{ ternary "anyone who reaches the Service can read every note" "anyone who reaches the Service can read and change every note" (eq .Values.auth.type "read_only") }}.
+{{- end }}
+{{- if not .Values.ingress.enabled }}
+
+There is no TLS listener: enable ingress (with tls) before exposing it.
+{{- end }}
