@@ -1,0 +1,144 @@
+name: release-baikal
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/baikal/**"
+      - ".github/workflows/release-baikal.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/baikal
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          kubectl rollout status deployment/rtest-baikal --timeout=600s
+          PW=quench-ci-baikal-dav
+          fwd() { kubectl port-forward svc/rtest-baikal 8080:8080 >/tmp/pf.log 2>&1 & local pf=$!; sleep 3; local rc=0; "$@" || rc=$?; kill $pf 2>/dev/null || true; return $rc; }
+          dav() { curl -s -o /tmp/bk.out -w '%{http_code}' $CURL -u "gate:$2" "${@:3}" "$1"; }
+          ready() { for _ in $(seq 1 60); do [ "$(dav "$1/dav.php/calendars/gate/default/" "$PW" -X PROPFIND -H 'Depth: 0')" = 207 ] && return 0; sleep 2; done; echo "no PROPFIND answer"; return 1; }
+          put() {
+            local b=$1; ready "$b" || return 1
+            [ "$(dav "$b/dav.php/calendars/gate/default/" wrong-password-1 -X PROPFIND -H 'Depth: 0')" = 401 ] || { echo "a wrong password was not refused"; return 1; }
+            printf 'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//QuenchWorks//gate//EN\r\nBEGIN:VEVENT\r\nUID:quench-gate-baikal\r\nDTSTAMP:20261116T000000Z\r\nDTSTART:20261117T100000Z\r\nDTEND:20261117T110000Z\r\nSUMMARY:gate\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n' > /tmp/bk.ics
+            local c; c=$(dav "$b/dav.php/calendars/gate/default/gate.ics" "$PW" -X PUT -H 'Content-Type: text/calendar' --data-binary @/tmp/bk.ics)
+            [ "$c" = 201 ] || [ "$c" = 204 ] || { echo "PUT event: $c $(cat /tmp/bk.out)"; return 1; }
+          }
+          check() {
+            local b=$1; ready "$b" || return 1
+            [ "$(dav "$b/dav.php/calendars/gate/default/gate.ics" "$PW")" = 200 ] && grep -q quench-gate-baikal /tmp/bk.out || { echo "the event is not read back"; return 1; }
+          }
+          CURL="" fwd put http://127.0.0.1:8080
+          # the event (SQLite on the PVC) and the user survive a pod restart
+          kubectl delete pod -l app.kubernetes.io/instance=rtest --wait=true
+          kubectl rollout status deployment/rtest-baikal --timeout=600s
+          CURL="" fwd check http://127.0.0.1:8080
+          # native TLS on the same port with the Helm-made CA, plain HTTP refused
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --set tls.enabled=true --wait --timeout 10m
+          kubectl rollout status deployment/rtest-baikal --timeout=600s
+          kubectl get secret rtest-baikal-tls -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/bk-ca.crt
+          tlsgate() {
+            check https://rtest-baikal:8080 || return 1
+            ! curl -fsS -o /dev/null http://127.0.0.1:8080/dav.php/ 2>/dev/null || { echo "plain HTTP still answers with tls.enabled"; return 1; }
+          }
+          CURL="--cacert /tmp/bk-ca.crt --resolve rtest-baikal:8080:127.0.0.1" fwd tlsgate
+          echo "baikal: wrong password refused, CalDAV event stored and read back after a pod restart, native TLS: ok"
+
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/baikal-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/baikal@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/baikal:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

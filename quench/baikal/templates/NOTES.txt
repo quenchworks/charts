@@ -1,0 +1,13 @@
+Baikal serves CalDAV and CardDAV on {{ ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/dav.php/ (clients can start from /.well-known/caldav).
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+
+The admin page is /admin/, user admin:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "quench-common.fullname" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+{{- with .Values.davUser.username }}
+
+DAV user {{ . }} (default calendar and address book):
+
+  kubectl get secret -n {{ $.Release.Namespace }} {{ include "quench-common.fullname" $ }} -o jsonpath='{.data.dav-password}' | base64 -d
+{{- end }}

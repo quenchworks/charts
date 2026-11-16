@@ -1,0 +1,36 @@
+{{- /* With TLS: the image's server block (/etc/nginx/conf.d/baikal.conf) listening with ssl on 8080. */}}
+{{- if include "quench-common.tls.enabled" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-nginx
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  baikal.conf: |
+    server {
+        listen 8080 ssl default_server;
+        listen [::]:8080 ssl default_server;
+        server_name _;
+        ssl_certificate     /tls/tls.crt;
+        ssl_certificate_key /tls/tls.key;
+        ssl_protocols       TLSv1.2 TLSv1.3;
+        root /var/www/baikal/html;
+        index index.php;
+        charset utf-8;
+        client_max_body_size 20M;
+        access_log off;
+        location ~ /\. { return 403; }
+        rewrite ^/.well-known/caldav /dav.php redirect;
+        rewrite ^/.well-known/carddav /dav.php redirect;
+        location ~ ^(.+\.php)(.*)$ {
+            try_files $fastcgi_script_name =404;
+            include        /etc/nginx/fastcgi_params;
+            fastcgi_split_path_info ^(.+\.php)(.*)$;
+            fastcgi_param  SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            fastcgi_param  PATH_INFO $fastcgi_path_info;
+            fastcgi_param  HTTPS on;
+            fastcgi_pass   127.0.0.1:9000;
+        }
+    }
+{{- end }}
