@@ -1,0 +1,99 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/donetick
+  digest: "sha256:d9facc9ebbfdc93367b7cb8b13ebaca941b600d9f744bd08abeaefee21701b06"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# SQLite on a ReadWriteOnce volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The JWT signing secret (DT_JWT_SECRET, 32+ characters). Empty: generated into the Secret <fullname> (jwt-secret)
+# and kept on upgrade.
+jwt:
+  secret: ""
+  existingSecret: ""   # a Secret with key "jwt-secret" instead
+
+# Anyone who reaches the UI can sign up (each account starts its own circle). Set false once your household or team
+# has joined (DONETICK_DISABLE_SIGNUP).
+signups: true
+
+# The public URL of the instance, e.g. https://chores.example.com (DT_SERVER_PUBLIC_HOST).
+publicUrl: ""
+
+# More settings as DT_<SECTION>_<KEY> variables, e.g. DT_DATABASE_TYPE: postgres (+ DT_DATABASE_HOST, _PORT, _USER,
+# _PASSWORD, _NAME), DT_EMAIL_HOST, DONETICK_TELEGRAM_TOKEN, DT_OAUTH2_CLIENT_ID.
+settings: {}
+
+# The data volume (/var/lib/donetick): SQLite and the generated config.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 1Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 1, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 2021
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# donetick has no TLS listener: terminate TLS here.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  # e.g. [{host: chores.example.com, paths: [{path: /, pathType: Prefix}]}]
+  hosts: []
+  # e.g. [{hosts: [chores.example.com], secretName: chores-tls}]
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
