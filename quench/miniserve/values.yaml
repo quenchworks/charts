@@ -1,0 +1,100 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/miniserve
+  digest: "sha256:949adfd98d77e407c496ab1338d45c7ea11abd5283b4bda89b308c0ce43224bb"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# miniserve serves the data volume (/srv): one replica (Recreate) on a ReadWriteOnce volume.
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# HTTP basic auth on every path. Empty password: generated into the Secret <fullname> (password).
+auth:
+  enabled: true
+  username: admin
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+
+# Uploads (and mkdir) through the web page and POST /upload, into these directories of /srv.
+uploads:
+  enabled: false
+  dirs: ["/"]
+
+# More MINISERVE_* environment variables, e.g. MINISERVE_ENABLE_ZIP: "true", MINISERVE_ENABLE_TAR_GZ: "true",
+# MINISERVE_QRCODE: "true", MINISERVE_TITLE: "Files", MINISERVE_HIDDEN: "true".
+settings: {}
+
+# The data volume: the files miniserve serves (/srv).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 1, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS on the same port (https). The certificate comes from the first source set: existingSecret,
+# then a cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

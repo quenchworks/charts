@@ -1,0 +1,13 @@
+{{- $scheme := ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") -}}
+miniserve answers on {{ $scheme }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }} and serves the data volume.
+{{- if .Values.auth.enabled }}
+
+Basic auth, user {{ .Values.auth.username }}:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "miniserve.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+{{- else }}
+
+Basic auth is OFF: anyone who reaches the Service can read every file.
+{{- end }}
+
+Uploads are {{ ternary (printf "on (into %s)" (join ", " .Values.uploads.dirs)) "off (uploads.enabled)" .Values.uploads.enabled }}.
