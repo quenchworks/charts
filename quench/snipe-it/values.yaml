@@ -1,0 +1,131 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/snipe-it
+  digest: "sha256:3e8a7d5a7c12e6c379415de61896044251f4ae882beb0eeecfb062b1751e5874"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Snipe-IT keeps storage/ (logs, sessions, private uploads, OAuth keys) and uploads/ on the volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# APP_KEY (base64:<32 bytes>), the key Laravel encrypts with. Empty: generated into the Secret <fullname>
+# (app-key) once and kept across upgrades. Back it up with the database.
+appKey:
+  value: ""
+  existingSecret: ""   # a Secret with key "app-key" instead
+
+# The public URL (APP_URL), e.g. https://assets.example.com: used in links, mails and labels.
+appURL: ""
+# The site name shown in the header and mails (used once, when the settings are first created).
+siteName: Snipe-IT
+
+# The super admin the image creates on the first start. Empty password: generated into the Secret
+# <fullname> (admin-password). Snipe-IT reads it once: change the password later in the UI.
+admin:
+  username: admin
+  email: admin@example.com
+  password: ""
+
+# More environment variables, e.g. APP_TIMEZONE, MAIL_MAILER, MAIL_HOST, MAIL_PORT, MAIL_FROM_ADDR,
+# APP_TRUSTED_PROXIES; secrets (MAIL_PASSWORD) through extraEnvVarsSecret.
+settings: {}
+
+# --- DATABASE, mode 1 (default): the bundled MariaDB subchart. ---
+mariadb:
+  enabled: true
+  auth:
+    # Both are generated into MariaDB's Secret if left empty.
+    rootPassword: ""
+    password: ""
+    database: snipeit
+    username: snipeit
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+# --- DATABASE, mode 2: external MySQL or MariaDB (mariadb.enabled=false). ---
+externalDatabase:
+  host: ""
+  port: 3306
+  database: snipeit
+  user: snipeit
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: db-password
+
+# The data volume: storage/ and uploads/ (/var/lib/snipeit).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 1, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: nginx serves HTTPS instead of HTTP on its one port from the PEM pair at /tls. The
+# certificate comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

@@ -1,0 +1,11 @@
+Snipe-IT serves its web UI on {{ ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+
+Sign in as {{ .Values.admin.username }} (created on the first start; change the password later in the UI):
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "snipe-it.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+
+Database: {{ if .Values.mariadb.enabled }}the bundled MariaDB ({{ .Release.Name }}-mariadb){{ else }}{{ .Values.externalDatabase.host }}:{{ .Values.externalDatabase.port }}{{ end }}. Back up the APP_KEY with it:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "snipe-it.appKeySecretName" . }} -o jsonpath='{.data.app-key}' | base64 -d
