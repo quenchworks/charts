@@ -1,0 +1,102 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/firefly-iii
+  digest: "sha256:6ad2150033233d281cce8a528b4ed25fa9505a333bea8fe2d076ce5320cebbd5"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Firefly III keeps its storage (SQLite database, uploads, Passport keys, logs) on the volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# APP_KEY, the 32-character key Firefly III encrypts with. Empty: generated into the Secret <fullname>
+# (app-key) once and kept across upgrades. Losing it makes stored data unreadable: back it up.
+appKey:
+  value: ""
+  existingSecret: ""   # a Secret with key "app-key" instead
+
+# The public URL (APP_URL), e.g. https://money.example.com: used in links, mails and OAuth redirects.
+appURL: ""
+# Proxies whose X-Forwarded-* headers are trusted (TRUSTED_PROXIES), e.g. "**" behind an ingress.
+trustedProxies: ""
+
+# The first account is made on the register page (/register); Firefly III then closes registration
+# (single user mode). SQLite on the volume by default; for PostgreSQL or MySQL set DB_CONNECTION, DB_HOST,
+# DB_PORT, DB_DATABASE and DB_USERNAME in settings and DB_PASSWORD through extraEnvVarsSecret.
+# More environment variables, e.g. TZ: Europe/Amsterdam, MAIL_MAILER, DEFAULT_LANGUAGE: en_US.
+settings: {}
+
+# The data volume: storage (/var/lib/firefly-iii/storage).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 1, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: nginx serves HTTPS instead of HTTP on its one port from the PEM pair at /tls. The
+# certificate comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

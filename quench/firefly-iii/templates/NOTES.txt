@@ -1,0 +1,10 @@
+Firefly III serves its web UI on {{ ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+
+Open /register and create the first account: Firefly III then closes registration (single user mode).
+Do that right after the install, before anyone else can reach the page.
+
+Back up APP_KEY with the data: without it the stored data cannot be decrypted.
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "firefly-iii.secretName" . }} -o jsonpath='{.data.app-key}' | base64 -d
