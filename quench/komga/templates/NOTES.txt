@@ -1,0 +1,14 @@
+Komga answers on {{ ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 25600:{{ .Values.service.port }}
+
+Sign in as {{ .Values.admin.email }} (the claim Job claims the server after install):
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "quench-common.fullname" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+{{- with .Values.media }}{{ if or .existingClaim .hostPath }}
+
+Your media is mounted read-only at {{ .mountPath }}: add libraries under it in Komga.
+{{- else }}
+
+No media is mounted: set media.existingClaim (or media.hostPath) to the comics and books, then add libraries.
+{{- end }}{{ end }}

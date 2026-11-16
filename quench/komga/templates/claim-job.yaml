@@ -1,0 +1,58 @@
+{{- /* Claims the server with the admin account once it answers (the image's KomgaClaim helper). It exits 0 when the
+       server is already claimed, so it is safe on every install and upgrade. With TLS it verifies the server
+       certificate against the CA in the chart's TLS Secret. */}}
+{{- $tls := include "quench-common.tls.enabled" . }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "quench-common.fullname" . }}-claim
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+        app.kubernetes.io/component: claim
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: claim
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/usr/lib/jvm/java-21-openjdk/bin/java", "-cp", "/usr/lib/komga-claim", "KomgaClaim"]
+          env:
+            - { name: JAVA_TOOL_OPTIONS, value: "-Xmx64m" }
+            - { name: KOMGA_CLAIM_URL, value: "{{ ternary "https" "http" (eq $tls "true") }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}" }
+            - { name: KOMGA_CLAIM_EMAIL, value: {{ .Values.admin.email | quote }} }
+            - name: KOMGA_CLAIM_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ include "quench-common.fullname" . }}, key: admin-password }
+            {{- if $tls }}
+            - { name: KOMGA_CLAIM_CA, value: /tls/ca.crt }
+            {{- end }}
+          resources:
+            requests: { cpu: 10m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 192Mi }
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}

@@ -1,0 +1,101 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/komga
+  digest: "sha256:085af9fb5f92930d2e1a9bb0a22e22eb946d5079039f09500da1456cbfc1ea54"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Komga keeps its databases, search index and thumbnails on the data volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The first account (the admin), claimed by a post-install Job through Komga's claim API, so the server never waits
+# unclaimed. Empty password: generated into the Secret <fullname> (admin-password). Komga signs in by email.
+admin:
+  email: admin@example.com
+  password: ""
+
+# The comics and books, mounted read-only (add them as libraries in Komga): an existing PVC, or a node directory.
+media:
+  existingClaim: ""
+  hostPath: ""
+  mountPath: /media
+  readOnly: true
+
+# More Komga settings as environment variables, e.g. KOMGA_CORS_ALLOWED_ORIGINS, SERVER_SERVLET_CONTEXT_PATH: /komga,
+# KOMGA_OAUTH2_ACCOUNT_CREATION: "true", JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75".
+settings: {}
+
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { cpu: 2, memory: 2Gi }
+
+service:
+  type: ClusterIP
+  port: 25600
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: nginx serves HTTPS instead of HTTP on its one port from the PEM pair at /tls. The
+# certificate comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
