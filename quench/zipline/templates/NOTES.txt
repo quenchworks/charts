@@ -1,0 +1,12 @@
+Zipline answers on http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+{{- if .Values.ingress.enabled }} and through the Ingress{{ end }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 3000:{{ .Values.service.port }}
+
+Sign in as {{ .Values.auth.username }} (created by the setup Job after install):
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "zipline.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+{{- if not .Values.ingress.enabled }}
+
+There is no TLS listener: enable ingress (with tls) before exposing it, and set settings.CORE_RETURN_HTTPS_URLS.
+{{- end }}

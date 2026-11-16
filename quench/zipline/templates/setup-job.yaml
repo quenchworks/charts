@@ -1,0 +1,58 @@
+{{- /* Creates the super-admin through Zipline's own first-setup API once the server answers, so /setup is never left
+       open to the first visitor. A server that is already set up answers with an error the Job treats as done. */}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "quench-common.fullname" . }}-setup
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 900
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+        app.kubernetes.io/component: setup
+    spec:
+      restartPolicy: OnFailure
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      containers:
+        - name: setup
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command:
+            - /usr/bin/node
+            - -e
+            - |
+              const base = process.env.ZIPLINE_URL, body = JSON.stringify({ username: process.env.ADMIN_USER, password: process.env.ADMIN_PASSWORD });
+              (async () => {
+                for (let i = 0; i < 200; i++) {
+                  try {
+                    // GET /api/setup answers {firstSetup: true} until setup, then error 9001
+                    const g = await fetch(base + "/api/setup"), t = await g.text();
+                    if (!g.ok && t.includes("9001")) { console.log("zipline-setup: already set up"); return; }
+                    if (!g.ok) throw new Error(g.status + " " + t);
+                    const r = await fetch(base + "/api/setup", { method: "POST", headers: { "content-type": "application/json" }, body });
+                    if (r.ok) { console.log("zipline-setup: created " + process.env.ADMIN_USER); return; }
+                    console.error("zipline-setup: " + r.status + " " + await r.text()); process.exit(1);
+                  } catch (e) { await new Promise((r) => setTimeout(r, 3000)); }
+                }
+                console.error("zipline-setup: " + base + " never answered"); process.exit(1);
+              })();
+          env:
+            - { name: ZIPLINE_URL, value: "http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}" }
+            - { name: ADMIN_USER, value: {{ .Values.auth.username | quote }} }
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ include "zipline.secretName" . }}, key: password }
+          resources:
+            requests: { cpu: 10m, memory: 64Mi }
+            limits: { cpu: 500m, memory: 192Mi }
