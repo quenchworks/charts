@@ -1,0 +1,94 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/grav
+  digest: "sha256:8cbfc4b449a731081d2ddcebefe3b891dd29eb71ef3aeacf56085116a1079fca"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Grav keeps the site (user/ pages, config, accounts, data) and its caches on the data volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The first admin, created on the first start (login plugin new-user). Empty password: generated into the
+# Secret <fullname> (admin-password); it must meet Grav's policy (8+ characters with a digit, a lowercase
+# and an uppercase letter): the generated one does. Change it later in the admin.
+admin:
+  username: admin
+  email: admin@example.com
+  fullname: Admin
+  password: ""
+
+# The data volume: user/ content, assets, backup, cache, images, logs and tmp (/var/lib/grav).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 1Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 1, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: nginx serves HTTPS instead of HTTP on its one port from the PEM pair at /tls. The
+# certificate comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

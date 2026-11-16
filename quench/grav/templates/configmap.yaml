@@ -1,0 +1,54 @@
+{{- /* With TLS: the image's server block (/etc/nginx/conf.d/grav.conf) listening with ssl on 8080. */}}
+{{- if include "quench-common.tls.enabled" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-nginx
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  grav.conf: |
+    server {
+        listen 8080 ssl default_server;
+        listen [::]:8080 ssl default_server;
+        server_name _;
+        ssl_certificate     /tls/tls.crt;
+        ssl_certificate_key /tls/tls.key;
+        ssl_protocols       TLSv1.2 TLSv1.3;
+        root /var/www/grav;
+        index index.html index.php;
+        charset utf-8;
+        client_max_body_size 50M;
+        access_log off;
+
+        location / { try_files $uri $uri/ /index.php?$query_string; }
+        location ~ (^|/)\.(?!well-known(?:/|$)) { return 403; }
+        location ~* ^/(\.git|cache|bin|logs|backup|tmp|webserver-configs|tests)/.*$ { return 403; }
+        location ~* ^/user/(env/[^/]+/)?config/.*$ { return 403; }
+        location ~* ^/user/(env/[^/]+/)?accounts/[^/]+/[^/]+\.(jpe?g|png|gif|webp|avif|bmp|ico)$ { try_files $uri =404; }
+        location ~* ^/user/(env/[^/]+/)?accounts/.*$ { return 403; }
+        location ~* ^/user/(env/[^/]+/)?data/.*\.(jpe?g|png|gif|webp|avif|bmp|ico|mp4|webm|ogg|ogv|mov|mp3|wav|m4a|flac|pdf)$ { try_files $uri =404; }
+        location ~* ^/user/(env/[^/]+/)?data/.*$ { return 403; }
+        location ~* ^/(images|assets)/.*\.(php|php2|php3|php4|php5|php7|php8|phar|phtml|pht|phtm|phps|pl|py|cgi|sh|bat)$ { return 403; }
+        location ~* ^/(system|vendor)/.*\.(txt|xml|md|html|htm|shtml|shtm|json|yaml|yml|php|php2|php3|php4|php5|phar|phtml|pl|py|cgi|twig|sh|bat)$ { return 403; }
+        location ~* ^/user/.*\.(txt|md|json|yaml|yml|php|php2|php3|php4|php5|phar|phtml|pl|py|cgi|twig|sh|bat)$ { return 403; }
+        location ~* ^/(LICENSE\.txt|composer\.lock|composer\.json|nginx\.conf|web\.config|htaccess\.txt|\.htaccess) { return 403; }
+        location ~* \.md$ {
+            if (-f $request_filename) { return 403; }
+            try_files $uri /index.php?$query_string;
+        }
+        location ~* \.(jpe?g|png|gif|webp|avif|bmp|ico|svg|mp4|webm|ogg|ogv|mov|mp3|wav|m4a|flac|css|js|woff2?|ttf|otf|eot)$ {
+            try_files $uri $uri/ /index.php?$query_string;
+            expires 30d;
+            access_log off;
+        }
+        location ~ \.php$ {
+            fastcgi_split_path_info ^(.+\.php)(/.+)$;
+            fastcgi_index index.php;
+            include       /etc/nginx/fastcgi_params;
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            fastcgi_param HTTPS on;
+            fastcgi_pass  127.0.0.1:9000;
+        }
+    }
+{{- end }}
