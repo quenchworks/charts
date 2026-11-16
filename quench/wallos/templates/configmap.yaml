@@ -1,0 +1,40 @@
+{{- /* With TLS: the image's server block (/etc/nginx/conf.d/wallos.conf) listening with ssl on 8080. */}}
+{{- if include "quench-common.tls.enabled" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-nginx
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  wallos.conf: |
+    server {
+        listen 8080 ssl default_server;
+        listen [::]:8080 ssl default_server;
+        ssl_certificate     /tls/tls.crt;
+        ssl_certificate_key /tls/tls.key;
+        ssl_protocols       TLSv1.2 TLSv1.3;
+        server_name _;
+        root /var/www/wallos;
+        index index.php;
+        charset utf-8;
+        # database backups (with logos) can be tens of MB
+        client_max_body_size 256M;
+        access_log off;
+
+        location / { try_files $uri $uri/ /index.php?$args; }
+        location ~ (^|/)\.(?!well-known(?:/|$)) { return 403; }
+        location ~ \.db$ { return 403; }
+        location ^~ /db/ { return 403; }
+        location ~* images/uploads/logos/.*\.php$ { return 403; }
+        location ~* ^/(includes|libs|migrations|scripts)/.*\.php$ { return 403; }
+        location ~* ^/endpoints/(cronjobs|db/migrate)\b { return 403; }
+        location = /health.php { access_log off; include /etc/nginx/fastcgi_params; fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name; fastcgi_param HTTPS on; fastcgi_pass 127.0.0.1:9000; }
+        location ~ \.php$ {
+            include       /etc/nginx/fastcgi_params;
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            fastcgi_param HTTPS on;
+            fastcgi_pass  127.0.0.1:9000;
+        }
+    }
+{{- end }}
