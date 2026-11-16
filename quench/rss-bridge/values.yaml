@@ -1,0 +1,94 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/rss-bridge
+  digest: "sha256:3a4b7d403ec9a0dbf9e276b9175f7fe911d32e8fb2ef49d628e2a48569cabdc2"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# RSS-Bridge keeps nothing but a file cache (an emptyDir per pod): scale it freely.
+replicaCount: 1
+updateStrategy: {}
+
+# The bridges served (RSSBRIDGE_system_enabled_bridges). "*" enables all 400+; many fetch arbitrary third-party
+# sites, so a public instance usually lists only the ones it needs.
+enabledBridges: ["*"]
+
+# HTTP basic auth on every request. Empty password: generated into the Secret <fullname> (password).
+auth:
+  enabled: true
+  username: admin
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+
+# More settings as RSSBRIDGE_<section>_<key> variables, e.g. RSSBRIDGE_cache_timeout: "3600",
+# RSSBRIDGE_system_timezone: "Europe/Amsterdam", RSSBRIDGE_http_useragent: "...", RSSBRIDGE_error_output: "http".
+settings: {}
+
+# The per-pod file cache.
+cache:
+  sizeLimit: 1Gi
+
+resources:
+  requests: { cpu: 10m, memory: 64Mi }
+  limits: { cpu: 1, memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: nginx serves HTTPS instead of HTTP on its one port from the PEM pair at /tls. The
+# certificate comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

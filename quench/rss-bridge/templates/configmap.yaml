@@ -1,0 +1,36 @@
+{{- /* With TLS: the image's server block (/etc/nginx/conf.d/rss-bridge.conf) listening with ssl on 8080. */}}
+{{- if include "quench-common.tls.enabled" . }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-nginx
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  rss-bridge.conf: |
+    server {
+        listen 8080 ssl default_server;
+        listen [::]:8080 ssl default_server;
+        ssl_certificate     /tls/tls.crt;
+        ssl_certificate_key /tls/tls.key;
+        ssl_protocols       TLSv1.2 TLSv1.3;
+        server_name _;
+        root /var/www/rss-bridge;
+        index index.php;
+        charset utf-8;
+        access_log off;
+
+        location ~ (^|/)\. { return 403; }
+        location ~ ^/(actions|bridges|cache|caches|formats|lib|middlewares|templates|vendor|tests)(/|$) { return 403; }
+        location = /config.default.ini.php { return 403; }
+        location = /index.php {
+            include       /etc/nginx/fastcgi_params;
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            fastcgi_read_timeout 45s;
+            fastcgi_param HTTPS on;
+            fastcgi_pass  127.0.0.1:9000;
+        }
+        location ~ \.php$ { return 403; }
+        location / { try_files $uri /index.php?$query_string; }
+    }
+{{- end }}

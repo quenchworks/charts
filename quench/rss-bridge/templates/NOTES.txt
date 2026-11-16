@@ -1,0 +1,14 @@
+RSS-Bridge answers on {{ ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+{{- if .Values.auth.enabled }}
+
+Basic auth, user {{ .Values.auth.username }}:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ .Values.auth.existingSecret | default (include "quench-common.fullname" .) }} -o jsonpath='{.data.password}' | base64 -d
+{{- else }}
+
+Basic auth is OFF: anyone who reaches the Service can make the bridges fetch third-party sites.
+{{- end }}
+
+Enabled bridges: {{ join ", " .Values.enabledBridges }}
