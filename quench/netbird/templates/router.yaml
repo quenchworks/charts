@@ -1,0 +1,71 @@
+{{- /* Routing peers: the NetBird client joins with a setup key and routes for the mesh. Netstack
+       (userspace) mode as uid 1001 by default; kernelMode runs as root with NET_ADMIN and /dev/net/tun
+       for kernel WireGuard and iptables routing, as a host-network router-host would. */}}
+{{- if .Values.router.enabled }}
+{{- $c := dict "ctx" . "component" "router" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "netbird.name" $c }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: router
+spec:
+  replicas: {{ .Values.router.replicas }}
+  selector:
+    matchLabels:
+      {{- include "netbird.selectorLabels" $c | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "netbird.selectorLabels" $c | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      {{- if .Values.router.hostNetwork }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- end }}
+      {{- if not .Values.router.kernelMode }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- end }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: router
+          image: {{ include "netbird.image" .Values.router.image }}
+          imagePullPolicy: IfNotPresent
+          {{- if .Values.router.kernelMode }}
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            capabilities:
+              add: [NET_ADMIN, SYS_RESOURCE]
+          {{- else }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          {{- end }}
+          env:
+            - { name: NB_MANAGEMENT_URL, value: {{ include "netbird.url" . | quote }} }
+            - name: NB_SETUP_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "router.setupKey.existingSecret (a Secret with a NetBird setup key)" .Values.router.setupKey.existingSecret }}
+                  key: {{ .Values.router.setupKey.key }}
+            {{- if .Values.router.kernelMode }}
+            - { name: NB_USE_NETSTACK_MODE, value: "false" }
+            {{- end }}
+            {{- range $k, $v := .Values.router.env }}
+            - { name: {{ $k }}, value: {{ $v | quote }} }
+            {{- end }}
+          resources:
+            {{- toYaml .Values.router.resources | nindent 12 }}
+          volumeMounts:
+            - { name: state, mountPath: /var/lib/netbird }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: state
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+{{- end }}

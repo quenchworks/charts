@@ -1,0 +1,12 @@
+NetBird answers on {{ include "netbird.url" . }}{{ if not .Values.ingress.enabled }} once you route that host to the
+Services (ingress.enabled=false){{ end }}: the dashboard at /, the API and the built-in sign-in (/oauth2) on management,
+signal and relay behind the same host.
+
+Sign in as {{ .Values.owner.email }} with the generated password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "netbird.secretName" . }} -o jsonpath='{.data.owner-password}' | base64 -d; echo
+
+Peers join with a setup key (Setup Keys in the dashboard), or with `netbird up --management-url {{ include "netbird.url" . }}`.
+{{- if .Values.router.enabled }}
+{{ .Values.router.replicas }} routing peer(s) run in {{ ternary "kernel" "netstack" .Values.router.kernelMode }} mode; add their network routes in the dashboard.
+{{- end }}

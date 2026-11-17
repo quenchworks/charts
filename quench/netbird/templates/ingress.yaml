@@ -1,0 +1,45 @@
+{{- /* One host, routed by path as upstream's reverse-proxy examples do. gRPC (management and signal)
+       goes in its own Ingress so the controller can talk h2c to those backends. */}}
+{{- if .Values.ingress.enabled }}
+{{- $m := include "netbird.name" (dict "ctx" . "component" "management") }}
+{{- $s := include "netbird.name" (dict "ctx" . "component" "signal") }}
+{{- $r := include "netbird.name" (dict "ctx" . "component" "relay") }}
+{{- $d := include "netbird.name" (dict "ctx" . "component" "dashboard") }}
+{{- $http := list (list "/api" $m 80) (list "/oauth2" $m 80) (list "/ws-proxy/management" $m 80) (list "/ws-proxy/signal" $s 10000) (list "/relay" $r 33080) (list "/" $d 8080) }}
+{{- $grpc := list (list "/management.ManagementService/" $m 80) (list "/signalexchange.SignalExchange/" $s 10000) }}
+{{- range $kind, $paths := dict "http" $http "grpc" $grpc }}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "quench-common.fullname" $ }}-{{ $kind }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+  {{- $ann := merge (dict) (eq $kind "grpc" | ternary $.Values.ingress.grpcAnnotations dict) $.Values.ingress.annotations }}
+  {{- with $ann }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $.Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with $.Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ $.Values.domain | quote }}
+      http:
+        paths:
+          {{- range $paths }}
+          - path: {{ index . 0 }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ index . 1 }}
+                port:
+                  number: {{ index . 2 }}
+          {{- end }}
+{{- end }}
+{{- end }}

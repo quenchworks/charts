@@ -1,0 +1,109 @@
+{{- /* signal, relay and dashboard: one Deployment and Service each. */}}
+{{- $sec := include "netbird.secretName" . }}
+{{- $url := include "netbird.url" . }}
+{{- $relayAddr := printf "%s://%s:%s/relay" (ternary "rels" "rel" (eq .Values.publicScheme "https")) .Values.domain (include "netbird.port" .) }}
+{{- $parts := list
+  (dict "component" "signal" "port" 10000 "portName" "signal" "appProtocol" "kubernetes.io/h2c" "spec" .Values.signal
+        "command" (list "/usr/bin/netbird-signal") "args" (list "run" "--port=10000" "--log-file=console")
+        "env" (list) "probe" (dict "tcpSocket" (dict "port" "signal")))
+  (dict "component" "relay" "port" 33080 "portName" "relay" "appProtocol" "" "spec" .Values.relay
+        "command" (list "/usr/bin/netbird-relay") "args" (list "--listen-address=:33080" (printf "--exposed-address=%s" $relayAddr) "--health-listen-address=:9000")
+        "env" (list (dict "name" "NB_AUTH_SECRET" "valueFrom" (dict "secretKeyRef" (dict "name" $sec "key" "relay-secret"))))
+        "probe" (dict "tcpSocket" (dict "port" "relay")))
+  (dict "component" "dashboard" "port" 8080 "portName" "dashboard" "appProtocol" "" "spec" .Values.dashboard
+        "command" (list) "args" (list)
+        "env" (list
+          (dict "name" "NETBIRD_MGMT_API_ENDPOINT" "value" $url)
+          (dict "name" "NETBIRD_MGMT_GRPC_API_ENDPOINT" "value" $url)
+          (dict "name" "AUTH_AUDIENCE" "value" "netbird-dashboard")
+          (dict "name" "AUTH_CLIENT_ID" "value" "netbird-dashboard")
+          (dict "name" "AUTH_CLIENT_SECRET" "value" "")
+          (dict "name" "AUTH_AUTHORITY" "value" (printf "%s/oauth2" $url))
+          (dict "name" "USE_AUTH0" "value" "false")
+          (dict "name" "AUTH_SUPPORTED_SCOPES" "value" "openid profile email groups")
+          (dict "name" "AUTH_REDIRECT_URI" "value" "/nb-auth")
+          (dict "name" "AUTH_SILENT_REDIRECT_URI" "value" "/nb-silent-auth"))
+        "probe" (dict "httpGet" (dict "path" "/" "port" "dashboard")))
+}}
+{{- range $parts }}
+{{- $c := dict "ctx" $ "component" .component }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "netbird.name" $c }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ .component }}
+spec:
+  replicas: {{ .spec.replicas }}
+  selector:
+    matchLabels:
+      {{- include "netbird.selectorLabels" $c | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "netbird.selectorLabels" $c | nindent 8 }}
+        {{- include "quench-common.podLabels" $ | nindent 8 }}
+      {{- with $.Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" $ }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" $ | nindent 8 }}
+      {{- include "quench-common.podSpecFields" $ | nindent 6 }}
+      containers:
+        - name: {{ .component }}
+          image: {{ include "netbird.image" .spec.image }}
+          imagePullPolicy: IfNotPresent
+          {{- with .command }}
+          command: {{ toJson . }}
+          {{- end }}
+          {{- with .args }}
+          args: {{ toJson . }}
+          {{- end }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" $ | nindent 12 }}
+          {{- if .env }}
+          env:
+            {{- toYaml .env | nindent 12 }}
+          {{- end }}
+          ports:
+            - { name: {{ .portName }}, containerPort: {{ .port }}, protocol: TCP }
+          readinessProbe:
+            {{- toYaml .probe | nindent 12 }}
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            {{- toYaml .probe | nindent 12 }}
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            {{- toYaml .spec.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "netbird.name" $c }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: {{ .portName }}
+      port: {{ .port }}
+      targetPort: {{ .portName }}
+      protocol: TCP
+      {{- with .appProtocol }}
+      appProtocol: {{ . }}
+      {{- end }}
+  selector:
+    {{- include "netbird.selectorLabels" $c | nindent 4 }}
+{{- end }}

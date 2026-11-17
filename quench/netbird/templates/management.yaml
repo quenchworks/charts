@@ -1,0 +1,98 @@
+{{- $c := dict "ctx" . "component" "management" }}
+{{- $sec := include "netbird.secretName" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "netbird.name" $c }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: management
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "netbird.selectorLabels" $c | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include "netbird.managementConfig" . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "netbird.selectorLabels" $c | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: management
+          image: {{ include "netbird.image" .Values.management.image }}
+          imagePullPolicy: IfNotPresent
+          command: ["/usr/bin/netbird-mgmt"]
+          args:
+            - management
+            - --config=/etc/netbird/management.json
+            - --datadir=/var/lib/netbird
+            - --port=8080
+            - --log-file=console
+            - --log-level={{ .Values.management.logLevel }}
+            - --disable-legacy-port
+            - --disable-anonymous-metrics
+            - --disable-geolite-update
+            - --dns-domain={{ .Values.management.dnsDomain }}
+            - --single-account-mode-domain={{ .Values.management.dnsDomain }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "netbird.dbPasswordEnv" . | nindent 12 }}
+            - { name: NB_STORE_ENGINE_POSTGRES_DSN, value: "{{ include "netbird.dsnHostPart" . }} password=$(DB_PASSWORD)" }
+            - { name: NB_IDP_DSN, value: "{{ include "netbird.dsnHostPart" . }} password=$(DB_PASSWORD)" }
+            {{- range $env, $key := dict "NB_RELAY_SECRET" "relay-secret" "NB_STORE_KEY" "store-key" "NB_IDP_SESSION_COOKIE_ENCRYPTION_KEY" "cookie-key" "NB_OWNER_HASH" "owner-hash" }}
+            - name: {{ $env }}
+              valueFrom:
+                secretKeyRef: { name: {{ $sec }}, key: {{ $key }} }
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          ports:
+            - { name: http, containerPort: 8080, protocol: TCP }
+            - { name: metrics, containerPort: 9090, protocol: TCP }
+          readinessProbe:
+            httpGet: { path: /oauth2/.well-known/openid-configuration, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: http }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.management.resources | nindent 12 }}
+          volumeMounts:
+            - { name: config, mountPath: /etc/netbird, readOnly: true }
+            - { name: data, mountPath: /var/lib/netbird }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "netbird.name" $c }}
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "netbird.name" $c }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - { name: http, port: 80, targetPort: http, protocol: TCP, appProtocol: kubernetes.io/h2c }
+  selector:
+    {{- include "netbird.selectorLabels" $c | nindent 4 }}
