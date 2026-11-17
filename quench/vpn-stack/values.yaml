@@ -1,0 +1,23 @@
+# The VPN stack: the netbird chart with its PostgreSQL as a 3-member Patroni cluster. Every netbird.*
+# value of the netbird chart applies here (see its README); set at least netbird.domain.
+netbird:
+  domain: ""
+  postgresql:
+    enabled: true
+    # Patroni HA: three members elect a leader through the Kubernetes API and fail over on their own;
+    # the <release>-postgresql Service follows the leader, so NetBird needs no change.
+    architecture: replication
+    ha:
+      replicaCount: 3
+      persistence:
+        size: 8Gi
+      podDisruptionBudget:
+        enabled: true
+        minAvailable: 2
+  # The dashboard is stateless: two replicas roll one at a time. Management and signal stay at one
+  # replica each: running them active-active needs NetBird Enterprise (NATS + Redis). A restart pauses
+  # new logins and new peer connections for seconds; tunnels already up between peers keep running.
+  dashboard:
+    replicas: 2
+  ingress:
+    enabled: false
