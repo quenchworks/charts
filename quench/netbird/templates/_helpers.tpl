@@ -97,6 +97,7 @@ host={{ required "externalDatabase.host" .Values.externalDatabase.host }} port={
 {{- define "netbird.ports" -}}
 {{- toJson (list
   (dict "port" "http" "protocol" "TCP")
+  (dict "port" "metrics" "protocol" "TCP")
   (dict "port" "signal" "protocol" "TCP")
   (dict "port" "relay" "protocol" "TCP")
   (dict "port" "dashboard" "protocol" "TCP")) -}}
