@@ -68,7 +68,20 @@ jobs:
             n=$(kubectl exec "$(leader)" -c postgresql -- env PGPASSWORD="$PGPW" psql -h 127.0.0.1 -U netbird -d netbird_store -tAc "select count(*) from password where email = 'admin@example.com'")
             [ "$(echo "$n" | tr -d ' ')" = 1 ] || { echo "owner not in the store (count: $n)"; return 1; }
           }
-          check() { fwd rtest-netbird-management 18080:80 bash -c mgmt && owner; }
+          # the bastion: Warpgate's web login takes the generated admin password
+          bastion() {
+            kubectl rollout status statefulset/rtest-warpgate --timeout=300s >/dev/null
+            WPW=$(kubectl get secret rtest-warpgate -o jsonpath='{.data.admin-password}' | base64 -d)
+            kubectl port-forward svc/rtest-warpgate 18888:8888 >/tmp/pfw.log 2>&1 & local pf=$!; sleep 3
+            local c=000
+            for _ in $(seq 1 30); do
+              c=$(curl -sk -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' -d "$(jq -n --arg p "$WPW" '{username:"admin",password:$p}')" https://127.0.0.1:18888/@warpgate/api/auth/login)
+              [ "$c" = 201 ] && break; sleep 2
+            done
+            kill $pf 2>/dev/null || true
+            [ "$c" = 201 ] || { echo "the bastion's admin login answered $c"; return 1; }
+          }
+          check() { fwd rtest-netbird-management 18080:80 bash -c mgmt && owner && bastion; }
           check
           # failover: delete the database leader; Patroni promotes a replica, the Service follows it,
           # and NetBird keeps serving with its data
@@ -83,7 +96,7 @@ jobs:
           [ "$(kubectl get secret rtest-netbird -o jsonpath='{.data.store-key}')" = "$KEY" ] || { echo "the store key changed on upgrade"; exit 1; }
           one_leader
           check
-          echo "vpn-stack: NetBird on a 3-member Patroni cluster (one leader), sign-in, protected API and the owner in the store; survives killing the database leader and an upgrade: ok"
+          echo "vpn-stack: NetBird on a 3-member Patroni cluster (one leader), sign-in, protected API and the owner in the store; the Warpgate bastion signs in; survives killing the database leader and an upgrade: ok"
 
       - name: Why the install gate failed
         if: failure()

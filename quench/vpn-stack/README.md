@@ -1,8 +1,9 @@
 # Quenchworks VPN stack
 
-A self-hosted VPN in one install: [NetBird](https://github.com/netbirdio/netbird) (a WireGuard mesh with single
+A self-hosted VPN and bastion in one install: [NetBird](https://github.com/netbirdio/netbird) (a WireGuard mesh with single
 sign-on, access policies and routing peers) on a highly available PostgreSQL, a 3-member Patroni cluster that
-elects its leader through the Kubernetes API and fails over on its own. Every image is QuenchWorks-hardened,
+elects its leader through the Kubernetes API and fails over on its own, plus the [Warpgate](https://github.com/warp-tech/warpgate) bastion for SSH, HTTPS and
+database access to your targets with session recording (`warpgate.enabled`, on by default). Every image is QuenchWorks-hardened,
 built from source, nonroot, CVE-gated, pinned by digest and cosign-signed.
 
 ## Install
@@ -28,6 +29,7 @@ routing peers (`netbird.router.*`).
 | Dashboard | 2 | Rolls one pod at a time |
 | Management, signal | 1 each | Restart in seconds; new logins and new peer connections wait, tunnels already up keep running |
 | Relay | 1 | Peers that need a relay reconnect after it restarts |
+| Warpgate bastion | 1 | Data on its volume; open sessions drop on a restart, users reconnect |
 | Peer traffic | direct WireGuard | Not routed through the control plane, so it keeps flowing |
 
 Running management and signal active-active (several replicas behind a load balancer) is a NetBird Enterprise

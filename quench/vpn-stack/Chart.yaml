@@ -1,8 +1,8 @@
 apiVersion: v2
 name: vpn-stack
-description: "A self-hosted VPN: NetBird (WireGuard mesh with single sign-on, access policies and routing peers) on a highly available PostgreSQL (a 3-member Patroni cluster that fails over on its own). All component images are QuenchWorks-hardened, nonroot, CVE-gated, pinned by digest and cosign-signed."
+description: "A self-hosted VPN and bastion: NetBird (WireGuard mesh with single sign-on, access policies and routing peers) on a highly available PostgreSQL (a 3-member Patroni cluster that fails over on its own), plus the Warpgate bastion for SSH, HTTPS and database access with session recording. All component images are QuenchWorks-hardened, nonroot, CVE-gated, pinned by digest and cosign-signed."
 type: application
-version: 0.0.2
+version: 0.0.3
 appVersion: "0.83.1"
 keywords:
   - vpn
@@ -12,6 +12,8 @@ keywords:
   - postgresql
   - high-availability
   - stack
+  - bastion
+  - warpgate
 maintainers:
   - name: QuenchWorks
     email: info@quench-works.com
@@ -23,10 +25,12 @@ sources:
   - https://github.com/netbirdio/netbird
 annotations:
   artifacthub.io/changes: |
-    - kind: fixed
-      description: "Takes netbird 0.0.2: the NetworkPolicy admits management\'s metrics port."
+    - kind: added
+      description: "Adds the Warpgate bastion (warpgate 0.0.1, enabled by default): SSH, HTTPS and database access to your targets with session recording, next to the VPN."
   artifacthub.io/category: networking
   artifacthub.io/images: |
+    - name: warpgate
+      image: ghcr.io/quenchworks/images/warpgate@sha256:4c4533ac65959390cf0b37364bb2b579c982f5b42c66f3a1db27d12e812d0611
     - name: netbird-management
       image: ghcr.io/quenchworks/images/netbird-management@sha256:7d040af372ec5f6fce277c4d2d69c28aa7a39b61790e484701e41d00c2f113b7
     - name: netbird-signal
@@ -54,3 +58,7 @@ dependencies:
   - name: netbird
     version: 0.0.2
     repository: oci://ghcr.io/quenchworks/charts
+  - name: warpgate
+    version: 0.0.1
+    repository: oci://ghcr.io/quenchworks/charts
+    condition: warpgate.enabled
