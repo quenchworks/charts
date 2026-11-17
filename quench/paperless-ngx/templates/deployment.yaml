@@ -1,0 +1,78 @@
+{{- $probe := dict "httpGet" (dict "path" "/accounts/login/" "port" "http") "initialDelaySeconds" 20 "periodSeconds" 10 "timeoutSeconds" 5 -}}
+{{- $py := "/usr/src/paperless/venv/bin/python" -}}
+{{- $celery := "/usr/src/paperless/venv/bin/celery" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  # one pod: web, worker, scheduler and consumer share the data volume (ReadWriteOnce) and the search index on it
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # Paperless reads its settings at start: a change rolls the pod
+        checksum/config: {{ include "paperless-ngx.env" . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        # the folders a fresh volume lacks (upstream's s6 init-folders), then the schema
+        {{- include "paperless-ngx.container" (dict "ctx" . "name" "migrate" "resources" .Values.worker.resources "command" (list $py "-c" "import os,sys,runpy; [os.makedirs(d, exist_ok=True) for d in ('/var/lib/paperless/data', '/var/lib/paperless/media', '/var/lib/paperless/consume', '/tmp/paperless')]; sys.argv = ['manage.py', 'migrate', '--skip-checks', '--no-input']; runpy.run_path('manage.py', run_name='__main__')")) | nindent 8 }}
+        # rebuilds the search index when its schema or language changed
+        {{- include "paperless-ngx.container" (dict "ctx" . "name" "index" "resources" .Values.worker.resources "command" (list $py "manage.py" "document_index" "reindex" "--if-needed" "--no-progress-bar")) | nindent 8 }}
+        # creates the admin once; a later password change in the UI sticks
+        {{- include "paperless-ngx.container" (dict "ctx" . "name" "superuser" "resources" .Values.worker.resources "command" (list $py "manage.py" "manage_superuser") "env" (list (dict "name" "PAPERLESS_ADMIN_USER" "value" .Values.admin.username) (dict "name" "PAPERLESS_ADMIN_MAIL" "value" .Values.admin.email) (dict "name" "PAPERLESS_ADMIN_PASSWORD" "valueFrom" (dict "secretKeyRef" (dict "name" (include "paperless-ngx.secretName" .) "key" "admin-password"))))) | nindent 8 }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        {{- include "paperless-ngx.container" (dict "ctx" . "name" "web" "resources" .Values.resources) | nindent 8 }}
+          ports:
+            {{- range (include "paperless-ngx.ports" . | fromJsonArray) }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ .protocol }}
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+        # OCR, parsing and indexing
+        {{- include "paperless-ngx.container" (dict "ctx" . "name" "worker" "resources" .Values.worker.resources "command" (list $celery "--skip-checks" "--app" "paperless" "worker" "--loglevel" "INFO" "--without-mingle" "--without-gossip")) | nindent 8 }}
+        # periodic tasks: mail checks, training the classifier, index optimizing, sanity checks
+        {{- include "paperless-ngx.container" (dict "ctx" . "name" "scheduler" "resources" .Values.scheduler.resources "command" (list $celery "--skip-checks" "--app" "paperless" "beat" "--loglevel" "INFO")) | nindent 8 }}
+        {{- if .Values.consumer.enabled }}
+        # watches the consume folder (/var/lib/paperless/consume) for dropped files
+        {{- include "paperless-ngx.container" (dict "ctx" . "name" "consumer" "resources" .Values.consumer.resources "command" (list $py "manage.py" "document_consumer" "--skip-checks")) | nindent 8 }}
+        {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "paperless-ngx.pvcName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

@@ -1,0 +1,14 @@
+Paperless-ngx answers on http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+{{- if .Values.ingress.enabled }} and through the Ingress{{ end }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8000:{{ .Values.service.port }}
+
+Sign in as "{{ .Values.admin.username }}" with the generated password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "paperless-ngx.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d; echo
+
+Behind an Ingress, set settings.PAPERLESS_URL to the public URL (https://docs.example.com) or logins fail the CSRF check.
+{{- if not .Values.ingress.enabled }}
+
+There is no TLS listener: enable ingress (with tls) before exposing it.
+{{- end }}
