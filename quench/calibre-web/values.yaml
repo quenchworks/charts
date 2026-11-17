@@ -1,0 +1,102 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/calibre-web
+  digest: "sha256:2e3257f663011da51ba8021da0c94922f33d198019c27fac06d21cf619e642f9"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# SQLite on a ReadWriteOnce volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The admin account. Upstream creates admin / admin123 on the first start; an init container sets this password
+# (`cps.py -s`) before every start. Empty: generated into the Secret <fullname> (password) and kept on upgrade.
+# A password changed in the UI is reset to this one on the next start: change it here instead.
+auth:
+  username: admin
+  password: ""
+  existingSecret: ""   # a Secret with key "password" instead
+
+# More Calibre-Web settings as environment variables, e.g. CACHE_DIR: /config/cache.
+settings: {}
+
+# /config: app.db (settings and users) and logs.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 1Gi
+  storageClass: ""
+  annotations: {}
+
+# /books: the Calibre library (metadata.db and the book files), chosen in the admin UI on first sign-in. Use an
+# existing claim that already holds a library, or copy one into the chart's PVC.
+library:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 20Gi
+  storageClass: ""
+
+resources:
+  requests: { cpu: 20m, memory: 128Mi }
+  limits: { cpu: 1, memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 8083
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# calibre-web has no TLS listener: terminate TLS here.
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  # e.g. [{host: books.example.com, paths: [{path: /, pathType: Prefix}]}]
+  hosts: []
+  # e.g. [{hosts: [books.example.com], secretName: books-tls}]
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

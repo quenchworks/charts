@@ -1,0 +1,14 @@
+Calibre-Web answers on http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+{{- if .Values.ingress.enabled }} and through the Ingress{{ end }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8083:{{ .Values.service.port }}
+
+Sign in as {{ .Values.auth.username }} (upstream's admin123 is replaced before every start):
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "calibre-web.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+
+Then set the library location to /books (a Calibre library with metadata.db).
+{{- if not .Values.ingress.enabled }}
+
+There is no TLS listener: enable ingress (with tls) before exposing it.
+{{- end }}
