@@ -1,0 +1,92 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/warpgate
+  digest: "sha256:4c4533ac65959390cf0b37364bb2b579c982f5b42c66f3a1db27d12e812d0611"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The host users reach Warpgate on (used to build URLs and SSO redirects), without scheme or port.
+externalHost: ""
+
+# The first administrator ("admin"), created by the setup step on an empty volume.
+admin:
+  password: ""          # generated (24 characters) if empty; read it from the Secret
+  existingSecret: ""    # a Secret with key admin-password instead
+
+# Listeners besides the HTTPS web UI (8888). Each adds a Service port.
+ssh:
+  enabled: true
+  port: 2222
+mysql:
+  enabled: false
+  port: 33306
+postgres:
+  enabled: false
+  port: 55432
+
+recordSessions: true
+
+# Leave empty for the SQLite database on the volume; or a PostgreSQL/MySQL URL
+# (postgres://user:pass@host/db). Only read by the first setup.
+databaseUrl: ""
+
+# /data: config, database, SSH keys, TLS certificate and session recordings.
+persistence:
+  enabled: true
+  accessModes: [ReadWriteOnce]
+  size: 5Gi
+  storageClass: ""
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  # the HTTPS web UI and API
+  httpsPort: 8888
+  port: 8888
+  annotations: {}
+
+# Warpgate serves HTTPS itself (self-signed until you install a certificate): the controller must talk
+# HTTPS to it, e.g. nginx.ingress.kubernetes.io/backend-protocol: HTTPS. SSH, MySQL and PostgreSQL are
+# TCP: expose them with a LoadBalancer Service (service.type) rather than an Ingress.
+ingress:
+  enabled: false
+  className: ""
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+  servicePort: 8888
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+podSecurityContext: {}
+containerSecurityContext: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
