@@ -27,9 +27,13 @@ IPv4 masquerading, Kubernetes NetworkPolicy and CiliumNetworkPolicy, and kube-pr
 place. The settings land in the `cilium-config` ConfigMap, which the agents and the
 operator both read; the name is fixed.
 
-Not included: Hubble and its relay, the Envoy L7 proxy (the image ships no Envoy, so
-`enable-l7-proxy` is off and L7 policy is unavailable), clustermesh, IPv6 and cloud IPAM
-modes.
+With `envoy.enabled`, the L7 proxy runs as its own `cilium-envoy` DaemonSet (the quench
+`cilium-envoy` image, built from cilium/proxy at the commit this Cilium release pins), and the
+agent turns on `enable-l7-proxy` and `external-envoy-proxy`, so CiliumNetworkPolicy HTTP,
+Kafka and DNS rules are enforced. Its bootstrap is upstream's, rendered for this appVersion
+into `files/cilium-envoy-bootstrap.json`; regenerate it on every appVersion bump.
+
+Not included: Hubble and its relay, clustermesh, IPv6 and cloud IPAM modes.
 
 ## Values
 
@@ -43,6 +47,9 @@ modes.
 | `config.policyEnforcementMode` | `default` | `default`, `always` or `never` |
 | `config.extraConfig` | `{}` | any other cilium-config key; overrides the chart's |
 | `cilium-operator.enabled` | `true` | the operator subchart; its values go under this key |
+| `envoy.enabled` | `true` | the cilium-envoy DaemonSet and L7 policy |
+| `envoy.image.digest` | pinned | the cilium-envoy image, by digest |
+| `envoy.logLevel` | `info` | Envoy log level |
 | `resources` | 100m / 256Mi, 1Gi limit | agent resources (`GOMEMLIMIT` follows the limit) |
 | `tolerations` | everything | an agent runs on every node |
 
@@ -58,8 +65,9 @@ of the node.
 The gate starts a two-node kind cluster with no CNI, installs this chart, and requires every
 CiliumNode to get a pod CIDR, every node to turn Ready, `cilium-dbg status` to report the
 agent OK with both nodes reachable over the overlay, CoreDNS to answer a pod on the other
-node, a deny-all ingress NetworkPolicy to stop cross-node pings that worked before it,
-and no agent restarts.
+node, a deny-all ingress NetworkPolicy to stop cross-node pings that worked before it, an L7
+CiliumNetworkPolicy that lets `GET /allowed` through and gets a 403 from Envoy for
+`GET /denied`, and no agent restarts.
 
 The chart depends on the `quench-common` and `cilium-operator` charts from
 `oci://ghcr.io/quenchworks/charts`.

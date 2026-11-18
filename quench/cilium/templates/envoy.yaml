@@ -1,0 +1,113 @@
+{{- if .Values.envoy.enabled }}
+{{- $img := .Values.envoy.image }}
+{{- $ref := printf "%s@%s" (required "envoy.image.repository is required" $img.repository) (required "envoy.image.digest is required (pinned by digest, never a tag)" $img.digest) }}
+{{- with .Values.image.registry }}{{ $ref = printf "%s/%s" (trimSuffix "/" .) $ref }}{{ end }}
+# The L7 proxy (cilium-envoy) as its own DaemonSet, the layout upstream ships since 1.16. The
+# agent programs it over the sockets in /var/run/cilium/envoy/sockets on the host, which the
+# agent already mounts through cilium-run. files/cilium-envoy-bootstrap.json is upstream's
+# bootstrap rendered at its defaults for this appVersion: regenerate it on every bump (README).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cilium-envoy-config
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  bootstrap-config.json: |
+    {{- .Files.Get "files/cilium-envoy-bootstrap.json" | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "quench-common.fullname" . }}-envoy
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: envoy
+spec:
+  # its own name, so the agent DaemonSet's selector (name: cilium) never matches these pods
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cilium-envoy
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: cilium-envoy
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: envoy
+      annotations:
+        checksum/bootstrap: {{ .Files.Get "files/cilium-envoy-bootstrap.json" | sha256sum }}
+    spec:
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      hostNetwork: true
+      automountServiceAccountToken: false
+      priorityClassName: system-node-critical
+      terminationGracePeriodSeconds: 1
+      containers:
+        - name: cilium-envoy
+          image: {{ $ref }}
+          imagePullPolicy: {{ .Values.image.pullPolicy | default "IfNotPresent" }}
+          # the starter drops every capability after forking Envoy
+          command: [/usr/bin/cilium-envoy-starter]
+          args:
+            - "--"
+            - "-c /var/run/cilium/envoy/bootstrap-config.json"
+            - "--base-id 0"
+            - "--log-level {{ .Values.envoy.logLevel }}"
+          env:
+            - name: K8S_NODE_NAME
+              valueFrom: { fieldRef: { apiVersion: v1, fieldPath: spec.nodeName } }
+            - name: CILIUM_K8S_NAMESPACE
+              valueFrom: { fieldRef: { apiVersion: v1, fieldPath: metadata.namespace } }
+          ports:
+            - { name: envoy-metrics, containerPort: 9964, hostPort: 9964, protocol: TCP }
+          startupProbe:
+            httpGet: { host: 127.0.0.1, path: /healthz, port: 9878 }
+            failureThreshold: 105
+            periodSeconds: 2
+          livenessProbe:
+            httpGet: { host: 127.0.0.1, path: /healthz, port: 9878 }
+            periodSeconds: 30
+            failureThreshold: 10
+          readinessProbe:
+            httpGet: { host: 127.0.0.1, path: /healthz, port: 9878 }
+            periodSeconds: 30
+            failureThreshold: 3
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            capabilities:
+              add: [NET_ADMIN, SYS_ADMIN]
+              drop: [ALL]
+            seLinuxOptions: { level: s0, type: spc_t }
+          {{- with .Values.envoy.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - { name: envoy-sockets, mountPath: /var/run/cilium/envoy/sockets }
+            - { name: envoy-artifacts, mountPath: /var/run/cilium/envoy/artifacts, readOnly: true }
+            - { name: envoy-config, mountPath: /var/run/cilium/envoy/, readOnly: true }
+            - { name: bpf-maps, mountPath: /sys/fs/bpf, mountPropagation: HostToContainer }
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - { name: envoy-sockets, hostPath: { path: /var/run/cilium/envoy/sockets, type: DirectoryOrCreate } }
+        - { name: envoy-artifacts, hostPath: { path: /var/run/cilium/envoy/artifacts, type: DirectoryOrCreate } }
+        - name: envoy-config
+          configMap:
+            name: cilium-envoy-config
+            defaultMode: 0400
+            items: [{ key: bootstrap-config.json, path: bootstrap-config.json }]
+        - { name: bpf-maps, hostPath: { path: /sys/fs/bpf, type: DirectoryOrCreate } }
+{{- end }}

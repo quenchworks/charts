@@ -61,7 +61,7 @@ jobs:
           imgs="$(kubectl -n kube-system get pods -l app.kubernetes.io/instance=rtest -o jsonpath='{range .items[*]}{range .spec.initContainers[*]}{.image}{"\n"}{end}{range .spec.containers[*]}{.image}{"\n"}{end}{end}' | sort -u)"
           echo "$imgs"
           # (`! grep` would not fail the step under bash -e)
-          if grep -v '^ghcr.io/quenchworks/images/cilium\(-operator\)\?@sha256:' <<<"$imgs"; then echo "image not from QuenchWorks"; exit 1; fi
+          if grep -v '^ghcr.io/quenchworks/images/cilium\(-operator\|-envoy\)\?@sha256:' <<<"$imgs"; then echo "image not from QuenchWorks"; exit 1; fi
           kubectl wait --for=condition=Ready nodes --all --timeout=300s
           # the operator gave every node a pod CIDR, and each node's agent took it
           for n in $(kubectl get nodes -o name | cut -d/ -f2); do
@@ -113,7 +113,19 @@ jobs:
           sleep 10
           # (`! cmd` would not fail the step under bash -e)
           if kubectl exec client -- ping -c 3 -W 2 "$ip"; then echo "deny-all NetworkPolicy not enforced"; exit 1; fi
-          echo "Cilium: nodes Ready, CIDRs assigned, overlay healthy, DNS from both nodes, NetworkPolicy deny enforced: ok"
+          # L7 policy through the cilium-envoy DaemonSet: only GET /allowed on 8080 may reach the web
+          # pod; Envoy answers anything else with 403 (a plain L3/L4 drop would time out instead).
+          kubectl create namespace l7
+          kubectl -n l7 run web --restart=Never --labels=app=web --image=ghcr.io/quenchworks/images/busybox:1.38.0 \
+            --overrides="{\"spec\":{\"nodeName\":\"${nodes[0]}\",\"containers\":[{\"name\":\"web\",\"image\":\"ghcr.io/quenchworks/images/busybox:1.38.0\",\"command\":[\"sh\",\"-c\",\"mkdir -p /tmp/w && echo ok > /tmp/w/allowed && echo no > /tmp/w/denied && httpd -f -p 8080 -h /tmp/w\"]}]}}"
+          kubectl -n l7 wait --for=condition=Ready pod/web --timeout=180s
+          wip="$(kubectl -n l7 get pod web -o jsonpath='{.status.podIP}')"
+          kubectl apply -f - <<<'{"apiVersion":"cilium.io/v2","kind":"CiliumNetworkPolicy","metadata":{"name":"l7-get-allowed","namespace":"l7"},"spec":{"endpointSelector":{"matchLabels":{"app":"web"}},"ingress":[{"toPorts":[{"ports":[{"port":"8080","protocol":"TCP"}],"rules":{"http":[{"method":"GET","path":"/allowed"}]}}]}]}}'
+          code() { kubectl exec client -- wget -q -S -O /dev/null -T 5 "http://$wip:8080$1" 2>&1 | awk '/^ *HTTP\//{c=$2} END{print c}'; }
+          ok=""; for i in $(seq 1 30); do [ "$(code /allowed)" = 200 ] && [ "$(code /denied)" = 403 ] && { ok=1; break; }; sleep 4; done
+          echo "GET /allowed -> $(code /allowed), GET /denied -> $(code /denied)"
+          [ -n "$ok" ] || { echo "L7 policy not enforced through cilium-envoy"; exit 1; }
+          echo "Cilium: nodes Ready, CIDRs assigned, overlay healthy, DNS from both nodes, NetworkPolicy deny and L7 HTTP policy enforced: ok"
       # A failed install gate otherwise reports only "Progress deadline exceeded",
       # which says a pod never became ready and nothing about why: helm --wait
       # aborts before the smoke checks, so no logs are kept. Per container, not

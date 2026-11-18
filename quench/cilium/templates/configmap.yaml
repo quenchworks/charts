@@ -15,8 +15,8 @@
   "kube-proxy-replacement" $c.kubeProxyReplacement
   "enable-policy" $c.policyEnforcementMode
   "enable-k8s-networkpolicy" true
-  "enable-l7-proxy" false
-  "external-envoy-proxy" false
+  "enable-l7-proxy" .Values.envoy.enabled
+  "external-envoy-proxy" .Values.envoy.enabled
   "enable-hubble" false
   "enable-policy-secrets-sync" false
   "write-cni-conf-when-ready" "/host/etc/cni/net.d/05-cilium.conflist"
@@ -36,8 +36,9 @@
 -}}
 {{- $data = mergeOverwrite $data ($c.extraConfig | default dict) -}}
 # Read by the agents (mounted as their config dir) and by the operator subchart, which
-# also patches it under this fixed name. No Envoy ships in the image, so L7 proxying is
-# off; the CNI config is written only once the agent can serve pods.
+# also patches it under this fixed name. L7 proxying follows envoy.enabled (the separate
+# cilium-envoy DaemonSet in envoy.yaml); the CNI config is written only once the agent can
+# serve pods.
 apiVersion: v1
 kind: ConfigMap
 metadata:
