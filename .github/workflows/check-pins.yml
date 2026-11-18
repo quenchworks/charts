@@ -30,6 +30,17 @@ jobs:
         run: |
           go -C tools/qw run . check-pins --lock "$GITHUB_WORKSPACE/images/catalog.lock.yaml"
 
+  # A chart can deploy one digest (values.yaml) while its ArtifactHub image list still names
+  # another: check-pins passes when both are published, and only the listing is wrong
+  # (gokapi until 2026-11-18). Reads the chart files only.
+  annotation-drift:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The ArtifactHub image list names the digest each chart deploys
+        run: |
+          go -C tools/qw run . audit --drift
+
   # A chart that copies a bundled database's password gets two different random values on
   # a first install (lookup finds nothing yet), and every ci values file sets explicit
   # passwords, so no release gate installs that path. This renders each DB-bundling chart
