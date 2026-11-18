@@ -87,8 +87,19 @@ jobs:
               --desc "Automated re-pin: ${APP} republished to a new 0-CVE digest."
           done
 
+      # Stacks pin the image in their own values and the artifacthub.io/images annotation;
+      # repin-stacks rewrites exactly that pin and bumps the stack (charts#66). Subchart
+      # version bumps (qw bump-deps) stay manual: in the same push they would race the
+      # subchart's own release.
+      - name: Re-pin stacks
+        id: stacks
+        run: |
+          set -euo pipefail
+          go -C tools/qw run . repin-stacks "$APP" "$DIGEST"
+          if git diff --quiet -- quench/; then echo "changed=" >> "$GITHUB_OUTPUT"; else echo "changed=1" >> "$GITHUB_OUTPUT"; fi
+
       - name: Open a pull request
-        if: steps.find.outputs.simple != ''
+        if: steps.find.outputs.simple != '' || steps.stacks.outputs.changed != ''
         run: |
           set -euo pipefail
           git config user.name  "quenchworks-bot"
@@ -99,8 +110,7 @@ jobs:
           git add quench/
           git commit -m "chore(${APP}): re-pin charts to the republished digest" \
             -m "Fired by the image-published dispatch from quenchworks/images." \
-            -m "Charts: ${{ steps.find.outputs.simple }}" \
-            -m "Co-Authored-By: QuenchWorks <info@quench-works.com>"
+            -m "Charts: ${{ steps.find.outputs.simple }} (plus the stacks repin-stacks moved)"
           git push -u origin "$branch"
           body="Automated digest re-pin for \`${APP}\` -> \`${DIGEST}\`.
 
@@ -137,6 +147,6 @@ jobs:
           fi
 
       - name: Report when only multi-image charts matched
-        if: steps.find.outputs.simple == '' && steps.find.outputs.complex != ''
+        if: steps.find.outputs.simple == '' && steps.stacks.outputs.changed == '' && steps.find.outputs.complex != ''
         run: |
           echo "::warning::${APP} is pinned only by multi-image chart(s) ${{ steps.find.outputs.complex }}, re-pin by hand."
