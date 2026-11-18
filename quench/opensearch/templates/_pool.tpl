@@ -183,7 +183,7 @@ spec:
             - name: OPENSEARCH_SECURITY_DISABLED
               value: {{ $ctx.Values.config.securityDisabled | quote }}
             - name: OPENSEARCH_JAVA_OPTS
-              value: "-Xms{{ $cfg.heapSize }} -Xmx{{ $cfg.heapSize }}"
+              value: "-Xms{{ $cfg.heapSize }} -Xmx{{ $cfg.heapSize }} -XX:-UseBASE64Intrinsics"
             {{- with $extra }}
             - name: OPENSEARCH_CONFIG_EXTRA
               value: {{ join "\n" . | quote }}

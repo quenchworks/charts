@@ -65,10 +65,14 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
-          {{- with .Values.extraEnvVars }}
           env:
+            # interim mitigation for CVE-2026-114938 (Java4Shell, RHSB-2026-018) while the image is
+            # held on its OpenJDK build: the Base64 intrinsic off, safe on every arch
+            - name: JAVA_TOOL_OPTIONS
+              value: {{ .Values.javaToolOptions | quote }}
+            {{- with .Values.extraEnvVars }}
             {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
-          {{- end }}
+            {{- end }}
           {{- include "quench-common.envFrom" . | nindent 10 }}
           ports:
             - name: http
