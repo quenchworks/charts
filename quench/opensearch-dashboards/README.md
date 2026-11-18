@@ -15,7 +15,7 @@ Keep `networkPolicy.enabled`, or put an authenticating proxy in front.
 
 ## Install
 
-Use the same minor as your OpenSearch (`appVersion` is 3.8.0).
+Use the same minor as your OpenSearch (`appVersion` is 3.10.0).
 
 ```bash
 helm install os oci://ghcr.io/quenchworks/charts/opensearch --set mode=single
