@@ -1,0 +1,89 @@
+# The digests below are the contract with the image factory. CI rewrites image.digest from the image-published
+# dispatch after every green build; spilo moves with the spilo image. Never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/postgres-operator
+  digest: "sha256:7453850778edea44b0deb7d01ccdf2a0a5485f9dbf27b465365a61eaa6356221"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The database image every cluster runs (Spilo: PostgreSQL 18 + Patroni + WAL-G), pinned by digest. It runs as
+# postgres (uid 101, gid 103).
+spilo:
+  image:
+    repository: ghcr.io/quenchworks/images/spilo
+    digest: "sha256:797b5b00da923b4b27b16e69dc90acef23e245bf4f7586bbe69ec90984c0066d"
+
+# Operator settings, as the flat keys of the operator's ConfigMap (docs: zalando/postgres-operator
+# docs/reference/operator_parameters.md). They merge over the defaults below; docker_image, spilo_runasuser,
+# spilo_runasgroup and spilo_fsgroup are set from spilo and cannot be overridden here. Connection pooling and logical
+# backups are off unless a cluster asks for them, and their images are upstream's: set connection_pooler_image and
+# logical_backup_docker_image before turning them on.
+config:
+  watched_namespace: "*"
+  cluster_domain: cluster.local
+  cluster_labels: application:spilo
+  cluster_name_label: cluster-name
+  enable_crd_registration: "false"
+  enable_pod_antiaffinity: "false"
+  enable_teams_api: "false"
+  api_port: "8080"
+  resource_check_interval: 3s
+  resource_check_timeout: 10m
+  default_cpu_request: 100m
+  default_memory_request: 100Mi
+  default_cpu_limit: "1"
+  default_memory_limit: 500Mi
+
+replicaCount: 1
+
+resources:
+  requests: { cpu: 100m, memory: 250Mi }
+  limits: { memory: 500Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # the operator talks to the API server
+  automountServiceAccountToken: true
+
+networkPolicy:
+  enabled: true
+  allowExternal: false
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
