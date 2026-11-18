@@ -27,6 +27,7 @@ var commands = map[string]struct {
 	"check-netpol-ports":      {netpol.Run, "[chart...]", "every listening port is allowed by the chart's NetworkPolicy"},
 	"repin":                   {repin.Pins, "<chart> <appVersion> <digest>", "move a chart to a new image digest, patch-bump it"},
 	"repin-stacks":            {repin.Stacks, "[--audit] | <image> <sha256:...> [...]", "re-pin the stacks that bundle an image"},
+	"bump-deps":               {repin.Deps, "", "move charts onto their subcharts' current versions (one wave)"},
 	"audit":                   {audit.Run, "[--drift] [--stale]", "chart pins against the image recipes (both checks by default)"},
 	"audit-dep-lag":           {audit.DepLag, "[--strict]", "charts bundling an old subchart version"},
 	"gen-prometheus-crds":     {gencrds.Prometheus, "<version> [--check]", "regenerate the prometheus-operator CRDs"},
