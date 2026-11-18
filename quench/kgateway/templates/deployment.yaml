@@ -1,12 +1,12 @@
-{{/* controller-runtime's health server listens on 9093: /healthz once the manager is
-     up, /readyz once the caches have synced and the xDS server is serving. Upstream
-     probes /readyz for both startup and readiness and ships no liveness probe; this
-     chart adds one on /healthz, which is the liveness signal controller-runtime
-     actually exposes. failureThreshold 600 on startup matches upstream -- a cold
+{{/* The health server listens on 9093 and, since 2.5, serves only /readyz (once the caches
+     have synced and the xDS server is serving); /healthz answers 404 and killed the pod
+     every minute. Upstream probes /readyz for startup and readiness and ships no liveness
+     probe; this chart keeps one as a TCP check on the health port, which fails only when
+     the manager stops serving. failureThreshold 600 on startup matches upstream -- a cold
      controller has to list every Gateway API object in the cluster before it is
      ready, and on a large cluster that is minutes, not seconds. */}}
 {{- $startup := dict "httpGet" (dict "path" "/readyz" "port" "health") "periodSeconds" 1 "timeoutSeconds" 2 "failureThreshold" 600 -}}
-{{- $liveness := dict "httpGet" (dict "path" "/healthz" "port" "health") "periodSeconds" 20 "timeoutSeconds" 2 -}}
+{{- $liveness := dict "tcpSocket" (dict "port" "health") "periodSeconds" 20 "timeoutSeconds" 2 -}}
 {{- $readiness := dict "httpGet" (dict "path" "/readyz" "port" "health") "periodSeconds" 10 "timeoutSeconds" 2 -}}
 apiVersion: apps/v1
 kind: Deployment

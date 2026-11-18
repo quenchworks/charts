@@ -13,7 +13,7 @@ Two images, both ours:
 
 | | what it is |
 |---|---|
-| `kgateway` | the controller. Also carries the Wolfi Envoy binary at `/usr/local/bin/envoy`, which is the path kgateway forks for `envoy --mode validate` under `validation.level: strict`. |
+| `kgateway` | the controller. Also carries our from-source Envoy binary at `/usr/local/bin/envoy`, which is the path kgateway forks for `envoy --mode validate` under `validation.level: strict`. |
 | `kgateway-envoy` | the data plane: upstream's `envoy-wrapper`, rebuilt clean-room: the QuenchWorks hardened Envoy binary plus kgateway's own `envoyinit` shim. |
 
 `kgateway-envoy` exists rather than reusing the plain quench [`envoy`](../envoy) chart's
@@ -21,7 +21,7 @@ image because the proxy container kgateway generates carries **args only, no com
 no `-c`**. The image entrypoint has to find `/etc/envoy/envoy.yaml` itself, expand the
 Kubernetes Downward API templates the controller wrote into it, append the OS CA bundle
 as the `system_trust` static secret, and then exec Envoy. That is what `envoyinit` does.
-The Envoy binary it execs is the same Wolfi apk that backs the `envoy` image.
+The Envoy binary it execs is copied, digest-pinned, from the quench `envoy` image, which builds Envoy from source.
 
 ## Install
 
@@ -35,7 +35,7 @@ helm install gateway-api-crds oci://ghcr.io/quenchworks/charts/gateway-api-crds
 helm install kgateway oci://ghcr.io/quenchworks/charts/kgateway
 ```
 
-kgateway's own eight `gateway.kgateway.dev` CRDs **do** ship here, in `crds/`. See
+kgateway's own seven `gateway.kgateway.dev` CRDs **do** ship here, in `crds/`. See
 [CRDs](#crds) for what that means on upgrade.
 
 The controller creates its own GatewayClass, so there is nothing to claim, just create
@@ -104,7 +104,7 @@ Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them 
 | `service.type` | `ClusterIP` | |
 | `service.xdsPort` | `9977` | Written into every generated proxy bootstrap; the fleet dials this Service by name. |
 | `service.metricsPort` | `9092` | Prometheus. |
-| `service.healthPort` | `9093` | controller-runtime `/healthz` and `/readyz`. |
+| `service.healthPort` | `9093` | `/readyz` for startup and readiness; liveness is a TCP check on this port (2.5 serves no `/healthz`). |
 | `resources` | 100m/256Mi → 1/1Gi | `GOMEMLIMIT` and `GOMAXPROCS` are derived from the limits. |
 | `serviceAccount.create` | `true` | |
 | `rbac.create` | `true` | Cluster-scoped by necessity, see [RBAC](#rbac). |
@@ -187,20 +187,15 @@ to `serviceAccount.name`.
   `envoy.extensions.filters.http.dynamic_modules.v3.DynamicModuleFilter` naming
   `rust_module`, and Envoy rejects that config without the module on disk. Everything
   else, HTTPRoute/GRPCRoute/TCPRoute/TLSRoute routing, ListenerPolicy,
-  HTTPListenerPolicy, BackendConfigPolicy, Backend, DirectResponse, and TrafficPolicy's
+  BackendConfigPolicy, Backend, DirectResponse, and TrafficPolicy's
   ext-auth, ext-proc, rate limiting, CORS, CSRF, retry and timeout sections, needs no
   dynamic module.
 
-  Why it is not shipped: the module's `rust-toolchain.toml` pins Rust channel **1.95.0**
-  while Wolfi's newest is `rust-1.92`, and its SDK
-  (`envoy-proxy-dynamic-modules-rust-sdk`) is a **git dependency on the envoyproxy/envoy
-  repository at the exact Envoy patch tag**, `v1.38.3` for kgateway 2.4.3, because the
-  dynamic-module ABI is version-checked against the Envoy binary at load time. Our
-  Envoy is Wolfi's `envoy-1.38` apk at 1.38.1, the newest in that line, so even a
-  successful build would be loading a module compiled against a different patch.
-  Shipping it would mean either vendoring a Rust toolchain Wolfi does not carry or
-  pretending an ABI match we cannot demonstrate. Revisit when Wolfi carries Rust 1.95
-  and `envoy-1.38` reaches 1.38.3.
+  Why it is not shipped yet: its SDK (`envoy-proxy-dynamic-modules-rust-sdk`) is a **git
+  dependency on the envoyproxy/envoy repository at the exact Envoy patch tag**, because
+  the dynamic-module ABI is version-checked against the Envoy binary at load time. Our
+  Envoy is now built from source at exactly the tag kgateway 2.5.2 pairs with (`v1.39.6`),
+  so the ABI match is no longer the blocker; building the module is open work.
 * **The `sds` image**, kgateway's third binary. It is the cert sidecar for the
   Istio-ambient auto-mTLS path only, so `waypoint.enabled: true` gives you waypoint
   translation but not that sidecar.
@@ -211,18 +206,18 @@ to `serviceAccount.name`.
 
 ## Envoy coupling
 
-kgateway generates its xDS against a specific Envoy minor, and Wolfi packages Envoy by
-minor. The pairing is not something to guess at on an upgrade:
+kgateway generates its xDS against a specific Envoy minor, so each kgateway line runs on
+the Envoy line upstream pairs it with:
 
-| kgateway | upstream `ENVOY_IMAGE` | our `envoy` apk |
+| kgateway | upstream `ENVOY_IMAGE` | our `envoy` image |
 |---|---|---|
-| 2.3.7 | `envoyproxy/envoy:v1.37.5` | `envoy-1.37` = 1.37.1 |
-| 2.4.3 | `envoyproxy/envoy:v1.38.3` | `envoy-1.38` = 1.38.1 |
+| 2.5.2 | `envoyproxy/envoy:v1.39.6` | 1.39.6, built from source |
 
-Within one minor the xDS API and bootstrap schema are stable, which is what the control
-plane depends on; the patch gap is a Wolfi packaging lag. `scripts/check/kgateway.py` in
-the images repo reads the candidate tag's own Makefile on every update check and says
-whether we ship that minor at all.
+The Envoy binary is pinned by image index digest in the images repo
+(`apps/kgateway/build.conf`, `ENVOY_INDEX`). `scripts/check/kgateway.py` in the images
+repo reads the candidate tag's own Makefile on every update check and says whether we
+ship that minor at all. 2.4.x pairs with Envoy 1.38, whose Bazel 7 build the envoy recipe
+does not do, so 2.4 is no longer shipped.
 
 kgateway **2.2.x is not shipped**: it pins its amd64 data plane to
 `quay.io/solo-io/envoy-gloo:1.36.9-patch1`, a vendor fork of Envoy carrying the C++
@@ -232,7 +227,7 @@ runnable on our own Envoy.
 
 ## CRDs
 
-The eight `gateway.kgateway.dev` CRDs ship in `crds/`, not `templates/`, and that has
+The seven `gateway.kgateway.dev` CRDs ship in `crds/`, not `templates/`, and that has
 consequences Helm users should know:
 
 * `helm install` and `helm upgrade` **create** them but never **update** them. Apply the
