@@ -1,0 +1,59 @@
+{{- if .Values.cronjobs.enabled }}
+{{- $app := printf "http://%s:%d" (include "quench-common.fullname" .) (int .Values.service.port) }}
+{{- range $job, $c := .Values.cronjobs.jobs }}
+---
+# Calls each path on the app with CRON_SECRET, like upstream's cron container, using bun's fetch in the sim image.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ printf "%s-%s" (include "quench-common.fullname" $) $job | trunc 52 | trimSuffix "-" }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: cron
+spec:
+  schedule: {{ $c.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 300
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: sim-cron
+            app.kubernetes.io/instance: {{ $.Release.Name }}
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            {{- include "quench-common.podSecurityContext" $ | nindent 12 }}
+          {{- include "quench-common.imagePullSecrets" $ | nindent 10 }}
+          containers:
+            - name: cron
+              image: {{ include "quench-common.image" $ }}
+              imagePullPolicy: {{ $.Values.image.pullPolicy }}
+              securityContext:
+                {{- include "quench-common.containerSecurityContext" $ | nindent 16 }}
+              command: [/usr/bin/bun, -e]
+              args:
+                - |
+                  let bad = 0;
+                  for (const p of process.env.PATHS.split(" ")) {
+                    const r = await fetch(process.env.SIM_URL + p, { headers: { Authorization: "Bearer " + process.env.CRON_SECRET },
+                      signal: AbortSignal.timeout(60000) }).catch((e) => ({ ok: false, status: String(e) }));
+                    console.log(p, r.status);
+                    if (!r.ok) bad++;
+                  }
+                  process.exit(bad ? 1 : 0);
+              env:
+                - { name: SIM_URL, value: {{ $app | quote }} }
+                - { name: PATHS, value: {{ join " " $c.paths | quote }} }
+                - name: CRON_SECRET
+                  valueFrom:
+                    secretKeyRef: { name: {{ include "sim.secretName" $ }}, key: cron-secret }
+              resources:
+                {{- toYaml $.Values.cronjobs.resources | nindent 16 }}
+{{- end }}
+{{- end }}

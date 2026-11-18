@@ -1,0 +1,155 @@
+name: release-sim
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/sim/**"
+      - ".github/workflows/release-sim.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/sim
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 15m
+          kubectl rollout status deployment/rtest-sim --timeout=300s
+          kubectl rollout status deployment/rtest-sim-realtime --timeout=300s
+          sec() { kubectl get secret rtest-sim -o jsonpath="{.data.$1}" | base64 -d; }
+          for k in better-auth-secret encryption-key internal-api-secret cron-secret; do v=$(sec $k); [ ${#v} -ge 32 ] || { echo "$k is too short"; exit 1; }; done
+          EK=$(sec encryption-key)
+          # baseUrl is http://localhost:3000: better-auth checks the Origin header against it
+          fwd() {
+            kubectl port-forward svc/rtest-sim 3000:3000 >/tmp/pf.log 2>&1 & local pf=$!
+            kubectl port-forward svc/rtest-sim-realtime 3002:3002 >/tmp/pf-rt.log 2>&1 & local pr=$!
+            sleep 3; local rc=0; "$@" || rc=$?; kill $pf $pr 2>/dev/null || true; return $rc
+          }
+          B=http://localhost:3000 R=http://localhost:3002 EMAIL=gate@quench.test PW='Gate-Sim-2026!pw'
+          # auth <path> <json>: prints the status, body in /tmp/r.out, session in /tmp/r.jar
+          auth() { curl -s -o /tmp/r.out -w '%{http_code}' -b /tmp/r.jar -c /tmp/r.jar -H "Origin: $B" -H 'Content-Type: application/json' -X POST "$B/api/auth$1" -d "$2"; }
+          up() { for _ in $(seq 1 60); do curl -sf "$B/api/health" >/dev/null && return 0; sleep 2; done; echo "/api/health never answered"; return 1; }
+          session() { curl -s -b /tmp/r.jar -H "Origin: $B" "$B/api/auth/get-session" | jq -e --arg e "$EMAIL" '.user.email == $e' >/dev/null; }
+          first() {
+            up || return 1
+            [ "$(auth /sign-up/email "{\"email\":\"$EMAIL\",\"password\":\"$PW\",\"name\":\"Gate\"}")" = 200 ] || { echo "sign-up failed: $(cat /tmp/r.out)"; return 1; }
+            rm -f /tmp/r.jar
+            [ "$(auth /sign-in/email "{\"email\":\"$EMAIL\",\"password\":\"wrong-password-0\"}")" != 200 ] || { echo "a wrong password signed in"; return 1; }
+            [ "$(auth /sign-in/email "{\"email\":\"$EMAIL\",\"password\":\"$PW\"}")" = 200 ] || { echo "sign-in failed: $(cat /tmp/r.out)"; return 1; }
+            session || { echo "no session for $EMAIL after sign-in"; return 1; }
+            [ "$(curl -s -o /dev/null -w '%{http_code}' "$B/api/workflows")" = 401 ] || { echo "an anonymous API call was not refused"; return 1; }
+            curl -sf "$R/health" >/dev/null || { echo "realtime /health failed"; return 1; }
+            grep -q '"sid":"' <<<"$(curl -s "$R/socket.io/?EIO=4&transport=polling")" || { echo "no engine.io handshake from realtime"; return 1; }
+          }
+          kept() { up || return 1; session || { echo "the session did not survive"; return 1; }; }
+          fwd first
+          # the scheduled work authenticates with CRON_SECRET: run the every-minute job once by hand
+          kubectl create job cron-gate --from=cronjob/rtest-sim-every-minute
+          kubectl wait --for=condition=complete job/cron-gate --timeout=300s || { kubectl logs job/cron-gate; echo "the cron job failed"; exit 1; }
+          kubectl logs job/cron-gate
+          # the account and session (PostgreSQL) survive a pod restart; the secrets survive an upgrade
+          kubectl delete pod -l app.kubernetes.io/instance=rtest,app.kubernetes.io/name=sim --wait=true
+          kubectl rollout status deployment/rtest-sim --timeout=300s
+          fwd kept
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 15m
+          [ "$(sec encryption-key)" = "$EK" ] || { echo "ENCRYPTION_KEY changed on upgrade"; exit 1; }
+          kubectl rollout status deployment/rtest-sim --timeout=300s
+          fwd kept
+          echo "sim: migrated, sign-up, wrong password refused, sign-in session, anonymous API refused, realtime handshake, cron job authenticated, session kept across a pod restart and an upgrade: ok"
+
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.initContainers[*].name} {.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/sim-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/sim@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/sim:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
