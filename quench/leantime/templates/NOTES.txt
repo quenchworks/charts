@@ -1,0 +1,14 @@
+Leantime answers on http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+{{- if .Values.ingress.enabled }} and through the Ingress{{ end }}, for {{ .Values.appUrl }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+
+The first install creates the admin {{ .Values.admin.email }}. Its password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "leantime.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+
+Sign in at {{ .Values.appUrl }}/auth/login and change it. Later installs and upgrades leave the account alone.
+{{- if not .Values.ingress.enabled }}
+
+There is no TLS listener: enable ingress (with tls) before exposing it, and set appUrl to the https URL.
+{{- end }}
