@@ -1,0 +1,66 @@
+{{- /* Kutt has no account until someone posts its create-admin form, and until then anyone who reaches the server
+       can claim it. This hook claims it right after install with the email from values and the password from the
+       Secret (Kutt refuses create-admin once any user exists, so upgrades leave it alone), then signs in to prove
+       the password works. */}}
+{{- $fullname := include "quench-common.fullname" . }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fullname }}-bootstrap
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        # not the Deployment's selector labels: the Service must not route to this pod
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: bootstrap
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: bootstrap
+          image: {{ printf "%s@%s" .Values.busybox.repository .Values.busybox.digest }}
+          imagePullPolicy: {{ .Values.busybox.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - { name: HOST, value: {{ printf "%s.%s.svc" $fullname .Release.Namespace | quote }} }
+            - { name: PORT, value: {{ .Values.service.port | quote }} }
+            - { name: ADMIN_EMAIL, value: {{ required "admin.email is required" .Values.admin.email | quote }} }
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "kutt.secretName" . }}
+                  key: admin-password
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              U="http://$HOST:$PORT"
+              for i in $(seq 1 60); do wget -q -O /dev/null "$U/api/v2/health" 2>/dev/null && break; sleep 5; done
+              pw=$(printf '%s' "$ADMIN_PASSWORD" | sed 's/\\/\\\\/g; s/"/\\"/g')
+              body="{\"email\":\"$ADMIN_EMAIL\",\"password\":\"$pw\"}"
+              # 201 creates the admin; once a user exists Kutt answers 400 and changes nothing
+              if wget -q -O /dev/null --header 'Content-Type: application/json' --header 'Accept: application/json' \
+                --post-data "$body" "$U/api/v2/auth/create-admin" 2>/dev/null; then
+                echo "admin account created"
+              else
+                echo "an account already exists"
+              fi
+              wget -q -O - --header 'Content-Type: application/json' --header 'Accept: application/json' \
+                --post-data "$body" "$U/api/v2/auth/login" | grep -q '"token"' \
+                || { echo "$ADMIN_EMAIL cannot sign in with the password in the Secret"; exit 1; }
+              echo "admin signs in"
+          resources:
+            requests: { cpu: 5m, memory: 8Mi }
+            limits: { cpu: 100m, memory: 32Mi }

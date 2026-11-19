@@ -1,0 +1,100 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/kutt
+  digest: "sha256:699b0b8f75d0f32841e8c91dc642420fa15e86833babb46f108967a9895d7d00"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Kutt keeps its SQLite database on the volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# Required: the host short links are served on (DEFAULT_DOMAIN), e.g. s.example.com. Point it at this Service
+# through your ingress or load balancer.
+domain: ""
+siteName: Kutt
+# Trust X-Forwarded-* from the ingress in front (Kutt's default).
+trustProxy: true
+# Off by default: only the admin creates accounts, and only signed-in users shorten links.
+allowRegistration: false
+allowAnonymousLinks: false
+
+# The admin account. A post-install Job claims it through Kutt's create-admin form with this email and password
+# (generated into the Secret <fullname>, key admin-password, when empty); Kutt refuses it once any user exists.
+admin:
+  email: ""
+  password: ""
+# The JWT signing secret (generated into the Secret, key jwt-secret, when empty). Changing it signs everyone out.
+jwtSecret: ""
+existingSecret: ""   # a Secret with keys jwt-secret and admin-password instead
+
+# More settings as environment variables, e.g. MAIL_ENABLED, OIDC_*, REDIS_*, or DB_CLIENT=pg with DB_* for PostgreSQL.
+settings: {}
+
+# Helper image for the bootstrap Job (wget). Pinned by digest.
+busybox:
+  repository: ghcr.io/quenchworks/images/busybox
+  digest: "sha256:041302c8da3a2e182ecc2eac3c56c4f47a13c03cc284d255489c0be741893b64"
+  pullPolicy: IfNotPresent
+
+# The volume at /var/lib/kutt: data.sqlite.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 1Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 20m, memory: 96Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 3000
+  annotations: {}
+  externalTrafficPolicy: ""
+
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
