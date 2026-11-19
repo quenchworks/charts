@@ -1,0 +1,79 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/seerr
+  digest: "sha256:863a58cc52c0d242fff23422073d54aed347fc9db61465357bb706c793febc96"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Seerr keeps its settings and SQLite database on the volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The first person to sign in through your Jellyfin, Emby or Plex server becomes the admin: finish the setup before
+# exposing the Service.
+timezone: UTC
+
+# More settings as environment variables, e.g. LOG_LEVEL, or DB_TYPE=postgres with DB_HOST/DB_USER/DB_PASS/DB_NAME.
+settings: {}
+
+# The volume at /app/config: settings.json, db/db.sqlite3 and logs/.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 2Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 50m, memory: 192Mi }
+  limits: { cpu: "2", memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 5055
+  annotations: {}
+  externalTrafficPolicy: ""
+
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
