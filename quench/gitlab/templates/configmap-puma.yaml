@@ -1,0 +1,33 @@
+{{- /* Puma for the webservice pod: upstream's puma.rb.example with the paths under /srv/gitlab, logs on stdout (no
+stdout_redirect) and a TCP bind the workhorse sidecar reaches on localhost. */ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "quench-common.fullname" . }}-puma
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  puma.rb: |
+    rackup 'config.ru'
+    pidfile '/srv/gitlab/tmp/pids/puma.pid'
+    state_path '/srv/gitlab/tmp/pids/puma.state'
+    threads {{ .Values.webservice.puma.minThreads }}, {{ .Values.webservice.puma.maxThreads }}
+    queue_requests false
+    bind 'tcp://127.0.0.1:{{ .Values.webservice.puma.port }}'
+    workers {{ .Values.webservice.puma.workers }}
+    require_relative "/srv/gitlab/lib/gitlab/cluster/lifecycle_events"
+    Gitlab::Cluster::LifecycleEvents.set_puma_worker_count({{ .Values.webservice.puma.workers }})
+    before_restart { Gitlab::Cluster::LifecycleEvents.do_before_master_restart }
+    before_worker_boot { Gitlab::Cluster::LifecycleEvents.do_worker_start }
+    before_worker_shutdown { Gitlab::Cluster::LifecycleEvents.do_worker_stop }
+    before_fork { Gitlab::Cluster::LifecycleEvents.do_before_fork }
+    preload_app!
+    tag 'gitlab-puma-worker'
+    worker_timeout {{ .Values.webservice.puma.workerTimeout }}
+    wait_for_less_busy_worker ENV.fetch('PUMA_WAIT_FOR_LESS_BUSY_WORKER', 0.001).to_f
+    require_relative "/srv/gitlab/lib/gitlab/puma_logging/json_formatter"
+    json_formatter = Gitlab::PumaLogging::JSONFormatter.new
+    log_formatter { |str| json_formatter.call(str) }
+    require_relative "/srv/gitlab/lib/gitlab/puma/error_handler"
+    error_handler = Gitlab::Puma::ErrorHandler.new(ENV['RAILS_ENV'] == 'production')
+    lowlevel_error_handler { |ex, env, status_code| error_handler.execute(ex, env, status_code) }

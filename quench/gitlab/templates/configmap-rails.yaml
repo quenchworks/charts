@@ -1,0 +1,55 @@
+{{- /* Rails config for webservice, sidekiq and the migrations job, mounted one file per subPath into /srv/gitlab/config.
+Only what GitLab does not default: config/initializers/1_settings.rb derives every storage path from shared.path.
+Secrets stay out of the ConfigMap: tokens come from the env (ERB) and secret files from the Secret volume. */ -}}
+{{- $fullname := include "quench-common.fullname" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-rails
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  gitlab.yml: |
+    production: &base
+      gitlab:
+        host: {{ .Values.gitlab.host | quote }}
+        port: {{ .Values.gitlab.port }}
+        https: {{ .Values.gitlab.https }}
+        trusted_proxies: {{ toJson .Values.gitlab.trustedProxies }}
+      shared:
+        path: /srv/gitlab/shared
+      gitaly:
+        token: <%= ENV['GITALY_TOKEN'] %>
+      repositories:
+        storages:
+          default:
+            gitaly_address: tcp://{{ $fullname }}-gitaly:{{ .Values.gitaly.port }}
+      workhorse:
+        secret_file: /etc/gitlab/secrets/workhorse-secret
+      gitlab_shell:
+        secret_file: /etc/gitlab/secrets/shell-secret
+        ssh_port: {{ .Values.gitlabShell.service.port }}
+      incoming_email:
+        enabled: false
+      # the health endpoints (/-/readiness, /-/liveness) answer 404 to any IP off this list; kubelet probes come from
+      # the node, so the default covers loopback and the private ranges pods use
+      monitoring:
+        ip_whitelist: {{ toJson .Values.gitlab.monitoringAllowlist }}
+  database.yml: |
+    production:
+      main:
+        adapter: postgresql
+        encoding: unicode
+        database: <%= ENV['DB_NAME'] %>
+        username: <%= ENV['DB_USER'] %>
+        password: <%= ENV['DB_PASSWORD'] %>
+        host: <%= ENV['DB_HOST'] %>
+        port: <%= ENV['DB_PORT'] %>
+  resque.yml: |
+    production:
+      url: <%= ENV['REDIS_URL'] %>
+  cable.yml: |
+    production:
+      adapter: redis
+      url: <%= ENV['REDIS_URL'] %>
+      channel_prefix: gitlab_production

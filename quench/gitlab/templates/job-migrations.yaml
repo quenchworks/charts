@@ -1,0 +1,41 @@
+{{- /* migrations: rake gitlab:db:configure, the step upstream runs before GitLab serves traffic (loads the schema
+and seeds the root user on an empty database, migrates an existing one). One Job per Helm revision, so every upgrade
+migrates; webservice and sidekiq stay unready until it finishes. */ -}}
+{{- $sel := dict "ctx" . "component" "migrations" -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "quench-common.fullname" . }}-migrations-{{ .Release.Revision }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrations
+spec:
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        {{- include "gitlab.selectorLabels" $sel | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      initContainers:
+        {{- include "gitlab.tmpInit" . | nindent 8 }}
+      containers:
+        - name: migrations
+          image: "{{ .Values.rails.image.repository }}@{{ .Values.rails.image.digest }}"
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args: ["rake", "gitlab:db:configure"]
+          env:
+            {{- include "gitlab.railsEnv" . | nindent 12 }}
+            - name: GITLAB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ include "gitlab.secretName" . }}, key: root-password }
+          volumeMounts:
+            {{- include "gitlab.railsMounts" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.migrations.resources | nindent 12 }}
+      volumes:
+        {{- include "gitlab.railsVolumes" . | nindent 8 }}

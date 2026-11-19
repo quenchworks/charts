@@ -1,0 +1,86 @@
+{{- /* gitlab-shell: gitlab-sshd serves Git over SSH (2222) and authorizes each key against the Rails internal API
+through workhorse; host keys are generated once in the chart Secret so the fingerprint survives upgrades. */ -}}
+{{- $sel := dict "ctx" . "component" "gitlab-shell" -}}
+{{- $fullname := include "quench-common.fullname" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fullname }}-gitlab-shell
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  config.yml: |
+    user: git
+    gitlab_url: "http://{{ $fullname }}-webservice:{{ .Values.workhorse.port }}"
+    secret_file: /etc/gitlab-shell/secrets/shell-secret
+    log_format: json
+    sshd:
+      listen: "0.0.0.0:2222"
+      web_listen: "0.0.0.0:9122"
+      host_key_files:
+        - /etc/gitlab-shell/secrets/ssh-host-rsa-key
+        - /etc/gitlab-shell/secrets/ssh-host-ed25519-key
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-gitlab-shell
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gitlab-shell
+spec:
+  replicas: {{ .Values.gitlabShell.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "gitlab.selectorLabels" $sel | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      labels:
+        {{- include "gitlab.selectorLabels" $sel | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: gitlab-shell
+          image: "{{ .Values.gitlabShell.image.repository }}@{{ .Values.gitlabShell.image.digest }}"
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - { name: ssh, containerPort: 2222 }
+            - { name: health, containerPort: 9122 }
+          readinessProbe:
+            httpGet: { path: /start, port: health }
+          livenessProbe:
+            httpGet: { path: /health, port: health }
+            periodSeconds: 20
+          volumeMounts:
+            - { name: config, mountPath: /etc/gitlab-shell/config.yml, subPath: config.yml, readOnly: true }
+            {{- range $k := list "shell-secret" "ssh-host-rsa-key" "ssh-host-ed25519-key" }}
+            - { name: secrets, mountPath: /etc/gitlab-shell/secrets/{{ $k }}, subPath: {{ $k }}, readOnly: true }
+            {{- end }}
+            - { name: tmp, mountPath: /tmp }
+          resources:
+            {{- toYaml .Values.gitlabShell.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap: { name: {{ $fullname }}-gitlab-shell }
+        - name: secrets
+          secret: { secretName: {{ include "gitlab.secretName" . }}, defaultMode: 0440 }
+        - { name: tmp, emptyDir: {} }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-gitlab-shell
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.gitlabShell.service.type }}
+  selector:
+    {{- include "gitlab.selectorLabels" $sel | nindent 4 }}
+  ports:
+    - { name: ssh, port: {{ .Values.gitlabShell.service.port }}, targetPort: ssh }

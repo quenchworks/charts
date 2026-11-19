@@ -1,0 +1,14 @@
+{{- /* The HTTP entry point: workhorse in the webservice pod. gitlab-shell and gitaly reach the Rails internal API
+through it too (gitlab_url), so the name is fixed: <fullname>-webservice. */ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "quench-common.fullname" . }}-webservice
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.webservice.service.type }}
+  selector:
+    {{- include "gitlab.selectorLabels" (dict "ctx" . "component" "webservice") | nindent 4 }}
+  ports:
+    - { name: http, port: {{ .Values.workhorse.port }}, targetPort: http }

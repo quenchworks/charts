@@ -1,0 +1,90 @@
+# DRAFT values: grows with the templates. Image pins land once gitlab-rails publishes.
+gitlab:
+  host: gitlab.example.com
+  port: 80
+  https: false
+  trustedProxies: []
+  # IPs allowed to call the health endpoints the probes use; narrow it to the pod CIDR if you can
+  monitoringAllowlist: ["127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+secrets:
+  existingSecret: ""
+rails:
+  image:
+    repository: ghcr.io/quenchworks/images/gitlab-rails
+    digest: sha256:8d00b2c06d11fb35489e192c3ba569ee363d1c9732bfcef5fc9b5dada39c8115
+workhorse:
+  image:
+    repository: ghcr.io/quenchworks/images/gitlab-workhorse
+    digest: sha256:d4db291de8c7e6ba6d7ff8a37bac378e48cfcca940f5b7343c31f6850673abba
+  port: 8181
+  resources: {}
+extraEnvVars: []
+webservice:
+  replicaCount: 1
+  service:
+    type: ClusterIP
+  livenessInitialDelaySeconds: 120
+  resources: {}
+  puma:
+    port: 8080
+    workers: 2
+    minThreads: 1
+    maxThreads: 4
+    workerTimeout: 60
+migrations:
+  backoffLimit: 6
+  resources: {}
+sidekiq:
+  replicaCount: 1
+  # one entry per sidekiq process; each is a queue selector ("*" = all queues)
+  processes: ["*"]
+  resources: {}
+# /srv/gitlab/shared: uploads, CI artifacts, LFS objects and packages. Mounted by webservice and sidekiq: pods on more
+# than one node need a ReadWriteMany storage class. Kept on uninstall (helm.sh/resource-policy: keep).
+shared:
+  persistence:
+    enabled: true
+    existingClaim: ""
+    storageClass: ""
+    accessModes: ["ReadWriteOnce"]
+    size: 10Gi
+gitaly:
+  image:
+    repository: ghcr.io/quenchworks/images/gitaly
+    digest: sha256:8911d77b99c439bbe870efaab1467e18df649bdc6159599646d38db53323cd40
+  port: 8075
+  persistence:
+    size: 10Gi
+    storageClass: ""
+  resources: {}
+gitlabShell:
+  image:
+    repository: ghcr.io/quenchworks/images/gitlab-shell
+    digest: sha256:9557d31d6a698e5664f66e427cb06d50e5f1fb80e7b499b42354cc15869dd02a
+  replicaCount: 1
+  resources: {}
+  service:
+    type: ClusterIP
+    port: 22
+postgresql:
+  enabled: true
+  # GitLab loads db/structure.sql in one transaction; it locks more relations than the default
+  # max_locks_per_transaction (64) allows ("out of shared memory").
+  args: ["-c", "max_locks_per_transaction=512"]
+  auth:
+    database: gitlabhq_production
+    username: gitlab
+valkey:
+  enabled: true
+# Your own PostgreSQL instead (postgresql.enabled=false). GitLab needs max_locks_per_transaction >= 512 for its
+# schema load, and the database must exist.
+externalDatabase:
+  host: ""
+  port: 5432
+  database: gitlabhq_production
+  username: gitlab
+  existingSecret: ""
+  existingSecretPasswordKey: password
+# Your own Redis or Valkey instead (valkey.enabled=false): the full URL, e.g. redis://:password@host:6379.
+externalRedis:
+  url: ""

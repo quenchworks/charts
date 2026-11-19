@@ -1,0 +1,85 @@
+{{- /*
+webservice: Puma (gitlab-rails) behind a gitlab-workhorse sidecar in one pod. Workhorse serves the compiled assets
+itself (production turns Rails' static file server off), so an init container from the gitlab-rails image copies
+/srv/gitlab/public into an emptyDir that workhorse uses as its document root.
+*/ -}}
+{{- $sel := dict "ctx" . "component" "webservice" -}}
+{{- $fullname := include "quench-common.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-webservice
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webservice
+spec:
+  replicas: {{ .Values.webservice.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "gitlab.selectorLabels" $sel | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        checksum/rails: {{ include (print $.Template.BasePath "/configmap-rails.yaml") . | sha256sum }}
+        checksum/puma: {{ include (print $.Template.BasePath "/configmap-puma.yaml") . | sha256sum }}
+      labels:
+        {{- include "gitlab.selectorLabels" $sel | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        {{- include "gitlab.tmpInit" . | nindent 8 }}
+        - name: assets
+          image: "{{ .Values.rails.image.repository }}@{{ .Values.rails.image.digest }}"
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/bin/sh", "-c", "cp -a /srv/gitlab/public/. /assets/"]
+          volumeMounts:
+            - { name: assets, mountPath: /assets }
+      containers:
+        - name: puma
+          image: "{{ .Values.rails.image.repository }}@{{ .Values.rails.image.digest }}"
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args: ["puma", "-C", "config/puma.rb"]
+          env:
+            {{- include "gitlab.railsEnv" . | nindent 12 }}
+          volumeMounts:
+            {{- include "gitlab.railsMounts" . | nindent 12 }}
+            - { name: puma, mountPath: /srv/gitlab/config/puma.rb, subPath: puma.rb }
+          resources:
+            {{- toYaml .Values.webservice.resources | nindent 12 }}
+        - name: workhorse
+          image: "{{ .Values.workhorse.image.repository }}@{{ .Values.workhorse.image.digest }}"
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - -listenAddr=0.0.0.0:{{ .Values.workhorse.port }}
+            - -authBackend=http://127.0.0.1:{{ .Values.webservice.puma.port }}
+            - -documentRoot=/assets
+            - -secretPath=/etc/gitlab/secrets/workhorse-secret
+            - -logFormat=json
+          ports:
+            - { name: http, containerPort: {{ .Values.workhorse.port }} }
+          readinessProbe:
+            httpGet: { path: /-/readiness, port: http }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /-/liveness, port: http }
+            initialDelaySeconds: {{ .Values.webservice.livenessInitialDelaySeconds }}
+            periodSeconds: 20
+          volumeMounts:
+            - { name: assets, mountPath: /assets, readOnly: true }
+            - { name: secrets, mountPath: /etc/gitlab/secrets/workhorse-secret, subPath: workhorse-secret, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+          resources:
+            {{- toYaml .Values.workhorse.resources | nindent 12 }}
+      volumes:
+        {{- include "gitlab.railsVolumes" . | nindent 8 }}
+        - name: puma
+          configMap: { name: {{ $fullname }}-puma }
+        - name: assets
+          emptyDir: {}

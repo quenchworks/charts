@@ -1,0 +1,13 @@
+{{- $fullname := include "quench-common.fullname" . -}}
+GitLab answers on http://{{ $fullname }}-webservice.{{ .Release.Namespace }}:{{ .Values.workhorse.port }}/ (host {{ .Values.gitlab.host }}),
+and Git over SSH on {{ $fullname }}-gitlab-shell.{{ .Release.Namespace }}:{{ .Values.gitlabShell.service.port }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ $fullname }}-webservice 8181:{{ .Values.workhorse.port }}
+
+The migrations Job ({{ $fullname }}-migrations-{{ .Release.Revision }}) loads the schema on the first install and migrates on
+every upgrade; webservice and sidekiq become ready once it finishes. Sign in as root with the generated password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "gitlab.secretName" . }} -o jsonpath='{.data.root-password}' | base64 -d
+
+The chart Secret also holds db_key_base, which encrypts data at rest: back it up, and never let it be regenerated.
+There is no TLS listener: put an Ingress or a load balancer with TLS in front, and set gitlab.https=true.

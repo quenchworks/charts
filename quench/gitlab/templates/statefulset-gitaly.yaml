@@ -1,0 +1,79 @@
+{{- /* gitaly: Git storage over gRPC. Repositories on a PVC; runtime_dir is an emptyDir (gitaly unpacks and runs its
+bundled git helpers there, so it must allow exec); config.toml and the shell secret come from the chart Secret. */ -}}
+{{- $sel := dict "ctx" . "component" "gitaly" -}}
+{{- $fullname := include "quench-common.fullname" . -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullname }}-gitaly
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gitaly
+spec:
+  serviceName: {{ $fullname }}-gitaly
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "gitlab.selectorLabels" $sel | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+      labels:
+        {{- include "gitlab.selectorLabels" $sel | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: gitaly
+          image: "{{ .Values.gitaly.image.repository }}@{{ .Values.gitaly.image.digest }}"
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          ports:
+            - { name: grpc, containerPort: {{ .Values.gitaly.port }} }
+          readinessProbe:
+            tcpSocket: { port: grpc }
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: grpc }
+            initialDelaySeconds: 30
+            periodSeconds: 20
+          volumeMounts:
+            - { name: secrets, mountPath: /etc/gitaly/config.toml, subPath: gitaly-config.toml, readOnly: true }
+            - { name: secrets, mountPath: /etc/gitlab/secrets/shell-secret, subPath: shell-secret, readOnly: true }
+            - { name: repositories, mountPath: /home/git/repositories }
+            - { name: run, mountPath: /home/git/run }
+            - { name: tmp, mountPath: /tmp }
+          resources:
+            {{- toYaml .Values.gitaly.resources | nindent 12 }}
+      volumes:
+        - name: secrets
+          secret: { secretName: {{ include "gitlab.secretName" . }} }
+        - { name: run, emptyDir: {} }
+        - { name: tmp, emptyDir: {} }
+  volumeClaimTemplates:
+    - metadata:
+        name: repositories
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.gitaly.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.gitaly.persistence.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fullname }}-gitaly
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "gitlab.selectorLabels" $sel | nindent 4 }}
+  ports:
+    - { name: grpc, port: {{ .Values.gitaly.port }}, targetPort: grpc }

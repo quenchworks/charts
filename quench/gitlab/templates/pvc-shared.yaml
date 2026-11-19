@@ -1,0 +1,21 @@
+{{- /* /srv/gitlab/shared: uploads, CI artifacts, LFS objects and packages (GitLab derives every storage path from it).
+Webservice and sidekiq both mount it, so pods on more than one node need ReadWriteMany. */ -}}
+{{- if and .Values.shared.persistence.enabled (not .Values.shared.persistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "quench-common.fullname" . }}-shared
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    {{- toYaml .Values.shared.persistence.accessModes | nindent 4 }}
+  {{- with .Values.shared.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.shared.persistence.size | quote }}
+{{- end }}

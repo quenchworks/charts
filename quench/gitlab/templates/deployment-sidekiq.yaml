@@ -1,0 +1,51 @@
+{{- /* sidekiq: background jobs, launched the way upstream's bin/background_jobs does (bin/sidekiq-cluster, one
+argument per process; "*" = every queue). Same Rails config, secrets and env as the webservice. */ -}}
+{{- $sel := dict "ctx" . "component" "sidekiq" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}-sidekiq
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sidekiq
+spec:
+  replicas: {{ .Values.sidekiq.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "gitlab.selectorLabels" $sel | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        checksum/rails: {{ include (print $.Template.BasePath "/configmap-rails.yaml") . | sha256sum }}
+      labels:
+        {{- include "gitlab.selectorLabels" $sel | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        {{- include "gitlab.tmpInit" . | nindent 8 }}
+      containers:
+        - name: sidekiq
+          image: "{{ .Values.rails.image.repository }}@{{ .Values.rails.image.digest }}"
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - bin/sidekiq-cluster
+            {{- range .Values.sidekiq.processes }}
+            - {{ . | quote }}
+            {{- end }}
+            - -P
+            - /srv/gitlab/tmp/sidekiq-cluster.pid
+            - -e
+            - production
+          env:
+            {{- include "gitlab.railsEnv" . | nindent 12 }}
+          volumeMounts:
+            {{- include "gitlab.railsMounts" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.sidekiq.resources | nindent 12 }}
+      volumes:
+        {{- include "gitlab.railsVolumes" . | nindent 8 }}
