@@ -1,0 +1,13 @@
+Audiobookshelf is on {{ include "quench-common.fullname" . }}:{{ .Values.service.port }} (web UI and API).
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 13378:{{ .Values.service.port }}
+
+Sign in as "root"; its password (the bootstrap Job created the account):
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "audiobookshelf.secretName" . }} -o jsonpath='{.data.root-password}' | base64 -d
+
+{{- if not .Values.media.existingClaim }}
+
+No media.existingClaim is set, so /media is an empty emptyDir: point it at a PVC holding your audiobooks and podcasts,
+then add /media (or a folder in it) as a library.
+{{- end }}

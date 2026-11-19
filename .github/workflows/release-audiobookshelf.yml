@@ -1,0 +1,155 @@
+name: release-audiobookshelf
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/audiobookshelf/**"
+      - ".github/workflows/release-audiobookshelf.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/audiobookshelf
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --wait-for-jobs --timeout 8m
+          kubectl rollout status deployment/rtest-audiobookshelf --timeout=300s
+          W=http://127.0.0.1:13378
+          fwd() { kubectl port-forward svc/rtest-audiobookshelf 13378:13378 >/tmp/pf.log 2>&1 & local pf=$!; for _ in $(seq 1 30); do curl -fsS -o /dev/null "$W/healthcheck" 2>/dev/null && break; sleep 1; done; local rc=0; "$@" || rc=$?; kill $pf 2>/dev/null || true; return $rc; }
+          login() { curl -s -o /tmp/login.json -w '%{http_code}' -H 'Content-Type: application/json' -H 'x-return-tokens: true' -d "{\"username\":\"root\",\"password\":\"$1\"}" "$W/login"; }
+          token() { jq -r '.user.accessToken // empty' /tmp/login.json; }
+          api() { local m=$1 p=$2; shift 2; curl -fsS -X "$m" -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' "$@" "$W$p"; }
+          signin() {
+            [ "$(login wrong-password-1)" = 401 ] || { echo "a wrong password was not refused"; return 1; }
+            [ "$(login quench-ci-root-pass)" = 200 ] || { echo "root cannot sign in with the generated password"; cat /tmp/login.json; return 1; }
+            TOK=$(token); [ -n "$TOK" ] || { echo "no access token"; return 1; }
+          }
+          items() { api GET "/api/libraries/$LIB/items" | jq -r '"\(.total) \(.results[0].media.duration // 0)"'; }
+          library() {
+            signin || return 1
+            LIB=$(api POST /api/libraries -d '{"name":"Gate","mediaType":"book","folders":[{"fullPath":"/media"}]}' | jq -r .id)
+            [ -n "$LIB" ] && [ "$LIB" != null ] || { echo "library not created"; return 1; }
+            api POST "/api/libraries/$LIB/scan" >/dev/null || true
+            for _ in $(seq 1 45); do r=$(items); case "$r" in "1 0"|0*) sleep 2;; *) break;; esac; done
+            echo "items: $r"
+            awk -v r="$r" 'BEGIN{split(r,a," "); exit !(a[1]==1 && a[2]>=1.5)}' || { echo "the book was not scanned with its duration"; return 1; }
+          }
+          kept() { signin || return 1; LIB=$(api GET /api/libraries | jq -r '.libraries[0].id'); r=$(items); echo "items: $r"; [ "${r%% *}" = 1 ] || { echo "library item lost"; return 1; }; }
+          # a two-second book made in the pod by the image's own ffmpeg (the image has no shell: node makes the folder)
+          P=deploy/rtest-audiobookshelf
+          kubectl exec $P -c audiobookshelf -- /usr/bin/node -e 'require("fs").mkdirSync("/media/Gate Author/Gate Book",{recursive:true})'
+          kubectl exec $P -c audiobookshelf -- /usr/bin/ffmpeg -hide_banner -loglevel error -f lavfi -i sine=frequency=440:duration=2 "/media/Gate Author/Gate Book/book.mp3"
+          fwd library
+          # the database lives on the PVC: root and the library survive a pod restart (the emptyDir media does not
+          # matter: the item is read back from the database)
+          kubectl delete pod -l app.kubernetes.io/name=audiobookshelf,app.kubernetes.io/instance=rtest --wait=true
+          kubectl rollout status deployment/rtest-audiobookshelf --timeout=300s
+          fwd kept
+          # the bootstrap hook is idempotent: an upgrade finds root already there
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --wait-for-jobs --timeout 8m
+          fwd signin
+          echo "audiobookshelf: root claimed at install, wrong password refused, ffmpeg-made book scanned, kept across a pod restart and an upgrade: ok"
+
+      # A failed install gate otherwise reports only "Progress deadline exceeded",
+      # which says a pod never became ready and nothing about why: helm --wait
+      # aborts before the smoke checks, so no logs are kept. Per container, not
+      # --all-containers, because a chatty sidecar spends the whole tail; and a
+      # large tail, because a crash floods the log with every open request failing
+      # at once and buries the error that triggered it.
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/audiobookshelf-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/audiobookshelf@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/audiobookshelf:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

@@ -1,0 +1,94 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/audiobookshelf
+  digest: "sha256:dd11b8b1371c4935197d80224f2bce99d19edfe7b1cf603bbc8722f5634cf1f9"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Audiobookshelf keeps its SQLite database (config/) and covers, cache and backups (metadata/) on the volume:
+# one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# The root account. A post-install Job claims it through the setup form with this password (generated into the
+# Secret <fullname>, key root-password, when empty); it never changes an existing root.
+root:
+  password: ""
+  existingSecret: ""   # a Secret with key root-password instead
+
+# Your audiobooks and podcasts, mounted at /media; add /media (or folders in it) as libraries. Writable by default:
+# podcast downloads and uploads write into library folders. Without a claim /media is an emptyDir.
+media:
+  existingClaim: ""
+  readOnly: false
+
+# More settings as environment variables, e.g. ROUTER_BASE_PATH or TOKEN_SECRET.
+settings: {}
+
+# Helper image for the directories init container and the bootstrap Job (wget). Pinned by digest.
+busybox:
+  repository: ghcr.io/quenchworks/images/busybox
+  digest: "sha256:041302c8da3a2e182ecc2eac3c56c4f47a13c03cc284d255489c0be741893b64"
+  pullPolicy: IfNotPresent
+
+# The volume at /data: config/ (absdatabase.sqlite) and metadata/ (covers, cache, backups, logs).
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 10Gi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { cpu: "2", memory: 2Gi }
+
+service:
+  type: ClusterIP
+  port: 13378
+  annotations: {}
+  externalTrafficPolicy: ""
+
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
