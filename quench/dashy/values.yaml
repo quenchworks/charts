@@ -1,0 +1,111 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/dashy
+  digest: "sha256:d17f52c96ac18b5ca16fda7c43031d0c4d3ee894976f25ee4ad4599ff20da0a7"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Dashy keeps conf.yml and its backups on the volume: one replica (Recreate).
+replicaCount: 1
+updateStrategy:
+  type: Recreate
+
+# Basic auth for the whole app, including the config editor's save API (open to anyone without auth). The password
+# is generated into the Secret <fullname>, key password, when empty.
+auth:
+  enabled: true
+  username: admin
+  password: ""
+  existingSecret: ""   # a Secret with key password instead
+
+# The first conf.yml, copied onto the volume only when it has none: later edits (in the UI or on the volume) are kept.
+config: |
+  pageInfo:
+    title: Dashy
+    description: Welcome to your new dashboard
+  appConfig:
+    theme: colorful
+  sections:
+    - name: Getting started
+      items:
+        - title: Dashy docs
+          url: https://dashy.to/docs
+        - title: QuenchWorks
+          url: https://quench-works.com
+
+# A kubernetes.io/tls Secret: Dashy then serves HTTPS on 8443 (Service port service.httpsPort) and redirects HTTP to it.
+tls:
+  existingSecret: ""
+
+timezone: UTC
+
+# More settings as environment variables, e.g. REDIRECT_HTTPS=false or DISABLE_CONFIG_BACKUPS=true.
+settings: {}
+
+# Helper image for the seed init container. Pinned by digest.
+busybox:
+  repository: ghcr.io/quenchworks/images/busybox
+  digest: "sha256:041302c8da3a2e182ecc2eac3c56c4f47a13c03cc284d255489c0be741893b64"
+  pullPolicy: IfNotPresent
+
+# The volume at /app/user-data: conf.yml, other pages' YAML and config-backups/.
+persistence:
+  enabled: true
+  existingClaim: ""
+  accessModes: [ReadWriteOnce]
+  size: 512Mi
+  storageClass: ""
+  annotations: {}
+
+resources:
+  requests: { cpu: 20m, memory: 96Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  httpsPort: 8443
+  annotations: {}
+  externalTrafficPolicy: ""
+
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

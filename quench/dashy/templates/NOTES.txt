@@ -1,0 +1,12 @@
+Dashy is on {{ include "quench-common.fullname" . }}:{{ .Values.service.port }}{{ if .Values.tls.existingSecret }} (HTTPS on {{ .Values.service.httpsPort }}; HTTP redirects to it){{ end }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+{{- if .Values.auth.enabled }}
+
+Sign in as {{ .Values.auth.username }}; the password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "dashy.secretName" . }} -o jsonpath='{.data.password}' | base64 -d
+{{- else }}
+
+auth.enabled is false: anyone who reaches Dashy can rewrite its config through the editor. Put auth in front of it.
+{{- end }}
