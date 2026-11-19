@@ -158,15 +158,17 @@ jobs:
       - name: Why the install gate failed
         if: failure()
         run: |
-          kubectl get pods -o wide || true
-          kubectl describe pods || true
-          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
-          for p in $(kubectl get pods -o name); do
-            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
-              echo "=== $p [$c] current"
-              kubectl logs "$p" -c "$c" --tail=400 || true
-              echo "=== $p [$c] previous"
-              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+          # the chart installs into the ingress-nginx namespace: look at every namespace, not only default
+          kubectl get pods -A -o wide || true
+          kubectl describe pods -n ingress-nginx || true
+          kubectl get events -A --sort-by=.lastTimestamp | tail -40 || true
+          kubectl get pods -A --no-headers -o custom-columns=NS:.metadata.namespace,N:.metadata.name | grep -v '^kube-system\|^local-path' |
+          while read -r ns p; do
+            for c in $(kubectl get pod -n "$ns" "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $ns/$p [$c] current"
+              kubectl logs -n "$ns" "$p" -c "$c" --tail=400 || true
+              echo "=== $ns/$p [$c] previous"
+              kubectl logs -n "$ns" "$p" -c "$c" --previous --tail=400 || true
             done
           done
 
