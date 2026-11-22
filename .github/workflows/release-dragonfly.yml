@@ -88,7 +88,12 @@ jobs:
             done
             kubectl logs "$p"; kubectl delete pod "$p" --wait=false >/dev/null
           }
-          rct -h rtls-dragonfly SET gate quench-tls
+          # the Service can refuse the first connection right after --wait; retry the write until it lands
+          for i in $(seq 1 20); do
+            set_out="$(rct -h rtls-dragonfly SET gate quench-tls)"
+            grep -qx OK <<<"$set_out" && break; sleep 3
+          done
+          grep -qx OK <<<"$set_out" || { echo "::error::TLS write failed: $set_out"; exit 1; }
           for i in $(seq 1 20); do
             out="$(rct -h rtls-dragonfly-replica-0.rtls-dragonfly-replica-headless GET gate)"
             grep -qx quench-tls <<<"$out" && break; sleep 3
