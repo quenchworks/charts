@@ -1,0 +1,111 @@
+{{- $tls := eq (include "quench-common.tls.enabled" .) "true" -}}
+{{- $probe := dict "httpGet" (dict "path" "/" "port" (ternary "https" "http" $tls) "scheme" (ternary "HTTPS" "HTTP" $tls)) "initialDelaySeconds" 15 "periodSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # DATA_DIR on one ReadWriteOnce volume: Recreate unless overridden
+  strategy:
+    {{- toYaml (.Values.updateStrategy | default (dict "type" "Recreate")) | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # PentAGI reads its settings at start: a change rolls the pods
+        checksum/config: {{ toJson (list (include "pentagi.env" .) .Values.tls .Values.docker) | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: pentagi
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "pentagi.env" . | nindent 12 }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            {{- range (include "pentagi.ports" . | fromJsonArray) }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ .protocol }}
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- include "quench-common.lifecycleHooks" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: data
+              mountPath: /var/lib/pentagi
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- if .Values.docker.sidecar.enabled }}
+        {{- $s := .Values.docker.sidecar }}
+        # The Docker API the agents run their tool containers through: Podman's Docker-compatible service, rootful
+        # and privileged (it creates namespaces, cgroups and bridges), listening on the pod's loopback only. The
+        # image's per-user storage.conf is for rootless use; rootful uses the defaults on the emptyDir below.
+        - name: docker
+          image: {{ printf "%s@%s" $s.image.repository $s.image.digest }}
+          imagePullPolicy: {{ $s.image.pullPolicy }}
+          args: ["system", "service", "--time=0", "tcp://127.0.0.1:2375"]
+          env:
+            - { name: CONTAINERS_STORAGE_CONF, value: /dev/null }
+            - { name: HOME, value: /var/lib/containers }
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+          resources:
+            {{- toYaml $s.resources | nindent 12 }}
+          volumeMounts:
+            - name: containers
+              mountPath: /var/lib/containers
+        {{- end }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (include "quench-common.fullname" .) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if .Values.docker.sidecar.enabled }}
+        - name: containers
+          emptyDir:
+            {{- with .Values.docker.sidecar.storageSizeLimit }}
+            sizeLimit: {{ . }}
+            {{- end }}
+        {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

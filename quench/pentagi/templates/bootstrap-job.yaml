@@ -1,0 +1,66 @@
+{{- /* Upstream seeds admin@pentagi.com with the password "admin" (password_change_required), so an install is open
+       to anyone who reaches it before its owner signs in. This hook waits for the server's migrations to seed that
+       row, then replaces the seeded password with the Secret's admin-password (bcrypt via pgcrypto, the format the
+       server checks) and clears the change prompt. It only touches a row that still has the seeded password: a
+       password changed in the UI is never overwritten on upgrade. */}}
+{{- $fullname := include "quench-common.fullname" . }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fullname }}-bootstrap
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        # not the Deployment's selector labels: the Service must not route to this pod
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: bootstrap
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: bootstrap
+          image: {{ printf "%s@%s" .Values.bootstrap.image.repository .Values.bootstrap.image.digest }}
+          imagePullPolicy: {{ .Values.bootstrap.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "pentagi.dbEnv" . | nindent 12 }}
+            - { name: PGSSLMODE, value: {{ .Values.externalDatabase.sslmode | quote }} }
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ include "pentagi.secretName" . }}, key: admin-password }
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              export PGPASSWORD="$DB_PASS"
+              q() { psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -tA "$@"; }
+              for i in $(seq 1 120); do
+                [ "$(q -c "select count(*) from users where mail = 'admin@pentagi.com'" 2>/dev/null)" = 1 ] && break
+                [ "$i" = 120 ] && { echo "the server never seeded admin@pentagi.com"; exit 1; }
+                sleep 5
+              done
+              q -c "create extension if not exists pgcrypto"
+              n=$(q -v pw="$ADMIN_PASSWORD" <<'SQL'
+              with u as (
+                update users set password = crypt(:'pw', gen_salt('bf', 10)), password_change_required = false
+                where mail = 'admin@pentagi.com' and password = crypt('admin', password)
+                returning 1)
+              select count(*) from u;
+              SQL
+              )
+              echo "admin@pentagi.com: seeded password replaced on $n row(s)"
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { cpu: 200m, memory: 64Mi }

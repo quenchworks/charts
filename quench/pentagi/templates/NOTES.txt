@@ -1,0 +1,19 @@
+{{- $scheme := ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") -}}
+PentAGI answers on {{ $scheme }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+{{- if .Values.ingress.enabled }} and through the Ingress{{ end }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8443:{{ .Values.service.port }}
+
+Sign in as admin@pentagi.com. The bootstrap Job replaced upstream's seeded password with:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "pentagi.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+
+Add an LLM provider key (settings or extraEnvVarsSecret, e.g. OPEN_AI_KEY) before starting a flow.
+{{- if .Values.docker.sidecar.enabled }}
+
+The Docker API is a privileged Podman sidecar: every flow's tool containers run in this pod's node.
+{{- end }}
+{{- if not (or .Values.ingress.enabled (eq $scheme "https")) }}
+
+Plain HTTP: enable tls.enabled or an Ingress with TLS before exposing it.
+{{- end }}
