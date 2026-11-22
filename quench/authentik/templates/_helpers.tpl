@@ -184,3 +184,30 @@ redis-password
       key: {{ include "authentik.redis.secretKey" . }}
 {{- end }}
 {{- end -}}
+
+{{/* Init containers for server and worker: wait until PostgreSQL accepts TCP connections (authentik's bootstrap
+     gives up after a fixed number of retries and exits, which a slow PostgreSQL in a busy cluster outlasts), then
+     the user's own initContainers. Runs in the authentik image itself: bash's /dev/tcp, nothing extra to pull. */}}
+{{- define "authentik.initContainers" -}}
+initContainers:
+  - name: wait-for-postgresql
+    image: {{ include "quench-common.image" . }}
+    imagePullPolicy: {{ .Values.image.pullPolicy }}
+    securityContext:
+      {{- include "quench-common.containerSecurityContext" . | nindent 6 }}
+    command: ["bash", "-c"]
+    args:
+      - |
+        for i in $(seq 1 150); do
+          (exec 3<>/dev/tcp/{{ include "authentik.postgres.host" . }}/{{ include "authentik.postgres.port" . }}) 2>/dev/null && exit 0
+          sleep 2
+        done
+        echo "PostgreSQL at {{ include "authentik.postgres.host" . }}:{{ include "authentik.postgres.port" . }} did not accept connections in 5 minutes"
+        exit 1
+    resources:
+      requests: { cpu: 5m, memory: 16Mi }
+      limits: { cpu: 100m, memory: 64Mi }
+  {{- with .Values.initContainers }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+{{- end -}}
