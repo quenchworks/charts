@@ -1,0 +1,15 @@
+{{- $scheme := ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") -}}
+DefectDojo answers on {{ $scheme }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+{{- if .Values.ingress.enabled }} and through the Ingress (add its host to allowedHosts){{ end }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+
+Sign in as {{ .Values.admin.user }}. Its password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "defectdojo.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+
+The first start runs the migrations in the web pod's initializer; the pod turns Ready after it finishes.
+{{- if not (or .Values.ingress.enabled (eq $scheme "https")) }}
+
+Plain HTTP: enable tls.enabled or an Ingress with TLS before exposing it.
+{{- end }}

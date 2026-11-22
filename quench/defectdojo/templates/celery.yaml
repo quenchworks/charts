@@ -1,0 +1,55 @@
+{{- /* Celery worker (imports, deduplication, notifications) and beat (scheduled jobs), from the app image. They
+       reach the database and the broker only, so they get no Service. */}}
+{{- range $role := list "worker" "beat" }}
+{{- $c := index $.Values.celery $role }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" $ }}-celery-{{ $role }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: celery-{{ $role }}
+spec:
+  replicas: {{ ternary 1 $c.replicaCount (eq $role "beat") }}
+  {{- if eq $role "beat" }}
+  # one scheduler only
+  strategy: { type: Recreate }
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      app.kubernetes.io/component: celery-{{ $role }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include "defectdojo.env" $ | sha256sum }}
+      labels:
+        app.kubernetes.io/instance: {{ $.Release.Name }}
+        app.kubernetes.io/component: celery-{{ $role }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" $ }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" $ | nindent 8 }}
+      {{- include "quench-common.podSpecFields" $ | nindent 6 }}
+      containers:
+        - name: celery-{{ $role }}
+          image: {{ include "quench-common.image" $ }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          command: ["/entrypoint-celery-{{ $role }}.sh"]
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" $ | nindent 12 }}
+          env:
+            {{- include "defectdojo.env" $ | nindent 12 }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: run, mountPath: /var/run/defectdojo }
+            - { name: media, mountPath: /app/media }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: run, emptyDir: {} }
+        - { name: media, emptyDir: {} }
+{{- end }}

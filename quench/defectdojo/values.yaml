@@ -1,0 +1,156 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/defectdojo
+  digest: "sha256:b4951d95d6826903ed0ed9b689a86a7998267e33ed22674d9e1dd8080ce2575a"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The URL users reach DefectDojo at (DD_SITE_URL, used in notification links), e.g. https://dojo.example.com.
+siteURL: ""
+# Host names Django accepts besides the Service's own names (an Ingress host).
+allowedHosts: []
+
+admin:
+  user: admin
+  email: admin@defectdojo.local
+  password: ""          # generated into the Secret <fullname> (key admin-password) unless set here
+
+# admin-password, secret-key and credential-aes-256-key: generated and kept on upgrade.
+secret:
+  existingSecret: ""
+
+uwsgi:
+  processes: 2
+  threads: 4
+  maxFd: 4096          # caps uWSGI's descriptor tables (containerd's nofile limit is ~1e9)
+
+# The web pod runs the initializer as an init container (migrations, admin, fixtures) and uWSGI; one replica with
+# Recreate (a second initializer must not run at the same time, and uploads sit on one ReadWriteOnce volume).
+replicaCount: 1
+updateStrategy: {}
+
+celery:
+  worker:
+    replicaCount: 1
+    resources:
+      requests: { cpu: 50m, memory: 256Mi }
+      limits: { cpu: 1, memory: 1Gi }
+  beat:
+    resources:
+      requests: { cpu: 10m, memory: 128Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+
+# Uploaded files and generated reports (/app/media) for the web pod.
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  size: 2Gi
+  annotations: {}
+
+# The bundled QuenchWorks PostgreSQL. username and database must differ from "postgres" and from each other.
+postgresql:
+  enabled: true
+  auth:
+    username: defectdojo
+    password: ""
+    database: defectdojo_db
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+externalDatabase:
+  host: ""
+  port: 5432
+  database: defectdojo
+  username: defectdojo
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+# The bundled Valkey as the Celery broker.
+valkey:
+  enabled: true
+  auth:
+    password: ""
+
+# Your own broker instead (valkey.enabled=false): a Secret holding the full broker URL.
+externalBroker:
+  existingSecret: ""
+  existingSecretKey: DD_CELERY_BROKER_URL
+
+# More DefectDojo settings as environment variables (DD_*), e.g. DD_SOCIAL_AUTH_GITHUB_KEY, DD_EMAIL_URL.
+settings: {}
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { cpu: 2, memory: 2Gi }
+
+service:
+  type: ClusterIP
+  port: 8081
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: uWSGI serves HTTPS on 8443 (the Service keeps service.port) from the PEM pair at /tls. The certificate
+# comes from the first source set: existingSecret, then a cert-manager Certificate, else a Helm-generated CA.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

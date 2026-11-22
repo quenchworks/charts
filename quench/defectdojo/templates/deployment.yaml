@@ -1,0 +1,100 @@
+{{- $tls := eq (include "quench-common.tls.enabled" .) "true" -}}
+{{- /* Django refuses Host headers outside ALLOWED_HOSTS (the kubelet sends the pod IP): probe as localhost. */ -}}
+{{- $probe := dict "httpGet" (dict "path" "/login" "port" (ternary "https" "http" $tls) "scheme" (ternary "HTTPS" "HTTP" $tls) "httpHeaders" (list (dict "name" "Host" "value" "localhost"))) "initialDelaySeconds" 20 "periodSeconds" 10 "timeoutSeconds" 5 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # uploads on one ReadWriteOnce volume, and the initializer must not run twice at once: Recreate unless overridden
+  strategy:
+    {{- toYaml (.Values.updateStrategy | default (dict "type" "Recreate")) | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ toJson (list (include "defectdojo.env" .) .Values.tls) | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        # migrations, the admin user and the fixtures (idempotent; the image's initializer exits once done)
+        - name: initializer
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/entrypoint-initializer.sh"]
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "defectdojo.env" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "defectdojo.mounts" . | nindent 12 }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: uwsgi
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "defectdojo.env" . | nindent 12 }}
+            - { name: DD_UWSGI_NUM_OF_PROCESSES, value: {{ .Values.uwsgi.processes | quote }} }
+            - { name: DD_UWSGI_NUM_OF_THREADS, value: {{ .Values.uwsgi.threads | quote }} }
+            # uWSGI sizes its tables from RLIMIT_NOFILE, and containerd sets ~1e9: without a cap it is OOM-killed
+            - { name: DD_UWSGI_MAX_FD, value: {{ .Values.uwsgi.maxFd | quote }} }
+            {{- if $tls }}
+            # uWSGI serves HTTPS itself from the PEM pair at /tls
+            - { name: DD_UWSGI_EXTRA_ARGS, value: "--https 0.0.0.0:8443,/tls/tls.crt,/tls/tls.key" }
+            - { name: DD_SESSION_COOKIE_SECURE, value: "True" }
+            - { name: DD_CSRF_COOKIE_SECURE, value: "True" }
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            {{- range (include "defectdojo.ports" . | fromJsonArray) }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ .protocol }}
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "defectdojo.mounts" . | nindent 12 }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: run, emptyDir: {} }
+        - name: media
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.persistence.existingClaim | default (include "quench-common.fullname" .) }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
