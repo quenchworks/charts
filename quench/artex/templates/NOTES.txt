@@ -1,0 +1,15 @@
+ARTEX answers on http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+{{- if .Values.ingress.enabled }} and through the Ingress{{ end }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8787:{{ .Values.service.port }}
+
+Until an admin password is set, the server prints a one-time setup token to its log. Read it and enter it with
+a password (12 characters or more) on the /setup page, then sign in as user ARTEX:
+
+  kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "quench-common.fullname" . }} | grep 'Setup token'
+
+ARTEX drives scanners against the targets you give it: use it only on systems you are authorized to test.
+{{- if not .Values.ingress.enabled }}
+
+There is no TLS listener: enable ingress (with tls) before exposing it.
+{{- end }}
