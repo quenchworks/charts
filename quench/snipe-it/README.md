@@ -22,7 +22,7 @@ so the setup wizard is already done.
 |---|---|---|
 | `admin.username`, `admin.email`, `admin.password` | `admin`, generated password | The super admin made on the first start |
 | `appKey.value`, `appKey.existingSecret` | generated | APP_KEY (`base64:` + 32 bytes), kept across upgrades. Back it up |
-| `appURL`, `siteName` | `""`, `Snipe-IT` | APP_URL and the site name |
+| `appURL`, `siteName` | `""`, `Snipe-IT` | APP_URL and the site name. Since 8.8.4 requests for any other host get 400: use the name users reach it by |
 | `settings` | `{}` | More environment: APP_TIMEZONE, MAIL_*, APP_TRUSTED_PROXIES |
 | `mariadb.enabled` | `true` | The bundled MariaDB (its own PVC); `false` uses `externalDatabase` |
 | `externalDatabase.*` | | host, port, database, user, password or existingSecret |
