@@ -1,0 +1,119 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/bloodhound
+  digest: "sha256:c9fbc15af65cf856cbc9ae16597af47a9835b1e1950463da5ef1966369937793"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The URL users reach BloodHound at (bhe_root_url); defaults to the Service's in-cluster URL.
+rootURL: ""
+
+admin:
+  user: admin
+  email: admin@bloodhound.local
+  password: ""          # generated into the Secret <fullname> (key admin-password) unless set here
+  expireNow: false      # true forces a password change at first sign-in (upstream's default)
+
+secret:
+  existingSecret: ""    # a Secret with key admin-password instead
+
+# Size cap for the upload staging emptyDir (/opt/bloodhound/work); collector archives can be large.
+workSizeLimit: 10Gi
+
+replicaCount: 1
+updateStrategy: {}
+
+# The bundled QuenchWorks PostgreSQL holds both the app data and the graph (pg graph driver; it creates pg_trgm).
+# username and database must differ from "postgres" and from each other.
+postgresql:
+  enabled: true
+  auth:
+    username: bloodhound
+    password: ""
+    database: bloodhound_db
+  primary:
+    persistence:
+      enabled: true
+      size: 20Gi
+
+externalDatabase:
+  host: ""
+  database: bloodhound
+  username: bloodhound
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+# More settings as bhe_* environment variables (each overrides a key of the image's bloodhound.config.json).
+settings: {}
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { cpu: 2, memory: 4Gi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: BloodHound serves HTTPS on 8080 from the PEM pair at /tls. The certificate comes from the first source
+# set: existingSecret, then a cert-manager Certificate, else a Helm-generated CA + certificate.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

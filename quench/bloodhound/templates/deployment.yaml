@@ -1,0 +1,74 @@
+{{- $tls := eq (include "quench-common.tls.enabled" .) "true" -}}
+{{- $probe := dict "httpGet" (dict "path" "/ui/" "port" (ternary "https" "http" $tls) "scheme" (ternary "HTTPS" "HTTP" $tls)) "initialDelaySeconds" 20 "periodSeconds" 10 "timeoutSeconds" 5 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    {{- toYaml (.Values.updateStrategy | default (dict "type" "Recreate")) | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ toJson (list (include "bloodhound.env" .) .Values.tls) | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: bloodhound
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "bloodhound.env" . | nindent 12 }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            {{- range (include "bloodhound.ports" . | fromJsonArray) }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ .protocol }}
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          {{- with .Values.customStartupProbe }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: work, mountPath: /opt/bloodhound/work }
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        # upload staging and ingest scratch; the data lives in PostgreSQL
+        - name: work
+          emptyDir:
+            {{- with .Values.workSizeLimit }}
+            sizeLimit: {{ . }}
+            {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

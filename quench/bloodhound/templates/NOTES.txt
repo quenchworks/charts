@@ -1,0 +1,16 @@
+{{- $scheme := ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") -}}
+BloodHound answers on {{ $scheme }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/ui/
+{{- if .Values.ingress.enabled }} and through the Ingress{{ end }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 8080:{{ .Values.service.port }}
+
+Sign in as {{ .Values.admin.user }}. Its password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "bloodhound.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+
+Collect data with SharpHound or AzureHound (download them from GitHub) and upload the archives in the UI.
+Only analyze environments you are authorized to assess.
+{{- if not (or .Values.ingress.enabled (eq $scheme "https")) }}
+
+Plain HTTP: enable tls.enabled or an Ingress with TLS before exposing it.
+{{- end }}
