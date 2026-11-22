@@ -1,0 +1,97 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/zap
+  digest: "sha256:ade943f55ddac56c520e097ee63d6b2405b791aa1f58b1e2e7747124c94bf340"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The ZAP API daemon. Every API call needs the key (query parameter apikey or header X-ZAP-API-Key).
+api:
+  key: ""                  # generated into the Secret <fullname> (key api-key) unless set here
+  # Client addresses allowed to call the API, as one regex. NetworkPolicy and the Service limit who can reach it.
+  allowedAddresses: ".*"
+
+secret:
+  existingSecret: ""       # a Secret with key api-key instead
+
+# ZAP answers as its API only when a request is addressed to itself; any other Host is proxied to that host. The
+# Service's names are registered as aliases; add more here (an Ingress host, a custom DNS name).
+extraAliases: []
+
+# More ZAP settings, each passed as -config <key=value> (for example "connection.timeoutInSecs=60").
+extraConfig: []
+
+# JVM options for the scanner, e.g. "-Xmx2g"; ZAP's default heap is a quarter of the container's memory.
+javaOpts: ""
+
+# ZAP's home (/home/zap/.ZAP: config, the root CA it generates, sessions) on one volume: one replica, Recreate.
+replicaCount: 1
+updateStrategy: {}
+
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  size: 2Gi
+  annotations: {}
+
+resources:
+  requests: { cpu: 100m, memory: 768Mi }
+  limits: { cpu: 2, memory: 3Gi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  # e.g. [{host: zap.example.com, paths: [{path: /, pathType: Prefix}]}]; add the host to extraAliases too
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
