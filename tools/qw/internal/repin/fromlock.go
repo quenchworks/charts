@@ -43,10 +43,11 @@ func scanLock(text string, into map[string]built) {
 	}
 }
 
-// line is a version's major.minor: the line a re-pin must stay on.
+// line is the release line a re-pin must stay on: major.minor for X.Y.Z versions, the major for two-part ones
+// (PostgreSQL's 18.6 -> 18.7 is a patch on the 18 line, not a new 18.7 line).
 func line(v string) string {
 	p := strings.SplitN(strings.TrimPrefix(v, "v"), ".", 3)
-	if len(p) < 2 {
+	if len(p) < 3 {
 		return p[0]
 	}
 	return p[0] + "." + p[1]

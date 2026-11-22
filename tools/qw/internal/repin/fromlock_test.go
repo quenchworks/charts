@@ -3,7 +3,7 @@ package repin
 import "testing"
 
 func TestLineAndVersionLess(t *testing.T) {
-	for _, c := range []struct{ v, want string }{{"1.9.6", "1.9"}, {"v2.50.10", "2.50"}, {"19", "19"}, {"2026.10.2", "2026.10"}} {
+	for _, c := range []struct{ v, want string }{{"1.9.6", "1.9"}, {"v2.50.10", "2.50"}, {"19", "19"}, {"2026.10.2", "2026.10"}, {"18.6", "18"}, {"17.12", "17"}} {
 		if got := line(c.v); got != c.want {
 			t.Errorf("line(%q) = %q, want %q", c.v, got, c.want)
 		}
