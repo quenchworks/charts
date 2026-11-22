@@ -160,3 +160,16 @@ func Run(args []string) int {
 	fmt.Println("\nRe-pin with `qw repin` (primary image) or by hand (siblings).")
 	return 1
 }
+
+// Pins lists every quench image pin in a chart's values.yaml and Chart.yaml text as (image, digest), deduplicated.
+func Pins(values, meta string) [][2]string {
+	seen := map[pin]bool{}
+	var out [][2]string
+	for _, p := range append(append(valuesPins(values), inlinePins(values)...), inlinePins(meta)...) {
+		if !seen[p] {
+			seen[p] = true
+			out = append(out, [2]string{p.image, p.digest})
+		}
+	}
+	return out
+}

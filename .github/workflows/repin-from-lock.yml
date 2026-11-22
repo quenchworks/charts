@@ -1,0 +1,82 @@
+name: repin-from-lock
+
+# Keeps every chart pin on a published digest without a hand re-pin wave (charts#66). Each run does one of two
+# things and pushes it to main:
+#   1. `qw repin-lock`: every pin missing from the images catalog lock moves to the newest published digest on the
+#      same major.minor line as the version it was built as (read from the lock's git history). A chart's own image
+#      goes through `qw repin` (appVersion and tag follow); sibling and stack pins are swapped in place.
+#   2. Only when step 1 found nothing: `qw bump-deps --published-only` moves parents onto subchart versions GHCR
+#      already serves (one cascade wave per run, so a parent never races its subchart's release).
+# A push made with GITHUB_TOKEN starts no workflows, so the job dispatches release-<chart>.yml for each chart it
+# changed. Stale pins it cannot place (no history, or a line with no published version) fail the run for a human.
+on:
+  schedule:
+    - cron: "41 */2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: repin-from-lock
+  cancel-in-progress: false
+
+jobs:
+  repin:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: quenchworks/images
+          path: images
+          fetch-depth: 0
+          filter: blob:none
+          sparse-checkout: catalog.lock.yaml
+          sparse-checkout-cone-mode: false
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+
+      - name: Re-pin from the lock, else one cascade wave
+        id: move
+        run: |
+          set -uo pipefail
+          rc=0
+          go -C tools/qw run . repin-lock --images "$GITHUB_WORKSPACE/images" || rc=$?
+          if git diff --quiet -- quench/; then
+            echo "nothing stale to re-pin; cascade wave"
+            go -C tools/qw run . bump-deps --published-only
+            echo "kind=cascade" >> "$GITHUB_OUTPUT"
+          else
+            echo "kind=repin" >> "$GITHUB_OUTPUT"
+          fi
+          echo "repin_rc=$rc" >> "$GITHUB_OUTPUT"
+
+      - name: Commit, push and release the changed charts
+        if: always()
+        run: |
+          set -euo pipefail
+          git diff --quiet -- quench/ && { echo "no change"; exit 0; }
+          charts="$(git diff --name-only -- quench/ | cut -d/ -f2 | sort -u)"
+          git config user.name  "quenchworks-bot"
+          git config user.email "info@quench-works.com"
+          git add quench/
+          if [ "${{ steps.move.outputs.kind }}" = repin ]; then
+            git commit -q -m "chore: re-pin $(echo "$charts" | wc -l) charts to their published digests" \
+              -m "repin-from-lock: each stale pin moved to the newest catalog digest on its own line. Refs #66"
+          else
+            git commit -q -m "chore: move $(echo "$charts" | wc -l) charts onto their published subcharts" \
+              -m "repin-from-lock cascade wave (bump-deps --published-only). Refs #66"
+          fi
+          git push origin HEAD:main
+          for c in $charts; do
+            [ -f ".github/workflows/release-$c.yml" ] && gh workflow run "release-$c.yml" --ref main && echo "dispatched release-$c"
+          done
+
+      - name: Stale pins left for a human
+        if: steps.move.outputs.repin_rc != '0'
+        run: |
+          echo "::error::repin-lock could not place every stale pin; see the ?? lines above"
+          exit 1

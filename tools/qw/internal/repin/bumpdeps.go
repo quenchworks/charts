@@ -39,9 +39,15 @@ func headVersion(chart string) string {
 // (the lag check-pins reports) and patch-bumps each parent once. One wave per call: a parent
 // bumped here makes its own parents lag, and they move in the next wave, after it releases.
 func Deps(args []string) int {
-	if len(args) > 0 {
-		fmt.Println("usage: qw bump-deps")
+	publishedOnly := len(args) == 1 && args[0] == "--published-only"
+	if len(args) > 0 && !publishedOnly {
+		fmt.Println("usage: qw bump-deps [--published-only]")
 		return 2
+	}
+	// --published-only (CI): never point a parent at a subchart version GHCR does not serve yet, or its release fails
+	published := func(name, ver string) bool {
+		_, _, err := core.Helm("show", "chart", "oci://ghcr.io/quenchworks/charts/"+name, "--version", ver)
+		return err == nil
 	}
 	metas := map[string]depMeta{}
 	for _, c := range core.ChartDirs() {
@@ -63,6 +69,10 @@ func Deps(args []string) int {
 		for _, d := range metas[c].Dependencies {
 			sub, ok := metas[d.Name]
 			if d.Name == "quench-common" || !ok || strings.TrimRight(d.Repository, "/") != "oci://ghcr.io/quenchworks/charts" || d.Version == sub.Version {
+				continue
+			}
+			if publishedOnly && !published(d.Name, sub.Version) {
+				fmt.Printf("wait %s: %s %s is not on GHCR yet\n", c, d.Name, sub.Version)
 				continue
 			}
 			re := regexp.MustCompile(`(- name: ` + regexp.QuoteMeta(d.Name) + `\n(?:    .*\n)*?    version: )"?` + regexp.QuoteMeta(d.Version) + `"?`)
