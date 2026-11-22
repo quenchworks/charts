@@ -1,0 +1,60 @@
+{{- $fn := include "quench-common.fullname" . }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $fn }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: scylladb:controller:operator
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: scylladb:controller:operator
+subjects:
+  - kind: ServiceAccount
+    name: {{ $fn }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fn }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: operator
+spec:
+  replicas: {{ .Values.operator.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: operator
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: operator
+    spec:
+      serviceAccountName: {{ $fn }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: scylla-operator
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            # the operator puts this image into ScyllaDB pods (its sidecar and ignition run from it)
+            - { name: SCYLLA_OPERATOR_IMAGE, value: {{ include "quench-common.image" . | quote }} }
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          args: ["operator", "--loglevel={{ .Values.logLevel }}"]
+          resources:
+            {{- toYaml .Values.operator.resources | nindent 12 }}

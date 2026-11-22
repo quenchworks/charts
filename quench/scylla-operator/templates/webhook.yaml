@@ -1,0 +1,182 @@
+{{- /* The admission webhook server (validating and mutating, upstream deploy/operator at v1.23.0). A CA and a serving
+       certificate are generated once and kept across upgrades, in place of upstream's cert-manager Issuer. */ -}}
+{{- $fn := include "quench-common.fullname" . -}}
+{{- $ns := .Release.Namespace -}}
+{{- $svc := printf "%s-webhook" $fn -}}
+{{- $secret := printf "%s-webhook-tls" $fn -}}
+{{- $old := lookup "v1" "Secret" $ns $secret -}}
+{{- $ca := "" -}}{{- $crt := "" -}}{{- $key := "" -}}
+{{- if and $old $old.data (index $old.data "ca.crt") -}}
+{{- $ca = index $old.data "ca.crt" -}}{{- $crt = index $old.data "tls.crt" -}}{{- $key = index $old.data "tls.key" -}}
+{{- else -}}
+{{- $caObj := genCA (printf "%s-webhook-ca" $fn) 3650 -}}
+{{- $cert := genSignedCert $svc nil (list $svc (printf "%s.%s" $svc $ns) (printf "%s.%s.svc" $svc $ns) (printf "%s.%s.svc.cluster.local" $svc $ns)) 3650 $caObj -}}
+{{- $ca = $caObj.Cert | b64enc -}}{{- $crt = $cert.Cert | b64enc -}}{{- $key = $cert.Key | b64enc -}}
+{{- end }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secret }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $crt }}
+  tls.key: {{ $key }}
+  ca.crt: {{ $ca }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  ports:
+    - { name: webhook, port: 443, targetPort: webhook, protocol: TCP }
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook-server
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $svc }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: webhook-server
+spec:
+  replicas: {{ .Values.webhook.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: webhook-server
+  template:
+    metadata:
+      annotations:
+        checksum/tls: {{ $crt | sha256sum }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: webhook-server
+    spec:
+      serviceAccountName: {{ $svc }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      terminationGracePeriodSeconds: 75
+      containers:
+        - name: webhook-server
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          args:
+            - run-webhook-server
+            - --loglevel={{ .Values.logLevel }}
+            - --tls-cert-file=/tls/tls.crt
+            - --tls-private-key-file=/tls/tls.key
+            - --port=5000
+          ports:
+            - { name: webhook, containerPort: 5000, protocol: TCP }
+          readinessProbe:
+            httpGet: { path: /readyz, port: webhook, scheme: HTTPS }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /readyz, port: webhook, scheme: HTTPS }
+          lifecycle:
+            # let the API server drop this endpoint before the server stops
+            preStop: { exec: { command: ["/bin/sleep", "15"] } }
+          resources:
+            {{- toYaml .Values.webhook.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tls, mountPath: /tls, readOnly: true }
+      volumes:
+        - name: tls
+          secret: { secretName: {{ $secret }} }
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+webhooks:
+- name: webhook.scylla.scylladb.com
+  clientConfig:
+    service:
+      name: {{ include "quench-common.fullname" . }}-webhook
+      namespace: {{ .Release.Namespace }}
+      path: /validate
+    caBundle: {{ $ca }}
+  admissionReviewVersions:
+  - v1
+  sideEffects: None
+  failurePolicy: Fail
+  rules:
+  - apiGroups:
+    - scylla.scylladb.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - scyllaclusters
+  - apiGroups:
+    - scylla.scylladb.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - nodeconfigs
+    - scyllaoperatorconfigs
+    - scylladbdatacenters
+    - scylladbmanagerclusterregistrations
+    - scylladbmanagertasks
+    - scylladbmonitorings
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+webhooks:
+- name: mutating.webhook.scylla.scylladb.com
+  clientConfig:
+    service:
+      name: {{ include "quench-common.fullname" . }}-webhook
+      namespace: {{ .Release.Namespace }}
+      path: /mutate
+    caBundle: {{ $ca }}
+  admissionReviewVersions:
+  - v1
+  sideEffects: None
+  failurePolicy: Fail
+  rules:
+  - apiGroups:
+    - scylla.scylladb.com
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    resources:
+    - scyllaclusters
+  - apiGroups:
+    - scylla.scylladb.com
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    resources:
+    - scylladbdatacenters
