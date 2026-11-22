@@ -1,0 +1,19 @@
+{{- $scheme := ternary "https" "http" (eq (include "quench-common.tls.enabled" .) "true") -}}
+Etherpad answers on {{ $scheme }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+{{- if .Values.ingress.enabled }} and through the Ingress{{ end }}.
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} 9001:{{ .Values.service.port }}
+
+The admin UI is /admin, user admin. Its password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "etherpad.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+{{- if eq .Values.authenticationMethod "apikey" }}
+
+The HTTP API key is generated on first start into APIKEY.txt on the volume:
+
+  kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "quench-common.fullname" . }} -- node -p "require('fs').readFileSync('/var/lib/etherpad/APIKEY.txt','utf8')"
+{{- end }}
+{{- if not (or .Values.ingress.enabled (eq $scheme "https")) }}
+
+Plain HTTP: enable tls.enabled or an Ingress with TLS before exposing it.
+{{- end }}
