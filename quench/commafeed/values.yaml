@@ -1,0 +1,113 @@
+image:
+  repository: ghcr.io/quenchworks/images/commafeed
+  digest: "sha256:f57e6ac5ecd918b7ba0cf8d90144348314ac8a33a26f4d7848963b6fbd89fc0a"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Let anyone create an account on the login page (the first account, the admin, is created at first visit).
+allowRegistrations: false
+
+# The public URL (https://feeds.example.com), used in password-recovery mails.
+publicUrl: ""
+
+secret:
+  existingSecret: ""    # a Secret with key session-key (the Quarkus session encryption key) instead
+
+# Extra QUARKUS_* / COMMAFEED_* settings as environment variables (COMMAFEED_FEED_REFRESH_INTERVAL...).
+settings: {}
+
+# JVM options (JAVA_TOOL_OPTIONS), e.g. -XX:MaxRAMPercentage=75.
+javaOpts: ""
+
+replicaCount: 1
+updateStrategy: {}
+
+postgresql:
+  enabled: true
+  auth:
+    username: commafeed
+    password: ""
+    database: commafeed_db   # differs from the user: the catalog postgresql creates POSTGRES_DB only then
+  primary:
+    persistence:
+      enabled: true
+      size: 5Gi
+
+externalDatabase:
+  host: ""
+  port: 5432
+  database: commafeed
+  username: commafeed
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+resources:
+  requests: { cpu: 50m, memory: 256Mi }
+  limits: { cpu: 1, memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 8082
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: Quarkus serves HTTPS on 8082 (plain HTTP refused) from the PEM pair at /tls. The certificate comes from
+# the first source set: existingSecret, then a cert-manager Certificate, else a Helm-generated CA.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+startupProbe: {}
+livenessProbe: {}
+readinessProbe: {}
+customStartupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

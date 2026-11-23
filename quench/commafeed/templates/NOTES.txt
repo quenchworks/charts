@@ -1,0 +1,14 @@
+{{- $tls := eq (include "quench-common.tls.enabled" .) "true" }}
+CommaFeed answers on {{ ternary "https" "http" $tls }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+
+Open it and create the admin account on the first visit (or POST /rest/user/initialSetup with name, password, email).
+The REST API takes HTTP Basic auth; the API documentation is at /api-documentation.
+{{- if not .Values.allowRegistrations }}
+Registrations are off: the admin creates other users in the admin pages.
+{{- end }}
+{{- if not $tls }}
+
+Plain HTTP: enable tls.enabled or an Ingress with TLS before exposing it.
+{{- end }}
