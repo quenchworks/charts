@@ -1,0 +1,106 @@
+image:
+  repository: ghcr.io/quenchworks/images/langflow
+  digest: "sha256:e0daadce4689740612de10992c4c383c9d426fcbeabf1bbcc9c1fd8f1e0d5695"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The superuser. Auto-login (Langflow's default) is off: the chart always creates this account and new sign-ups
+# stay inactive until the superuser activates them.
+admin:
+  username: admin
+  password: ""                   # generated into the Secret <fullname> (key admin-password) unless set here
+
+secret:
+  existingSecret: ""    # a Secret with keys admin-password and secret-key instead
+
+# Extra LANGFLOW_* settings as plain values, e.g. LANGFLOW_LOG_LEVEL: info, LANGFLOW_WORKERS: "2".
+# Put API keys for model providers in a Secret and reference it with extraEnvVarsSecret.
+env: {}
+
+updateStrategy: {}
+
+postgresql:
+  enabled: true
+  auth:
+    username: langflow
+    password: ""
+    database: langflow_db   # differs from the user: the catalog postgresql creates POSTGRES_DB only then
+  primary:
+    persistence:
+      enabled: true
+      size: 5Gi
+
+externalDatabase:
+  host: ""
+  port: 5432
+  database: langflow
+  username: langflow
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+resources:
+  requests: { cpu: 250m, memory: 1Gi }
+  limits: { cpu: 2, memory: 4Gi }
+
+service:
+  type: ClusterIP
+  port: 7860
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# /home/langflow: the config dir (logs, caches) and uploaded files. Flows live in PostgreSQL.
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  size: 10Gi
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+startupProbe: {}
+livenessProbe: {}
+readinessProbe: {}
+customStartupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
