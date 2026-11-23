@@ -1,0 +1,108 @@
+# The digest below is the contract with the image factory. CI rewrites it from
+# the image-published dispatch after every green image build. It is never a tag.
+image:
+  repository: ghcr.io/quenchworks/images/homer
+  digest: "sha256:74860a809e8077da2c8ef530740815a1dc491775d0ab826923f86d8b739877f2"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Homer is a static SPA served by nginx: this chart runs a stateless
+# Deployment behind a ClusterIP Service and scales horizontally. No persistence.
+replicaCount: 1
+
+resources:
+  requests: { cpu: 25m, memory: 32Mi }
+  limits: { cpu: 250m, memory: 128Mi }
+
+service:
+  type: ClusterIP
+  # The container serves on 8080 (nonroot); the Service exposes standard HTTP 80.
+  port: 80
+  # With tls.enabled the Service publishes the TLS listener (container 8443) here.
+  httpsPort: 443
+
+# Native TLS on Homer's own listener (8443). Off by default. The first source set
+# wins: existingSecret, then certManager, else a Helm-generated self-signed CA +
+# certificate (kept across upgrades). The Secret is mounted at /tls.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+# Homer's config.yml (title, links, services, theme). Empty keeps the image's default page.
+# Set it to the whole file as a string; it is mounted read-only over assets/config.yml and
+# a change rolls the pods. Homer reads it in the browser, so never put secrets in it.
+config: ""
+
+# Optional horizontal autoscaling on CPU.
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+updateStrategy: {}
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+rbac:
+  create: false
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Optional Ingress (HTTP only). Disabled by default, so enabling it is an explicit
+# operator decision and this chart's behaviour is unchanged until then.
+ingress:
+  enabled: false
+  # IngressClass to claim this Ingress. Empty -> the cluster default applies.
+  className: ""
+  annotations: {}
+  # Service port to route to. Unset -> resolved from service.port, then
+  # service.ports.http / .https.
+  servicePort: null
+  # e.g. [{host: app.example.com, paths: [{path: /, pathType: Prefix}]}]
+  # `paths` may be omitted for the common "/" Prefix case.
+  hosts: []
+  # Standard Ingress TLS list, e.g. [{hosts: [app.example.com], secretName: app-tls}]
+  tls: []

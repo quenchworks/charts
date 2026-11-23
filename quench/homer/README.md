@@ -1,0 +1,148 @@
+# Quenchworks Homer
+
+Hardened, self-hosted [Homer](https://github.com/bastienwirtz/homer): a static start
+page that lists your services and links, configured from one YAML file. Served by nginx
+on a minimal, nonroot, CVE-gated image built from source, cosign-signed and pinned by
+digest. No backend, no database, no auth of its own: put it behind your ingress auth if
+the links are private.
+
+## Install
+
+```bash
+helm install home oci://ghcr.io/quenchworks/charts/homer
+```
+
+nginx serves the app nonroot on container port 8080; the Service exposes HTTP 80.
+
+```bash
+kubectl port-forward svc/home-homer 8080:80
+# visit http://127.0.0.1:8080
+```
+
+## Configure
+
+Pass your whole `config.yml` as `config`. The chart mounts it read-only over the image's
+default `assets/config.yml`, and a change rolls the pods. The browser fetches this file,
+so anything in it is public to whoever can open the page.
+
+```yaml
+# values.yaml
+config: |
+  title: "Home"
+  subtitle: "Lab"
+  services:
+    - name: Apps
+      items:
+        - name: Grafana
+          url: https://grafana.example.com
+```
+
+Icons and logos you reference must be reachable URLs, or mounted with `extraVolumes` /
+`extraVolumeMounts` under `/usr/share/nginx/html/assets/`.
+
+## Verify the image
+
+```bash
+cosign verify ghcr.io/quenchworks/images/homer \
+  --certificate-identity-regexp 'https://github.com/quenchworks/.+' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Each build also ships an SPDX SBOM and SLSA provenance attestation. Verify them
+with `gh attestation verify oci://ghcr.io/quenchworks/images/homer --owner quenchworks`.
+
+## Values
+
+| Key                                          | Default                                 | Notes                                                                                     |
+| -------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `image.repository`                           | `ghcr.io/quenchworks/images/homer` |                                                                                           |
+| `image.digest`                               | (CI-written)                            | Required. Charts pin by digest, never a tag.                                              |
+| `image.pullPolicy`                           | `IfNotPresent`                          |                                                                                           |
+| `nameOverride`                               | `""`                                    | Override the chart name in resource names.                                                |
+| `replicaCount`                               | `1`                                     | Stateless Deployment (ignored when autoscaling is on).                                    |
+| `resources.requests`                         | `cpu 25m / mem 32Mi`                    |                                                                                           |
+| `resources.limits`                           | `cpu 250m / mem 128Mi`                  |                                                                                           |
+| `service.type`                               | `ClusterIP`                             | `ClusterIP`, `NodePort`, or `LoadBalancer`.                                               |
+| `service.port`                               | `80`                                    | Service maps 80 → container 8080.                                                         |
+| `service.httpsPort`                          | `443`                                   | Service port for the TLS listener (container 8443) when `tls.enabled`.                    |
+| `tls.enabled`                                | `false`                                 | Serve HTTPS on Homer's own listener; the certificate is mounted at `/tls`.           |
+| `tls.existingSecret`                         | `""`                                    | Use this `kubernetes.io/tls` Secret (1st choice).                                         |
+| `tls.certManager.enabled`                    | `false`                                 | Request a cert-manager `Certificate` from `tls.certManager.issuerRef` (2nd choice).       |
+| `tls.selfSigned.validityDays`                | `365`                                   | Otherwise Helm generates a CA + certificate, kept across upgrades.                        |
+| `config`                                     | `""`                                    | Homer `config.yml` as a string; empty keeps the image default page.                       |
+| `autoscaling.enabled`                        | `false`                                 | HPA on CPU (autoscaling/v2).                                                              |
+| `autoscaling.minReplicas`                    | `1`                                     |                                                                                           |
+| `autoscaling.maxReplicas`                    | `5`                                     |                                                                                           |
+| `autoscaling.targetCPUUtilizationPercentage` | `80`                                    |                                                                                           |
+| `serviceAccount.create`                      | `true`                                  | Token automount is off.                                                                   |
+| `serviceAccount.name`                        | `""`                                    | Use an existing ServiceAccount.                                                           |
+| `rbac.create`                                | `false`                                 | Minimal Role/RoleBinding.                                                                 |
+| `networkPolicy.enabled`                      | `true`                                  | Restricts ingress.                                                                        |
+| `networkPolicy.allowExternal`                | `true`                                  | Set `false` to restrict ingress to the release namespace.                                 |
+| `podDisruptionBudget.enabled`                | `true`                                  | `minAvailable: 1`.                                                                        |
+| `ingress.enabled`                            | `false`                                 | Create an Ingress. With `tls.enabled` it routes to 443: set the controller's backend protocol to HTTPS. |
+| `ingress.className`                          | `""`                                    | IngressClass to claim it. Empty leaves it unset, so the cluster default applies.          |
+| `ingress.annotations`                        | `{}`                                    | Controller annotations (rewrite targets, body size, cert-manager issuer, ...).            |
+| `ingress.servicePort`                        | `null`                                  | Backend port. Unset resolves `service.port`, then `service.ports.http` / `.https`.        |
+| `ingress.hosts`                              | `[]`                                    | e.g. `[{host: app.example.com}]`. A host with no `paths` gets a single `/` `Prefix` path. |
+| `ingress.tls`                                | `[]`                                    | Standard Ingress TLS list, e.g. `[{hosts: [app.example.com], secretName: app-tls}]`.      |
+
+Plus the shared `quench-common` knobs (scheduling, probes, sidecars, init
+containers, extra env/volumes, security contexts, update strategy).
+
+## Architecture
+
+A stateless Deployment runs nginx serving the pre-built Homer SPA on
+container port `8080` (nonroot). The Service maps port 80 to the container's
+`http` port. Because the app is a static bundle with no backend, the workload
+scales horizontally with no coordination, enable `autoscaling` (HPA on CPU) or
+raise `replicaCount`. Liveness and readiness both `httpGet /` (a 200 means the
+SPA is being served). The container runs on a read-only root filesystem; nginx
+writes its pid and temp paths under a writable `/tmp` emptyDir, which is the only
+writable mount. There is no persistence. Expose it beyond the cluster with your
+own Ingress or a `LoadBalancer` service.
+
+## Configuration examples
+
+Front it with a LoadBalancer:
+
+```yaml
+service:
+  type: LoadBalancer
+  port: 80
+```
+
+Autoscale and spread across nodes (the last two keys flow through
+`quench-common`):
+
+```yaml
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: homer
+```
+
+## Uninstall
+
+```bash
+helm uninstall board
+```
+
+Nothing persists, the workload is stateless and holds no PVCs or Secrets.
+
+## Notes
+
+The chart depends on the `quench-common` library chart, pulled from
+`oci://ghcr.io/quenchworks/charts/quench-common`. The container runs as nonroot
+on a read-only root filesystem with all capabilities dropped, and the image is
+pinned by digest. This is the offline/no-backend build of Homer, for
+real-time collaboration you would run the separate Homer room/storage
+services, which this chart does not deploy.
