@@ -1,0 +1,94 @@
+{{- /* Django refuses Hosts outside ALLOWED_HOSTS, and kubelet probes send the pod IP: probe as localhost. */}}
+{{- $probe := dict "httpGet" (dict "path" "/health/" "port" "http" "httpHeaders" (list (dict "name" "Host" "value" "localhost"))) "periodSeconds" 15 "timeoutSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  strategy:
+    {{- toYaml (.Values.updateStrategy | default (dict "type" "Recreate")) | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include "nautobot.checksum" . }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        # migrations and upgrade housekeeping, then the admin user (created only when missing); all idempotent
+        - name: init
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              nautobot-server post_upgrade --no-collectstatic --no-send-installation-metrics
+              nautobot-server shell --interface python -c "
+              import os
+              from django.contrib.auth import get_user_model
+              U = get_user_model()
+              u = os.environ['ADMIN_USER']
+              if not U.objects.filter(username=u).exists():
+                  U.objects.create_superuser(u, os.environ['ADMIN_EMAIL'], os.environ['ADMIN_PASSWORD'])
+                  print('created admin', u)
+              "
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "nautobot.env" . | nindent 12 }}
+            - { name: ADMIN_USER, value: {{ .Values.admin.user | quote }} }
+            - { name: ADMIN_EMAIL, value: {{ .Values.admin.email | quote }} }
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ include "nautobot.secretName" . }}, key: admin-password }
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "nautobot.mounts" . | nindent 12 }}
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: nautobot
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "nautobot.env" . | nindent 12 }}
+            - { name: NAUTOBOT_UWSGI_PROCESSES, value: {{ .Values.uwsgi.processes | quote }} }
+            - { name: NAUTOBOT_UWSGI_THREADS, value: {{ .Values.uwsgi.threads | quote }} }
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            {{- range (include "nautobot.ports" . | fromJsonArray) }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ .protocol }}
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "startup" "default" (merge (dict "failureThreshold" 30) (deepCopy $probe))) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "nautobot.mounts" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        {{- include "nautobot.volumes" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

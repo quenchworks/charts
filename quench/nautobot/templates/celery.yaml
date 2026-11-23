@@ -1,0 +1,71 @@
+{{- /* Celery worker (Jobs, Git syncs, webhooks) and beat (scheduled Jobs), from the app image. They reach the
+       database, Redis and the data volume only, so they get no Service. */}}
+{{- range $role := list "worker" "beat" }}
+{{- $c := index $.Values.celery $role }}
+{{- if $c.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" $ }}-celery-{{ $role }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: celery-{{ $role }}
+spec:
+  replicas: {{ ternary 1 ($c.replicaCount | default 1) (eq $role "beat") }}
+  {{- if eq $role "beat" }}
+  # one scheduler only
+  strategy: { type: Recreate }
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+      app.kubernetes.io/component: celery-{{ $role }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include "nautobot.checksum" $ }}
+      labels:
+        app.kubernetes.io/instance: {{ $.Release.Name }}
+        app.kubernetes.io/component: celery-{{ $role }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" $ }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" $ | nindent 8 }}
+      {{- include "quench-common.podSpecFields" $ | nindent 6 }}
+      initContainers:
+        # wait for the web pod's init container to apply the migrations (beat crashes on an old schema)
+        - name: wait-for-migrations
+          image: {{ include "quench-common.image" $ }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          command: ["/bin/sh", "-c", "until nautobot-server migrate --check >/dev/null 2>&1; do echo waiting for migrations; sleep 5; done"]
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" $ | nindent 12 }}
+          env:
+            {{- include "nautobot.env" $ | nindent 12 }}
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "nautobot.mounts" $ | nindent 12 }}
+      containers:
+        - name: celery-{{ $role }}
+          image: {{ include "quench-common.image" $ }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          {{- if eq $role "worker" }}
+          command: ["nautobot-server", "celery", "worker", "--loglevel", "INFO", "--pidfile", "/tmp/celery-worker.pid", "--concurrency", {{ $c.concurrency | default 2 | quote }}]
+          {{- else }}
+          command: ["nautobot-server", "celery", "beat", "--loglevel", "INFO", "--pidfile", "/tmp/celery-beat.pid", "--schedule", "/tmp/celerybeat-schedule"]
+          {{- end }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" $ | nindent 12 }}
+          env:
+            {{- include "nautobot.env" $ | nindent 12 }}
+            {{- include "quench-common.extraEnvVars" $ | nindent 12 }}
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "nautobot.mounts" $ | nindent 12 }}
+      volumes:
+        {{- include "nautobot.volumes" $ | nindent 8 }}
+{{- end }}
+{{- end }}

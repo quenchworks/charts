@@ -1,0 +1,146 @@
+image:
+  repository: ghcr.io/quenchworks/images/nautobot
+  digest: "sha256:2a21a3d3ed936c5792981533244218ce3d6bc209aae0b2572a1cc2857f128987"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Host names Nautobot answers for besides the Service names and localhost (Ingress hosts go here).
+allowedHosts: []
+# Origins allowed to POST forms (https://nautobot.example.com), for access through an Ingress.
+csrfTrustedOrigins: []
+
+admin:
+  user: admin
+  email: admin@nautobot.local
+  password: ""          # generated into the Secret <fullname> (key admin-password) unless set here
+
+secret:
+  existingSecret: ""    # a Secret with keys admin-password and secret-key (50+ characters)
+
+# Python run after Nautobot's settings (mounted as /etc/nautobot/extra.py), for settings with no NAUTOBOT_* variable:
+# PLUGINS, PLUGINS_CONFIG, SOCIAL_AUTH_*, LDAP.
+extraConfig: ""
+
+# Extra NAUTOBOT_* settings as environment variables (NAUTOBOT_BANNER_TOP, NAUTOBOT_MAINTENANCE_MODE...).
+settings: {}
+
+uwsgi:
+  processes: 3
+  threads: 2
+
+replicaCount: 1
+updateStrategy: {}
+
+celery:
+  worker:
+    enabled: true
+    replicaCount: 1
+    concurrency: 2       # prefork processes; Celery's default is one per CPU, which runs out of memory
+    resources:
+      requests: { cpu: 50m, memory: 384Mi }
+      limits: { cpu: 1, memory: 1536Mi }
+  beat:
+    enabled: true
+    resources:
+      requests: { cpu: 10m, memory: 256Mi }
+      limits: { cpu: 500m, memory: 768Mi }
+
+# Media uploads, Git repositories and Jobs (/var/lib/nautobot). Web and Celery share it: use ReadWriteMany when they can
+# land on different nodes.
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  size: 5Gi
+  annotations: {}
+
+postgresql:
+  enabled: true
+  auth:
+    username: nautobot
+    password: ""
+    database: nautobot_db   # differs from the user: the catalog postgresql creates POSTGRES_DB only then
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+externalDatabase:
+  host: ""
+  port: 5432
+  database: nautobot
+  username: nautobot
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+valkey:
+  enabled: true
+  auth:
+    password: ""
+
+externalRedis:
+  host: ""
+  port: 6379
+  ssl: false
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { cpu: 2, memory: 2Gi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+startupProbe: {}
+livenessProbe: {}
+readinessProbe: {}
+customStartupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
