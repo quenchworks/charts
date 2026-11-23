@@ -1,3 +1,5 @@
 {{- $ports := list }}
 {{- range (include "kestra.ports" . | fromJsonArray) }}{{ $ports = append $ports (dict "port" .name "protocol" .protocol) }}{{ end }}
+{{- /* the management port (8081: health and Prometheus metrics) is scraped from outside the pod */}}
+{{- $ports = append $ports (dict "port" "management" "protocol" "TCP") }}
 {{- include "quench-common.networkPolicy" (dict "ctx" . "defaultPorts" $ports) }}
