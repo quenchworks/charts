@@ -1,0 +1,157 @@
+name: release-caldera
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/caldera/**"
+      - ".github/workflows/release-caldera.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/caldera
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          kubectl rollout status deployment/rtest-caldera --timeout=600s
+          fwd() { kubectl port-forward svc/rtest-caldera 8888:8888 >/tmp/pf.log 2>&1 & local pf=$!; sleep 3; local rc=0; "$@" || rc=$?; kill $pf 2>/dev/null || true; return $rc; }
+          B=http://127.0.0.1:8888
+          KEY=gate-red-api-key-0123456789abcdefghij
+          code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }
+          checks() {
+            grep -q 'Caldera' <<<"$(curl -fsS "$B/")" || { echo "magma UI not served"; return 1; }
+            # the chart's key works, the stock default.yml keys do not
+            grep -q '"version": "5.3.0"' <<<"$(curl -fsS -H "KEY: $KEY" "$B/api/v2/health")" || { echo "health with the chart key failed"; return 1; }
+            [ "$(code -H 'KEY: ADMIN123' "$B/api/v2/health")" = 401 ] || { echo "default red key accepted"; return 1; }
+            [ "$(code -H 'KEY: BLUEADMIN123' "$B/api/v2/health")" = 401 ] || { echo "default blue key accepted"; return 1; }
+            n=$(curl -fsS -H "KEY: $KEY" "$B/api/v2/abilities" | jq length); [ "$n" -ge 100 ] || { echo "only $n abilities"; return 1; }
+            # web login: the session cookie only works with the right password
+            curl -s -c /tmp/bad.jar -o /dev/null -d 'username=red&password=wrong-password-1' "$B/enter"
+            [ "$(code -b /tmp/bad.jar "$B/api/v2/health")" = 401 ] || { echo "a wrong password got a session"; return 1; }
+            curl -s -c /tmp/ok.jar -o /dev/null -d 'username=red&password=Gate-Red-Password-2026' "$B/enter"
+            [ "$(code -b /tmp/ok.jar "$B/api/v2/health")" = 200 ] || { echo "red login failed"; return 1; }
+            # the agent the chart serves is the linux ELF built from source, and the contact URL is the chart's
+            curl -fsS -X POST -H 'file: sandcat.go' -H 'platform: linux' "$B/file/download" -o /tmp/sandcat
+            [ "$(head -c4 /tmp/sandcat | od -An -tx1 | tr -d ' \n')" = 7f454c46 ] && [ "$(wc -c </tmp/sandcat)" -gt 1000000 ] || { echo "sandcat download is not an ELF agent"; return 1; }
+          }
+          fwd checks
+          # fieldmanual builds its docs on a read-only root filesystem
+          for i in $(seq 60); do kubectl logs deploy/rtest-caldera | grep -qE 'Docs built|Unable to build docs' && break; sleep 5; done
+          kubectl logs deploy/rtest-caldera | grep -q 'Docs built' || { kubectl logs deploy/rtest-caldera | grep -A30 'Unable to build docs'; echo "fieldmanual docs did not build"; exit 1; }
+          # state: a fact source created over the API is saved to the data volume on shutdown and back after a restart
+          mksrc() {
+            curl -fsS -X POST -H "KEY: $KEY" -H 'Content-Type: application/json' \
+              -d '{"name":"quench-gate-source"}' "$B/api/v2/sources" | jq -r .id > /tmp/sid
+            [ -n "$(cat /tmp/sid)" ] || { echo "source not created"; return 1; }
+          }
+          readsrc() {
+            grep -q '"quench-gate-source"' <<<"$(curl -fsS -H "KEY: $KEY" "$B/api/v2/sources/$(cat /tmp/sid)")" || { echo "source $(cat /tmp/sid) not found"; return 1; }
+          }
+          fwd mksrc
+          fwd readsrc
+          kubectl delete pod -l app.kubernetes.io/instance=rtest,app.kubernetes.io/name=caldera --wait=true
+          kubectl rollout status deployment/rtest-caldera --timeout=600s
+          fwd readsrc
+          # the generated secrets are kept on upgrade
+          before=$(kubectl get secret rtest-caldera -o jsonpath='{.data.api-key-blue}')
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 10m
+          [ "$(kubectl get secret rtest-caldera -o jsonpath='{.data.api-key-blue}')" = "$before" ] || { echo "upgrade rotated the blue key"; exit 1; }
+          echo "caldera: magma UI, chart key ok and default keys refused, 100+ abilities, login only with the right password, sandcat ELF served, a fact source kept across a pod restart, secrets kept on upgrade: ok"
+
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/caldera-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/caldera@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/caldera:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

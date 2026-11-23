@@ -1,0 +1,91 @@
+image:
+  repository: ghcr.io/quenchworks/images/caldera
+  digest: "sha256:26564d2608fcc9212c33f338b980591d110ac240e451099c1cf89cdf7aad2de2"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Logins and API keys. Empty values are generated once and kept in the release Secret across upgrades
+# (read them with kubectl get secret <release>-caldera). Users: red (attack) and blue (defense).
+auth:
+  redPassword: ""
+  bluePassword: ""
+  apiKeyRed: ""
+  apiKeyBlue: ""
+
+# Overrides merged over Caldera's default.yml when the init container writes conf/local.yml, e.g.
+#   plugins: [access, compass, debrief, fieldmanual, manx, response, sandcat, stockpile, training, atomic]
+#   app.contact.http: https://caldera.example.com
+# atomic is shipped but off: it git-clones atomic-red-team at startup and the image has no git.
+# The agents call back to app.contact.http (default http://0.0.0.0:8888): set it to the URL agents reach.
+config: {}
+
+updateStrategy: {}
+
+# data/: the object store, operation results, uploaded payloads and backups. One replica (RWO).
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  size: 2Gi
+  annotations: {}
+
+resources:
+  requests: { cpu: 100m, memory: 384Mi }
+  limits: { cpu: 2, memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 8888
+  annotations: {}
+  externalTrafficPolicy: ""
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+# Caldera saves its state to data/ on shutdown
+terminationGracePeriodSeconds: 60
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+startupProbe: {}
+customStartupProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

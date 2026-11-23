@@ -1,0 +1,15 @@
+MITRE Caldera answers on http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+
+Log in as red (or blue). The password and the API keys are in the release Secret:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "quench-common.fullname" . }} -o jsonpath='{.data.red-password}' | base64 -d
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "quench-common.fullname" . }} -o jsonpath='{.data.api-key-red}' | base64 -d
+{{- if not (hasKey .Values.config "app.contact.http") }}
+
+Agents call back to app.contact.http, still the default http://0.0.0.0:8888: set
+config."app.contact.http" to the URL your agents reach this Service on.
+{{- end }}
+
+For authorized testing only: Caldera runs real attack techniques on the hosts its agents land on.

@@ -1,0 +1,99 @@
+{{- /* /api/v2/health needs a key; the login page answers 200 once the server is up. */ -}}
+{{- $probe := dict "httpGet" (dict "path" "/" "port" "http") "periodSeconds" 15 "timeoutSeconds" 5 -}}
+{{- $startup := dict "httpGet" (dict "path" "/" "port" "http") "periodSeconds" 5 "failureThreshold" 60 -}}
+{{- $secret := include "quench-common.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  # One server: Caldera keeps its state in memory and saves it to data/ (an RWO volume), so the old pod stops before
+  # the new one starts (maxSurge 0). RollingUpdate either way: switching to Recreate in place is refused under SSA.
+  replicas: 1
+  strategy:
+    {{- toYaml (.Values.updateStrategy | default (dict "type" "RollingUpdate" "rollingUpdate" (dict "maxSurge" 0 "maxUnavailable" 1))) | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ toJson (list .Values.config .Values.auth) | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      initContainers:
+        - name: seed
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          command: ["/opt/caldera/venv/bin/python", "/init/init.py"]
+          env:
+            {{- range $k, $env := dict "red-password" "RED_PASSWORD" "blue-password" "BLUE_PASSWORD" "api-key-red" "API_KEY_RED" "api-key-blue" "API_KEY_BLUE" "crypt-salt" "CRYPT_SALT" "encryption-key" "ENCRYPTION_KEY" "ftp-password" "FTP_PASSWORD" }}
+            - name: {{ $env }}
+              valueFrom: { secretKeyRef: { name: {{ $secret }}, key: {{ $k }} } }
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: init, mountPath: /init, readOnly: true }
+            - { name: conf, mountPath: /seed/conf }
+            - { name: data, mountPath: /seed/data }
+            - { name: docs, mountPath: /seed/docs }
+        {{- with .Values.initContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        - name: caldera
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            {{- range (include "caldera.ports" . | fromJsonArray) }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ .protocol }}
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "startup" "default" $startup) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: conf, mountPath: /opt/caldera/conf }
+            - { name: data, mountPath: /opt/caldera/data }
+            - { name: ftp, mountPath: /opt/caldera/ftp_dir }
+            # fieldmanual copies plugin docs into sphinx-docs and builds it on every start (seeded by the init container)
+            - { name: docs, mountPath: /opt/caldera/plugins/fieldmanual/sphinx-docs }
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: conf, emptyDir: {} }
+        - { name: ftp, emptyDir: {} }
+        - { name: docs, emptyDir: {} }
+        - name: init
+          configMap: { name: {{ $secret }}-init }
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim: { claimName: {{ .Values.persistence.existingClaim | default (include "quench-common.fullname" .) }} }
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
