@@ -1,0 +1,95 @@
+image:
+  repository: ghcr.io/quenchworks/images/ots
+  digest: "sha256:e664a1cd10690ede31a15cffaf382af1cf2fd76e161c8a48da0d53620a310d64"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Longest a secret may live, in seconds (0: no cap; clients pick their own expiry up to it).
+secretExpiry: 604800
+
+# Secrets in the bundled Valkey: they survive restarts and the Deployment can scale. Off: kept in memory, one replica,
+# lost on restart.
+valkey:
+  enabled: false
+  auth:
+    password: ""
+
+# Or an existing Redis: a Secret holding its URL (redis://:password@host:6379/0).
+externalRedis:
+  existingSecret: ""
+  existingSecretUrlKey: url
+
+# Replicas when a Redis holds the secrets (in-memory storage always runs one).
+replicaCount: 1
+updateStrategy: {}
+
+resources:
+  requests: { cpu: 20m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 3000
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: OTS serves HTTPS on 3000 from the PEM pair at /tls (browsers need HTTPS for the client-side crypto).
+# The certificate comes from the first source set: existingSecret, then a cert-manager Certificate, else a
+# Helm-generated CA.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 10
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

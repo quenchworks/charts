@@ -1,0 +1,7 @@
+{{- $tls := eq (include "quench-common.tls.enabled" .) "true" }}
+OTS answers on {{ ternary "https" "http" $tls }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+
+Storage: {{ if .Values.valkey.enabled }}the bundled Valkey{{ else if .Values.externalRedis.existingSecret }}an external Redis{{ else }}memory (one replica; secrets are lost on restart){{ end }}.
+Browsers need HTTPS for the client-side encryption: use tls.enabled or an Ingress with TLS.
