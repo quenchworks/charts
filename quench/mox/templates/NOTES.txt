@@ -1,0 +1,20 @@
+{{- $tls := eq (include "quench-common.tls.enabled" .) "true" }}
+mox serves {{ .Values.domain }} as {{ .Values.hostname }}.
+
+  Web admin:   http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.ports.http }}/admin/
+  Webmail:     http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.ports.http }}/webmail/
+
+The web admin password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "mox.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+
+Set an account's password (the accounts in values exist from the first start):
+
+  kubectl exec -i -n {{ .Release.Namespace }} deploy/{{ include "quench-common.fullname" . }} -- mox setaccountpassword {{ (index .Values.accounts 0).name }}
+
+Mail needs DNS: an MX record for {{ .Values.domain }} pointing at {{ .Values.hostname }}, SPF, DKIM (add the domain's keys in
+the admin UI, which prints the records), DMARC, and ports 25/465/587/993 reachable (service.type LoadBalancer).
+{{- if not $tls }}
+
+No TLS: logins go over plain text. Set tls.enabled before real use.
+{{- end }}

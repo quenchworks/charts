@@ -1,0 +1,118 @@
+image:
+  repository: ghcr.io/quenchworks/images/mox
+  digest: "sha256:9a09f581ec52e637fd94ecdaacda08e687f3afa20881fe4594faaf12d9b6afb3"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The mail server's own host name (its MX target and the name in the SMTP greeting) and the first mail domain.
+hostname: mail.example.com
+domain: example.com
+
+# Accounts created with the domain on the first start (the first one also receives postmaster mail). Set their
+# passwords with `mox setaccountpassword <name>` in the pod, or in the admin web UI, which owns the accounts and
+# domains afterwards (more domains, DKIM keys, aliases).
+accounts:
+  - name: admin
+    addresses:
+      - admin@example.com
+
+admin:
+  password: ""          # the web admin password, generated into the Secret <fullname> (key admin-password) unless set
+
+secret:
+  existingSecret: ""    # a Secret with key admin-password instead
+
+logLevel: info
+
+# Trust X-Forwarded-For/-Proto on the web listener (set when an Ingress fronts the web UIs).
+forwardedHeaders: false
+
+# The configuration (config/) and the data (accounts, the queue, DKIM keys) on one volume.
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  size: 10Gi
+  annotations: {}
+
+resources:
+  requests: { cpu: 50m, memory: 128Mi }
+  limits: { cpu: 1, memory: 1Gi }
+
+# Mail needs the standard ports reachable from the internet: type LoadBalancer (or NodePort) for a real server.
+service:
+  type: ClusterIP
+  ports:
+    smtp: 25
+    submission: 587
+    submissions: 465
+    imap: 143
+    imaps: 993
+    http: 8080
+  annotations: {}
+  externalTrafficPolicy: ""   # Local keeps client IPs, which mox's SPF and rate limits need
+  loadBalancerIP: ""
+
+# TLS for SMTP STARTTLS, submissions (465) and IMAPS (993), from the PEM pair at /tls. Without it, the listeners
+# allow plain-text logins (for testing only). The certificate comes from the first source set: existingSecret, then a
+# cert-manager Certificate, else a Helm-generated CA.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: 8080     # the web UIs (service.ports.http)
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+startupProbe: {}
+livenessProbe: {}
+readinessProbe: {}
+customStartupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
