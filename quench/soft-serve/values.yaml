@@ -1,0 +1,93 @@
+image:
+  repository: ghcr.io/quenchworks/images/soft-serve
+  digest: "sha256:53b36941ae7607e8c0db09bb6baae922acbda5b8148eb23fa2d05d40e7019231"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The server's display name (SSH TUI, web UI).
+name: Soft Serve
+
+# SSH public keys of the admins created on the first start ("ssh-ed25519 AAAA... you@host").
+initialAdminKeys: []
+
+# What anonymous users may do: no-access, read-only, read-write, admin-access.
+anonAccess: read-only
+
+# Allow access without an SSH key (HTTP and the git daemon, at the anonAccess level).
+allowKeyless: true
+
+# The URLs clients use (printed in clone commands); default to the Service names.
+publicUrl:
+  ssh: ""     # ssh://git.example.com:22
+  http: ""    # https://git.example.com
+
+# Repositories, the database (sqlite) and the server keys.
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  size: 10Gi
+  annotations: {}
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 2, memory: 512Mi }
+
+# Git over SSH usually wants a LoadBalancer (an Ingress carries HTTP only).
+service:
+  type: ClusterIP
+  ports:
+    ssh: 23231
+    http: 23232
+    git: 9418
+    stats: 23233
+  annotations: {}
+  externalTrafficPolicy: ""
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: 23232     # smart HTTP and the web UI
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
