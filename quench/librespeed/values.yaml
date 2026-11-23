@@ -1,0 +1,89 @@
+image:
+  repository: ghcr.io/quenchworks/images/librespeed
+  digest: "sha256:f23e6f4e860c9f550bea1b683a2346ea6299077c0eb3a0d322bd8bdc24e84285"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The server's coordinates, shown to clients and used to estimate distance.
+server:
+  latitude: 0
+  longitude: 0
+
+# An ipinfo.io API key for the client's ISP and location in the results (optional).
+ipinfoApiKey: ""
+
+# Store each test result (sqlite on the volume) and enable the stats page at /stats behind a password, generated into
+# the Secret <fullname> (key stats-password) unless set. Off: no results are kept and /stats stays disabled.
+telemetry:
+  enabled: false
+  statsPassword: ""
+  redactIpAddresses: false
+
+# Without telemetry the server is stateless: scale it out. With telemetry it runs one replica (sqlite).
+replicaCount: 1
+updateStrategy: {}
+
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  size: 1Gi
+  annotations: {}
+
+resources:
+  requests: { cpu: 50m, memory: 32Mi }
+  limits: { cpu: 2, memory: 256Mi }
+
+service:
+  type: ClusterIP
+  port: 8989
+  annotations: {}
+  externalTrafficPolicy: ""
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 10
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

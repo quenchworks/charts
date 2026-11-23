@@ -1,0 +1,75 @@
+{{- $probe := dict "httpGet" (dict "path" "/backend/empty" "port" "http") "periodSeconds" 15 "timeoutSeconds" 5 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  replicas: {{ ternary 1 .Values.replicaCount .Values.telemetry.enabled }}
+  # With sqlite on an RWO volume the old pod stops before the new one starts (maxSurge 0). Same strategy type either
+  # way: switching to Recreate in place is refused (the defaulted rollingUpdate block stays under server-side apply).
+  strategy:
+    {{- toYaml (.Values.updateStrategy | default (dict "type" "RollingUpdate" "rollingUpdate" (ternary (dict "maxSurge" 0 "maxUnavailable" 1) (dict "maxSurge" "25%" "maxUnavailable" "25%") .Values.telemetry.enabled))) | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ toJson (list .Values.server .Values.telemetry .Values.ipinfoApiKey) | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: librespeed
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            {{- range (include "librespeed.ports" . | fromJsonArray) }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ .protocol }}
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: settings, mountPath: /etc/librespeed/settings.toml, subPath: settings.toml, readOnly: true }
+            {{- if .Values.telemetry.enabled }}
+            - { name: data, mountPath: /data }
+            {{- end }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - name: settings
+          secret: { secretName: {{ include "quench-common.fullname" . }} }
+        {{- if .Values.telemetry.enabled }}
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim: { claimName: {{ .Values.persistence.existingClaim | default (include "quench-common.fullname" .) }} }
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}
