@@ -1,0 +1,13 @@
+Traccar answers on http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+
+Sign in as {{ .Values.admin.email }}. The password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "traccar.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+
+Device ports on the Service: {{ range .Values.devicePorts }}{{ .name }} {{ .port }}/{{ .protocol | default "TCP" }} {{ end }}
+Trackers connect from outside the cluster: expose those ports (service.type LoadBalancer or NodePort).
+{{- if not .Values.allowRegistration }}
+Self-registration is off: the admin creates users.
+{{- end }}

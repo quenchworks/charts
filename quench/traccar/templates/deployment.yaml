@@ -1,0 +1,93 @@
+{{- $probe := dict "httpGet" (dict "path" "/api/server" "port" "http") "periodSeconds" 15 "timeoutSeconds" 10 -}}
+{{- $db := .Values.postgresql.enabled -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  # one replica: the config dir and uploaded files live on one RWO volume, so the old pod stops first (maxSurge 0;
+  # RollingUpdate either way, switching the type in place is refused under server-side apply)
+  replicas: 1
+  strategy:
+    {{- toYaml (.Values.updateStrategy | default (dict "type" "RollingUpdate" "rollingUpdate" (dict "maxSurge" 0 "maxUnavailable" 1))) | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ toJson (list .Values.env .Values.externalDatabase .Values.devicePorts) | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: traccar
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                {{- if $db }}
+                secretKeyRef: { name: {{ printf "%s-postgresql" .Release.Name }}, key: postgres-password }
+                {{- else }}
+                secretKeyRef: { name: {{ required "externalDatabase.existingSecret is required when postgresql.enabled=false" .Values.externalDatabase.existingSecret }}, key: {{ .Values.externalDatabase.existingSecretPasswordKey }} }
+                {{- end }}
+            # Traccar reads config keys from the environment (database.url -> DATABASE_URL) when this is on
+            - { name: CONFIG_USE_ENVIRONMENT_VARIABLES, value: "true" }
+            - { name: DATABASE_DRIVER, value: org.postgresql.Driver }
+            - name: DATABASE_URL
+              value: {{ printf "jdbc:postgresql://%s:%d/%s" (ternary (printf "%s-postgresql" .Release.Name) .Values.externalDatabase.host $db) (ternary 5432 (int .Values.externalDatabase.port) $db) (ternary .Values.postgresql.auth.database .Values.externalDatabase.database $db) | quote }}
+            - { name: DATABASE_USER, value: {{ ternary .Values.postgresql.auth.username .Values.externalDatabase.username $db | quote }} }
+            - { name: DATABASE_PASSWORD, value: "$(DB_PASSWORD)" }
+            {{- range $k, $v := .Values.env }}
+            - { name: {{ $k }}, value: {{ $v | quote }} }
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            {{- range (include "traccar.ports" . | fromJsonArray) }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ .protocol }}
+            {{- end }}
+          # the schema migrations run on first start: the startup probe allows 5 minutes
+          {{- include "quench-common.probe" (dict "ctx" . "name" "startup" "default" (merge (dict "failureThreshold" 20) (deepCopy $probe))) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: data, mountPath: /opt/traccar/data }
+            - { name: logs, mountPath: /opt/traccar/logs }
+            - { name: override, mountPath: /opt/traccar/override }
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: logs, emptyDir: {} }
+        # web.override: custom web files; empty unless you mount your own (extraVolumes)
+        - { name: override, emptyDir: {} }
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim: { claimName: {{ .Values.persistence.existingClaim | default (include "quench-common.fullname" .) }} }
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

@@ -1,0 +1,76 @@
+{{- /* Traccar makes the first account that registers the admin and keeps self-registration open after that. This
+       hook claims the admin with the password from the Secret while no user exists yet (POST /api/users answers 200
+       only then or while registration is open), checks that the admin signs in, and turns self-registration off
+       (PUT /api/server; busybox wget cannot PUT, so that one request goes over nc). Upgrades re-check sign-in and
+       registration and change nothing else. */}}
+{{- $fullname := include "quench-common.fullname" . }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ $fullname }}-bootstrap
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 6
+  template:
+    metadata:
+      labels:
+        # not the Deployment's selector labels: the Service must not route to this pod
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: bootstrap
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: bootstrap
+          image: {{ printf "%s@%s" .Values.busybox.repository .Values.busybox.digest }}
+          imagePullPolicy: {{ .Values.busybox.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - { name: HOST, value: {{ printf "%s.%s.svc" $fullname .Release.Namespace | quote }} }
+            - { name: PORT, value: {{ .Values.service.port | quote }} }
+            - { name: ADMIN_EMAIL, value: {{ .Values.admin.email | quote }} }
+            - { name: ALLOW_REGISTRATION, value: {{ .Values.allowRegistration | quote }} }
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ include "traccar.secretName" . }}, key: admin-password }
+          command: ["/bin/sh", "-ec"]
+          args:
+            - |
+              U="http://$HOST:$PORT"
+              for i in $(seq 1 90); do wget -q -O /dev/null "$U/api/server" 2>/dev/null && break; sleep 5; done
+              js() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+              AUTH="Authorization: Basic $(printf '%s:%s' "$ADMIN_EMAIL" "$ADMIN_PASSWORD" | base64 | tr -d '\n')"
+              if wget -q -O /dev/null --header "$AUTH" "$U/api/users" 2>/dev/null; then
+                echo "admin already signs in"
+              else
+                wget -q -O /dev/null --header 'Content-Type: application/json' \
+                  --post-data "{\"name\":\"admin\",\"email\":\"$(js "$ADMIN_EMAIL")\",\"password\":\"$(js "$ADMIN_PASSWORD")\"}" "$U/api/users" \
+                  || { echo "cannot create the admin: another account exists and registration is closed"; exit 1; }
+                wget -q -O /dev/null --header "$AUTH" "$U/api/users" || { echo "the admin cannot sign in"; exit 1; }
+                echo "admin created"
+              fi
+              wget -q -O - --header "$AUTH" "$U/api/users" | grep -q '"administrator":true' || { echo "the account is not an administrator"; exit 1; }
+              if [ "$ALLOW_REGISTRATION" != true ]; then
+                srv=$(wget -q -O - --header "$AUTH" "$U/api/server")
+                if echo "$srv" | grep -q '"registration":true'; then
+                  body=$(echo "$srv" | sed 's/"registration":true/"registration":false/')
+                  printf 'PUT /api/server HTTP/1.1\r\nHost: %s\r\n%s\r\nContent-Type: application/json\r\nContent-Length: %s\r\nConnection: close\r\n\r\n%s' \
+                    "$HOST" "$AUTH" "$(printf '%s' "$body" | wc -c)" "$body" | nc "$HOST" "$PORT" | head -1 | grep ' 200 ' \
+                    || { echo "PUT /api/server did not answer 200"; exit 1; }
+                fi
+                wget -q -O - "$U/api/server" | grep -q '"registration":false' || { echo "registration is still open"; exit 1; }
+                echo "self-registration off"
+              fi
+          resources:
+            requests: { cpu: 5m, memory: 8Mi }
+            limits: { cpu: 100m, memory: 32Mi }

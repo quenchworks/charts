@@ -1,0 +1,120 @@
+image:
+  repository: ghcr.io/quenchworks/images/traccar
+  digest: "sha256:baacedccb410fd0278585b47660e5df233f3417584a840d6907320d461044677"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# The admin. A post-install Job creates it with this password (generated into the Secret <fullname>, key
+# admin-password, unless set) and then turns Traccar's open self-registration off.
+admin:
+  email: admin@example.com
+  password: ""
+
+# Keep self-registration open (Traccar's default). Off: only the admin creates users.
+allowRegistration: false
+
+secret:
+  existingSecret: ""    # a Secret with key admin-password instead
+
+# Device protocol ports, exposed on the Service and admitted by the NetworkPolicy. Traccar listens on every
+# protocol's default port; list the ones your trackers use (traccar.org/devices), e.g. teltonika 5027,
+# gt06 5023, h02 5013. Some protocols use UDP: add protocol: UDP.
+devicePorts:
+  - { name: osmand, port: 5055 }
+
+# Extra config keys as environment variables (Traccar maps database.url to DATABASE_URL), e.g.
+# GEOCODER_ENABLE: "true", LOGGER_LEVEL: info.
+env: {}
+
+busybox:
+  repository: ghcr.io/quenchworks/images/busybox
+  digest: "sha256:041302c8da3a2e182ecc2eac3c56c4f47a13c03cc284d255489c0be741893b64"
+  pullPolicy: IfNotPresent
+
+updateStrategy: {}
+
+postgresql:
+  enabled: true
+  auth:
+    username: traccar
+    password: ""
+    database: traccar_db   # differs from the user: the catalog postgresql creates POSTGRES_DB only then
+  primary:
+    persistence:
+      enabled: true
+      size: 5Gi
+
+externalDatabase:
+  host: ""
+  port: 5432
+  database: traccar
+  username: traccar
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { cpu: 2, memory: 2Gi }
+
+service:
+  type: ClusterIP
+  port: 8082
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# /opt/traccar/data: media and the files Traccar keeps outside the database. Positions live in PostgreSQL.
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  size: 2Gi
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+startupProbe: {}
+livenessProbe: {}
+readinessProbe: {}
+customStartupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
