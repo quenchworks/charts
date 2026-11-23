@@ -1,0 +1,89 @@
+image:
+  repository: ghcr.io/quenchworks/images/ejbca
+  digest: "sha256:feeb51dbb099268c866d4ff2d5fc7b971819532677f624d6349ea438e81f5f41"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Extra JVM options for WildFly (heap sizing and the like); empty keeps standalone.conf's defaults.
+javaOpts: ""
+
+# One replica: EJBCA clustering needs shared cache configuration this chart does not set up.
+replicaCount: 1
+updateStrategy: {}
+
+postgresql:
+  enabled: true
+  auth:
+    username: ejbca
+    password: ""
+    database: ejbca_db   # differs from the user: the catalog postgresql creates POSTGRES_DB only then
+  primary:
+    persistence:
+      enabled: true
+      size: 10Gi
+
+externalDatabase:
+  host: ""
+  port: 5432
+  database: ejbca
+  username: ejbca
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+resources:
+  requests: { cpu: 250m, memory: 1Gi }
+  limits: { cpu: 2, memory: 3Gi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 60
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+startupProbe: {}
+livenessProbe: {}
+readinessProbe: {}
+customStartupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

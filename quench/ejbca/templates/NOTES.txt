@@ -1,0 +1,13 @@
+EJBCA answers on http://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/ejbca/
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+
+Health: /ejbca/publicweb/healthcheck/ejbcahealth answers ALLOK once the EAR is deployed (first start takes a few minutes).
+
+Administer it with the EJB CLI inside the pod. For example, create a CA:
+
+  kubectl exec -n {{ .Release.Namespace }} deploy/{{ include "quench-common.fullname" . }} -- ejbca ca init --caname MyCA \
+    --dn "CN=MyCA" --tokenType soft --tokenPass null --keytype RSA --keyspec 3072 -v 3650 --policy null -s SHA256WithRSA
+
+The admin and RA web UIs require client-certificate TLS, which this chart does not set up yet. The public endpoints
+(CRL download, SCEP, CMP, web services, REST) are served over plain HTTP: put TLS in front with an Ingress before exposing it.
