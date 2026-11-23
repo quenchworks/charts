@@ -1,0 +1,93 @@
+{{- $tls := eq (include "quench-common.tls.enabled" .) "true" -}}
+{{- $probe := dict "httpGet" (dict "path" "/misc/ping" "port" (ternary "https" "http" $tls) "scheme" (ternary "HTTPS" "HTTP" $tls)) "periodSeconds" 15 "timeoutSeconds" 10 -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  # one replica: the config DB is SQLite on the volume
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ toJson (list .Values.servers .Values.config .Values.tls .Values.admin.email) | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      {{- with .Values.initContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: pgadmin4
+          image: {{ include "quench-common.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - { name: PGADMIN_DEFAULT_EMAIL, value: {{ .Values.admin.email | quote }} }
+            - name: PGADMIN_DEFAULT_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: {{ include "pgadmin4.secretName" . }}, key: admin-password }
+            - { name: GUNICORN_THREADS, value: {{ .Values.gunicorn.threads | quote }} }
+            {{- if .Values.servers }}
+            - { name: PGADMIN_SERVER_JSON_FILE, value: /etc/pgadmin/servers.json }
+            {{- end }}
+            {{- if $tls }}
+            # gunicorn serves HTTPS itself from the PEM pair at /tls
+            - { name: GUNICORN_CMD_ARGS, value: "--certfile /tls/tls.crt --keyfile /tls/tls.key" }
+            - { name: PGADMIN_CONFIG_SESSION_COOKIE_SECURE, value: "True" }
+            {{- end }}
+            {{- range $k, $v := .Values.config }}
+            - { name: {{ printf "PGADMIN_CONFIG_%s" $k }}, value: {{ $v | quote }} }
+            {{- end }}
+            {{- include "quench-common.extraEnvVars" . | nindent 12 }}
+          {{- include "quench-common.envFrom" . | nindent 10 }}
+          ports:
+            {{- range (include "pgadmin4.ports" . | fromJsonArray) }}
+            - name: {{ .name }}
+              containerPort: {{ .port }}
+              protocol: {{ .protocol }}
+            {{- end }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "startup" "default" (merge (dict "failureThreshold" 20) (deepCopy $probe))) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "liveness" "default" $probe) | nindent 10 }}
+          {{- include "quench-common.probe" (dict "ctx" . "name" "readiness" "default" $probe) | nindent 10 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: data, mountPath: /var/lib/pgadmin }
+            {{- if .Values.servers }}
+            - { name: servers, mountPath: /etc/pgadmin/servers.json, subPath: servers.json, readOnly: true }
+            {{- end }}
+            {{- include "quench-common.tls.volumeMount" . | nindent 12 }}
+            {{- include "quench-common.extraVolumeMounts" . | nindent 12 }}
+        {{- include "quench-common.sidecars" . | nindent 8 }}
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim: { claimName: {{ .Values.persistence.existingClaim | default (include "quench-common.fullname" .) }} }
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if .Values.servers }}
+        - name: servers
+          configMap: { name: {{ include "quench-common.fullname" . }}-servers }
+        {{- end }}
+        {{- include "quench-common.tls.volume" . | nindent 8 }}
+        {{- include "quench-common.extraVolumes" . | nindent 8 }}

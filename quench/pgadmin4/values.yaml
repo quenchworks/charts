@@ -1,0 +1,107 @@
+image:
+  repository: ghcr.io/quenchworks/images/pgadmin4
+  digest: "sha256:fbec27319b18df26f0ce70d5732bacaa6a71fe85b033580144813c16dc6638bc"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+admin:
+  email: admin@example.com   # the first user's login (pgAdmin wants an email address)
+  password: ""               # generated into the Secret <fullname> (key admin-password) unless set here
+
+secret:
+  existingSecret: ""         # a Secret with key admin-password instead
+
+# Servers registered for the first user on the first start, as pgAdmin's servers.json entries
+# (Name, Host, Port, MaintenanceDB, Username, SSLMode, Group...). Passwords are not stored here.
+servers: []
+#  - Name: production
+#    Host: postgresql.db.svc
+#    Username: postgres
+
+# pgAdmin config values (config.py names), each passed as PGADMIN_CONFIG_<NAME>. Values are Python literals:
+# "True", "10", "'text'". Example: MASTER_PASSWORD_REQUIRED: "False", ENHANCED_COOKIE_PROTECTION: "False".
+config: {}
+
+gunicorn:
+  threads: 25
+
+# The config DB (users, saved servers, preferences), sessions and file storage.
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  size: 1Gi
+  annotations: {}
+
+resources:
+  requests: { cpu: 50m, memory: 256Mi }
+  limits: { cpu: 1, memory: 1Gi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: gunicorn serves HTTPS on 8080 from the PEM pair at /tls. The certificate comes from the first source
+# set: existingSecret, then a cert-manager Certificate, else a Helm-generated CA.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+startupProbe: {}
+livenessProbe: {}
+readinessProbe: {}
+customStartupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

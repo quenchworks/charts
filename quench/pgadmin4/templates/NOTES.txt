@@ -1,0 +1,16 @@
+{{- $tls := eq (include "quench-common.tls.enabled" .) "true" }}
+pgAdmin answers on {{ ternary "https" "http" $tls }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+
+Sign in as {{ .Values.admin.email }}. Its password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "pgadmin4.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+{{- if .Values.servers }}
+
+{{ len .Values.servers }} server(s) from values are registered for that user on the first start.
+{{- end }}
+{{- if not $tls }}
+
+Plain HTTP: enable tls.enabled or an Ingress with TLS before exposing it.
+{{- end }}
