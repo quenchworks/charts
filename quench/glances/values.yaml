@@ -1,0 +1,72 @@
+image:
+  repository: ghcr.io/quenchworks/images/glances
+  digest: "sha256:6c5fed36c6c39ad7a348dad44ea1a4672123242af59c985e16dcb78075ba37f9"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# One Glances per node. hostPID shows the node's processes; hostSys mounts the node's /sys read-only (sensors,
+# block devices, network interfaces). Both break the restricted and baseline PodSecurity profiles.
+node:
+  hostPID: true
+  hostSys: true
+
+# Extra glances arguments, appended to the image's `glances -w` (e.g. ["--disable-plugin", "sensors"], or
+# ["--export", "prometheus"] with GLANCES_ settings in extraEnvVars).
+extraArgs: []
+
+updateStrategy: {}
+
+resources:
+  requests: { cpu: 20m, memory: 96Mi }
+  limits: { cpu: 500m, memory: 384Mi }
+
+# The web UI and the REST API have no authentication: keep the Service internal (networkPolicy.allowExternal
+# false limits it to pods labelled <fullname>-client=true) or put an authenticating Ingress in front.
+service:
+  type: ClusterIP
+  port: 61208
+  annotations: {}
+  externalTrafficPolicy: ""
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 10
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+livenessProbe: {}
+readinessProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
