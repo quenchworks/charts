@@ -1,0 +1,152 @@
+image:
+  repository: ghcr.io/quenchworks/images/netbox
+  digest: "sha256:9907ac7ea6e4448d7a77e3c4c715f0060511bc9c9883ab4a882f30856289110f"
+  pullPolicy: IfNotPresent
+
+nameOverride: ""
+
+# Host names NetBox answers for besides the Service names and localhost (Ingress hosts go here).
+allowedHosts: []
+timeZone: UTC
+loginRequired: true
+
+admin:
+  user: admin
+  email: admin@netbox.local
+  password: ""          # generated into the Secret <fullname> (key admin-password) unless set here
+
+secret:
+  existingSecret: ""    # a Secret with keys admin-password, secret-key and api-token-pepper (50+ characters each key)
+
+# Python appended to NetBox's configuration (mounted as /etc/netbox/extra.py), for settings the chart does not
+# expose: CSRF_TRUSTED_ORIGINS, REMOTE_AUTH_*, SOCIAL_AUTH_*, PLUGINS and the rest of configuration.py.
+extraConfig: ""
+
+gunicorn:
+  workers: 3
+  threads: 3
+
+metrics:
+  enabled: false        # /metrics (Prometheus) on the web port
+
+replicaCount: 1
+updateStrategy: {}
+
+worker:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests: { cpu: 50m, memory: 256Mi }
+    limits: { cpu: 1, memory: 1Gi }
+
+# Uploads (image attachments, scripts). The web server and the worker share it: use ReadWriteMany when they can
+# land on different nodes.
+persistence:
+  enabled: true
+  existingClaim: ""
+  storageClass: ""
+  accessModes: ["ReadWriteOnce"]
+  size: 2Gi
+  annotations: {}
+
+postgresql:
+  enabled: true
+  auth:
+    username: netbox
+    password: ""
+    database: netbox_db   # differs from the user: the catalog postgresql creates POSTGRES_DB only then
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi
+
+externalDatabase:
+  host: ""
+  port: 5432
+  database: netbox
+  username: netbox
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+valkey:
+  enabled: true
+  auth:
+    password: ""
+
+externalRedis:
+  host: ""
+  port: 6379
+  ssl: false
+  existingSecret: ""
+  existingSecretPasswordKey: password
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { cpu: 2, memory: 2Gi }
+
+service:
+  type: ClusterIP
+  port: 8080
+  annotations: {}
+  externalTrafficPolicy: ""
+
+# Native TLS: gunicorn serves HTTPS on 8080 from the PEM pair at /tls. The certificate comes from the first source
+# set: existingSecret, then a cert-manager Certificate, else a Helm-generated CA.
+tls:
+  enabled: false
+  existingSecret: ""
+  certManager:
+    enabled: false
+    issuerRef: { name: "", kind: ClusterIssuer }
+    dnsNames: []
+    duration: ""
+  selfSigned:
+    validityDays: 365
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  servicePort: null
+  hosts: []
+  tls: []
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+extraVolumes: []
+extraVolumeMounts: []
+initContainers: []
+sidecars: []
+lifecycleHooks: {}
+podSecurityContext: {}
+containerSecurityContext: {}
+startupProbe: {}
+livenessProbe: {}
+readinessProbe: {}
+customStartupProbe: {}
+customLivenessProbe: {}
+customReadinessProbe: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

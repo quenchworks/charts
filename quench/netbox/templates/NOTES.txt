@@ -1,0 +1,15 @@
+{{- $tls := eq (include "quench-common.tls.enabled" .) "true" }}
+NetBox answers on {{ ternary "https" "http" $tls }}://{{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}/
+
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "quench-common.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+
+Sign in as {{ .Values.admin.user }}. Its password:
+
+  kubectl get secret -n {{ .Release.Namespace }} {{ include "netbox.secretName" . }} -o jsonpath='{.data.admin-password}' | base64 -d
+
+API tokens: create one in the UI (user menu, API Tokens) or POST /api/users/tokens/provision/ with the username and password.
+Reaching it under another host name (an Ingress): add the host to allowedHosts, and set CSRF_TRUSTED_ORIGINS in extraConfig.
+{{- if not $tls }}
+
+Plain HTTP: enable tls.enabled or an Ingress with TLS before exposing it.
+{{- end }}
