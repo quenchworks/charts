@@ -1,0 +1,155 @@
+name: release-hoppscotch
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "quench/hoppscotch/**"
+      - ".github/workflows/release-hoppscotch.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write        # push the OCI chart to GHCR
+  id-token: write
+
+env:
+  CHART_DIR: quench/hoppscotch
+  OCI_REPO: oci://ghcr.io/quenchworks/charts
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+      - uses: helm/kind-action@1544676c07bb3570fcb70166beaa07c4528fd4aa # v1.15.1
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
+
+      - name: Log in to GHCR (for cosign)
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint and template
+        run: |
+          helm dependency build "${CHART_DIR}"
+          helm lint "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml"
+          helm template "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" >/dev/null
+
+      - name: Install gate (kind)
+        run: |
+          set -o pipefail
+          helm install rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 15m
+          for c in backend web admin; do kubectl rollout status deployment/rtest-hoppscotch-$c --timeout=600s; done
+          KEY=$(kubectl get secret rtest-hoppscotch -o jsonpath='{.data.data-encryption-key}')
+          [ "$(echo "$KEY" | base64 -d | wc -c)" = 32 ] || { echo "no generated 32-character data encryption key"; exit 1; }
+          fwd() { local svc=$1 ports=$2; shift 2; kubectl port-forward "svc/$svc" "$ports" >/tmp/pf.log 2>&1 & local pf=$!; sleep 3; local rc=0; "$@" || rc=$?; kill $pf 2>/dev/null || true; return $rc; }
+          # the API answers /ping and resolves a GraphQL query (Apollo's CSRF guard needs the JSON content type)
+          api() {
+            for _ in $(seq 1 60); do [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/ping)" = 200 ] && break; sleep 2; done
+            curl -s -H 'Content-Type: application/json' -d '{"query":"{ __typename }"}' http://127.0.0.1:18080/graphql | grep -q '"__typename":"Query"' || { echo "GraphQL did not resolve { __typename }"; return 1; }
+          }
+          # the init container applied Prisma's migrations and recorded them
+          migrated() {
+            PGPW=$(kubectl get secret rtest-postgresql -o jsonpath='{.data.postgres-password}' | base64 -d)
+            n=$(kubectl exec rtest-postgresql-0 -- env PGPASSWORD="$PGPW" psql -h 127.0.0.1 -U hoppscotch -d hoppscotch_db -tAc "select count(*) from _prisma_migrations where finished_at is not null")
+            [ "$(echo "$n" | tr -d ' ')" -gt 0 ] || { echo "no finished migrations recorded (count: $n)"; return 1; }
+          }
+          page() { curl -s "http://127.0.0.1:$1/" | grep -qi hoppscotch || { echo "no app shell on $1"; return 1; }; }
+          desktop() { [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18083/desktop-app-server/api/v1/manifest)" = 200 ] || { echo "webapp-server manifest not served"; return 1; }; }
+          # each frontend wrote the chart's URLs into its copy of the build (JSON-escaped, so match the host) and left no placeholder
+          injected() {
+            p=$(kubectl get pod -l app.kubernetes.io/instance=rtest,app.kubernetes.io/component=$1 -o name | head -1)
+            kubectl exec "$p" -- /usr/bin/node -e 'const fs=require("fs"),d="/tmp/hoppscotch-site";const t=fs.readdirSync(d,{recursive:true}).map(f=>d+"/"+f).filter(p=>fs.statSync(p).isFile()).map(p=>fs.readFileSync(p,"utf8"));process.exit(t.some(c=>c.includes("hoppscotch.quench.test"))&&!t.some(c=>c.includes("import_meta_env_placeholder"))?0:1)' \
+              || { echo "$1: the backend URL is not in the served build"; return 1; }
+          }
+          check() {
+            fwd rtest-hoppscotch-backend 18080:3170 api || return 1
+            migrated || return 1
+            fwd rtest-hoppscotch-web 18081:3000 page 18081 || return 1
+            fwd rtest-hoppscotch-web 18083:3200 desktop || return 1
+            fwd rtest-hoppscotch-admin 18082:3100 page 18082 || return 1
+            injected web && injected admin
+          }
+          export -f api page desktop
+          check
+          # the backend restarts against the same database (the migrations re-run as a no-op); the key survives an upgrade
+          kubectl delete pod -l app.kubernetes.io/instance=rtest,app.kubernetes.io/component=backend --wait=true
+          kubectl rollout status deployment/rtest-hoppscotch-backend --timeout=600s
+          kubectl logs deployment/rtest-hoppscotch-backend -c migrate | grep -q 'No pending migrations' || { echo "the second migration run was not a no-op"; exit 1; }
+          check
+          helm upgrade rtest "${CHART_DIR}" -f "${CHART_DIR}/ci/default-values.yaml" --wait --timeout 15m
+          [ "$(kubectl get secret rtest-hoppscotch -o jsonpath='{.data.data-encryption-key}')" = "$KEY" ] || { echo "the data encryption key changed on upgrade"; exit 1; }
+          check
+          echo "hoppscotch: backend on PostgreSQL (migrations recorded, /ping, GraphQL), web app and admin with the backend URL injected, desktop bundle manifest; kept across a restart and an upgrade: ok"
+
+      - name: Why the install gate failed
+        if: failure()
+        run: |
+          kubectl get pods -o wide || true
+          kubectl describe pods || true
+          kubectl get events --sort-by=.lastTimestamp | tail -40 || true
+          for p in $(kubectl get pods -o name); do
+            for c in $(kubectl get "$p" -o jsonpath='{.spec.initContainers[*].name} {.spec.containers[*].name}'); do
+              echo "=== $p [$c] current"
+              kubectl logs "$p" -c "$c" --tail=400 || true
+              echo "=== $p [$c] previous"
+              kubectl logs "$p" -c "$c" --previous --tail=400 || true
+            done
+          done
+
+      # A push that edits this workflow re-runs the whole release, including for a
+      # chart whose version is already published (one bulk edit once fired 161
+      # releases). The gate above still runs, which is what a workflow edit needs;
+      # an existing version is never re-pushed, re-signed or overwritten. Manual
+      # dispatch always publishes: that is an explicit operator decision.
+      - name: Skip a version that is already published
+        id: published
+        run: |
+          name="$(awk '/^name:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          ver="$(awk '/^version:/{print $2; exit}' "${CHART_DIR}/Chart.yaml")"
+          if [ "${{ github.event_name }}" = push ] && helm show chart "${OCI_REPO}/${name}" --version "${ver}" >/dev/null 2>&1; then
+            echo "::notice::${name} ${ver} is already on GHCR; gate ran, nothing re-published. Bump the chart version to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package and push (OCI)
+        if: steps.published.outputs.skip != 'true'
+        id: push
+        run: |
+          set -o pipefail
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm package "${CHART_DIR}" -d ./dist
+          helm push ./dist/hoppscotch-*.tgz "${OCI_REPO}" 2>&1 | tee push.txt
+          digest="$(awk '/Digest:/ {print $2}' push.txt)"
+          test -n "$digest"
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Sign chart (cosign keyless)
+        if: steps.published.outputs.skip != 'true'
+        env:
+          COSIGN_YES: "true"
+        run: |
+          cosign sign "ghcr.io/quenchworks/charts/hoppscotch@${{ steps.push.outputs.digest }}"
+
+      - name: Set up oras
+        if: steps.published.outputs.skip != 'true'
+        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2.0.3
+
+      - name: Publish ArtifactHub metadata (verified publisher)
+        if: steps.published.outputs.skip != 'true'
+        run: |
+          if grep -qE '^repositoryID:[[:space:]]*REPLACE_WITH' "${CHART_DIR}/artifacthub-repo.yml"; then
+            echo "::warning::artifacthub-repo.yml has a placeholder repositoryID; skipping metadata push."
+            exit 0
+          fi
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          cd "${CHART_DIR}"
+          oras push ghcr.io/quenchworks/charts/hoppscotch:artifacthub.io \
+            --config /dev/null:application/vnd.cncf.artifacthub.config.v1+yaml \
+            "artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"

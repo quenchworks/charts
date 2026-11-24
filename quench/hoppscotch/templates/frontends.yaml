@@ -1,0 +1,86 @@
+{{- /* The web app (with webapp-server, the desktop app bundle) and the admin dashboard: one Deployment and
+       Service each. Both write the VITE_* env into a copy of their build under /tmp at start. */}}
+{{- $sec := include "hoppscotch.secretName" . }}
+{{- $parts := list
+  (dict "component" "web" "spec" .Values.web
+        "ports" (list (dict "name" "web" "port" 3000) (dict "name" "desktop" "port" 3200))
+        "env" (list (dict "name" "WEBAPP_SERVER_SIGNING_SECRET" "valueFrom" (dict "secretKeyRef" (dict "name" $sec "key" "bundle-signing-secret")))))
+  (dict "component" "admin" "spec" .Values.admin
+        "ports" (list (dict "name" "admin" "port" 3100)) "env" (list))
+}}
+{{- range $parts }}
+{{- $c := dict "ctx" $ "component" .component }}
+{{- $main := (index .ports 0).name }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hoppscotch.name" $c }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ .component }}
+spec:
+  replicas: {{ .spec.replicas }}
+  selector:
+    matchLabels:
+      {{- include "hoppscotch.selectorLabels" $c | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hoppscotch.selectorLabels" $c | nindent 8 }}
+        {{- include "quench-common.podLabels" $ | nindent 8 }}
+      {{- with $.Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" $ }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" $ | nindent 8 }}
+      {{- include "quench-common.podSpecFields" $ | nindent 6 }}
+      containers:
+        - name: {{ .component }}
+          image: {{ include "hoppscotch.image" .spec.image }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" $ | nindent 12 }}
+          env:
+            {{- include "hoppscotch.viteEnv" $ | nindent 12 }}
+            {{- with .env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            {{- range .ports }}
+            - { name: {{ .name }}, containerPort: {{ .port }}, protocol: TCP }
+            {{- end }}
+          readinessProbe:
+            httpGet: { path: /, port: {{ $main }} }
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /, port: {{ $main }} }
+            initialDelaySeconds: 20
+            periodSeconds: 20
+          resources:
+            {{- toYaml .spec.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "hoppscotch.name" $c }}
+  labels:
+    {{- include "quench-common.labels" $ | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    {{- range .ports }}
+    - { name: {{ .name }}, port: {{ .port }}, targetPort: {{ .name }}, protocol: TCP }
+    {{- end }}
+  selector:
+    {{- include "hoppscotch.selectorLabels" $c | nindent 4 }}
+{{- end }}

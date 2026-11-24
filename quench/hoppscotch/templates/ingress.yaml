@@ -1,0 +1,43 @@
+{{- /* domain: the backend on /graphql and /v1, the desktop bundle on /desktop-app-server, the web app on /.
+       adminDomain: the admin dashboard. */}}
+{{- if .Values.ingress.enabled }}
+{{- $b := include "hoppscotch.name" (dict "ctx" . "component" "backend") }}
+{{- $w := include "hoppscotch.name" (dict "ctx" . "component" "web") }}
+{{- $a := include "hoppscotch.name" (dict "ctx" . "component" "admin") }}
+{{- $hosts := list
+  (list .Values.domain (list (list "/graphql" $b 3170) (list "/v1" $b 3170) (list "/desktop-app-server" $w 3200) (list "/" $w 3000)))
+  (list .Values.adminDomain (list (list "/" $a 3100))) }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "quench-common.fullname" . }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with .Values.ingress.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    {{- range $hosts }}
+    - host: {{ index . 0 | quote }}
+      http:
+        paths:
+          {{- range index . 1 }}
+          - path: {{ index . 0 }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ index . 1 }}
+                port:
+                  number: {{ index . 2 }}
+          {{- end }}
+    {{- end }}
+{{- end }}
