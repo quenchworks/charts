@@ -1,0 +1,48 @@
+# The digest is the contract with the image factory; CI rewrites it after each green image build.
+image: { repository: ghcr.io/quenchworks/images/falcosidekick, digest: "sha256:14b54fd9b43e4f8eeb00aae1e89f8dcec811b5a19ec8c6918586bebcb9cbe8ce" }
+
+replicaCount: 1
+
+# Falcosidekick reads its outputs from environment variables named after its config keys, for example
+# SLACK_WEBHOOKURL, LOKI_HOSTPORT, ELASTICSEARCH_HOSTPORT, WEBHOOK_ADDRESS (upstream config_example.yaml lists
+# them all). Plain settings go in env; credentials go in a Secret named by envSecret, loaded with envFrom.
+env: {}
+envSecret: ""
+
+resources:
+  requests: { cpu: 10m, memory: 32Mi }
+  limits: { cpu: 500m, memory: 128Mi }
+
+# Falco posts events here: set Falco's http_output.url to http://<release>-falcosidekick.<namespace>:2801/
+service:
+  type: ClusterIP
+  port: 2801
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+podSecurityContext: {}
+containerSecurityContext: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
