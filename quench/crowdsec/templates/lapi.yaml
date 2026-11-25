@@ -1,0 +1,105 @@
+{{- $fn := include "quench-common.fullname" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fn }}-lapi
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: lapi
+spec:
+  # one replica: the default SQLite database cannot be shared
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: lapi
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+        app.kubernetes.io/component: lapi
+      annotations:
+        checksum/agent: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum | trunc 16 }}
+        {{- with .Values.podAnnotations }}{{- toYaml . | nindent 8 }}{{- end }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      securityContext:
+        {{- include "quench-common.podSecurityContext" . | nindent 8 }}
+      {{- include "quench-common.podSpecFields" . | nindent 6 }}
+      containers:
+        - name: lapi
+          image: {{ printf "%s@%s" .Values.image.repository .Values.image.digest }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+          env:
+            - { name: DISABLE_AGENT, value: "true" }
+            {{- include "crowdsec.env" (dict "ctx" . "part" .Values.lapi) | nindent 12 }}
+          {{- with .Values.lapi.envSecret }}
+          envFrom:
+            - secretRef: { name: {{ . }} }
+          {{- end }}
+          ports:
+            - { name: lapi, containerPort: 8080, protocol: TCP }
+            - { name: metrics, containerPort: 6060, protocol: TCP }
+          startupProbe:
+            httpGet: { path: /health, port: lapi }
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet: { path: /health, port: lapi }
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: lapi }
+            periodSeconds: 20
+          resources:
+            {{- toYaml .Values.lapi.resources | nindent 12 }}
+          volumeMounts:
+            - { name: tmp, mountPath: /tmp }
+            - { name: config, mountPath: /etc/crowdsec }
+            - { name: data, mountPath: /var/lib/crowdsec/data }
+      volumes:
+        - { name: tmp, emptyDir: {} }
+        - { name: config, emptyDir: {} }
+        - name: data
+          {{- if .Values.lapi.persistence.enabled }}
+          persistentVolumeClaim: { claimName: {{ $fn }}-lapi }
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+---
+{{- if .Values.lapi.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fn }}-lapi
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteOnce]
+  {{- with .Values.lapi.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests: { storage: {{ .Values.lapi.persistence.size }} }
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $fn }}-lapi
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+    app.kubernetes.io/component: lapi
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - { name: lapi, port: {{ .Values.service.port }}, targetPort: lapi, protocol: TCP }
+    - { name: metrics, port: {{ .Values.service.metricsPort }}, targetPort: metrics, protocol: TCP }
+  selector:
+    {{- include "quench-common.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: lapi

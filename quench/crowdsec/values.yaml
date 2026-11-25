@@ -1,0 +1,71 @@
+# The digest is the contract with the image factory; CI rewrites it after each green image build.
+image: { repository: ghcr.io/quenchworks/images/crowdsec, digest: "sha256:c4131266666da152a3bb25ee041e46bb71eb14fab61dcae19c6d364638a75dca" }
+
+# Both pods take upstream's container env (DISABLE_ONLINE_API, COLLECTIONS, PARSERS, SCENARIOS, ENROLL_KEY,
+# BOUNCER_KEY_<name>, LEVEL_DEBUG, ...). Credentials go in a Secret named by envSecret, loaded with envFrom:
+# a bouncer key there as BOUNCER_KEY_nginx=<key> registers that bouncer on the LAPI.
+lapi:
+  env: {}
+  envSecret: ""
+  resources:
+    requests: { cpu: 50m, memory: 96Mi }
+    limits: { cpu: "1", memory: 512Mi }
+  # SQLite database and hub data files. Without persistence decisions and registered bouncers reset on restart.
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 1Gi
+
+# One agent per node reads the kubelet's container logs and ships alerts to the LAPI. It runs as uid 0 with every
+# capability dropped: /var/log/pods files are 0640 root, readable by their owner without any capability.
+agent:
+  enabled: true
+  # hub items installed at start (needs egress to the hub); cri-logs parses the kubelet log format
+  collections: "crowdsecurity/linux"
+  parsers: "crowdsecurity/cri-logs"
+  env: {}
+  envSecret: ""
+  acquisition:
+    - filenames: ["/var/log/containers/*.log"]
+      labels: { type: containerd }
+  resources:
+    requests: { cpu: 50m, memory: 96Mi }
+    limits: { cpu: "1", memory: 512Mi }
+  tolerations: []
+  nodeSelector: {}
+
+# Agent login on the LAPI. An empty password is generated once and kept across upgrades.
+auth:
+  agentUsername: agent
+  agentPassword: ""
+
+# Bouncers reach the LAPI at http://<release>-crowdsec-lapi.<namespace>:8080
+service:
+  type: ClusterIP
+  port: 8080
+  metricsPort: 6060
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+podSecurityContext: {}
+containerSecurityContext: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
