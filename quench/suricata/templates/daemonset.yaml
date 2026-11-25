@@ -1,0 +1,100 @@
+{{- $fn := include "quench-common.fullname" . -}}
+{{- $img := printf "%s@%s" .Values.image.repository .Values.image.digest -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $fn }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+data:
+  local.rules: |
+    {{- .Values.rules.localRules | nindent 4 }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ $fn }}
+  labels:
+    {{- include "quench-common.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "quench-common.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "quench-common.selectorLabels" . | nindent 8 }}
+        {{- include "quench-common.podLabels" . | nindent 8 }}
+      annotations:
+        checksum/rules: {{ .Values.rules | toYaml | sha256sum | trunc 16 }}
+        {{- with .Values.podAnnotations }}{{- toYaml . | nindent 8 }}{{- end }}
+    spec:
+      serviceAccountName: {{ include "quench-common.serviceAccountName" . }}
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- include "quench-common.imagePullSecrets" . | nindent 6 }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      securityContext:
+        seccompProfile: { type: RuntimeDefault }
+        fsGroup: 1001
+      {{- if .Values.rules.update }}
+      initContainers:
+        - name: rules
+          image: {{ $img }}
+          imagePullPolicy: IfNotPresent
+          command: [/usr/bin/suricata-update, --no-test, --no-reload, -D, /var/lib/suricata]
+          securityContext:
+            {{- include "quench-common.containerSecurityContext" . | nindent 12 }}
+            runAsUser: 1001
+            runAsGroup: 1001
+            runAsNonRoot: true
+          volumeMounts:
+            - { name: lib, mountPath: /var/lib/suricata }
+            - { name: tmp, mountPath: /tmp }
+      {{- end }}
+      containers:
+        - name: suricata
+          image: {{ $img }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - --af-packet={{ .Values.interface }}
+            - --user=suricata
+            - --group=suricata
+            - -s
+            - /etc/suricata/local/local.rules
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+              add: {{ toJson .Values.capabilities }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - { name: lib, mountPath: /var/lib/suricata }
+            - { name: log, mountPath: /var/log/suricata }
+            - { name: run, mountPath: /run/suricata }
+            - { name: local, mountPath: /etc/suricata/local, readOnly: true }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - { name: lib, emptyDir: {} }
+        - { name: run, emptyDir: {} }
+        - { name: tmp, emptyDir: {} }
+        - { name: local, configMap: { name: {{ $fn }} } }
+        - name: log
+          {{- if .Values.logHostPath }}
+          hostPath: { path: {{ .Values.logHostPath }}, type: DirectoryOrCreate }
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

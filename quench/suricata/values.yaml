@@ -1,0 +1,48 @@
+# The digest is the contract with the image factory; CI rewrites it after each green image build.
+image: { repository: ghcr.io/quenchworks/images/suricata, digest: "sha256:ac9eb8557a39fa259bcc2816fbc8245a4f7a3dee6c1e6ed0f0b0e39a4319c5c3" }
+
+# The node interface to capture with AF_PACKET (host network). eth0 on most clouds and on kind.
+interface: eth0
+
+rules:
+  # suricata-update fetches the Emerging Threats open rules in an init container on every start (needs egress to
+  # rules.emergingthreats.net). Off: only localRules load.
+  update: true
+  # Extra signatures in Suricata syntax, loaded next to the updated rules.
+  localRules: ""
+
+# Alerts and protocol logs go to /var/log/suricata/eve.json in an emptyDir; ship them with your log agent, or set
+# logHostPath to keep them on the node.
+logHostPath: ""
+
+# Starts as root to open the AF_PACKET socket with these capabilities, then Suricata drops to uid 1001 (--user).
+# SETUID, SETGID and SETPCAP are for that switch (libcap-ng changes the id and clears the bounding set); after it the
+# process keeps only what capture needs.
+capabilities: [NET_RAW, NET_ADMIN, SYS_NICE, SETUID, SETGID, SETPCAP]
+
+resources:
+  requests: { cpu: 100m, memory: 512Mi }
+  limits: { cpu: "2", memory: 2Gi }
+
+tolerations:
+  - operator: Exists
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+podSecurityContext: {}
+containerSecurityContext: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
