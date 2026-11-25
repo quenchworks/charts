@@ -1,0 +1,64 @@
+# The digest is the contract with the image factory; CI rewrites it after each green image build.
+image: { repository: ghcr.io/quenchworks/images/coraza-spoa, digest: "sha256:d578d85b110cbc12dce4ded212318455972dd00c0a922003f09ef028796d832a" }
+
+replicaCount: 2
+
+# coraza-spoa config.yaml, mounted at /etc/coraza-spoa/config.yaml. bind must stay on :9000 (the Service port).
+# Each application is a rule set; HAProxy picks one per request with var(txn.coraza.app). The OWASP CRS is compiled
+# into the image, so @owasp_crs/*.conf needs no files. Start with SecRuleEngine DetectionOnly to tune a new site.
+config: |
+  bind: 0.0.0.0:9000
+  log_level: info
+  log_file: /dev/stdout
+  log_format: json
+  default_application: default
+  applications:
+    - name: default
+      directives: |
+        Include @coraza.conf-recommended
+        Include @crs-setup.conf.example
+        Include @owasp_crs/*.conf
+        SecRuleEngine On
+      response_check: false
+      transaction_ttl_ms: 60000
+      log_level: info
+      log_file: /dev/stdout
+      log_format: json
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: "1", memory: 512Mi }
+
+# HAProxy's spoe backend points at <release>-coraza-spoa.<namespace>:9000
+service:
+  type: ClusterIP
+  port: 9000
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+podSecurityContext: {}
+containerSecurityContext: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

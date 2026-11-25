@@ -1,0 +1,10 @@
+The Coraza SPOE agent listens on {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}.
+
+Wire HAProxy to it (upstream's example, corazawaf/coraza-spoa example/haproxy):
+  frontend:  filter spoe engine coraza config /etc/haproxy/coraza.cfg
+             http-request set-var(txn.coraza.app) str(default)
+             http-request send-spoe-group coraza coraza-req
+             http-request deny deny_status 403 if { var(txn.coraza.action) -m str deny }
+  backend coraza-spoa:
+             mode tcp
+             server spoa {{ include "quench-common.fullname" . }}.{{ .Release.Namespace }}:{{ .Values.service.port }}
