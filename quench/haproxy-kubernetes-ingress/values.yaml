@@ -1,0 +1,57 @@
+# The digest is the contract with the image factory; CI rewrites it after each green image build.
+image: { repository: ghcr.io/quenchworks/images/haproxy-kubernetes-ingress, digest: "sha256:344d2da97d91a0620b9e844753de6c21a8be6994d2a2f9309e5324d0cba09e39" }
+
+replicaCount: 1
+
+# The IngressClass this controller serves. Ingresses pick it with spec.ingressClassName.
+ingressClass:
+  name: haproxy
+  default: false
+
+# Extra controller flags (see upstream documentation/controller.md), e.g. --namespace-whitelist=apps.
+extraArgs: []
+
+# Global annotations for every Ingress, as the controller's ConfigMap (rate-limit-requests, deny-list, ssl-redirect,
+# timeout-client, ...). Per-Ingress annotations use the haproxy.org/ prefix.
+config: {}
+
+# gopherd splits the memory limit 2:1 between HAProxy and the controller.
+resources:
+  requests: { cpu: 100m, memory: 256Mi }
+  limits: { cpu: "2", memory: 512Mi }
+
+service:
+  type: LoadBalancer
+  httpPort: 80
+  httpsPort: 443
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+podSecurityContext: {}
+containerSecurityContext: {}
+
+# The controller watches the API, so its token is mounted (quench-common defaults it off).
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  automountServiceAccountToken: true
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
