@@ -1,0 +1,59 @@
+# The digest is the contract with the image factory; CI rewrites it after each green image build.
+image: { repository: ghcr.io/quenchworks/images/tinyproxy, digest: "sha256:9e7b8e19f7f3dcfb87be86961fd126ccfcaced2dd7c0da89639cda3a748d849b" }
+
+replicaCount: 1
+
+# tinyproxy.conf, mounted at /etc/tinyproxy/tinyproxy.conf. Port must match service.targetPort (8888). Allow lines are
+# the client ACL; with none at all, every client is allowed. Add Upstream, Filter or ReversePath lines here.
+config: |
+  Port 8888
+  Timeout 600
+  MaxClients 100
+  LogLevel Info
+  ViaProxyName "tinyproxy"
+  Allow 127.0.0.1
+  Allow ::1
+  Allow 10.0.0.0/8
+  Allow 172.16.0.0/12
+  Allow 192.168.0.0/16
+  Allow fc00::/7
+  ConnectPort 443
+  ConnectPort 563
+
+resources:
+  requests: { cpu: 10m, memory: 16Mi }
+  limits: { cpu: 500m, memory: 128Mi }
+
+# Clients set HTTP_PROXY / HTTPS_PROXY to http://<release>-tinyproxy.<namespace>:8888
+service:
+  type: ClusterIP
+  port: 8888
+
+# --- Common production knobs, wired through quench-common (all optional) ---
+podLabels: {}
+podAnnotations: {}
+nodeSelector: {}
+affinity: {}
+tolerations: []
+topologySpreadConstraints: []
+priorityClassName: ""
+schedulerName: ""
+terminationGracePeriodSeconds: 30
+extraEnvVars: []
+extraEnvVarsCM: ""
+extraEnvVarsSecret: ""
+podSecurityContext: {}
+containerSecurityContext: {}
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  allowExternal: true
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
